@@ -26,6 +26,18 @@ pnpm install        # JS workspaces (apps/*, packages/*)
 uv sync             # Python services + dev tooling (ruff, mypy, pytest)
 ```
 
+### Infrastructure (Neo4j + Postgres + Redis)
+
+```bash
+docker compose -f infra/docker-compose.yml up -d   # start the databases
+infra/smoke_test.sh                                # verify all three reachable
+docker compose -f infra/docker-compose.yml down    # stop (volumes persist)
+```
+
+Credentials default to `valuegraph` in local dev (override via `POSTGRES_*` /
+`NEO4J_PASSWORD` / port env vars). App-facing connection URLs are wired in
+`M0-LLM-04` / `M0-DB-06`.
+
 ### Run the stubs
 
 ```bash
