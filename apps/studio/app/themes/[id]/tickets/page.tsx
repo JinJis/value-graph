@@ -7,12 +7,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   generateTickets,
   listTickets,
+  listTicketEvents,
   listTicketSources,
   resolveTicket,
   sourceContentUrl,
   uploadTicketEvidence,
   type Source,
   type Ticket,
+  type TicketEvent,
 } from "../../../../lib/api";
 
 const STATUS_OPTIONS = ["all", "OPEN", "SUBMITTED", "UNRESOLVABLE", "DEFERRED"];
@@ -67,6 +69,7 @@ export default function TicketQueuePage() {
   const [evPublisher, setEvPublisher] = useState("");
   const [evAsOf, setEvAsOf] = useState("");
   const [resReason, setResReason] = useState("not-disclosed");
+  const [events, setEvents] = useState<TicketEvent[]>([]);
 
   async function load() {
     try {
@@ -82,17 +85,27 @@ export default function TicketQueuePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeId]);
 
-  async function loadEvidence(ticketId: string) {
+  async function loadTicketDetail(ticketId: string) {
     try {
-      setEvSources(await listTicketSources(ticketId));
+      const [sources, history] = await Promise.all([
+        listTicketSources(ticketId),
+        listTicketEvents(ticketId),
+      ]);
+      setEvSources(sources);
+      setEvents(history);
     } catch {
       setEvSources([]);
+      setEvents([]);
     }
   }
 
   useEffect(() => {
-    if (selected) void loadEvidence(selected.id);
-    else setEvSources([]);
+    if (selected) {
+      void loadTicketDetail(selected.id);
+    } else {
+      setEvSources([]);
+      setEvents([]);
+    }
   }, [selected]);
 
   async function onUploadEvidence() {
@@ -115,7 +128,7 @@ export default function TicketQueuePage() {
       setEvPublisher("");
       setEvAsOf("");
       await load(); // ticket status -> SUBMITTED
-      await loadEvidence(selected.id);
+      await loadTicketDetail(selected.id);
       setSelected((s) => (s ? { ...s, status: "SUBMITTED" } : s));
       setError(null);
     } catch (e) {
@@ -132,6 +145,7 @@ export default function TicketQueuePage() {
       const updated = await resolveTicket(selected.id, status, resReason);
       setSelected(updated);
       await load();
+      await loadTicketDetail(updated.id);
       setError(null);
     } catch (e) {
       setError(`Resolve failed: ${String(e)}`);
@@ -410,6 +424,17 @@ export default function TicketQueuePage() {
               ))}
             </ul>
           )}
+
+          <h4>History ({events.length})</h4>
+          <ul style={{ fontSize: 13 }}>
+            {events.map((e) => (
+              <li key={e.id}>
+                {e.from_status ?? "—"} → <strong>{e.to_status}</strong>
+                {e.reason_code ? ` (${e.reason_code})` : ""} · {e.actor} ·{" "}
+                {e.created_at}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </main>

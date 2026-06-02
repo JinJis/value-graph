@@ -63,3 +63,19 @@ def test_set_resolution_persists_bound_and_is_queryable() -> None:
     unresolvable = tickets.list_unresolvable(theme.id)
     assert [t.id for t in unresolvable] == [ticket.id]
     assert tickets.list_unresolvable(theme.id, target="A")[0].id == ticket.id
+
+
+def test_event_log_records_and_lists_in_order() -> None:
+    settings = DbSettings.from_env()
+    themes = PostgresThemeRepository(settings)
+    tickets = PostgresTicketRepository(settings)
+    theme = themes.create_theme(ThemeCreate(name="AUDIT DBTEST"))
+    ticket = tickets.create_open_ticket(theme.id, TicketCreate(target="A", metric="revenue"))
+    assert ticket is not None
+
+    tickets.record_event(ticket.id, None, "OPEN", "system")
+    tickets.record_event(ticket.id, "OPEN", "SUBMITTED", "alice", None)
+
+    events = tickets.list_events(ticket.id)
+    assert [e.to_status for e in events] == ["OPEN", "SUBMITTED"]
+    assert events[1].from_status == "OPEN" and events[1].actor == "alice"

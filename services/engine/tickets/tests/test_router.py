@@ -146,3 +146,51 @@ def test_resolve_rejects_invalid_inputs(ctx: Ctx) -> None:
         json={"status": "OPEN", "reason_code": "not-found"},
     )
     assert bad_status.status_code == 422  # OPEN is not a resolution status
+
+
+def test_audit_log_records_lifecycle(ctx: Ctx) -> None:
+    client, themes, blueprints = ctx
+    theme = _seed(themes, blueprints, approved=True)
+    client.post(f"/themes/{theme.id}/tickets/generate")
+    ticket_id = client.get(f"/themes/{theme.id}/tickets").json()[0]["id"]
+
+    created_events = client.get(f"/tickets/{ticket_id}/events").json()
+    assert len(created_events) == 1
+    assert created_events[0]["from_status"] is None
+    assert created_events[0]["to_status"] == "OPEN"
+    assert created_events[0]["actor"] == "system"
+
+    client.post(
+        f"/tickets/{ticket_id}/resolve",
+        json={"status": "UNRESOLVABLE", "reason_code": "not-disclosed", "actor": "alice"},
+    )
+    events = client.get(f"/tickets/{ticket_id}/events").json()
+    assert len(events) == 2
+    last = events[-1]
+    assert last["from_status"] == "OPEN"
+    assert last["to_status"] == "UNRESOLVABLE"
+    assert last["actor"] == "alice"
+    assert last["reason_code"] == "not-disclosed"
+
+
+def test_invalid_transition_rejected(ctx: Ctx) -> None:
+    client, themes, blueprints = ctx
+    theme = _seed(themes, blueprints, approved=True)
+    client.post(f"/themes/{theme.id}/tickets/generate")
+    ticket_id = client.get(f"/themes/{theme.id}/tickets").json()[0]["id"]
+
+    client.post(
+        f"/tickets/{ticket_id}/resolve",
+        json={"status": "UNRESOLVABLE", "reason_code": "not-found"},
+    )
+    # UNRESOLVABLE -> DEFERRED is not allowed by the state machine.
+    rejected = client.post(
+        f"/tickets/{ticket_id}/resolve",
+        json={"status": "DEFERRED", "reason_code": "not-found"},
+    )
+    assert rejected.status_code == 409
+
+
+def test_events_missing_ticket_404(ctx: Ctx) -> None:
+    client, _, _ = ctx
+    assert client.get("/tickets/00000000-0000-0000-0000-000000000000/events").status_code == 404

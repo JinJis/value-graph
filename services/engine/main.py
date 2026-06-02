@@ -7,15 +7,23 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from services.engine.blueprint.router import router as blueprint_router
 from services.engine.sources.router import router as sources_router
 from services.engine.themes.router import router as themes_router
 from services.engine.tickets.router import router as tickets_router
+from services.engine.tickets.state import InvalidTransition
 
 app = FastAPI(title="ValueGraph Engine", version="0.0.0")
+
+
+@app.exception_handler(InvalidTransition)
+async def _invalid_transition_handler(_: Request, exc: InvalidTransition) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
 
 # Studio (Admin) runs on a different origin; allow it to call the API directly.
 # Override with CORS_ORIGINS (comma-separated).

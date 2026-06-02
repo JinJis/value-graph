@@ -214,6 +214,24 @@ export async function listTicketSources(ticketId: string): Promise<Source[]> {
   );
 }
 
+export interface TicketEvent {
+  id: string;
+  ticket_id: string;
+  from_status: string | null;
+  to_status: string;
+  actor: string;
+  reason_code: string | null;
+  created_at: string;
+}
+
+export async function listTicketEvents(
+  ticketId: string,
+): Promise<TicketEvent[]> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/events`), { cache: "no-store" }),
+  );
+}
+
 export async function resolveTicket(
   ticketId: string,
   status: "UNRESOLVABLE" | "DEFERRED",

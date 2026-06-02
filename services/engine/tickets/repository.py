@@ -11,7 +11,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from services.engine.db.config import DbSettings
-from services.engine.tickets.models import Ticket, TicketCreate
+from services.engine.tickets.models import Ticket, TicketCreate, TicketEvent
 
 
 class TicketRepository(Protocol):
@@ -33,11 +33,23 @@ class TicketRepository(Protocol):
 
     def list_unresolvable(self, theme_id: str, target: str | None = None) -> list[Ticket]: ...
 
+    def record_event(
+        self,
+        ticket_id: str,
+        from_status: str | None,
+        to_status: str,
+        actor: str,
+        reason_code: str | None = None,
+    ) -> TicketEvent: ...
+
+    def list_events(self, ticket_id: str) -> list[TicketEvent]: ...
+
 
 class InMemoryTicketRepository:
     def __init__(self) -> None:
         self._tickets: dict[str, Ticket] = {}
         self._keys: set[tuple[str, str, str]] = set()  # (theme_id, target, metric)
+        self._events: list[TicketEvent] = []
 
     def create_open_ticket(self, theme_id: str, data: TicketCreate) -> Ticket | None:
         key = (theme_id, data.target, data.metric)
@@ -108,6 +120,32 @@ class InMemoryTicketRepository:
             items = [t for t in items if t.target == target]
         return sorted(items, key=lambda t: t.created_at)
 
+    def record_event(
+        self,
+        ticket_id: str,
+        from_status: str | None,
+        to_status: str,
+        actor: str,
+        reason_code: str | None = None,
+    ) -> TicketEvent:
+        event = TicketEvent(
+            id=str(uuid4()),
+            ticket_id=ticket_id,
+            from_status=from_status,
+            to_status=to_status,
+            actor=actor,
+            reason_code=reason_code,
+            created_at=datetime.now(UTC),
+        )
+        self._events.append(event)
+        return event
+
+    def list_events(self, ticket_id: str) -> list[TicketEvent]:
+        return sorted(
+            (e for e in self._events if e.ticket_id == ticket_id),
+            key=lambda e: e.created_at,
+        )
+
 
 _COLS = (
     "id, theme_id, target, metric, reason, status, reason_code, "
@@ -127,6 +165,21 @@ def _row_to_ticket(row: dict[str, Any]) -> Ticket:
         current_estimate=row["current_estimate"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+    )
+
+
+_EVENT_COLS = "id, ticket_id, from_status, to_status, actor, reason_code, created_at"
+
+
+def _row_to_event(row: dict[str, Any]) -> TicketEvent:
+    return TicketEvent(
+        id=str(row["id"]),
+        ticket_id=str(row["ticket_id"]),
+        from_status=row["from_status"],
+        to_status=row["to_status"],
+        actor=row["actor"],
+        reason_code=row["reason_code"],
+        created_at=row["created_at"],
     )
 
 
@@ -214,3 +267,29 @@ class PostgresTicketRepository:
                     (theme_id, target),
                 )
             return [_row_to_ticket(row) for row in cur.fetchall()]
+
+    def record_event(
+        self,
+        ticket_id: str,
+        from_status: str | None,
+        to_status: str,
+        actor: str,
+        reason_code: str | None = None,
+    ) -> TicketEvent:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ticket_events (ticket_id, from_status, to_status, actor, reason_code) "
+                f"VALUES (%s, %s, %s, %s, %s) RETURNING {_EVENT_COLS}",
+                (ticket_id, from_status, to_status, actor, reason_code),
+            )
+            row = cur.fetchone()
+            assert row is not None
+            return _row_to_event(row)
+
+    def list_events(self, ticket_id: str) -> list[TicketEvent]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {_EVENT_COLS} FROM ticket_events WHERE ticket_id = %s ORDER BY created_at",
+                (ticket_id,),
+            )
+            return [_row_to_event(row) for row in cur.fetchall()]

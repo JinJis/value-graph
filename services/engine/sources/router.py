@@ -16,6 +16,7 @@ from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.themes.router import get_storage
 from services.engine.tickets.repository import TicketRepository
 from services.engine.tickets.router import get_ticket_repository
+from services.engine.tickets.state import validate_transition
 
 router = APIRouter(tags=["sources"])
 
@@ -36,12 +37,14 @@ async def upload_ticket_evidence(
     publisher: Annotated[str | None, Form()] = None,
     as_of_date: Annotated[date | None, Form()] = None,
     language: Annotated[str | None, Form()] = None,
+    actor: Annotated[str, Form()] = "admin",
 ) -> SourceOut:
     ticket = tickets.get_ticket(ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="ticket not found")
     if file is None and not url:
         raise HTTPException(status_code=400, detail="provide a file or a url")
+    validate_transition(ticket.status, "SUBMITTED")  # -> 409 on an invalid transition
 
     storage_key: str | None = None
     filename: str | None = None
@@ -68,6 +71,7 @@ async def upload_ticket_evidence(
         ticket_id=ticket_id,
     )
     tickets.set_status(ticket_id, "SUBMITTED")
+    tickets.record_event(ticket_id, ticket.status, "SUBMITTED", actor, None)
     return to_out(record)
 
 

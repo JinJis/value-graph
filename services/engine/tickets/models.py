@@ -42,3 +42,16 @@ class ResolveRequest(BaseModel):
 
     status: Literal["UNRESOLVABLE", "DEFERRED"]
     reason_code: ReasonCode
+    actor: str = "admin"  # no auth yet; captured for the audit log
+
+
+class TicketEvent(BaseModel):
+    """One audit-log entry: a status transition (who/what/when)."""
+
+    id: str
+    ticket_id: str
+    from_status: str | None
+    to_status: str
+    actor: str
+    reason_code: str | None
+    created_at: datetime

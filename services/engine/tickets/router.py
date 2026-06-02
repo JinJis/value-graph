@@ -12,9 +12,14 @@ from services.engine.db.config import DbSettings
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.tickets.generate import generate_tickets
-from services.engine.tickets.models import GenerateResult, ResolveRequest, Ticket
+from services.engine.tickets.models import (
+    GenerateResult,
+    ResolveRequest,
+    Ticket,
+    TicketEvent,
+)
 from services.engine.tickets.repository import PostgresTicketRepository, TicketRepository
-from services.engine.tickets.state import derived_estimate
+from services.engine.tickets.state import derived_estimate, validate_transition
 
 router = APIRouter(tags=["tickets"])
 
@@ -64,12 +69,22 @@ def list_theme_tickets(
 def resolve_ticket(ticket_id: str, req: ResolveRequest, tickets: TicketRepoDep) -> Ticket:
     """Mark a ticket UNRESOLVABLE/DEFERRED with a reason. A "not-disclosed" mark records
     the CVE 10% upper bound; the resolution persists across future ticket generation."""
-    if tickets.get_ticket(ticket_id) is None:
+    ticket = tickets.get_ticket(ticket_id)
+    if ticket is None:
         raise HTTPException(status_code=404, detail="ticket not found")
+    validate_transition(ticket.status, req.status)  # -> 409 on an invalid transition
     estimate = derived_estimate(req.reason_code)
     updated = tickets.set_resolution(
         ticket_id, req.status, req.reason_code.value, current_estimate=estimate
     )
     if updated is None:
         raise HTTPException(status_code=404, detail="ticket not found")
+    tickets.record_event(ticket_id, ticket.status, req.status, req.actor, req.reason_code.value)
     return updated
+
+
+@router.get("/tickets/{ticket_id}/events", response_model=list[TicketEvent])
+def list_ticket_events(ticket_id: str, tickets: TicketRepoDep) -> list[TicketEvent]:
+    if tickets.get_ticket(ticket_id) is None:
+        raise HTTPException(status_code=404, detail="ticket not found")
+    return tickets.list_events(ticket_id)

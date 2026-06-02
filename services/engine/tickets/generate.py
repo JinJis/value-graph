@@ -31,4 +31,5 @@ def generate_tickets(
                 skipped += 1
             else:
                 created += 1
+                repo.record_event(ticket.id, None, "OPEN", "system")
     return GenerateResult(created=created, skipped=skipped)
