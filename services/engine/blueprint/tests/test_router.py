@@ -76,3 +76,48 @@ def test_refine_without_blueprint_409(ctx: tuple[TestClient, InMemoryThemeReposi
     client, themes = ctx
     theme = themes.create_theme(ThemeCreate(name="X"))
     assert client.post(f"/themes/{theme.id}/blueprint/refine").status_code == 409
+
+
+_EDIT = {
+    "companies": [{"ticker": "A", "name": "Alpha", "country": "US", "role": "supplier"}],
+    "relationship_types": ["SUPPLIES"],
+    "notes": "hand-edited",
+}
+
+
+def test_put_blueprint_saves_new_version(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
+    client, themes = ctx
+    theme = themes.create_theme(ThemeCreate(name="T"))
+
+    first = client.put(f"/themes/{theme.id}/blueprint", json=_EDIT)
+    assert first.status_code == 200, first.text
+    assert first.json()["blueprint"]["version"] == 1
+    assert first.json()["blueprint"]["generated_by"] == "admin (manual edit)"
+
+    second = client.put(f"/themes/{theme.id}/blueprint", json=_EDIT)
+    assert second.json()["blueprint"]["version"] == 2  # each edit is a new version
+
+
+def test_put_blueprint_missing_theme_404(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
+    client, _ = ctx
+    resp = client.put("/themes/00000000-0000-0000-0000-000000000000/blueprint", json=_EDIT)
+    assert resp.status_code == 404
+
+
+def test_approve_sets_status(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
+    client, themes = ctx
+    theme = themes.create_theme(ThemeCreate(name="T"))
+
+    # Nothing to approve until a blueprint exists.
+    assert client.post(f"/themes/{theme.id}/blueprint/approve").status_code == 409
+
+    client.put(f"/themes/{theme.id}/blueprint", json=_EDIT)
+    approved = client.post(f"/themes/{theme.id}/blueprint/approve")
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+
+
+def test_approve_missing_theme_404(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
+    client, _ = ctx
+    resp = client.post("/themes/00000000-0000-0000-0000-000000000000/blueprint/approve")
+    assert resp.status_code == 404

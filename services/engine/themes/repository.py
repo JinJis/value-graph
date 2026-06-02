@@ -26,6 +26,8 @@ class ThemeRepository(Protocol):
 
     def get_theme(self, theme_id: str) -> Theme | None: ...
 
+    def set_status(self, theme_id: str, status: str) -> Theme | None: ...
+
     def add_source(self, theme_id: str, data: SourceCreate) -> SourceRecord: ...
 
     def list_sources(self, theme_id: str) -> list[SourceRecord]: ...
@@ -61,6 +63,14 @@ class InMemoryThemeRepository:
 
     def get_theme(self, theme_id: str) -> Theme | None:
         return self._themes.get(theme_id)
+
+    def set_status(self, theme_id: str, status: str) -> Theme | None:
+        theme = self._themes.get(theme_id)
+        if theme is None:
+            return None
+        updated = theme.model_copy(update={"status": status, "updated_at": datetime.now(UTC)})
+        self._themes[theme_id] = updated
+        return updated
 
     def add_source(self, theme_id: str, data: SourceCreate) -> SourceRecord:
         record = SourceRecord(
@@ -148,6 +158,16 @@ class PostgresThemeRepository:
     def get_theme(self, theme_id: str) -> Theme | None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT {_THEME_COLS} FROM themes_meta WHERE id = %s", (theme_id,))
+            row = cur.fetchone()
+            return _row_to_theme(row) if row is not None else None
+
+    def set_status(self, theme_id: str, status: str) -> Theme | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE themes_meta SET status = %s, updated_at = now() "
+                f"WHERE id = %s RETURNING {_THEME_COLS}",
+                (status, theme_id),
+            )
             row = cur.fetchone()
             return _row_to_theme(row) if row is not None else None
 

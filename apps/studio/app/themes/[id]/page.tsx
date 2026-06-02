@@ -80,6 +80,10 @@ export default function ThemeDetailPage() {
         </p>
       )}
 
+      <p>
+        <Link href={`/themes/${themeId}/blueprint`}>→ Review blueprint</Link>
+      </p>
+
       <h2>Additional context</h2>
       <form
         onSubmit={onUpload}

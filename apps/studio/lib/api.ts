@@ -86,3 +86,83 @@ export async function uploadSource(
 
 export const sourceContentUrl = (source: Source): string =>
   url(source.content_url);
+
+// --- Blueprint ---
+
+export interface BlueprintCompany {
+  ticker: string;
+  name: string;
+  country: string;
+  exchange: string | null;
+  role: string;
+  products: string[];
+  required_data_points: string[];
+  source_url: string | null;
+}
+
+export interface BlueprintRecord {
+  id: string;
+  theme_id: string;
+  version: number;
+  generated_by: string | null;
+  companies: BlueprintCompany[];
+  relationship_types: string[];
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Coverage {
+  company_count: number;
+  focus_countries: string[];
+  meets_threshold: boolean;
+}
+
+export interface BlueprintResponse {
+  blueprint: BlueprintRecord;
+  coverage: Coverage;
+}
+
+export interface BlueprintContentInput {
+  companies: BlueprintCompany[];
+  relationship_types: string[];
+  notes: string | null;
+}
+
+export async function getBlueprint(
+  themeId: string,
+): Promise<BlueprintResponse | null> {
+  const response = await fetch(url(`/themes/${themeId}/blueprint`), {
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  return json(response);
+}
+
+export async function saveBlueprint(
+  themeId: string,
+  content: BlueprintContentInput,
+): Promise<BlueprintResponse> {
+  return json(
+    await fetch(url(`/themes/${themeId}/blueprint`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(content),
+    }),
+  );
+}
+
+export async function generateBlueprint(
+  themeId: string,
+): Promise<BlueprintResponse> {
+  return json(
+    await fetch(url(`/themes/${themeId}/blueprint`), { method: "POST" }),
+  );
+}
+
+export async function approveBlueprint(themeId: string): Promise<Theme> {
+  return json(
+    await fetch(url(`/themes/${themeId}/blueprint/approve`), {
+      method: "POST",
+    }),
+  );
+}

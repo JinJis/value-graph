@@ -36,3 +36,13 @@ def test_theme_and_source_roundtrip() -> None:
     got = repo.get_source(record.id)
     assert got is not None and got.id == record.id
     assert [s.id for s in repo.list_sources(theme.id)] == [record.id]
+
+
+def test_set_status_persists() -> None:
+    repo = PostgresThemeRepository(DbSettings.from_env())
+    theme = repo.create_theme(ThemeCreate(name="STATUS DBTEST"))
+    assert theme.status == "draft"
+    updated = repo.set_status(theme.id, "approved")
+    assert updated is not None and updated.status == "approved"
+    reloaded = repo.get_theme(theme.id)
+    assert reloaded is not None and reloaded.status == "approved"

@@ -11,6 +11,8 @@ from services.engine.blueprint.coverage import summarize
 from services.engine.blueprint.discover import discover_companies
 from services.engine.blueprint.generate import generate_blueprint
 from services.engine.blueprint.models import (
+    Blueprint,
+    BlueprintContent,
     BlueprintResponse,
     DiscoveryResult,
     RefinementResult,
@@ -22,6 +24,7 @@ from services.engine.blueprint.repository import (
 )
 from services.engine.db.config import DbSettings
 from services.engine.llm.router import LLMRouter
+from services.engine.themes.models import Theme
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 
@@ -91,6 +94,47 @@ def discover_theme_constituents(
     if base is None:
         raise HTTPException(status_code=409, detail="no blueprint to extend; generate one first")
     return discover_companies(theme, base, llm, blueprints, themes)
+
+
+@router.put("/themes/{theme_id}/blueprint", response_model=BlueprintResponse)
+def save_theme_blueprint(
+    theme_id: str,
+    content: BlueprintContent,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+) -> BlueprintResponse:
+    """Persist an admin-edited blueprint as a new version (PRD §8.2 review)."""
+    if themes.get_theme(theme_id) is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    version = blueprints.next_version(theme_id)
+    record = blueprints.save(
+        Blueprint(
+            theme_id=theme_id,
+            version=version,
+            generated_by="admin (manual edit)",
+            companies=content.companies,
+            relationship_types=content.relationship_types,
+            notes=content.notes,
+        )
+    )
+    return BlueprintResponse(blueprint=record, coverage=summarize(record))
+
+
+@router.post("/themes/{theme_id}/blueprint/approve", response_model=Theme)
+def approve_theme_blueprint(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+) -> Theme:
+    """Approve the blueprint -> advance the theme to ticketing (M2)."""
+    if themes.get_theme(theme_id) is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    if blueprints.get_latest(theme_id) is None:
+        raise HTTPException(status_code=409, detail="no blueprint to approve; generate one first")
+    updated = themes.set_status(theme_id, "approved")
+    if updated is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    return updated
 
 
 @router.get("/themes/{theme_id}/blueprint", response_model=BlueprintResponse)
