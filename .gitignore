@@ -20,6 +20,9 @@ __pycache__/
 .env.*
 !.env.example
 
+# Local object storage (uploaded artifacts)
+.data/
+
 # OS / editor
 .DS_Store
 *.log
