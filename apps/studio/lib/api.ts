@@ -214,6 +214,20 @@ export async function listTicketSources(ticketId: string): Promise<Source[]> {
   );
 }
 
+export async function resolveTicket(
+  ticketId: string,
+  status: "UNRESOLVABLE" | "DEFERRED",
+  reasonCode: string,
+): Promise<Ticket> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/resolve`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, reason_code: reasonCode }),
+    }),
+  );
+}
+
 export async function uploadTicketEvidence(
   ticketId: string,
   opts: {

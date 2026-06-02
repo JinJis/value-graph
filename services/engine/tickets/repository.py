@@ -23,6 +23,16 @@ class TicketRepository(Protocol):
 
     def set_status(self, ticket_id: str, status: str) -> Ticket | None: ...
 
+    def set_resolution(
+        self,
+        ticket_id: str,
+        status: str,
+        reason_code: str,
+        current_estimate: dict[str, Any] | None = None,
+    ) -> Ticket | None: ...
+
+    def list_unresolvable(self, theme_id: str, target: str | None = None) -> list[Ticket]: ...
+
 
 class InMemoryTicketRepository:
     def __init__(self) -> None:
@@ -66,6 +76,37 @@ class InMemoryTicketRepository:
         updated = ticket.model_copy(update={"status": status, "updated_at": datetime.now(UTC)})
         self._tickets[ticket_id] = updated
         return updated
+
+    def set_resolution(
+        self,
+        ticket_id: str,
+        status: str,
+        reason_code: str,
+        current_estimate: dict[str, Any] | None = None,
+    ) -> Ticket | None:
+        ticket = self._tickets.get(ticket_id)
+        if ticket is None:
+            return None
+        updated = ticket.model_copy(
+            update={
+                "status": status,
+                "reason_code": reason_code,
+                "current_estimate": current_estimate,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self._tickets[ticket_id] = updated
+        return updated
+
+    def list_unresolvable(self, theme_id: str, target: str | None = None) -> list[Ticket]:
+        items = [
+            t
+            for t in self._tickets.values()
+            if t.theme_id == theme_id and t.status == "UNRESOLVABLE"
+        ]
+        if target is not None:
+            items = [t for t in items if t.target == target]
+        return sorted(items, key=lambda t: t.created_at)
 
 
 _COLS = (
@@ -139,3 +180,37 @@ class PostgresTicketRepository:
             )
             row = cur.fetchone()
             return _row_to_ticket(row) if row is not None else None
+
+    def set_resolution(
+        self,
+        ticket_id: str,
+        status: str,
+        reason_code: str,
+        current_estimate: dict[str, Any] | None = None,
+    ) -> Ticket | None:
+        estimate = Jsonb(current_estimate) if current_estimate is not None else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tickets SET status = %s, reason_code = %s, current_estimate = %s, "
+                f"updated_at = now() WHERE id = %s RETURNING {_COLS}",
+                (status, reason_code, estimate, ticket_id),
+            )
+            row = cur.fetchone()
+            return _row_to_ticket(row) if row is not None else None
+
+    def list_unresolvable(self, theme_id: str, target: str | None = None) -> list[Ticket]:
+        with self._connect() as conn, conn.cursor() as cur:
+            if target is None:
+                cur.execute(
+                    f"SELECT {_COLS} FROM tickets "
+                    "WHERE theme_id = %s AND status = 'UNRESOLVABLE' ORDER BY created_at",
+                    (theme_id,),
+                )
+            else:
+                cur.execute(
+                    f"SELECT {_COLS} FROM tickets "
+                    "WHERE theme_id = %s AND status = 'UNRESOLVABLE' AND target = %s "
+                    "ORDER BY created_at",
+                    (theme_id, target),
+                )
+            return [_row_to_ticket(row) for row in cur.fetchall()]

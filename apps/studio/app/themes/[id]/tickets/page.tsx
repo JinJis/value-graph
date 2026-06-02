@@ -8,6 +8,7 @@ import {
   generateTickets,
   listTickets,
   listTicketSources,
+  resolveTicket,
   sourceContentUrl,
   uploadTicketEvidence,
   type Source,
@@ -16,6 +17,7 @@ import {
 
 const STATUS_OPTIONS = ["all", "OPEN", "SUBMITTED", "UNRESOLVABLE", "DEFERRED"];
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
+const REASON_CODES = ["not-found", "not-disclosed", "paywalled", "ambiguous"];
 const SORT_OPTIONS = [
   "priority",
   "target",
@@ -64,6 +66,7 @@ export default function TicketQueuePage() {
   const [evType, setEvType] = useState("filing");
   const [evPublisher, setEvPublisher] = useState("");
   const [evAsOf, setEvAsOf] = useState("");
+  const [resReason, setResReason] = useState("not-disclosed");
 
   async function load() {
     try {
@@ -117,6 +120,21 @@ export default function TicketQueuePage() {
       setError(null);
     } catch (e) {
       setError(`Upload failed: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onResolve(status: "UNRESOLVABLE" | "DEFERRED") {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const updated = await resolveTicket(selected.id, status, resReason);
+      setSelected(updated);
+      await load();
+      setError(null);
+    } catch (e) {
+      setError(`Resolve failed: ${String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -289,6 +307,43 @@ export default function TicketQueuePage() {
               {JSON.stringify(selected.current_estimate, null, 2)}
             </pre>
           )}
+
+          <h3>Cannot resolve?</h3>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            reason:
+            <select
+              value={resReason}
+              onChange={(e) => setResReason(e.target.value)}
+            >
+              {REASON_CODES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onResolve("UNRESOLVABLE")}
+              disabled={busy}
+            >
+              Mark unresolvable
+            </button>
+            <button
+              type="button"
+              onClick={() => onResolve("DEFERRED")}
+              disabled={busy}
+            >
+              Defer
+            </button>
+            <small>not-disclosed records the ≤10% upper bound for CVE.</small>
+          </div>
 
           <h3>Upload evidence → Source</h3>
           <div style={{ display: "grid", gap: 6, maxWidth: 520 }}>

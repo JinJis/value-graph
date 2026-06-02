@@ -94,3 +94,55 @@ def test_generate_missing_theme_404(ctx: Ctx) -> None:
     client, _, _ = ctx
     resp = client.post("/themes/00000000-0000-0000-0000-000000000000/tickets/generate")
     assert resp.status_code == 404
+
+
+def test_resolve_records_bound_and_carries_forward(ctx: Ctx) -> None:
+    client, themes, blueprints = ctx
+    theme = _seed(themes, blueprints, approved=True)
+    client.post(f"/themes/{theme.id}/tickets/generate")  # 2 OPEN tickets
+    ticket_id = client.get(f"/themes/{theme.id}/tickets").json()[0]["id"]
+
+    resolved = client.post(
+        f"/tickets/{ticket_id}/resolve",
+        json={"status": "UNRESOLVABLE", "reason_code": "not-disclosed"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    body = resolved.json()
+    assert body["status"] == "UNRESOLVABLE"
+    assert body["reason_code"] == "not-disclosed"
+    assert body["current_estimate"]["upper_bound_pct"] == 10.0  # 10% rule recorded
+
+    # Re-generating must NOT reset the resolved ticket back to OPEN.
+    client.post(f"/themes/{theme.id}/tickets/generate")
+    after = {t["id"]: t for t in client.get(f"/themes/{theme.id}/tickets").json()}
+    assert after[ticket_id]["status"] == "UNRESOLVABLE"  # carries into future builds
+
+    # CVE can query unresolvable tickets.
+    unresolvable = client.get(f"/themes/{theme.id}/tickets?status=UNRESOLVABLE").json()
+    assert len(unresolvable) == 1
+
+
+def test_resolve_missing_ticket_404(ctx: Ctx) -> None:
+    client, _, _ = ctx
+    resp = client.post(
+        "/tickets/00000000-0000-0000-0000-000000000000/resolve",
+        json={"status": "UNRESOLVABLE", "reason_code": "not-found"},
+    )
+    assert resp.status_code == 404
+
+
+def test_resolve_rejects_invalid_inputs(ctx: Ctx) -> None:
+    client, themes, blueprints = ctx
+    theme = _seed(themes, blueprints, approved=True)
+    client.post(f"/themes/{theme.id}/tickets/generate")
+    ticket_id = client.get(f"/themes/{theme.id}/tickets").json()[0]["id"]
+    bad_reason = client.post(
+        f"/tickets/{ticket_id}/resolve",
+        json={"status": "UNRESOLVABLE", "reason_code": "bogus"},
+    )
+    assert bad_reason.status_code == 422  # unknown reason code
+    bad_status = client.post(
+        f"/tickets/{ticket_id}/resolve",
+        json={"status": "OPEN", "reason_code": "not-found"},
+    )
+    assert bad_status.status_code == 422  # OPEN is not a resolution status

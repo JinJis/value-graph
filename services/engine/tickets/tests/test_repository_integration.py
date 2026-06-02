@@ -42,3 +42,24 @@ def test_ticket_dedup_and_persist() -> None:
     assert len(tickets.list_tickets(theme.id, "OPEN")) == 2
     got = tickets.get_ticket(first.id)
     assert got is not None and got.id == first.id
+
+
+def test_set_resolution_persists_bound_and_is_queryable() -> None:
+    settings = DbSettings.from_env()
+    themes = PostgresThemeRepository(settings)
+    tickets = PostgresTicketRepository(settings)
+    theme = themes.create_theme(ThemeCreate(name="RESOLVE DBTEST"))
+    ticket = tickets.create_open_ticket(theme.id, TicketCreate(target="A", metric="revenue"))
+    assert ticket is not None
+
+    updated = tickets.set_resolution(
+        ticket.id, "UNRESOLVABLE", "not-disclosed", current_estimate={"upper_bound_pct": 10.0}
+    )
+    assert updated is not None
+    assert updated.status == "UNRESOLVABLE" and updated.reason_code == "not-disclosed"
+    assert updated.current_estimate is not None
+    assert updated.current_estimate["upper_bound_pct"] == 10.0
+
+    unresolvable = tickets.list_unresolvable(theme.id)
+    assert [t.id for t in unresolvable] == [ticket.id]
+    assert tickets.list_unresolvable(theme.id, target="A")[0].id == ticket.id

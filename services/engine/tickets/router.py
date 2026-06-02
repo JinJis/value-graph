@@ -12,8 +12,9 @@ from services.engine.db.config import DbSettings
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.tickets.generate import generate_tickets
-from services.engine.tickets.models import GenerateResult, Ticket
+from services.engine.tickets.models import GenerateResult, ResolveRequest, Ticket
 from services.engine.tickets.repository import PostgresTicketRepository, TicketRepository
+from services.engine.tickets.state import derived_estimate
 
 router = APIRouter(tags=["tickets"])
 
@@ -57,3 +58,18 @@ def list_theme_tickets(
     if themes.get_theme(theme_id) is None:
         raise HTTPException(status_code=404, detail="theme not found")
     return tickets.list_tickets(theme_id, status)
+
+
+@router.post("/tickets/{ticket_id}/resolve", response_model=Ticket)
+def resolve_ticket(ticket_id: str, req: ResolveRequest, tickets: TicketRepoDep) -> Ticket:
+    """Mark a ticket UNRESOLVABLE/DEFERRED with a reason. A "not-disclosed" mark records
+    the CVE 10% upper bound; the resolution persists across future ticket generation."""
+    if tickets.get_ticket(ticket_id) is None:
+        raise HTTPException(status_code=404, detail="ticket not found")
+    estimate = derived_estimate(req.reason_code)
+    updated = tickets.set_resolution(
+        ticket_id, req.status, req.reason_code.value, current_estimate=estimate
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="ticket not found")
+    return updated

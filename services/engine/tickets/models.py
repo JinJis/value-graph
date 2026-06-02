@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+from services.engine.tickets.state import ReasonCode
 
 
 class TicketCreate(BaseModel):
@@ -33,3 +35,10 @@ class Ticket(BaseModel):
 class GenerateResult(BaseModel):
     created: int
     skipped: int
+
+
+class ResolveRequest(BaseModel):
+    """Mark a ticket UNRESOLVABLE/DEFERRED with a reason code."""
+
+    status: Literal["UNRESOLVABLE", "DEFERRED"]
+    reason_code: ReasonCode
