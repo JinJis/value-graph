@@ -1,0 +1,12 @@
+{
+  "name": "@valuegraph/terminal",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ValueGraph Terminal (User 3D canvas) — stub; Next.js + R3F app lands in [M0-API-05].",
+  "type": "module",
+  "scripts": {
+    "dev": "node stub.mjs",
+    "start": "node stub.mjs",
+    "lint": "node --check stub.mjs"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "valuegraph",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ValueGraph monorepo — supply-chain intelligence, visualized.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --if-present run dev",
+    "lint": "prettier --check \"apps/**/*.mjs\" \"packages/**/src/**/*.ts\" \"packages/**/*.json\" \"*.json\"",
+    "format": "prettier --write \"apps/**/*.mjs\" \"packages/**/src/**/*.ts\" \"packages/**/*.json\" \"*.json\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm -r --if-present run test"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  }
+}

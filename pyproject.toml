@@ -1,0 +1,35 @@
+[project]
+name = "valuegraph"
+version = "0.0.0"
+description = "ValueGraph — monorepo Python services (engine, pipeline)."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+# The repo root is a virtual workspace, not an installable package; `uv sync`
+# provisions only dependencies and the dev toolchain. Service deps are added in
+# later M0 tasks.
+package = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+    "pytest>=8.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["services"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["services"]
+
+[tool.pytest.ini_options]
+testpaths = ["services"]
