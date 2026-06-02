@@ -26,25 +26,33 @@ pnpm install        # JS workspaces (apps/*, packages/*)
 uv sync             # Python services + dev tooling (ruff, mypy, pytest)
 ```
 
-### Infrastructure (Neo4j + Postgres + Redis)
+### Run with Docker (full stack)
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d   # start the databases
-infra/smoke_test.sh                                # verify all three reachable
-docker compose -f infra/docker-compose.yml down    # stop (volumes persist)
+docker compose -f infra/docker-compose.yml up -d --build   # dbs + engine + studio + terminal
+#  engine   -> http://localhost:8000/health
+#  studio   -> http://localhost:3001/health
+#  terminal -> http://localhost:3000/health
+docker compose -f infra/docker-compose.yml down            # stop (volumes persist)
+```
+
+Databases only (run the services yourself with the commands below):
+
+```bash
+docker compose -f infra/docker-compose.yml up -d postgres neo4j redis
+infra/smoke_test.sh                                        # verify all three reachable
+uv run python -m services.engine.db.migrate                # apply Postgres + Neo4j migrations
 ```
 
 Credentials default to `valuegraph` in local dev (override via `POSTGRES_*` /
-`NEO4J_PASSWORD` / port env vars). App-facing connection URLs are wired in
-`M0-LLM-04` / `M0-DB-06`.
+`NEO4J_PASSWORD` / port env vars). Set `GOOGLE_API_KEY` for the engine's Gemini calls.
 
-### Run the stubs
+### Run the services directly (without Docker)
 
 ```bash
-pnpm --filter @valuegraph/studio dev      # Studio stub
-pnpm --filter @valuegraph/terminal dev    # Terminal stub
-uv run python -m services.engine          # Engine stub
-uv run python -m services.pipeline        # Pipeline stub
+uv run uvicorn services.engine.main:app --reload   # Engine    -> :8000/health
+pnpm --filter @valuegraph/studio dev               # Studio    -> :3001
+pnpm --filter @valuegraph/terminal dev             # Terminal  -> :3000
 ```
 
 ### Checks
