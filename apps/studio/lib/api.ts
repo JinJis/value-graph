@@ -166,3 +166,43 @@ export async function approveBlueprint(themeId: string): Promise<Theme> {
     }),
   );
 }
+
+// --- Tickets ---
+
+export interface Ticket {
+  id: string;
+  theme_id: string;
+  target: string;
+  metric: string;
+  reason: string | null;
+  status: string;
+  reason_code: string | null;
+  current_estimate: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerateResult {
+  created: number;
+  skipped: number;
+}
+
+export async function listTickets(
+  themeId: string,
+  status?: string,
+): Promise<Ticket[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return json(
+    await fetch(url(`/themes/${themeId}/tickets${query}`), {
+      cache: "no-store",
+    }),
+  );
+}
+
+export async function generateTickets(
+  themeId: string,
+): Promise<GenerateResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/tickets/generate`), { method: "POST" }),
+  );
+}

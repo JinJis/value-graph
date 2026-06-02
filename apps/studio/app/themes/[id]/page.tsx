@@ -82,6 +82,8 @@ export default function ThemeDetailPage() {
 
       <p>
         <Link href={`/themes/${themeId}/blueprint`}>→ Review blueprint</Link>
+        {" · "}
+        <Link href={`/themes/${themeId}/tickets`}>→ Ticket queue</Link>
       </p>
 
       <h2>Additional context</h2>
