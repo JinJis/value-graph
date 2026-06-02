@@ -9,9 +9,9 @@
   },
   "scripts": {
     "dev": "pnpm -r --parallel --if-present run dev",
-    "lint": "prettier --check \"apps/**/*.mjs\" \"packages/**/src/**/*.ts\" \"packages/**/*.json\" \"*.json\"",
-    "format": "prettier --write \"apps/**/*.mjs\" \"packages/**/src/**/*.ts\" \"packages/**/*.json\" \"*.json\"",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "prettier --check \"apps/**/*.{mjs,ts,tsx}\" \"packages/**/*.{mjs,ts,tsx,json}\" \"*.json\"",
+    "format": "prettier --write \"apps/**/*.{mjs,ts,tsx}\" \"packages/**/*.{mjs,ts,tsx,json}\" \"*.json\"",
+    "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test"
   },
   "devDependencies": {

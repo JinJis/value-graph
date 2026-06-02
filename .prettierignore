@@ -5,6 +5,9 @@ build/
 .venv/
 pnpm-lock.yaml
 
+# Generated from the canonical JSON Schema (pnpm --filter @valuegraph/graph-schema run generate)
+packages/graph-schema/src/types.gen.ts
+
 # Long-form docs are authored by hand, not Prettier-formatted.
 CLAUDE.md
 ValueGraph_PRD_v5.md

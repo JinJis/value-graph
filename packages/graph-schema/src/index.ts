@@ -1,11 +1,11 @@
 /**
  * @valuegraph/graph-schema — single source of truth for the knowledge-graph
- * type definitions (Theme / Company / Division / Product / Source / Claim nodes
- * and HAS_DIVISION / PRODUCES / SUPPLIES / SUPPORTS / SOURCED_FROM edges).
+ * type definitions (PRD §5).
  *
- * This is a [M0-REPO-01] scaffold placeholder. The real type defs — consumed by
- * both the TS apps and the Python services — are introduced in [M0-SCHEMA-03].
+ * Canonical definition: `schema/valuegraph.schema.json` (JSON Schema 2020-12).
+ * The TS types below are generated from it (`pnpm --filter @valuegraph/graph-schema
+ * run generate`) so they never drift. Runtime validators live in the Node-only
+ * subpath `@valuegraph/graph-schema/validate`; the main entry is types only and is
+ * safe to import from browser bundles via `import type`.
  */
-
-/** Schema package version; bumped when the canonical type defs change. */
-export const SCHEMA_PACKAGE_VERSION = "0.0.0" as const;
+export type * from "./types.gen.js";
