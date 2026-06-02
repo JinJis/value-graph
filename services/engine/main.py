@@ -10,6 +10,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from services.engine.blueprint.router import router as blueprint_router
 from services.engine.themes.router import router as themes_router
 
 app = FastAPI(title="ValueGraph Engine", version="0.0.0")
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(themes_router)
+app.include_router(blueprint_router)
 
 
 @app.get("/health")
