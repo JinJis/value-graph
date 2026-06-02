@@ -1,0 +1,16 @@
+# Keep build contexts small and reproducible.
+**/node_modules
+**/.next
+**/.venv
+.venv
+.git
+.github
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/__pycache__
+**/*.pyc
+**/next-env.d.ts
+**/*.tsbuildinfo
+.env
+*.log

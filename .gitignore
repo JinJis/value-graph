@@ -1,0 +1,25 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Env & secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.log
