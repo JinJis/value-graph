@@ -1,20 +1,23 @@
-"""Stub entrypoint for the ValueGraph Engine service.
+"""Run the ValueGraph Engine: ``python -m services.engine``.
 
-The real FastAPI app arrives in [M0-API-05]. For now this boots to a stub so the
-monorepo scaffolding ([M0-REPO-01]) is verifiably runnable: `python -m services.engine`.
+Equivalent to ``uvicorn services.engine.main:app``. Host/port/reload come from env
+(ENGINE_HOST / ENGINE_PORT / ENGINE_RELOAD).
 """
 
 from __future__ import annotations
 
+import os
 
-def banner() -> str:
-    """Return the engine stub-boot banner."""
-    return "ValueGraph Engine — stub boot OK ([M0-REPO-01]); FastAPI app lands in [M0-API-05]."
+import uvicorn
 
 
 def main() -> None:
-    """Print the stub-boot banner and exit cleanly."""
-    print(banner())
+    uvicorn.run(
+        "services.engine.main:app",
+        host=os.environ.get("ENGINE_HOST", "127.0.0.1"),
+        port=int(os.environ.get("ENGINE_PORT", "8000")),
+        reload=bool(os.environ.get("ENGINE_RELOAD")),
+    )
 
 
 if __name__ == "__main__":
