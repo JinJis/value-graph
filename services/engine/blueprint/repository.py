@@ -10,14 +10,16 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from services.engine.blueprint.models import Blueprint, BlueprintRecord
+from services.engine.blueprint.models import Blueprint, BlueprintRecord, RoundMeta
 from services.engine.db.config import DbSettings
 
 
 class BlueprintRepository(Protocol):
     def next_version(self, theme_id: str) -> int: ...
 
-    def save(self, blueprint: Blueprint) -> BlueprintRecord: ...
+    def save(
+        self, blueprint: Blueprint, round_meta: RoundMeta | None = None
+    ) -> BlueprintRecord: ...
 
     def get_latest(self, theme_id: str) -> BlueprintRecord | None: ...
 
@@ -30,10 +32,13 @@ class InMemoryBlueprintRepository:
         versions = [b.version for b in self._items if b.theme_id == theme_id]
         return max(versions, default=0) + 1
 
-    def save(self, blueprint: Blueprint) -> BlueprintRecord:
+    def save(
+        self, blueprint: Blueprint, round_meta: RoundMeta | None = None
+    ) -> BlueprintRecord:
         record = BlueprintRecord(
             id=str(uuid4()),
             created_at=datetime.now(UTC),
+            round_meta=round_meta,
             **blueprint.model_dump(),
         )
         self._items.append(record)
@@ -54,19 +59,21 @@ def _content_json(blueprint: Blueprint) -> dict[str, Any]:
 
 def _row_to_record(row: dict[str, Any]) -> BlueprintRecord:
     content = row["content"]
+    raw_meta = row["round_meta"]
     return BlueprintRecord(
         id=str(row["id"]),
         theme_id=str(row["theme_id"]),
         version=row["version"],
         generated_by=row["generated_by"],
         created_at=row["created_at"],
+        round_meta=RoundMeta(**raw_meta) if raw_meta else None,
         companies=content["companies"],
         relationship_types=content.get("relationship_types", []),
         notes=content.get("notes"),
     )
 
 
-_COLS = "id, theme_id, version, content, generated_by, created_at"
+_COLS = "id, theme_id, version, content, generated_by, round_meta, created_at"
 
 
 class PostgresBlueprintRepository:
@@ -86,16 +93,20 @@ class PostgresBlueprintRepository:
             assert row is not None
             return int(row["v"])
 
-    def save(self, blueprint: Blueprint) -> BlueprintRecord:
+    def save(
+        self, blueprint: Blueprint, round_meta: RoundMeta | None = None
+    ) -> BlueprintRecord:
+        meta_json = Jsonb(round_meta.model_dump()) if round_meta is not None else None
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO blueprints (theme_id, version, content, generated_by) "
-                f"VALUES (%s, %s, %s, %s) RETURNING {_COLS}",
+                "INSERT INTO blueprints (theme_id, version, content, generated_by, round_meta) "
+                f"VALUES (%s, %s, %s, %s, %s) RETURNING {_COLS}",
                 (
                     blueprint.theme_id,
                     blueprint.version,
                     Jsonb(_content_json(blueprint)),
                     blueprint.generated_by,
+                    meta_json,
                 ),
             )
             row = cur.fetchone()

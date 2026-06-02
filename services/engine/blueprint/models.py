@@ -30,6 +30,17 @@ class BlueprintContent(BaseModel):
     notes: str | None = None
 
 
+class RoundMeta(BaseModel):
+    """Log for one refinement round (delta = added + updated)."""
+
+    round: int
+    added: int
+    updated: int
+    delta: int
+    converged: bool
+    generated_by: str | None = None
+
+
 class Blueprint(BlueprintContent):
     """A blueprint bound to a theme + version, with provenance."""
 
@@ -43,6 +54,7 @@ class BlueprintRecord(Blueprint):
 
     id: str
     created_at: datetime
+    round_meta: RoundMeta | None = None
 
 
 class CoverageSummary(BaseModel):
@@ -53,4 +65,10 @@ class CoverageSummary(BaseModel):
 
 class BlueprintResponse(BaseModel):
     blueprint: BlueprintRecord
+    coverage: CoverageSummary
+
+
+class RefinementResult(BaseModel):
+    rounds: list[RoundMeta]
+    final: BlueprintRecord
     coverage: CoverageSummary

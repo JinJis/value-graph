@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from services.engine.blueprint.models import Blueprint, BlueprintContent
 from services.engine.themes.models import Theme
 
 _INSTRUCTIONS = """\
@@ -45,3 +46,27 @@ def build_prompt(theme: Theme, source_hints: list[str]) -> str:
     if source_hints:
         lines.append("ADDITIONAL CONTEXT (uploaded): " + "; ".join(source_hints))
     return "\n".join(lines)
+
+
+_REFINE_INSTRUCTIONS = """\
+Below is the CURRENT blueprint for a theme. Refine it:
+- expand hidden / 2nd- and 3rd-tier vendors (materials, equipment, packaging, substrates);
+- de-duplicate companies (exactly one entry per company; merge aliases);
+- fill missing fields (exchange, products, required_data_points).
+
+Return ONLY the FULL updated JSON object in the SAME schema as the input (companies, \
+relationship_types, notes). Country MUST be an ISO-2 code. Do not invent trade values \
+or forecasts. If nothing can be improved, return the blueprint unchanged.
+"""
+
+
+def build_refine_prompt(theme: Theme, current: Blueprint) -> str:
+    content = BlueprintContent(
+        companies=current.companies,
+        relationship_types=current.relationship_types,
+        notes=current.notes,
+    )
+    return (
+        f"{_REFINE_INSTRUCTIONS}\n\nTHEME: {theme.name}\n"
+        f"CURRENT BLUEPRINT (round {current.version}):\n{content.model_dump_json(indent=2)}"
+    )

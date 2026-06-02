@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from services.engine.blueprint.models import Blueprint
+from services.engine.blueprint.models import Blueprint, RoundMeta
 from services.engine.blueprint.repository import PostgresBlueprintRepository
 from services.engine.blueprint.tests.fixtures import sample_content
 from services.engine.db.config import DbSettings
@@ -39,7 +39,11 @@ def test_blueprint_versions_persist() -> None:
 
     v2 = blueprints.next_version(theme.id)
     assert v2 == 2
-    blueprints.save(Blueprint(theme_id=theme.id, version=v2, **content))
+    meta = RoundMeta(round=2, added=3, updated=1, delta=4, converged=False, generated_by="model-x")
+    blueprints.save(Blueprint(theme_id=theme.id, version=v2, **content), round_meta=meta)
 
     latest = blueprints.get_latest(theme.id)
     assert latest is not None and latest.version == 2
+    # round log (round_meta jsonb) round-trips
+    assert latest.round_meta is not None
+    assert latest.round_meta.delta == 4 and latest.round_meta.converged is False

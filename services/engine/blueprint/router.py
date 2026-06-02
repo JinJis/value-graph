@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from services.engine.blueprint.coverage import summarize
 from services.engine.blueprint.generate import generate_blueprint
-from services.engine.blueprint.models import BlueprintResponse
+from services.engine.blueprint.models import BlueprintResponse, RefinementResult
+from services.engine.blueprint.refine import refine_blueprint
 from services.engine.blueprint.repository import (
     BlueprintRepository,
     PostgresBlueprintRepository,
@@ -53,6 +54,22 @@ def generate_theme_blueprint(
     blueprint = generate_blueprint(theme, source_hints, llm, version=version)
     record = blueprints.save(blueprint)
     return BlueprintResponse(blueprint=record, coverage=summarize(record))
+
+
+@router.post("/themes/{theme_id}/blueprint/refine", response_model=RefinementResult)
+def refine_theme_blueprint(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    llm: RouterDep,
+) -> RefinementResult:
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    base = blueprints.get_latest(theme_id)
+    if base is None:
+        raise HTTPException(status_code=409, detail="no blueprint to refine; generate one first")
+    return refine_blueprint(theme, base, llm, blueprints)
 
 
 @router.get("/themes/{theme_id}/blueprint", response_model=BlueprintResponse)

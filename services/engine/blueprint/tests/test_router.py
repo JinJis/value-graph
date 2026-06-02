@@ -57,3 +57,22 @@ def test_get_before_generate_404(ctx: tuple[TestClient, InMemoryThemeRepository]
     client, themes = ctx
     theme = themes.create_theme(ThemeCreate(name="X"))
     assert client.get(f"/themes/{theme.id}/blueprint").status_code == 404
+
+
+def test_refine_after_generate(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
+    client, themes = ctx
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    client.post(f"/themes/{theme.id}/blueprint")  # version 1
+
+    refined = client.post(f"/themes/{theme.id}/blueprint/refine")
+    assert refined.status_code == 200, refined.text
+    body = refined.json()
+    assert len(body["rounds"]) >= 1
+    assert body["final"]["version"] >= 2
+    assert body["final"]["round_meta"] is not None
+
+
+def test_refine_without_blueprint_409(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
+    client, themes = ctx
+    theme = themes.create_theme(ThemeCreate(name="X"))
+    assert client.post(f"/themes/{theme.id}/blueprint/refine").status_code == 409
