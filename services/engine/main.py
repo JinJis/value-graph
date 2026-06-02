@@ -1,15 +1,32 @@
 """ValueGraph Engine — FastAPI application (CLAUDE.md §2).
 
-[M0-API-05] skeleton: a liveness `/health` endpoint. CVE, blueprint, publish, etc.
-are added in later milestones. Run with `uvicorn services.engine.main:app --reload`
-or `python -m services.engine`.
+Run with `uvicorn services.engine.main:app --reload` or `python -m services.engine`.
 """
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from services.engine.blueprint.router import router as blueprint_router
+from services.engine.themes.router import router as themes_router
 
 app = FastAPI(title="ValueGraph Engine", version="0.0.0")
+
+# Studio (Admin) runs on a different origin; allow it to call the API directly.
+# Override with CORS_ORIGINS (comma-separated).
+_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3001").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in _cors_origins if origin.strip()],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(themes_router)
+app.include_router(blueprint_router)
 
 
 @app.get("/health")
