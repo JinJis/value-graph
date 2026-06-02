@@ -21,6 +21,8 @@ class TicketRepository(Protocol):
 
     def get_ticket(self, ticket_id: str) -> Ticket | None: ...
 
+    def set_status(self, ticket_id: str, status: str) -> Ticket | None: ...
+
 
 class InMemoryTicketRepository:
     def __init__(self) -> None:
@@ -56,6 +58,14 @@ class InMemoryTicketRepository:
 
     def get_ticket(self, ticket_id: str) -> Ticket | None:
         return self._tickets.get(ticket_id)
+
+    def set_status(self, ticket_id: str, status: str) -> Ticket | None:
+        ticket = self._tickets.get(ticket_id)
+        if ticket is None:
+            return None
+        updated = ticket.model_copy(update={"status": status, "updated_at": datetime.now(UTC)})
+        self._tickets[ticket_id] = updated
+        return updated
 
 
 _COLS = (
@@ -117,5 +127,15 @@ class PostgresTicketRepository:
     def get_ticket(self, ticket_id: str) -> Ticket | None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT {_COLS} FROM tickets WHERE id = %s", (ticket_id,))
+            row = cur.fetchone()
+            return _row_to_ticket(row) if row is not None else None
+
+    def set_status(self, ticket_id: str, status: str) -> Ticket | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tickets SET status = %s, updated_at = now() "
+                f"WHERE id = %s RETURNING {_COLS}",
+                (status, ticket_id),
+            )
             row = cur.fetchone()
             return _row_to_ticket(row) if row is not None else None

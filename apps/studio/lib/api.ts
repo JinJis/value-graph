@@ -17,6 +17,7 @@ export interface Theme {
 export interface Source {
   id: string;
   theme_id: string;
+  ticket_id: string | null;
   type: string;
   publisher: string | null;
   as_of_date: string | null;
@@ -204,5 +205,37 @@ export async function generateTickets(
 ): Promise<GenerateResult> {
   return json(
     await fetch(url(`/themes/${themeId}/tickets/generate`), { method: "POST" }),
+  );
+}
+
+export async function listTicketSources(ticketId: string): Promise<Source[]> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/sources`), { cache: "no-store" }),
+  );
+}
+
+export async function uploadTicketEvidence(
+  ticketId: string,
+  opts: {
+    file?: File;
+    url?: string;
+    type?: string;
+    publisher?: string;
+    as_of_date?: string;
+    language?: string;
+  },
+): Promise<Source> {
+  const form = new FormData();
+  if (opts.file) form.append("file", opts.file);
+  if (opts.url) form.append("url", opts.url);
+  form.append("type", opts.type ?? "report");
+  if (opts.publisher) form.append("publisher", opts.publisher);
+  if (opts.as_of_date) form.append("as_of_date", opts.as_of_date);
+  if (opts.language) form.append("language", opts.language);
+  return json(
+    await fetch(url(`/tickets/${ticketId}/evidence`), {
+      method: "POST",
+      body: form,
+    }),
   );
 }

@@ -4,9 +4,18 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { generateTickets, listTickets, type Ticket } from "../../../../lib/api";
+import {
+  generateTickets,
+  listTickets,
+  listTicketSources,
+  sourceContentUrl,
+  uploadTicketEvidence,
+  type Source,
+  type Ticket,
+} from "../../../../lib/api";
 
 const STATUS_OPTIONS = ["all", "OPEN", "SUBMITTED", "UNRESOLVABLE", "DEFERRED"];
+const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 const SORT_OPTIONS = [
   "priority",
   "target",
@@ -48,6 +57,14 @@ export default function TicketQueuePage() {
   const [busy, setBusy] = useState(false);
   const [genMsg, setGenMsg] = useState<string | null>(null);
 
+  // Evidence upload (for the selected ticket).
+  const [evSources, setEvSources] = useState<Source[]>([]);
+  const [evFile, setEvFile] = useState<File | null>(null);
+  const [evUrl, setEvUrl] = useState("");
+  const [evType, setEvType] = useState("filing");
+  const [evPublisher, setEvPublisher] = useState("");
+  const [evAsOf, setEvAsOf] = useState("");
+
   async function load() {
     try {
       setTickets(await listTickets(themeId));
@@ -61,6 +78,49 @@ export default function TicketQueuePage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeId]);
+
+  async function loadEvidence(ticketId: string) {
+    try {
+      setEvSources(await listTicketSources(ticketId));
+    } catch {
+      setEvSources([]);
+    }
+  }
+
+  useEffect(() => {
+    if (selected) void loadEvidence(selected.id);
+    else setEvSources([]);
+  }, [selected]);
+
+  async function onUploadEvidence() {
+    if (!selected) return;
+    if (!evFile && !evUrl.trim()) {
+      setError("Provide a file or a URL");
+      return;
+    }
+    setBusy(true);
+    try {
+      await uploadTicketEvidence(selected.id, {
+        file: evFile ?? undefined,
+        url: evUrl.trim() || undefined,
+        type: evType,
+        publisher: evPublisher.trim() || undefined,
+        as_of_date: evAsOf || undefined,
+      });
+      setEvFile(null);
+      setEvUrl("");
+      setEvPublisher("");
+      setEvAsOf("");
+      await load(); // ticket status -> SUBMITTED
+      await loadEvidence(selected.id);
+      setSelected((s) => (s ? { ...s, status: "SUBMITTED" } : s));
+      setError(null);
+    } catch (e) {
+      setError(`Upload failed: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function onGenerate() {
     setBusy(true);
@@ -228,6 +288,72 @@ export default function TicketQueuePage() {
             <pre style={{ background: "#f6f6f6", padding: 8 }}>
               {JSON.stringify(selected.current_estimate, null, 2)}
             </pre>
+          )}
+
+          <h3>Upload evidence → Source</h3>
+          <div style={{ display: "grid", gap: 6, maxWidth: 520 }}>
+            <input
+              type="file"
+              onChange={(e) => setEvFile(e.target.files?.[0] ?? null)}
+            />
+            <input
+              placeholder="…or a source URL (DART/EDGAR/news)"
+              value={evUrl}
+              onChange={(e) => setEvUrl(e.target.value)}
+            />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select
+                value={evType}
+                onChange={(e) => setEvType(e.target.value)}
+              >
+                {SOURCE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <input
+                placeholder="Publisher"
+                value={evPublisher}
+                onChange={(e) => setEvPublisher(e.target.value)}
+              />
+              <label>
+                as-of:{" "}
+                <input
+                  type="date"
+                  value={evAsOf}
+                  onChange={(e) => setEvAsOf(e.target.value)}
+                />
+              </label>
+              <button type="button" onClick={onUploadEvidence} disabled={busy}>
+                Submit evidence
+              </button>
+            </div>
+          </div>
+
+          <h4>Evidence ({evSources.length})</h4>
+          {evSources.length === 0 ? (
+            <p>
+              <small>No evidence yet.</small>
+            </p>
+          ) : (
+            <ul>
+              {evSources.map((s) => (
+                <li key={s.id}>
+                  <a
+                    href={s.url ?? sourceContentUrl(s)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {s.original_filename ?? s.url ?? s.id}
+                  </a>{" "}
+                  <small>
+                    ({s.type}
+                    {s.as_of_date ? ` · as of ${s.as_of_date}` : ""})
+                  </small>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
