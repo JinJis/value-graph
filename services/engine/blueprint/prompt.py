@@ -60,6 +60,39 @@ or forecasts. If nothing can be improved, return the blueprint unchanged.
 """
 
 
+_DISCOVERY_INSTRUCTIONS = """\
+You are doing broad, worldwide constituent discovery for a supply-chain theme. Find \
+ADDITIONAL listed companies in the theme's value chain that are not already known — \
+especially hidden 2nd- and 3rd-tier suppliers across KR, US, JP, CN, TW (and beyond).
+
+Every company you return MUST cite a public web source it was found in. Return ONLY a \
+JSON object:
+{
+  "companies": [
+    {
+      "ticker": "6857.T",
+      "name": "Advantest",
+      "country": "JP",
+      "exchange": "TSE",
+      "role": "ATE / test equipment",
+      "products": ["SoC testers"],
+      "required_data_points": ["revenue by customer"],
+      "source_url": "https://...",
+      "source_publisher": "optional publisher/site"
+    }
+  ]
+}
+Country MUST be an ISO-2 code. Do not invent trade values or forecasts.
+"""
+
+
+def build_discovery_prompt(theme: Theme, known_tickers: list[str]) -> str:
+    return (
+        f"{_DISCOVERY_INSTRUCTIONS}\n\nTHEME: {theme.name}\n"
+        f"ALREADY KNOWN (find ADDITIONAL, do not just repeat): {', '.join(known_tickers)}"
+    )
+
+
 def build_refine_prompt(theme: Theme, current: Blueprint) -> str:
     content = BlueprintContent(
         companies=current.companies,

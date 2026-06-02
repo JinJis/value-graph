@@ -8,8 +8,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from services.engine.blueprint.coverage import summarize
+from services.engine.blueprint.discover import discover_companies
 from services.engine.blueprint.generate import generate_blueprint
-from services.engine.blueprint.models import BlueprintResponse, RefinementResult
+from services.engine.blueprint.models import (
+    BlueprintResponse,
+    DiscoveryResult,
+    RefinementResult,
+)
 from services.engine.blueprint.refine import refine_blueprint
 from services.engine.blueprint.repository import (
     BlueprintRepository,
@@ -70,6 +75,22 @@ def refine_theme_blueprint(
     if base is None:
         raise HTTPException(status_code=409, detail="no blueprint to refine; generate one first")
     return refine_blueprint(theme, base, llm, blueprints)
+
+
+@router.post("/themes/{theme_id}/blueprint/discover", response_model=DiscoveryResult)
+def discover_theme_constituents(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    llm: RouterDep,
+) -> DiscoveryResult:
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    base = blueprints.get_latest(theme_id)
+    if base is None:
+        raise HTTPException(status_code=409, detail="no blueprint to extend; generate one first")
+    return discover_companies(theme, base, llm, blueprints, themes)
 
 
 @router.get("/themes/{theme_id}/blueprint", response_model=BlueprintResponse)

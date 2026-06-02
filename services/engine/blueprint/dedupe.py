@@ -50,6 +50,7 @@ def _merge_one(
         required_data_points=union_list(
             existing.required_data_points, incoming.required_data_points
         ),
+        source_url=existing.source_url or incoming.source_url,
     )
     return merged, merged != existing
 

@@ -20,6 +20,9 @@ class BlueprintCompany(BaseModel):
         default_factory=list,
         description="metrics needed to quantify this company's edges",
     )
+    source_url: str | None = Field(
+        default=None, description="provenance URL (set for companies found by discovery)"
+    )
 
 
 class BlueprintContent(BaseModel):
@@ -70,5 +73,27 @@ class BlueprintResponse(BaseModel):
 
 class RefinementResult(BaseModel):
     rounds: list[RoundMeta]
+    final: BlueprintRecord
+    coverage: CoverageSummary
+
+
+class DiscoveredCompany(BlueprintCompany):
+    """A constituent found by the RESEARCH discovery pass — must carry a source."""
+
+    source_url: str  # required: each discovered company carries a Source
+    source_publisher: str | None = None
+
+
+class DiscoveryContent(BaseModel):
+    """The RESEARCH model's output."""
+
+    companies: list[DiscoveredCompany]
+
+
+class DiscoveryResult(BaseModel):
+    discovered: int
+    added: int
+    updated: int
+    sources_created: int
     final: BlueprintRecord
     coverage: CoverageSummary
