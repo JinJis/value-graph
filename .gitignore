@@ -26,3 +26,6 @@ __pycache__/
 # OS / editor
 .DS_Store
 *.log
+
+# Claude Code local agent state (memory, sessions) — not project code
+.claude/
