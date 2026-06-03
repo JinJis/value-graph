@@ -26,9 +26,10 @@ async def _invalid_transition_handler(_: Request, exc: InvalidTransition) -> JSO
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
-# Studio (Admin) runs on a different origin; allow it to call the API directly.
-# Override with CORS_ORIGINS (comma-separated).
-_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3001").split(",")
+# Studio (Admin, :3001) and Terminal (User, :3000) run on different origins; allow
+# them to call the API directly. Override with CORS_ORIGINS (comma-separated).
+_default_origins = "http://localhost:3001,http://localhost:3000"
+_cors_origins = os.environ.get("CORS_ORIGINS", _default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in _cors_origins if origin.strip()],
