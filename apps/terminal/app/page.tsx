@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import { getPublishedGraph, listThemes } from "../canvas/api";
+import { useSelection } from "../canvas/controls";
 import { computeDepths } from "../canvas/depth";
 import {
   CONFIDENCE_LEGEND,
@@ -81,6 +82,8 @@ export default function TerminalPage() {
   const [graph, setGraph] = useState<PublishedGraph | null>(null);
   const [status, setStatus] = useState<string>("Loading themes…");
   const [depthLimit, setDepthLimit] = useState<number>(99);
+  const selected = useSelection((s) => s.selected);
+  const clearSelection = useSelection((s) => s.clear);
 
   const { depth, maxDepth } = useMemo(
     () =>
@@ -170,6 +173,23 @@ export default function TerminalPage() {
             · {Math.round(graph.completeness * 100)}% complete ·{" "}
             {mockMarketFeed.live ? "live" : "delayed/mock"} market caps
           </small>
+        )}
+        {selected && (
+          <button
+            type="button"
+            onClick={() => clearSelection()}
+            title="Clear selection"
+            style={{
+              background: "#1b2840",
+              color: "#cdd6e4",
+              border: "1px solid #2f4a73",
+              borderRadius: 999,
+              padding: "2px 10px",
+              cursor: "pointer",
+            }}
+          >
+            {selected} ✕
+          </button>
         )}
         <span style={{ flex: 1 }} />
         {graph && maxDepth > 1 && (

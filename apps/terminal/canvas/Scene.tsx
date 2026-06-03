@@ -1,14 +1,15 @@
 "use client";
 
-// [M5-CANVAS-01 / M5-FLOW-02 / M5-DEPTH-03] The WebGL macro map: a dark R3F canvas of
-// instanced nodes (sized by the market feed) + flowing SUPPLIES edges. A depth limit
-// toggles per-instance visibility (no re-mount); LOD/frustum culling kick in past ~1k
-// nodes. Confidence/freshness encoding is M5-ENCODE-04; richer nav is M5-NAV-05.
+// [M5] The WebGL macro map: instanced nodes (sized by the market feed) + flowing,
+// quality-encoded SUPPLIES edges + drawn "?" gaps. A depth limit toggles per-instance
+// visibility (no re-mount); LOD/frustum culling kick in past ~1k nodes; selecting a
+// node lights its edges/neighbours and dims the rest. (M5-NAV-05.)
 
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useMemo } from "react";
 
+import { ORBIT, incidentEdges, neighborhood, useSelection } from "./controls";
 import { edgeVisibility, lodProfile, nodeVisibility } from "./depth";
 import { Edges } from "./Edges";
 import { GhostEdges } from "./GhostEdges";
@@ -28,6 +29,9 @@ export function Scene({
   depth: Map<string, number>;
   depthLimit: number;
 }) {
+  const selected = useSelection((s) => s.selected);
+  const clear = useSelection((s) => s.clear);
+
   // One shared {ticker -> position} map so nodes and edges agree.
   const positions = useMemo(
     () => nodeLayout(graph.companies.map((c) => c.ticker)),
@@ -45,11 +49,26 @@ export function Scene({
     [graph, depth, depthLimit],
   );
 
+  // Selection highlight: lit edges (incident) + lit nodes (selected + neighbours).
+  const litEdges = useMemo(
+    () => incidentEdges(graph.edges, selected),
+    [graph, selected],
+  );
+  const neighbors = useMemo(
+    () => neighborhood(graph.edges, selected),
+    [graph, selected],
+  );
+  const litNodes = useMemo(
+    () => graph.companies.map((c) => !neighbors || neighbors.has(c.ticker)),
+    [graph, neighbors],
+  );
+
   return (
     <Canvas
       camera={{ position: [0, 0, 34], fov: 50, near: 0.1, far: 200 }}
       dpr={[1, 2]}
       style={{ width: "100%", height: "100%", background: BACKGROUND }}
+      onPointerMissed={() => clear()}
     >
       <color attach="background" args={[BACKGROUND]} />
       <ambientLight intensity={0.6} />
@@ -58,6 +77,7 @@ export function Scene({
         edges={graph.edges}
         positions={positions}
         visibleEdges={edgeVisible}
+        litEdges={litEdges}
         particlesPerEdge={lod.particlesPerEdge}
         radialSegments={lod.radialSegments}
         frustumCull={lod.frustumCull}
@@ -73,10 +93,21 @@ export function Scene({
         positions={positions}
         feed={mockMarketFeed}
         visible={nodeVisible}
+        litNodes={litNodes}
+        selected={selected}
         segments={lod.sphereSegments}
         frustumCull={lod.frustumCull}
       />
-      <OrbitControls enablePan enableZoom enableRotate makeDefault />
+      <OrbitControls
+        makeDefault
+        enableDamping
+        dampingFactor={ORBIT.dampingFactor}
+        minDistance={ORBIT.minDistance}
+        maxDistance={ORBIT.maxDistance}
+        rotateSpeed={ORBIT.rotateSpeed}
+        zoomSpeed={ORBIT.zoomSpeed}
+        panSpeed={ORBIT.panSpeed}
+      />
     </Canvas>
   );
 }

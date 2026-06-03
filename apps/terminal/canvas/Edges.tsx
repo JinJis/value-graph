@@ -32,12 +32,14 @@ const mid = new Vector3();
 const quat = new Quaternion();
 const obj = new Object3D();
 const color = new Color();
+const DIM = new Color("#212a3a");
 const BOUNDS = new Sphere(new Vector3(0, 0, 0), LAYOUT_RADIUS + 2);
 
 export function Edges({
   edges,
   positions,
   visibleEdges,
+  litEdges,
   particlesPerEdge = 6,
   radialSegments = 6,
   frustumCull = false,
@@ -45,6 +47,7 @@ export function Edges({
   edges: GraphEdge[];
   positions: Map<string, Vec3>;
   visibleEdges: boolean[];
+  litEdges: boolean[];
   particlesPerEdge?: number;
   radialSegments?: number;
   frustumCull?: boolean;
@@ -58,6 +61,11 @@ export function Edges({
   const particleColors = useMemo(
     () => pool.colorBuffer((i) => confidenceStyle(lines[i].confidence).rgb),
     [pool, lines],
+  );
+  // Flow only on edges that are both in-depth and lit by the current selection.
+  const flowMask = useMemo(
+    () => visibleEdges.map((v, i) => v && litEdges[i]),
+    [visibleEdges, litEdges],
   );
 
   const cylinders = useRef<InstancedMesh>(null);
@@ -88,11 +96,12 @@ export function Edges({
       obj.scale.set(radius, shown ? len : 0, radius);
       obj.updateMatrix();
       tube.setMatrixAt(i, obj.matrix);
-      tube.setColorAt(i, color.set(style.colorHex));
+      // Lit edges carry their confidence colour; non-incident edges dim back.
+      tube.setColorAt(i, litEdges[i] ? color.set(style.colorHex) : DIM);
 
-      // Freshness dot sits at the edge midpoint.
+      // Freshness dot sits at the edge midpoint (hidden when the edge is dimmed out).
       obj.quaternion.identity();
-      obj.scale.setScalar(shown ? 0.18 : 0);
+      obj.scale.setScalar(shown && litEdges[i] ? 0.18 : 0);
       obj.updateMatrix();
       dot.setMatrixAt(i, obj.matrix);
       dot.setColorAt(i, color.set(freshnessColor(line.freshness)));
@@ -103,11 +112,11 @@ export function Edges({
     dot.instanceMatrix.needsUpdate = true;
     if (dot.instanceColor) dot.instanceColor.needsUpdate = true;
     dot.boundingSphere = BOUNDS;
-  }, [lines, maxValue, visibleEdges]);
+  }, [lines, maxValue, visibleEdges, litEdges]);
 
   // Advance pooled flow particles each frame (clamp dt so tab-switches don't jump).
   useFrame((_, delta) => {
-    pool.update(lines, Math.min(delta, 0.05), visibleEdges);
+    pool.update(lines, Math.min(delta, 0.05), flowMask);
     if (flowGeom.current)
       flowGeom.current.attributes.position.needsUpdate = true;
   });

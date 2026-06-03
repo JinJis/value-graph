@@ -1,10 +1,11 @@
-// [M5-CANVAS-01] Company nodes as a single INSTANCED mesh (never DOM nodes).
-// Size binds to the market feed; radius eases toward its target each frame (lerp,
-// don't snap) so live-cap updates animate smoothly. Hundreds of instances = one
-// draw call -> 60fps. Positions come from the shared layout so edges line up.
+// [M5-CANVAS-01 / M5-NAV-05] Company nodes as a single INSTANCED mesh (never DOM
+// nodes). Size binds to the market feed; radius eases toward target each frame (lerp,
+// don't snap). Hundreds of instances = one draw call -> 60fps. Click selects a node
+// (instanced raycast -> ticker); the selected node is highlighted + enlarged, its
+// neighbours stay lit, the rest dim.
 
-import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
 import {
   Color,
   InstancedMesh,
@@ -14,11 +15,14 @@ import {
   Vector3,
 } from "three";
 
+import { useSelection } from "./controls";
 import { capToRadius, LAYOUT_RADIUS, type Vec3 } from "./layout";
 import type { MarketFeed } from "./marketFeed";
 import type { GraphCompany } from "./types";
 
 const NODE_COLOR = new Color("#5ea0ff");
+const SELECTED_COLOR = new Color("#e8f0ff");
+const DIM_COLOR = new Color("#2a3346");
 const dummy = new Object3D();
 const BOUNDS = new Sphere(new Vector3(0, 0, 0), LAYOUT_RADIUS + 3);
 
@@ -27,6 +31,8 @@ export function Nodes({
   positions,
   feed,
   visible,
+  litNodes,
+  selected,
   segments = 16,
   frustumCull = false,
 }: {
@@ -34,10 +40,13 @@ export function Nodes({
   positions: Map<string, Vec3>;
   feed: MarketFeed;
   visible: boolean[];
+  litNodes: boolean[];
+  selected: string | null;
   segments?: number;
   frustumCull?: boolean;
 }) {
   const ref = useRef<InstancedMesh>(null);
+  const toggle = useSelection((s) => s.toggle);
 
   const { points, targets } = useMemo(() => {
     const points = companies.map(
@@ -59,8 +68,9 @@ export function Nodes({
     const mesh = ref.current;
     if (!mesh) return;
     for (let i = 0; i < companies.length; i++) {
-      // Depth toggling = ease the target to 0 (hide) or its cap radius (show); no re-mount.
-      const target = visible[i] ? targets[i] : 0;
+      // Depth toggling + selection enlargement, both via the eased target (no re-mount).
+      const grow = selected && companies[i].ticker === selected ? 1.4 : 1;
+      const target = visible[i] ? targets[i] * grow : 0;
       current.current[i] = MathUtils.lerp(current.current[i], target, 0.18);
       const [x, y, z] = points[i];
       dummy.position.set(x, y, z);
@@ -72,15 +82,21 @@ export function Nodes({
     mesh.instanceMatrix.needsUpdate = true;
   });
 
-  // Static per-instance colour (edges carry the confidence encoding in M5-ENCODE-04).
-  useMemo(() => {
+  // Recolour on selection change: selected = bright, lit neighbours = normal, rest dim.
+  useEffect(() => {
     const mesh = ref.current;
     if (!mesh) return;
     for (let i = 0; i < companies.length; i++) {
-      mesh.setColorAt(i, NODE_COLOR);
+      const c =
+        selected && companies[i].ticker === selected
+          ? SELECTED_COLOR
+          : litNodes[i]
+            ? NODE_COLOR
+            : DIM_COLOR;
+      mesh.setColorAt(i, c);
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [companies.length]);
+  }, [companies, litNodes, selected]);
 
   if (companies.length === 0) return null;
 
@@ -89,6 +105,10 @@ export function Nodes({
       ref={ref}
       args={[undefined, undefined, companies.length]}
       frustumCulled={frustumCull}
+      onClick={(e: ThreeEvent<MouseEvent>) => {
+        e.stopPropagation();
+        if (e.instanceId != null) toggle(companies[e.instanceId].ticker);
+      }}
       onUpdate={(m: InstancedMesh) => {
         // Seed positions at ~0 scale so nothing flashes at the origin pre-first-frame.
         for (let i = 0; i < companies.length; i++) {
