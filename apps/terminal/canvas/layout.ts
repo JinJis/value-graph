@@ -5,6 +5,20 @@
 
 export type Vec3 = [number, number, number];
 
+// Shared sphere radius so nodes and edges agree on positions.
+export const LAYOUT_RADIUS = 12;
+
+// Stable {ticker -> position} map — the contract nodes AND edges both read from.
+export function nodeLayout(
+  tickers: string[],
+  radius: number = LAYOUT_RADIUS,
+): Map<string, Vec3> {
+  const points = fibonacciSphere(tickers.length, radius);
+  const map = new Map<string, Vec3>();
+  tickers.forEach((ticker, i) => map.set(ticker, points[i]));
+  return map;
+}
+
 export function fibonacciSphere(count: number, radius: number): Vec3[] {
   if (count <= 0) return [];
   if (count === 1) return [[0, 0, 0]];

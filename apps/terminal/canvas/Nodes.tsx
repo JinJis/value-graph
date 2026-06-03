@@ -1,13 +1,13 @@
 // [M5-CANVAS-01] Company nodes as a single INSTANCED mesh (never DOM nodes).
 // Size binds to the market feed; radius eases toward its target each frame (lerp,
 // don't snap) so live-cap updates animate smoothly. Hundreds of instances = one
-// draw call -> 60fps.
+// draw call -> 60fps. Positions come from the shared layout so edges line up.
 
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import { Color, InstancedMesh, MathUtils, Object3D } from "three";
 
-import { capToRadius, fibonacciSphere } from "./layout";
+import { capToRadius, type Vec3 } from "./layout";
 import type { MarketFeed } from "./marketFeed";
 import type { GraphCompany } from "./types";
 
@@ -16,22 +16,24 @@ const dummy = new Object3D();
 
 export function Nodes({
   companies,
+  positions,
   feed,
-  radius = 12,
 }: {
   companies: GraphCompany[];
+  positions: Map<string, Vec3>;
   feed: MarketFeed;
-  radius?: number;
 }) {
   const ref = useRef<InstancedMesh>(null);
 
-  const { positions, targets } = useMemo(() => {
-    const positions = fibonacciSphere(companies.length, radius);
+  const { points, targets } = useMemo(() => {
+    const points = companies.map(
+      (c) => positions.get(c.ticker) ?? ([0, 0, 0] as Vec3),
+    );
     const targets = companies.map((c) =>
       capToRadius(c.market_cap ?? feed.marketCap(c.ticker)),
     );
-    return { positions, targets };
-  }, [companies, feed, radius]);
+    return { points, targets };
+  }, [companies, positions, feed]);
 
   // Per-instance current radius, eased toward `targets` (lerp, not snap).
   const current = useRef<number[]>([]);
@@ -44,7 +46,7 @@ export function Nodes({
     if (!mesh) return;
     for (let i = 0; i < companies.length; i++) {
       current.current[i] = MathUtils.lerp(current.current[i], targets[i], 0.12);
-      const [x, y, z] = positions[i];
+      const [x, y, z] = points[i];
       dummy.position.set(x, y, z);
       const s = current.current[i];
       dummy.scale.set(s, s, s);
@@ -72,9 +74,9 @@ export function Nodes({
       args={[undefined, undefined, companies.length]}
       frustumCulled={false}
       onUpdate={(m: InstancedMesh) => {
-        // Seed identity matrices so nothing flashes at the origin pre-first-frame.
+        // Seed positions at ~0 scale so nothing flashes at the origin pre-first-frame.
         for (let i = 0; i < companies.length; i++) {
-          const [x, y, z] = positions[i];
+          const [x, y, z] = points[i];
           dummy.position.set(x, y, z);
           dummy.scale.setScalar(0.01);
           dummy.updateMatrix();
