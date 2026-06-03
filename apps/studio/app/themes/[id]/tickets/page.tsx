@@ -17,7 +17,14 @@ import {
   type TicketEvent,
 } from "../../../../lib/api";
 
-const STATUS_OPTIONS = ["all", "OPEN", "SUBMITTED", "UNRESOLVABLE", "DEFERRED"];
+const STATUS_OPTIONS = [
+  "all",
+  "OPEN",
+  "SUBMITTED",
+  "UNRESOLVABLE",
+  "DEFERRED",
+  "CLOSED",
+];
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 const REASON_CODES = ["not-found", "not-disclosed", "paywalled", "ambiguous"];
 const SORT_OPTIONS = [

@@ -35,6 +35,15 @@ def test_validate_transition_raises() -> None:
         validate_transition("UNRESOLVABLE", "DEFERRED")
 
 
+def test_closed_transitions() -> None:
+    assert can_transition("OPEN", "CLOSED")
+    assert can_transition("SUBMITTED", "CLOSED")
+    assert can_transition("UNRESOLVABLE", "CLOSED")
+    assert can_transition("CLOSED", "OPEN")  # reopen if the gap reappears
+    assert not can_transition("CLOSED", "DEFERRED")
+    assert not can_transition("CLOSED", "CLOSED")
+
+
 def test_not_disclosed_yields_10pct_upper_bound() -> None:
     estimate = derived_estimate(ReasonCode.NOT_DISCLOSED)
     assert estimate is not None

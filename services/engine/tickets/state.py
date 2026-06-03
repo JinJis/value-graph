@@ -17,6 +17,7 @@ class TicketStatus(StrEnum):
     SUBMITTED = "SUBMITTED"
     UNRESOLVABLE = "UNRESOLVABLE"
     DEFERRED = "DEFERRED"
+    CLOSED = "CLOSED"  # gap resolved (e.g. CVE re-run upgraded the edge)
 
 
 class ReasonCode(StrEnum):
@@ -37,10 +38,16 @@ class InvalidTransition(ValueError):
 # Allowed transitions. Evidence may be (re)submitted from any state — SUBMITTED is
 # reachable everywhere, incl. SUBMITTED->SUBMITTED for additional evidence — while
 # re-resolving (UNRESOLVABLE->DEFERRED, DEFERRED->DEFERRED) is rejected: reopen via
-# new evidence first.
+# new evidence first. CVE may CLOSE any active ticket when its gap is resolved, and a
+# CLOSED ticket reopens (CLOSED->OPEN) if the gap reappears.
 TRANSITIONS: dict[TicketStatus, frozenset[TicketStatus]] = {
     TicketStatus.OPEN: frozenset(
-        {TicketStatus.SUBMITTED, TicketStatus.UNRESOLVABLE, TicketStatus.DEFERRED}
+        {
+            TicketStatus.SUBMITTED,
+            TicketStatus.UNRESOLVABLE,
+            TicketStatus.DEFERRED,
+            TicketStatus.CLOSED,
+        }
     ),
     TicketStatus.SUBMITTED: frozenset(
         {
@@ -48,12 +55,21 @@ TRANSITIONS: dict[TicketStatus, frozenset[TicketStatus]] = {
             TicketStatus.OPEN,
             TicketStatus.UNRESOLVABLE,
             TicketStatus.DEFERRED,
+            TicketStatus.CLOSED,
         }
     ),
     TicketStatus.DEFERRED: frozenset(
-        {TicketStatus.SUBMITTED, TicketStatus.OPEN, TicketStatus.UNRESOLVABLE}
+        {
+            TicketStatus.SUBMITTED,
+            TicketStatus.OPEN,
+            TicketStatus.UNRESOLVABLE,
+            TicketStatus.CLOSED,
+        }
     ),
-    TicketStatus.UNRESOLVABLE: frozenset({TicketStatus.SUBMITTED, TicketStatus.OPEN}),
+    TicketStatus.UNRESOLVABLE: frozenset(
+        {TicketStatus.SUBMITTED, TicketStatus.OPEN, TicketStatus.CLOSED}
+    ),
+    TicketStatus.CLOSED: frozenset({TicketStatus.OPEN}),
 }
 
 
