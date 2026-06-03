@@ -13,9 +13,10 @@ import { confidenceStyle, freshnessColor } from "../canvas/encoding";
 import { useSelection } from "../canvas/controls";
 import { mockMarketFeed } from "../canvas/marketFeed";
 import type { PublishedGraph } from "../canvas/types";
+import { EdgeInspector } from "../edge/EdgeInspector";
 import { ProvenanceCard } from "../provenance/ProvenanceCard";
 import type { FigureProvenance } from "../provenance/provenance";
-import { buildCompanyView, formatMarketCap } from "./model";
+import { buildCompanyView, formatMarketCap, type EdgeLedgers } from "./model";
 
 function Chip({
   confidence,
@@ -41,15 +42,18 @@ function Chip({
   );
 }
 
-// A relationship figure: label + share + chip, expandable to its provenance card.
+// A relationship figure: label + share + chip, expandable to its provenance card +
+// the edge inspector (two ledgers, reconciliation/conflict, supporting claims).
 function FigureRow({
   label,
   share,
   figure,
+  ledgers,
 }: {
   label: string;
   share: string;
   figure: FigureProvenance;
+  ledgers: EdgeLedgers;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -62,8 +66,8 @@ function FigureRow({
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            aria-label="Provenance"
-            title="Show provenance"
+            aria-label="Inspect figure"
+            title="Provenance & evidence"
             style={{
               background: "transparent",
               color: open ? "#8fd0ff" : "#5a6b86",
@@ -77,7 +81,17 @@ function FigureRow({
           </button>
         </span>
       </div>
-      {open && <ProvenanceCard figure={figure} />}
+      {open && (
+        <>
+          <ProvenanceCard figure={figure} />
+          <EdgeInspector
+            detail={ledgers.detail}
+            supplierRevShare={ledgers.supplierRevShare}
+            customerCostShare={ledgers.customerCostShare}
+            sources={figure.sources}
+          />
+        </>
+      )}
     </li>
   );
 }
@@ -216,6 +230,7 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
                       : "—"
                   }
                   figure={c.provenance}
+                  ledgers={c.ledgers}
                 />
               ))}
             </ul>
@@ -237,13 +252,14 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
                 : "—"
             }
             figure={s.provenance}
+            ledgers={s.ledgers}
           />
         ))}
       </ul>
 
       <p style={{ marginTop: 14, opacity: 0.45, fontSize: 11 }}>
-        Tap ⓘ for a figure&apos;s source &amp; freshness. Edge inspector arrives
-        next. Not investment advice.
+        Tap ⓘ for a figure&apos;s provenance, both ledgers &amp; supporting
+        claims. Not investment advice.
       </p>
     </aside>
   );

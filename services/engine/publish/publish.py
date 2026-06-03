@@ -51,6 +51,7 @@ class ProductionSnapshot(BaseModel):
     edges: list[dict[str, Any]] = Field(default_factory=list)
     ghost_edges: list[GapEdge] = Field(default_factory=list)
     edge_sources: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    edge_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class ProductionStore(Protocol):
@@ -97,6 +98,7 @@ def _content(snapshot: ProductionSnapshot) -> dict[str, Any]:
         "edges": snapshot.edges,
         "ghost_edges": [g.model_dump() for g in snapshot.ghost_edges],
         "edge_sources": snapshot.edge_sources,
+        "edge_details": snapshot.edge_details,
     }
 
 
@@ -114,6 +116,7 @@ def _row_to_snapshot(row: dict[str, Any]) -> ProductionSnapshot:
         edges=content.get("edges", []),
         ghost_edges=[GapEdge(**g) for g in content.get("ghost_edges", [])],
         edge_sources=content.get("edge_sources", {}),
+        edge_details=content.get("edge_details", {}),
     )
 
 
@@ -224,6 +227,7 @@ def publish(
         edges=copy.deepcopy(assembled.edges),
         ghost_edges=[g.model_copy(deep=True) for g in assembled.ghost_edges],
         edge_sources=copy.deepcopy(assembled.edge_sources),
+        edge_details=copy.deepcopy(assembled.edge_details),
     )
     saved = store.save_snapshot(snapshot)
     logger.info(

@@ -38,6 +38,30 @@ export interface SourceRef {
   as_of_date?: string | null;
 }
 
+// Edge inspector data (EDGE-03): the SUPPORTS claims + reconciliation summary.
+export interface EdgeClaim {
+  relation: string;
+  value?: number | null;
+  unit?: string | null;
+  cost_bucket?: string | null;
+  text_span: string;
+  source_id: string;
+  as_of?: string | null;
+}
+
+export interface EdgeReconciliation {
+  point: number | null;
+  interval: ConfidenceInterval | null;
+  n_sources: number;
+  status: string; // "reconciled" | "conflict"
+  reason?: string | null;
+}
+
+export interface EdgeDetail {
+  reconciliation: EdgeReconciliation | null;
+  claims: EdgeClaim[];
+}
+
 export interface GhostEdge {
   supplier: string;
   customer: string;
@@ -55,6 +79,8 @@ export interface PublishedGraph {
   ghost_edges: GhostEdge[];
   // "supplier->customer" -> the Source(s) backing that edge's figures.
   edge_sources: Record<string, SourceRef[]>;
+  // "supplier->customer" -> supporting claims + reconciliation (edge inspector).
+  edge_details: Record<string, EdgeDetail>;
 }
 
 export interface ThemeSummary {

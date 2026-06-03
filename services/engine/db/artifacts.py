@@ -56,6 +56,43 @@ class ThemeBuild(BaseModel):
     gap_edges: list[GapEdge] = Field(default_factory=list)
     # "supplier->customer" -> the Source(s) backing that edge's figures (PROV-02).
     edge_sources: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    # "supplier->customer" -> {reconciliation, claims} for the edge inspector (EDGE-03).
+    edge_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+_CLAIM_SUMMARY_FIELDS = (
+    "relation",
+    "value",
+    "unit",
+    "cost_bucket",
+    "text_span",
+    "source_id",
+    "as_of",
+)
+
+
+def claim_summary(claim: dict[str, Any]) -> dict[str, Any]:
+    return {k: claim.get(k) for k in _CLAIM_SUMMARY_FIELDS}
+
+
+def edge_detail(edge: EdgeResult, edge_claims: list[dict[str, Any]]) -> dict[str, Any]:
+    """Supporting claims + the reconciliation summary (point/interval/status/conflict)."""
+    rec = edge.reconciled
+    reconciliation = (
+        None
+        if rec is None
+        else {
+            "point": rec.point,
+            "interval": {"low": rec.interval.low, "high": rec.interval.high},
+            "n_sources": rec.n_sources,
+            "status": rec.status,  # "reconciled" | "conflict"
+            "reason": rec.reason,
+        }
+    )
+    return {
+        "reconciliation": reconciliation,
+        "claims": [claim_summary(c) for c in edge_claims],
+    }
 
 
 def edge_source_refs(
@@ -169,6 +206,7 @@ def build_from_cve(
     tickers: set[str] = set()
     edges: list[dict[str, Any]] = []
     gap_edges: list[GapEdge] = []
+    edge_details: dict[str, dict[str, Any]] = {}
     for edge in state.edges.values():
         if edge.scored is None or edge.reconciled is None:
             continue
@@ -187,6 +225,9 @@ def build_from_cve(
             )
         else:
             edges.append(payload)
+            edge_details[f"{edge.supplier}->{edge.customer}"] = edge_detail(
+                edge, _edge_claims(edge, valid_claims)
+            )
 
     companies = [{"ticker": t, "name": t} for t in sorted(tickers)]
 
@@ -215,4 +256,5 @@ def build_from_cve(
         sources=source_nodes,
         gap_edges=gap_edges,
         edge_sources=edge_sources,
+        edge_details=edge_details,
     )

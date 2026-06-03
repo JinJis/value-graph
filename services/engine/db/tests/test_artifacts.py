@@ -159,3 +159,23 @@ def test_edge_sources_link_each_figure_to_its_document() -> None:
     assert refs[0]["source_id"] == "src-intc"
     assert refs[0]["url"] == "https://www.sec.gov/intc-10k"
     assert refs[0]["as_of_date"] == "2026-05-20"
+
+
+def test_edge_details_carry_claims_and_reconciliation() -> None:
+    build = build_from_cve(_state(), version=1, created_at=CREATED)
+
+    assert set(build.edge_details) == {"INTC->HPQ"}  # admitted edges only
+    detail = build.edge_details["INTC->HPQ"]
+
+    rec = detail["reconciliation"]
+    assert rec is not None
+    assert rec["status"] == "reconciled"  # single-source, no conflict
+    assert rec["interval"] == {"low": 8.0, "high": 11.0}
+    assert rec["point"] == 9.5
+
+    # The supporting claim travels with its verbatim span (SUPPORTS evidence).
+    assert len(detail["claims"]) == 1
+    claim = detail["claims"][0]
+    assert claim["relation"] == "supplier_revenue_share"
+    assert claim["text_span"] == "21% of its revenue came from HP Inc."
+    assert claim["source_id"] == "src-intc"

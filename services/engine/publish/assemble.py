@@ -58,6 +58,8 @@ class AssembledGraph(BaseModel):
     ghost_edges: list[GapEdge] = Field(default_factory=list)
     # "supplier->customer" -> backing Source refs, for per-figure provenance (PROV-02).
     edge_sources: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    # "supplier->customer" -> {reconciliation, claims} for the edge inspector (EDGE-03).
+    edge_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 def _completeness(publishable: int, gaps: int, threshold: float) -> CompletenessReport:
@@ -121,6 +123,7 @@ def assemble(
 
     admitted_keys = {f"{e['supplier']}->{e['customer']}" for e in edges}
     edge_sources = {k: v for k, v in build.edge_sources.items() if k in admitted_keys}
+    edge_details = {k: v for k, v in build.edge_details.items() if k in admitted_keys}
 
     return AssembledGraph(
         theme_id=build.theme_id,
@@ -132,4 +135,5 @@ def assemble(
         edges=edges,
         ghost_edges=list(build.gap_edges),
         edge_sources=edge_sources,
+        edge_details=edge_details,
     )

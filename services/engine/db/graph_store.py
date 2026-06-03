@@ -22,7 +22,12 @@ from typing import Any, Protocol
 
 from neo4j import Driver
 
-from services.engine.db.artifacts import GapEdge, ThemeBuild, edge_source_refs
+from services.engine.db.artifacts import (
+    GapEdge,
+    ThemeBuild,
+    claim_summary,
+    edge_source_refs,
+)
 
 
 def claim_key(claim: dict[str, Any]) -> str:
@@ -207,14 +212,23 @@ class Neo4jGraphStore:
                 tid=theme_id, ver=version,
             )
         ]
-        # Reconstruct per-edge Source refs from the persisted claim->Source chain,
-        # restricted to the admitted (publishable) edges.
+        # Reconstruct per-edge Source refs + inspector details from the persisted
+        # claim->Source chain, restricted to the admitted (publishable) edges. The
+        # reconciliation summary is carried through the publish snapshot (the Terminal
+        # path); a Neo4j reload rebuilds the supporting claims here.
         admitted_keys = {f"{e['supplier']}->{e['customer']}" for e in edges}
         edge_sources = {
             k: v
             for k, v in edge_source_refs(claim_rows, sources).items()
             if k in admitted_keys
         }
+        edge_details: dict[str, dict[str, Any]] = {}
+        for c in claim_rows:
+            key = f"{c['subject']}->{c['object']}"
+            if key in admitted_keys:
+                edge_details.setdefault(key, {"reconciliation": None, "claims": []})[
+                    "claims"
+                ].append(claim_summary(c))
         return ThemeBuild(
             theme_id=theme_id,
             version=version,
@@ -225,6 +239,7 @@ class Neo4jGraphStore:
             sources=sources,
             gap_edges=gaps,
             edge_sources=edge_sources,
+            edge_details=edge_details,
         )
 
     def load_latest(self, theme_id: str) -> ThemeBuild | None:
