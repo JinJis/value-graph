@@ -114,7 +114,7 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
       style={{
         position: "absolute",
         top: 56,
-        right: 12,
+        right: 344, // sits inboard of the 320px Live Context Feed
         bottom: 12,
         width: 340,
         zIndex: 20,

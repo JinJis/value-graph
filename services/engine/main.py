@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from services.engine.blueprint.router import router as blueprint_router
+from services.engine.feed.router import router as feed_router
 from services.engine.publish.router import router as publish_router
 from services.engine.sources.router import router as sources_router
 from services.engine.themes.router import router as themes_router
@@ -42,6 +43,7 @@ app.include_router(blueprint_router)
 app.include_router(tickets_router)
 app.include_router(sources_router)
 app.include_router(publish_router)
+app.include_router(feed_router)
 
 
 @app.get("/health")
