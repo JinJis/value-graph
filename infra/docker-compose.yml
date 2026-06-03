@@ -100,8 +100,15 @@ services:
       dockerfile: apps/studio/Dockerfile
     container_name: valuegraph-studio
     restart: unless-stopped
+    environment:
+      # Next.js rewrites /engine/* -> the engine over the compose network (no port exposed
+      # to the browser; works behind any tunnel/proxy).
+      ENGINE_INTERNAL_URL: "http://engine:8000"
     ports:
       - "${STUDIO_PORT:-3001}:3001"
+    depends_on:
+      engine:
+        condition: service_healthy
     healthcheck:
       test:
         ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -116,8 +123,13 @@ services:
       dockerfile: apps/terminal/Dockerfile
     container_name: valuegraph-terminal
     restart: unless-stopped
+    environment:
+      ENGINE_INTERNAL_URL: "http://engine:8000"
     ports:
       - "${TERMINAL_PORT:-3000}:3000"
+    depends_on:
+      engine:
+        condition: service_healthy
     healthcheck:
       test:
         ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

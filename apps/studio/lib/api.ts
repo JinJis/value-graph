@@ -1,14 +1,9 @@
-// Minimal client for the ValueGraph Engine API (CORS-enabled).
-// Engine URL resolves at runtime: NEXT_PUBLIC_ENGINE_URL override, else the SAME host
-// the browser loaded Studio from on port 8000 (so it works on localhost AND a remote
-// server without a rebuild), falling back to localhost for SSR.
+// Minimal client for the ValueGraph Engine API.
+// Calls go to this app's OWN origin under "/engine", which Next.js rewrites server-side
+// to the engine (see next.config.mjs). The browser never needs the engine's port, so it
+// works behind any tunnel/proxy with no CORS. NEXT_PUBLIC_ENGINE_URL overrides if needed.
 function engineUrl(): string {
-  if (process.env.NEXT_PUBLIC_ENGINE_URL)
-    return process.env.NEXT_PUBLIC_ENGINE_URL;
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
-  }
-  return "http://localhost:8000";
+  return process.env.NEXT_PUBLIC_ENGINE_URL ?? "/engine";
 }
 
 export interface Theme {
