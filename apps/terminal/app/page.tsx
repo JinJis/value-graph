@@ -16,6 +16,7 @@ import {
 } from "../canvas/encoding";
 import { mockMarketFeed } from "../canvas/marketFeed";
 import type { PublishedGraph, ThemeSummary } from "../canvas/types";
+import { Drawer } from "../drawer/Drawer";
 
 // R3F renders to <canvas>; it cannot server-render.
 const Scene = dynamic(() => import("../canvas/Scene").then((m) => m.Scene), {
@@ -215,6 +216,7 @@ export default function TerminalPage() {
       </header>
 
       {graph && <Legend />}
+      {graph && <Drawer graph={graph} />}
 
       <div style={{ position: "absolute", inset: 0 }}>
         {graph ? (

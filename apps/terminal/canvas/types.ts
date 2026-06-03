@@ -11,9 +11,16 @@ export interface GraphCompany {
 export interface GraphEdge {
   supplier: string;
   customer: string;
+  product_ref?: string | null;
   trade_value?: number | null;
+  currency?: string | null;
+  supplier_rev_share?: number | null;
+  customer_cost_share?: number | null;
+  cost_bucket?: string | null;
   confidence: string; // verified | derived | estimated
   freshness: string; // fresh | aging | stale | gap
+  as_of_date?: string;
+  next_expected_update?: string;
   gap?: boolean;
 }
 

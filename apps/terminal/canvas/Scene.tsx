@@ -9,7 +9,13 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useMemo } from "react";
 
-import { ORBIT, incidentEdges, neighborhood, useSelection } from "./controls";
+import {
+  ORBIT,
+  edgeKey,
+  incidentEdges,
+  neighborhood,
+  useSelection,
+} from "./controls";
 import { edgeVisibility, lodProfile, nodeVisibility } from "./depth";
 import { Edges } from "./Edges";
 import { GhostEdges } from "./GhostEdges";
@@ -31,6 +37,7 @@ export function Scene({
 }) {
   const selected = useSelection((s) => s.selected);
   const clear = useSelection((s) => s.clear);
+  const highlightEdges = useSelection((s) => s.highlightEdges);
 
   // One shared {ticker -> position} map so nodes and edges agree.
   const positions = useMemo(
@@ -49,11 +56,15 @@ export function Scene({
     [graph, depth, depthLimit],
   );
 
-  // Selection highlight: lit edges (incident) + lit nodes (selected + neighbours).
-  const litEdges = useMemo(
-    () => incidentEdges(graph.edges, selected),
-    [graph, selected],
-  );
+  // Selection highlight: a product click narrows to a specific edge set; otherwise the
+  // selected node's incident edges (or all when nothing is selected).
+  const litEdges = useMemo(() => {
+    if (highlightEdges) {
+      const set = new Set(highlightEdges);
+      return graph.edges.map((e) => set.has(edgeKey(e.supplier, e.customer)));
+    }
+    return incidentEdges(graph.edges, selected);
+  }, [graph, selected, highlightEdges]);
   const neighbors = useMemo(
     () => neighborhood(graph.edges, selected),
     [graph, selected],

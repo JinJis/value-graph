@@ -8,18 +8,31 @@ import type { GraphEdge } from "./types";
 
 interface SelectionState {
   selected: string | null;
+  // A product click narrows the lit edges to a specific "supplier->customer" set.
+  highlightEdges: string[] | null;
   select: (ticker: string | null) => void;
   toggle: (ticker: string) => void;
+  setHighlightEdges: (keys: string[] | null) => void;
   clear: () => void;
 }
 
 export const useSelection = create<SelectionState>((set) => ({
   selected: null,
-  select: (ticker) => set({ selected: ticker }),
+  highlightEdges: null,
+  // Selecting a node always clears any product-level edge highlight.
+  select: (ticker) => set({ selected: ticker, highlightEdges: null }),
   toggle: (ticker) =>
-    set((s) => ({ selected: s.selected === ticker ? null : ticker })),
-  clear: () => set({ selected: null }),
+    set((s) => ({
+      selected: s.selected === ticker ? null : ticker,
+      highlightEdges: null,
+    })),
+  setHighlightEdges: (keys) => set({ highlightEdges: keys }),
+  clear: () => set({ selected: null, highlightEdges: null }),
 }));
+
+export function edgeKey(supplier: string, customer: string): string {
+  return `${supplier}->${customer}`;
+}
 
 // Per-edge "lit" mask: every edge when nothing is selected, else edges touching it.
 export function incidentEdges(
