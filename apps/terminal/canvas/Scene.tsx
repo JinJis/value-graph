@@ -11,6 +11,7 @@ import { useMemo } from "react";
 
 import { edgeVisibility, lodProfile, nodeVisibility } from "./depth";
 import { Edges } from "./Edges";
+import { GhostEdges } from "./GhostEdges";
 import { nodeLayout } from "./layout";
 import { Nodes } from "./Nodes";
 import { mockMarketFeed } from "./marketFeed";
@@ -60,6 +61,12 @@ export function Scene({
         particlesPerEdge={lod.particlesPerEdge}
         radialSegments={lod.radialSegments}
         frustumCull={lod.frustumCull}
+      />
+      <GhostEdges
+        ghosts={graph.ghost_edges}
+        positions={positions}
+        depth={depth}
+        depthLimit={depthLimit}
       />
       <Nodes
         companies={graph.companies}

@@ -100,7 +100,21 @@ export class ParticlePool {
     this.coveredEdges = covered.size;
   }
 
-  // Advance every particle along its edge and write world positions.
+  // A static per-particle colour buffer (RGB, 0..1) keyed by each particle's edge —
+  // lets the flow carry the confidence encoding (M5-ENCODE-04).
+  colorBuffer(
+    rgbOf: (edgeIndex: number) => [number, number, number],
+  ): Float32Array {
+    const colors = new Float32Array(this.count * 3);
+    for (let p = 0; p < this.count; p++) {
+      const [r, g, b] = rgbOf(this.edgeOf[p]);
+      colors[p * 3] = r;
+      colors[p * 3 + 1] = g;
+      colors[p * 3 + 2] = b;
+    }
+    return colors;
+  }
+
   // Hidden particles are parked far past the camera's far plane so they clip out —
   // depth toggling needs no re-mount and no per-frame allocation.
   update(lines: EdgeLine[], dt: number, visible?: boolean[]): void {

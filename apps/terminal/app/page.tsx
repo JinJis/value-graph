@@ -8,6 +8,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getPublishedGraph, listThemes } from "../canvas/api";
 import { computeDepths } from "../canvas/depth";
+import {
+  CONFIDENCE_LEGEND,
+  FRESHNESS_LEGEND,
+  type LegendEntry,
+} from "../canvas/encoding";
 import { mockMarketFeed } from "../canvas/marketFeed";
 import type { PublishedGraph, ThemeSummary } from "../canvas/types";
 
@@ -15,6 +20,60 @@ import type { PublishedGraph, ThemeSummary } from "../canvas/types";
 const Scene = dynamic(() => import("../canvas/Scene").then((m) => m.Scene), {
   ssr: false,
 });
+
+function LegendRow({ entry, dot }: { entry: LegendEntry; dot: boolean }) {
+  return (
+    <li style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span
+        style={{
+          width: dot ? 9 : 16,
+          height: dot ? 9 : 3,
+          borderRadius: dot ? "50%" : 1,
+          background: entry.colorHex,
+          flex: "0 0 auto",
+        }}
+      />
+      <span>
+        {entry.label} <span style={{ opacity: 0.55 }}>· {entry.hint}</span>
+      </span>
+    </li>
+  );
+}
+
+// Legend (DOM chrome) — explains the visual data-quality encoding.
+function Legend() {
+  return (
+    <aside
+      style={{
+        position: "absolute",
+        left: 16,
+        bottom: 16,
+        zIndex: 10,
+        background: "#0e1420dd",
+        border: "1px solid #1f2a3d",
+        borderRadius: 8,
+        padding: "10px 12px",
+        fontSize: 12,
+        color: "#cdd6e4",
+        lineHeight: 1.6,
+        maxWidth: 240,
+      }}
+    >
+      <div style={{ opacity: 0.7, marginBottom: 4 }}>Confidence (edge)</div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {CONFIDENCE_LEGEND.map((e) => (
+          <LegendRow key={e.label} entry={e} dot={false} />
+        ))}
+      </ul>
+      <div style={{ opacity: 0.7, margin: "8px 0 4px" }}>Freshness (dot)</div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {FRESHNESS_LEGEND.map((e) => (
+          <LegendRow key={e.label} entry={e} dot />
+        ))}
+      </ul>
+    </aside>
+  );
+}
 
 export default function TerminalPage() {
   const [themes, setThemes] = useState<ThemeSummary[]>([]);
@@ -134,6 +193,8 @@ export default function TerminalPage() {
         )}
         <small style={{ opacity: 0.5 }}>Not investment advice.</small>
       </header>
+
+      {graph && <Legend />}
 
       <div style={{ position: "absolute", inset: 0 }}>
         {graph ? (
