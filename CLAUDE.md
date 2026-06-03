@@ -21,13 +21,13 @@ Name = ValueGraph (placeholder, to be revisited): the value chain rendered as a 
 - **"Real-time" ≠ prediction.** Live price/market cap IS in scope. The Live Context Feed shows raw items only — no scoring/forecasting.
 
 ### Models: Gemini only
-All LLM calls go through the central router (`services/engine/llm/router.py`); IDs from env. **No other provider.**
+All LLM calls go through the central router (`services/engine/llm/router.py`); IDs from env. **No other provider.** Defaults are real, current Gemini IDs (verify against Google docs before changing; the gemini-3.x names below were placeholders that don't exist on the API).
 | Tier | Job | Model (env-overridable) |
 |---|---|---|
-| `DEEP` | blueprint analysis, hidden-vendor inference, VSCA-est, Pro re-check of extractions | `gemini-3.1-pro-preview` |
-| `MEDIUM` | precise claim extraction from filings (PDF/img), cost-bucket typing | `gemini-3.5-flash` |
-| `LOW` | source normalization, entity-resolution hints, JSON formatting, feed tagging | `gemini-3.1-flash-lite` |
-| `RESEARCH` | broad worldwide constituent discovery | Gemini Deep Research Agent (preview) |
+| `DEEP` | blueprint analysis, hidden-vendor inference, VSCA-est, Pro re-check of extractions | `gemini-2.5-pro` |
+| `MEDIUM` | precise claim extraction from filings (PDF/img), cost-bucket typing | `gemini-2.5-flash` |
+| `LOW` | source normalization, entity-resolution hints, JSON formatting, feed tagging | `gemini-2.5-flash-lite` |
+| `RESEARCH` | broad worldwide constituent discovery | Gemini Deep Research Agent (preview) → `gemini-2.5-pro` until wired |
 
 ### Two-Track architecture (memorize)
 ```
@@ -150,10 +150,10 @@ DATABASE_URL=            # Postgres
 REDIS_URL=
 PINECONE_API_KEY=
 MARKET_DATA_API_KEY=     # licensed price/market-cap feed
-# model ids (overridable)
-MODEL_DEEP=gemini-3.1-pro-preview
-MODEL_MEDIUM=gemini-3.5-flash
-MODEL_LOW=gemini-3.1-flash-lite
+# model ids (overridable; defaults are real Gemini IDs)
+MODEL_DEEP=gemini-2.5-pro
+MODEL_MEDIUM=gemini-2.5-flash
+MODEL_LOW=gemini-2.5-flash-lite
 ```
 
 ---

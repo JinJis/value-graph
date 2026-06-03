@@ -26,15 +26,16 @@ class Tier(StrEnum):
     RESEARCH = "RESEARCH"
 
 
-# Built-in defaults (CLAUDE.md §3). NOT a source of truth — env overrides win;
-# verify IDs against current Google docs before changing.
+# Built-in defaults: real, current Gemini model IDs (env overrides win). The PRD's
+# gemini-3.x names are placeholders that don't exist on the API; verify against current
+# Google docs before changing.
 DEFAULT_MODELS: Mapping[Tier, str] = {
-    Tier.DEEP: "gemini-3.1-pro-preview",
-    Tier.MEDIUM: "gemini-3.5-flash",
-    Tier.LOW: "gemini-3.1-flash-lite",
+    Tier.DEEP: "gemini-2.5-pro",
+    Tier.MEDIUM: "gemini-2.5-flash",
+    Tier.LOW: "gemini-2.5-flash-lite",
     # The real Deep Research Agent is wired in M1-DISC-04; until then RESEARCH
     # routes to the DEEP model so the path is exercisable.
-    Tier.RESEARCH: "gemini-3.1-pro-preview",
+    Tier.RESEARCH: "gemini-2.5-pro",
 }
 
 ENV_VAR: Mapping[Tier, str] = {
