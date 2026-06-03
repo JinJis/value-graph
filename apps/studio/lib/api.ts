@@ -30,6 +30,26 @@ export interface Source {
   content_url: string;
 }
 
+export interface DataQuality {
+  verified: number;
+  derived: number;
+  estimated: number;
+  gap: number;
+}
+
+export interface QualityReport {
+  theme_id: string;
+  snapshot_version: number;
+  total: number;
+  counts: {
+    verified: number;
+    derived: number;
+    estimated: number;
+    gap: number;
+  };
+  quality: DataQuality;
+}
+
 const url = (path: string): string => `${ENGINE_URL}${path}`;
 
 async function json<T>(response: Response): Promise<T> {
@@ -270,4 +290,16 @@ export async function uploadTicketEvidence(
       body: form,
     }),
   );
+}
+
+// Read-only data-quality meter for a theme's currently published graph.
+// Returns null when nothing has been published yet (404).
+export async function getThemeQuality(
+  id: string,
+): Promise<QualityReport | null> {
+  const response = await fetch(url(`/themes/${id}/quality`), {
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  return json(response);
 }
