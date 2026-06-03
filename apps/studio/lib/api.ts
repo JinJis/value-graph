@@ -303,3 +303,32 @@ export async function getThemeQuality(
   if (response.status === 404) return null;
   return json(response);
 }
+
+// --- Jobs (M7-SCHED-04) ---
+
+export interface CveJob {
+  id: string;
+  theme_id: string;
+  company: string;
+  trigger: string;
+  reason: string | null;
+  affected_edges: string[];
+  status: string;
+  attempts: number;
+  next_retry_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listJobs(
+  themeId?: string,
+  status?: string,
+): Promise<CveJob[]> {
+  const params = new URLSearchParams();
+  if (themeId) params.set("theme_id", themeId);
+  if (status) params.set("status", status);
+  const qs = params.toString();
+  return json(
+    await fetch(url(`/jobs${qs ? `?${qs}` : ""}`), { cache: "no-store" }),
+  );
+}

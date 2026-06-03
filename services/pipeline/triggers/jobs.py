@@ -26,9 +26,15 @@ class JobQueue(Protocol):
 
     def list_pending(self, theme_id: str | None = None) -> list[CveJob]: ...
 
+    def list_jobs(self, theme_id: str | None = None, status: str | None = None) -> list[CveJob]: ...
+
     def get(self, job_id: str) -> CveJob | None: ...
 
     def set_status(self, job_id: str, status: str) -> CveJob | None: ...
+
+    def reschedule(
+        self, job_id: str, *, status: str, attempts: int, next_retry_at: datetime | None
+    ) -> CveJob | None: ...
 
 
 def _new_job(data: CveJobCreate, *, job_id: str, now: datetime, status: str = PENDING) -> CveJob:
@@ -51,7 +57,12 @@ class InMemoryJobQueue:
         return job
 
     def list_pending(self, theme_id: str | None = None) -> list[CveJob]:
-        jobs = [j for j in self._jobs.values() if j.status == PENDING]
+        return self.list_jobs(theme_id, status=PENDING)
+
+    def list_jobs(self, theme_id: str | None = None, status: str | None = None) -> list[CveJob]:
+        jobs = list(self._jobs.values())
+        if status is not None:
+            jobs = [j for j in jobs if j.status == status]
         if theme_id is not None:
             jobs = [j for j in jobs if j.theme_id == theme_id]
         return sorted(jobs, key=lambda j: j.created_at)
@@ -67,9 +78,27 @@ class InMemoryJobQueue:
         self._jobs[job_id] = updated
         return updated
 
+    def reschedule(
+        self, job_id: str, *, status: str, attempts: int, next_retry_at: datetime | None
+    ) -> CveJob | None:
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        updated = job.model_copy(
+            update={
+                "status": status,
+                "attempts": attempts,
+                "next_retry_at": next_retry_at,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self._jobs[job_id] = updated
+        return updated
+
 
 def _row_to_job(row: dict[str, Any]) -> CveJob:
     payload = row["payload"] or {}
+    raw_retry = payload.get("next_retry_at")
     return CveJob(
         id=str(row["id"]),
         theme_id=str(row["theme_id"]),
@@ -78,6 +107,8 @@ def _row_to_job(row: dict[str, Any]) -> CveJob:
         reason=payload.get("reason"),
         affected_edges=payload.get("affected_edges", []),
         status=row["status"],
+        attempts=payload.get("attempts", 0),
+        next_retry_at=datetime.fromisoformat(raw_retry) if raw_retry else None,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -99,6 +130,8 @@ class PostgresJobQueue:
             "trigger": data.trigger,
             "reason": data.reason,
             "affected_edges": data.affected_edges,
+            "attempts": 0,
+            "next_retry_at": None,
         }
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
@@ -111,17 +144,39 @@ class PostgresJobQueue:
             return _row_to_job(row)
 
     def list_pending(self, theme_id: str | None = None) -> list[CveJob]:
-        clauses = ["type = %s", "status = %s"]
-        params: list[Any] = [CVE_JOB_TYPE, PENDING]
+        return self.list_jobs(theme_id, status=PENDING)
+
+    def list_jobs(self, theme_id: str | None = None, status: str | None = None) -> list[CveJob]:
+        clauses = ["type = %s"]
+        params: list[Any] = [CVE_JOB_TYPE]
+        if status is not None:
+            clauses.append("status = %s")
+            params.append(status)
         if theme_id is not None:
             clauses.append("theme_id = %s")
             params.append(theme_id)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_COLS} FROM jobs WHERE {' AND '.join(clauses)} ORDER BY created_at",
+                f"SELECT {_COLS} FROM jobs WHERE {' AND '.join(clauses)} ORDER BY created_at DESC",
                 tuple(params),
             )
             return [_row_to_job(row) for row in cur.fetchall()]
+
+    def reschedule(
+        self, job_id: str, *, status: str, attempts: int, next_retry_at: datetime | None
+    ) -> CveJob | None:
+        patch = {
+            "attempts": attempts,
+            "next_retry_at": next_retry_at.isoformat() if next_retry_at else None,
+        }
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET status = %s, payload = payload || %s, updated_at = now() "
+                f"WHERE id = %s AND type = %s RETURNING {_COLS}",
+                (status, Jsonb(patch), job_id, CVE_JOB_TYPE),
+            )
+            row = cur.fetchone()
+            return _row_to_job(row) if row is not None else None
 
     def get(self, job_id: str) -> CveJob | None:
         with self._connect() as conn, conn.cursor() as cur:

@@ -30,6 +30,8 @@ class CveJob(BaseModel):
     reason: str | None
     affected_edges: list[str]
     status: str
+    attempts: int = 0  # how many times the scheduler has run it
+    next_retry_at: datetime | None = None  # earliest re-run time after a failure (backoff)
     created_at: datetime
     updated_at: datetime
 
@@ -39,4 +41,6 @@ class CveJob(BaseModel):
             "trigger": self.trigger,
             "reason": self.reason,
             "affected_edges": self.affected_edges,
+            "attempts": self.attempts,
+            "next_retry_at": self.next_retry_at.isoformat() if self.next_retry_at else None,
         }
