@@ -6,14 +6,23 @@ import { useEffect, useState } from "react";
 
 import {
   approveBlueprint,
-  generateBlueprint,
+  generateBlueprintStream,
   getBlueprint,
   getTheme,
   saveBlueprint,
   type BlueprintCompany,
+  type BlueprintEvent,
   type Coverage,
   type Theme,
 } from "../../../../lib/api";
+import { BlueprintProgress, type Prog } from "./Progress";
+
+const EMPTY_PROG: Prog = {
+  output: "",
+  steps: [],
+  done: false,
+  running: false,
+};
 
 interface EditCompany {
   ticker: string;
@@ -91,6 +100,7 @@ export default function BlueprintReviewPage() {
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState<Prog>(EMPTY_PROG);
 
   async function load() {
     try {
@@ -151,11 +161,90 @@ export default function BlueprintReviewPage() {
       setCoverage(r.coverage);
     }, "Save");
 
+  function onProgEvent(e: BlueprintEvent) {
+    setProg((p) => {
+      const next: Prog = { ...p };
+      switch (e.event) {
+        case "model":
+          next.model = { tier: String(e.tier), model: String(e.model) };
+          next.steps = [
+            ...p.steps,
+            { label: `Routed to ${e.tier} model ${e.model}`, tone: "ok" },
+          ];
+          break;
+        case "endpoint":
+          next.endpoint = {
+            provider: String(e.provider),
+            method: String(e.method),
+          };
+          break;
+        case "prompt":
+          next.prompt = String(e.text);
+          next.steps = [
+            ...p.steps,
+            { label: `Built prompt (${e.chars} chars)` },
+          ];
+          break;
+        case "llm_start":
+          next.output = "";
+          next.steps = [
+            ...p.steps,
+            { label: `Calling Gemini (attempt ${e.attempt}/${e.attempts})` },
+          ];
+          break;
+        case "chunk":
+          next.output = p.output + String(e.text);
+          break;
+        case "parse":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `Parse: ${e.status}`,
+              detail: e.detail ? String(e.detail).slice(0, 160) : undefined,
+              tone:
+                e.status === "ok"
+                  ? "ok"
+                  : e.status === "retry"
+                    ? "warn"
+                    : "err",
+            },
+          ];
+          break;
+        case "validate":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `Validated ${e.companies} companies`,
+              tone: "ok",
+            },
+          ];
+          break;
+        case "saved":
+          next.steps = [
+            ...p.steps,
+            { label: `Saved blueprint v${e.version}`, tone: "ok" },
+          ];
+          break;
+        case "error":
+          next.error = String(e.detail);
+          next.running = false;
+          break;
+        case "done":
+          next.done = true;
+          next.running = false;
+          break;
+      }
+      return next;
+    });
+  }
+
   const onGenerate = () =>
     run(async () => {
-      await generateBlueprint(themeId);
+      setProg({ ...EMPTY_PROG, running: true });
+      await generateBlueprintStream(themeId, onProgEvent);
+      setProg((p) => ({ ...p, running: false }));
       await load();
-    }, "Generate (needs GOOGLE_API_KEY)");
+    }, "Generate (DEEP)");
 
   const onApprove = () =>
     run(async () => setTheme(await approveBlueprint(themeId)), "Approve");
@@ -197,6 +286,8 @@ export default function BlueprintReviewPage() {
         </p>
       )}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
+
+      <BlueprintProgress prog={prog} />
 
       <p>
         <label>

@@ -3,9 +3,12 @@ iterative refinement (2-3 rounds) is [M1-BLU-03]."""
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from services.engine.blueprint.coverage import summarize
 from services.engine.blueprint.discover import discover_companies
@@ -22,6 +25,7 @@ from services.engine.blueprint.repository import (
     BlueprintRepository,
     PostgresBlueprintRepository,
 )
+from services.engine.blueprint.stream import generate_blueprint_events
 from services.engine.db.config import DbSettings
 from services.engine.llm.router import LLMRouter
 from services.engine.themes.models import Theme
@@ -62,6 +66,49 @@ def generate_theme_blueprint(
     blueprint = generate_blueprint(theme, source_hints, llm, version=version)
     record = blueprints.save(blueprint)
     return BlueprintResponse(blueprint=record, coverage=summarize(record))
+
+
+@router.post("/themes/{theme_id}/blueprint/stream")
+def stream_theme_blueprint(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    llm: RouterDep,
+) -> StreamingResponse:
+    """Generate the blueprint as a live Server-Sent Events stream.
+
+    Same generation + persistence as POST ``/blueprint`` but observable: emits the
+    routed model, the endpoint, the exact prompt, the model output as it streams,
+    and the saved result. The DEEP call takes tens of seconds; streaming keeps the
+    connection alive and shows progress instead of looking like a hung request.
+    """
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    source_hints = [
+        f"{s.original_filename or s.url or s.id} ({s.type})"
+        for s in themes.list_sources(theme_id)
+    ]
+
+    def sse() -> Iterator[bytes]:
+        events = generate_blueprint_events(theme, source_hints, llm, blueprints)
+        try:
+            for event in events:
+                yield f"data: {json.dumps(event)}\n\n".encode()
+        except Exception as exc:  # never crash the stream silently
+            err = {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
+            yield f"data: {json.dumps(err)}\n\n".encode()
+
+    return StreamingResponse(
+        sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Disable proxy buffering so events arrive incrementally (nginx/Next).
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/themes/{theme_id}/blueprint/refine", response_model=RefinementResult)

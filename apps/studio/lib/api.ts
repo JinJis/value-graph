@@ -204,6 +204,57 @@ export async function generateBlueprint(
   );
 }
 
+// A single progress event from the streaming blueprint endpoint. `event` names the
+// step (model / endpoint / prompt / llm_start / chunk / parse / validate / saved /
+// error / done); other fields depend on the step (see engine blueprint/stream.py).
+export interface BlueprintEvent {
+  event: string;
+  [key: string]: unknown;
+}
+
+// Generate the blueprint over Server-Sent Events, invoking `onEvent` per step so the
+// UI can show live progress (model, prompt, streamed output, saved result). Uses a
+// streaming fetch (not EventSource, which can't POST) and parses SSE frames manually.
+export async function generateBlueprintStream(
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(url(`/themes/${themeId}/blueprint/stream`), {
+    method: "POST",
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    await json(response); // reuse the detail-extracting error path
+    return;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line.
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        try {
+          onEvent(JSON.parse(payload) as BlueprintEvent);
+        } catch {
+          /* ignore malformed frame */
+        }
+      }
+    }
+  }
+}
+
 export async function approveBlueprint(themeId: string): Promise<Theme> {
   return json(
     await fetch(url(`/themes/${themeId}/blueprint/approve`), {

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -58,7 +58,13 @@ def resolve_tier(tier: Tier | str) -> Tier:
 
 
 class TextGenerator(Protocol):
-    """The single capability the router needs: turn a prompt into text."""
+    """The single capability the router needs: turn a prompt into text.
+
+    A generator MAY also expose ``generate_text_stream(*, model, prompt) ->
+    Iterator[str]`` to stream chunks; it's intentionally NOT part of this Protocol
+    so simple fakes stay valid. :meth:`LLMRouter.generate_stream` detects it at
+    runtime and falls back to a single :meth:`generate_text` chunk otherwise.
+    """
 
     def generate_text(self, *, model: str, prompt: str) -> str: ...
 
@@ -107,6 +113,17 @@ class GeminiTextGenerator:
         text = response.text
         return text if isinstance(text, str) else ""
 
+    def generate_text_stream(self, *, model: str, prompt: str) -> Iterator[str]:
+        client = self._get_client()
+        try:
+            stream = client.models.generate_content_stream(model=model, contents=prompt)
+            for chunk in stream:
+                piece = getattr(chunk, "text", None)
+                if isinstance(piece, str) and piece:
+                    yield piece
+        except Exception as exc:
+            raise GeminiError(f"Gemini stream failed for model {model!r}: {exc}") from exc
+
     def __repr__(self) -> str:
         # Never expose the key.
         return f"GeminiTextGenerator(api_key={'***' if self._api_key else None})"
@@ -148,6 +165,21 @@ class LLMRouter:
         # Log routing only — never the API key, never the prompt contents.
         logger.info("llm.generate tier=%s model=%s", resolved.value, model)
         return self._generator.generate_text(model=model, prompt=prompt)
+
+    def generate_stream(self, tier: Tier | str, prompt: str) -> Iterator[str]:
+        """Stream text chunks for ``prompt`` on the model bound to ``tier``.
+
+        Falls back to a single chunk if the underlying generator can't stream, so
+        callers always get the same text either way.
+        """
+        resolved = resolve_tier(tier)
+        model = self._models[resolved]
+        logger.info("llm.generate_stream tier=%s model=%s", resolved.value, model)
+        stream = getattr(self._generator, "generate_text_stream", None)
+        if stream is None:
+            yield self._generator.generate_text(model=model, prompt=prompt)
+            return
+        yield from stream(model=model, prompt=prompt)
 
     def __repr__(self) -> str:
         return f"LLMRouter(models={self._models!r}, generator={self._generator!r})"
