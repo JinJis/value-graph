@@ -29,14 +29,21 @@ async def _invalid_transition_handler(_: Request, exc: InvalidTransition) -> JSO
 
 
 # Studio (Admin, :3001) and Terminal (User, :3000) run on different origins; allow
-# them to call the API directly. Override with CORS_ORIGINS (comma-separated).
-_default_origins = "http://localhost:3001,http://localhost:3000"
-_cors_origins = os.environ.get("CORS_ORIGINS", _default_origins).split(",")
+# them to call the API directly. By default we accept those two ports on ANY host
+# (localhost OR a remote server's IP/hostname), since the apps resolve the engine at
+# whatever host they were loaded from. No credentials are used, so this is safe.
+# Override with CORS_ORIGINS (comma-separated exact origins, or "*").
+_cors_env = os.environ.get("CORS_ORIGINS")
+_cors_kwargs: dict[str, object] = (
+    {"allow_origins": [o.strip() for o in _cors_env.split(",") if o.strip()]}
+    if _cors_env
+    else {"allow_origin_regex": r"https?://[^/]+:(3000|3001)"}
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in _cors_origins if origin.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
+    **_cors_kwargs,  # type: ignore[arg-type]
 )
 
 app.include_router(themes_router)

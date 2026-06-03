@@ -3,10 +3,18 @@
 
 import type { PublishedGraph, ThemeSummary } from "./types";
 
-const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:8000";
+// Resolve the engine URL at runtime from the host the browser loaded Terminal from
+// (port 8000), so it works on localhost and a remote server without a rebuild.
+export function engineUrl(): string {
+  if (process.env.NEXT_PUBLIC_ENGINE_URL)
+    return process.env.NEXT_PUBLIC_ENGINE_URL;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return "http://localhost:8000";
+}
 
-const url = (path: string): string => `${ENGINE_URL}${path}`;
+const url = (path: string): string => `${engineUrl()}${path}`;
 
 export async function listThemes(): Promise<ThemeSummary[]> {
   const res = await fetch(url("/themes"), { cache: "no-store" });

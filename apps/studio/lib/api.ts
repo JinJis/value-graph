@@ -1,6 +1,15 @@
-// Minimal client for the ValueGraph Engine API (CORS-enabled). Base URL from env.
-const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:8000";
+// Minimal client for the ValueGraph Engine API (CORS-enabled).
+// Engine URL resolves at runtime: NEXT_PUBLIC_ENGINE_URL override, else the SAME host
+// the browser loaded Studio from on port 8000 (so it works on localhost AND a remote
+// server without a rebuild), falling back to localhost for SSR.
+function engineUrl(): string {
+  if (process.env.NEXT_PUBLIC_ENGINE_URL)
+    return process.env.NEXT_PUBLIC_ENGINE_URL;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return "http://localhost:8000";
+}
 
 export interface Theme {
   id: string;
@@ -50,7 +59,7 @@ export interface QualityReport {
   quality: DataQuality;
 }
 
-const url = (path: string): string => `${ENGINE_URL}${path}`;
+const url = (path: string): string => `${engineUrl()}${path}`;
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
