@@ -58,7 +58,27 @@ const url = (path: string): string => `${engineUrl()}${path}`;
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    // Surface the engine's real cause: FastAPI returns {"detail": "..."} (our
+    // catch-all puts the exception type + message there). Fall back to raw text,
+    // then to the status line, so the UI never just says "500".
+    let detail = "";
+    try {
+      const body = await response.clone().json();
+      detail =
+        typeof body?.detail === "string"
+          ? body.detail
+          : body?.detail
+            ? JSON.stringify(body.detail)
+            : "";
+    } catch {
+      try {
+        detail = (await response.text()).slice(0, 500);
+      } catch {
+        detail = "";
+      }
+    }
+    const head = `${response.status} ${response.statusText}`.trim();
+    throw new Error(detail ? `${head} — ${detail}` : head);
   }
   return response.json() as Promise<T>;
 }

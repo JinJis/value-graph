@@ -5,9 +5,11 @@ Run with `uvicorn services.engine.main:app --reload` or `python -m services.engi
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -20,12 +22,54 @@ from services.engine.themes.router import router as themes_router
 from services.engine.tickets.router import router as tickets_router
 from services.engine.tickets.state import InvalidTransition
 
+logger = logging.getLogger("valuegraph.engine")
+
+
+def _configure_logging() -> None:
+    """Make our ``valuegraph.*`` logs actually appear under uvicorn.
+
+    Uvicorn only attaches handlers to its own loggers, so our ``logger.info``
+    diagnostics (e.g. ``llm.generate tier=DEEP model=...``) get swallowed. Bind
+    a stream handler to the ``valuegraph`` root once, at LOG_LEVEL (default INFO).
+    """
+    vg = logging.getLogger("valuegraph")
+    level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    vg.setLevel(level)
+    if not vg.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+        vg.addHandler(handler)
+
+
+_configure_logging()
+
 app = FastAPI(title="ValueGraph Engine", version="0.0.0")
 
 
 @app.exception_handler(InvalidTransition)
 async def _invalid_transition_handler(_: Request, exc: InvalidTransition) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all: log the full traceback server-side AND return a concrete detail.
+
+    FastAPI's default turns any uncaught error into a bare ``500 Internal Server
+    Error`` with no body, so the admin (Studio) sees only "500" and the cause is
+    invisible. This engine powers an internal admin tool, so surfacing the
+    exception type + message is intended — it makes failures debuggable. The
+    LLM router never logs the API key, and Gemini SDK errors don't carry it, so
+    no secret leaks here.
+    """
+    # Let explicit HTTPExceptions keep their intended status/detail.
+    if isinstance(exc, HTTPException):
+        raise exc
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
 
 
 # Studio (Admin, :3001) and Terminal (User, :3000) run on different origins; allow

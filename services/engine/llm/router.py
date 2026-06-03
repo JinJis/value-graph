@@ -63,6 +63,20 @@ class TextGenerator(Protocol):
     def generate_text(self, *, model: str, prompt: str) -> str: ...
 
 
+class GeminiError(RuntimeError):
+    """A Gemini SDK/network call failed — carries the model + underlying cause."""
+
+
+def _gemini_timeout_ms() -> int:
+    """Per-call HTTP timeout (ms). Without it a blocked egress hangs forever and the
+    upstream proxy resets the socket ("socket hang up") with no usable error."""
+    raw = os.environ.get("GEMINI_TIMEOUT_SECONDS", "120")
+    try:
+        return max(1, int(float(raw))) * 1000
+    except ValueError:
+        return 120_000
+
+
 class GeminiTextGenerator:
     """Production :class:`TextGenerator` backed by the ``google-genai`` SDK."""
 
@@ -75,13 +89,21 @@ class GeminiTextGenerator:
             if not self._api_key:
                 raise RuntimeError("GOOGLE_API_KEY is not set; cannot call Gemini.")
             from google import genai  # lazy: unit tests never need the SDK installed
+            from google.genai import types
 
-            self._client = genai.Client(api_key=self._api_key)
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=types.HttpOptions(timeout=_gemini_timeout_ms()),
+            )
         return self._client
 
     def generate_text(self, *, model: str, prompt: str) -> str:
         client = self._get_client()
-        response = client.models.generate_content(model=model, contents=prompt)
+        try:
+            response = client.models.generate_content(model=model, contents=prompt)
+        except Exception as exc:  # SDK errors, timeouts, network — make them legible
+            # Never include the prompt or key; just the model and the cause.
+            raise GeminiError(f"Gemini call failed for model {model!r}: {exc}") from exc
         text = response.text
         return text if isinstance(text, str) else ""
 
