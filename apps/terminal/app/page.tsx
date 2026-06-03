@@ -18,6 +18,8 @@ import { mockMarketFeed } from "../canvas/marketFeed";
 import type { PublishedGraph, ThemeSummary } from "../canvas/types";
 import { Drawer } from "../drawer/Drawer";
 import { FeedPanel } from "../feed/FeedPanel";
+import { TimelinePanel } from "../timeline/TimelinePanel";
+import { buildTimeline } from "../timeline/timeline";
 
 // R3F renders to <canvas>; it cannot server-render.
 const Scene = dynamic(() => import("../canvas/Scene").then((m) => m.Scene), {
@@ -84,8 +86,14 @@ export default function TerminalPage() {
   const [graph, setGraph] = useState<PublishedGraph | null>(null);
   const [status, setStatus] = useState<string>("Loading themes…");
   const [depthLimit, setDepthLimit] = useState<number>(99);
+  const [showTimeline, setShowTimeline] = useState(false);
   const selected = useSelection((s) => s.selected);
   const clearSelection = useSelection((s) => s.clear);
+
+  const timeline = useMemo(
+    () => (graph ? buildTimeline(graph) : null),
+    [graph],
+  );
 
   const { depth, maxDepth } = useMemo(
     () =>
@@ -213,12 +221,41 @@ export default function TerminalPage() {
             </small>
           </label>
         )}
+        {graph && timeline && timeline.entries.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowTimeline((v) => !v)}
+            title="Upcoming data updates"
+            style={{
+              background: showTimeline ? "#1b2840" : "transparent",
+              color: "#cdd6e4",
+              border: "1px solid #2f4a73",
+              borderRadius: 999,
+              padding: "2px 10px",
+              cursor: "pointer",
+            }}
+          >
+            ⏱ Updates
+            {timeline.overdue > 0 && (
+              <span style={{ color: "#f87272" }}>
+                {" "}
+                · {timeline.overdue} overdue
+              </span>
+            )}
+          </button>
+        )}
         <small style={{ opacity: 0.5 }}>Not investment advice.</small>
       </header>
 
-      {graph && <Legend />}
+      {graph && !showTimeline && <Legend />}
       {graph && <Drawer graph={graph} />}
       {graph && <FeedPanel themeId={themeId} />}
+      {graph && timeline && showTimeline && (
+        <TimelinePanel
+          timeline={timeline}
+          onClose={() => setShowTimeline(false)}
+        />
+      )}
 
       <div style={{ position: "absolute", inset: 0 }}>
         {graph ? (

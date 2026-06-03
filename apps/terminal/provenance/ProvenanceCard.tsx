@@ -9,6 +9,7 @@ import {
   formatFreshnessLine,
   formatInterval,
   formatValue,
+  isStale,
   type FigureProvenance,
 } from "./provenance";
 
@@ -56,6 +57,22 @@ export function ProvenanceCard({ figure }: { figure: FigureProvenance }) {
       <div style={{ opacity: 0.7 }}>
         {formatFreshnessLine(figure.asOf, figure.nextUpdate)}
       </div>
+      {isStale(figure.freshness, figure.nextUpdate) && (
+        <span
+          style={{
+            display: "inline-block",
+            marginTop: 4,
+            background: "#2a1414",
+            color: "#f8a5a5",
+            border: "1px solid #7a2f2f",
+            borderRadius: 4,
+            padding: "1px 6px",
+            fontSize: 11,
+          }}
+        >
+          update expected
+        </span>
+      )}
 
       <div style={{ marginTop: 6 }}>
         <span style={{ opacity: 0.55 }}>Source: </span>

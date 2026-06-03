@@ -36,6 +36,18 @@ export function formatInterval(interval: ConfidenceInterval | null): string {
   return `[${interval.low.toFixed(1)} – ${interval.high.toFixed(1)}]`;
 }
 
+// Stale = scored stale, or the next expected update has already passed (overdue).
+export function isStale(
+  freshness: string,
+  nextUpdate: string | null,
+  today: Date = new Date(),
+): boolean {
+  if (freshness === "stale") return true;
+  if (!nextUpdate) return false;
+  const next = Date.parse(nextUpdate);
+  return !Number.isNaN(next) && next < today.getTime();
+}
+
 // "as of 2026-05-20 · 13 days old · next: 2026-08-15"
 export function formatFreshnessLine(
   asOf: string | null,
