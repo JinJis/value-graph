@@ -17,6 +17,7 @@ export interface Theme {
 export interface Source {
   id: string;
   theme_id: string;
+  ticket_id: string | null;
   type: string;
   publisher: string | null;
   as_of_date: string | null;
@@ -27,6 +28,26 @@ export interface Source {
   content_type: string | null;
   created_at: string;
   content_url: string;
+}
+
+export interface DataQuality {
+  verified: number;
+  derived: number;
+  estimated: number;
+  gap: number;
+}
+
+export interface QualityReport {
+  theme_id: string;
+  snapshot_version: number;
+  total: number;
+  counts: {
+    verified: number;
+    derived: number;
+    estimated: number;
+    gap: number;
+  };
+  quality: DataQuality;
 }
 
 const url = (path: string): string => `${ENGINE_URL}${path}`;
@@ -164,5 +185,150 @@ export async function approveBlueprint(themeId: string): Promise<Theme> {
     await fetch(url(`/themes/${themeId}/blueprint/approve`), {
       method: "POST",
     }),
+  );
+}
+
+// --- Tickets ---
+
+export interface Ticket {
+  id: string;
+  theme_id: string;
+  target: string;
+  metric: string;
+  reason: string | null;
+  status: string;
+  reason_code: string | null;
+  current_estimate: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerateResult {
+  created: number;
+  skipped: number;
+}
+
+export async function listTickets(
+  themeId: string,
+  status?: string,
+): Promise<Ticket[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return json(
+    await fetch(url(`/themes/${themeId}/tickets${query}`), {
+      cache: "no-store",
+    }),
+  );
+}
+
+export async function generateTickets(
+  themeId: string,
+): Promise<GenerateResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/tickets/generate`), { method: "POST" }),
+  );
+}
+
+export async function listTicketSources(ticketId: string): Promise<Source[]> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/sources`), { cache: "no-store" }),
+  );
+}
+
+export interface TicketEvent {
+  id: string;
+  ticket_id: string;
+  from_status: string | null;
+  to_status: string;
+  actor: string;
+  reason_code: string | null;
+  created_at: string;
+}
+
+export async function listTicketEvents(
+  ticketId: string,
+): Promise<TicketEvent[]> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/events`), { cache: "no-store" }),
+  );
+}
+
+export async function resolveTicket(
+  ticketId: string,
+  status: "UNRESOLVABLE" | "DEFERRED",
+  reasonCode: string,
+): Promise<Ticket> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/resolve`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, reason_code: reasonCode }),
+    }),
+  );
+}
+
+export async function uploadTicketEvidence(
+  ticketId: string,
+  opts: {
+    file?: File;
+    url?: string;
+    type?: string;
+    publisher?: string;
+    as_of_date?: string;
+    language?: string;
+  },
+): Promise<Source> {
+  const form = new FormData();
+  if (opts.file) form.append("file", opts.file);
+  if (opts.url) form.append("url", opts.url);
+  form.append("type", opts.type ?? "report");
+  if (opts.publisher) form.append("publisher", opts.publisher);
+  if (opts.as_of_date) form.append("as_of_date", opts.as_of_date);
+  if (opts.language) form.append("language", opts.language);
+  return json(
+    await fetch(url(`/tickets/${ticketId}/evidence`), {
+      method: "POST",
+      body: form,
+    }),
+  );
+}
+
+// Read-only data-quality meter for a theme's currently published graph.
+// Returns null when nothing has been published yet (404).
+export async function getThemeQuality(
+  id: string,
+): Promise<QualityReport | null> {
+  const response = await fetch(url(`/themes/${id}/quality`), {
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  return json(response);
+}
+
+// --- Jobs (M7-SCHED-04) ---
+
+export interface CveJob {
+  id: string;
+  theme_id: string;
+  company: string;
+  trigger: string;
+  reason: string | null;
+  affected_edges: string[];
+  status: string;
+  attempts: number;
+  next_retry_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listJobs(
+  themeId?: string,
+  status?: string,
+): Promise<CveJob[]> {
+  const params = new URLSearchParams();
+  if (themeId) params.set("theme_id", themeId);
+  if (status) params.set("status", status);
+  const qs = params.toString();
+  return json(
+    await fetch(url(`/jobs${qs ? `?${qs}` : ""}`), { cache: "no-store" }),
   );
 }

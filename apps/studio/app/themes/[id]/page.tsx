@@ -6,20 +6,84 @@ import { useEffect, useState } from "react";
 
 import {
   getTheme,
+  getThemeQuality,
   listSources,
   sourceContentUrl,
   uploadSource,
+  type QualityReport,
   type Source,
   type Theme,
 } from "../../../lib/api";
 
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 
+// verified / derived / estimated / gap — confidence-tier colours (CLAUDE.md §5).
+const TIERS = [
+  { key: "verified", label: "Verified", color: "#1b8a3a" },
+  { key: "derived", label: "Derived", color: "#2f6fb0" },
+  { key: "estimated", label: "Estimated", color: "#c98a00" },
+  { key: "gap", label: "Gap", color: "#b03030" },
+] as const;
+
+function DataQualityMeter({ report }: { report: QualityReport }) {
+  const q = report.quality;
+  return (
+    <div style={{ margin: "1rem 0" }}>
+      <h2 style={{ marginBottom: 4 }}>Data quality</h2>
+      <p style={{ margin: "0 0 8px" }}>
+        <small>
+          Published v{report.snapshot_version} · {report.total} relationships
+        </small>
+      </p>
+      <div
+        style={{
+          display: "flex",
+          height: 18,
+          borderRadius: 4,
+          overflow: "hidden",
+          border: "1px solid #ddd",
+        }}
+      >
+        {TIERS.map((t) => {
+          const pct = q[t.key];
+          return pct > 0 ? (
+            <div
+              key={t.key}
+              title={`${t.label}: ${pct}%`}
+              style={{ width: `${pct}%`, background: t.color }}
+            />
+          ) : null;
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
+        {TIERS.map((t) => (
+          <small
+            key={t.key}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                background: t.color,
+                display: "inline-block",
+                borderRadius: 2,
+              }}
+            />
+            {t.label} {q[t.key]}%
+          </small>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ThemeDetailPage() {
   const params = useParams<{ id: string }>();
   const themeId = params.id;
 
   const [theme, setTheme] = useState<Theme | null>(null);
+  const [quality, setQuality] = useState<QualityReport | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [type, setType] = useState("report");
@@ -29,12 +93,14 @@ export default function ThemeDetailPage() {
 
   async function refresh() {
     try {
-      const [t, s] = await Promise.all([
+      const [t, s, q] = await Promise.all([
         getTheme(themeId),
         listSources(themeId),
+        getThemeQuality(themeId),
       ]);
       setTheme(t);
       setSources(s);
+      setQuality(q);
       setError(null);
     } catch (e) {
       setError(`Could not load theme: ${String(e)}`);
@@ -82,7 +148,17 @@ export default function ThemeDetailPage() {
 
       <p>
         <Link href={`/themes/${themeId}/blueprint`}>→ Review blueprint</Link>
+        {" · "}
+        <Link href={`/themes/${themeId}/tickets`}>→ Ticket queue</Link>
       </p>
+
+      {quality ? (
+        <DataQualityMeter report={quality} />
+      ) : (
+        <p>
+          <small>Data quality appears here once the theme is published.</small>
+        </p>
+      )}
 
       <h2>Additional context</h2>
       <form

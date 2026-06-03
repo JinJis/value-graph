@@ -48,6 +48,7 @@ class SourceRecord(SourceCreate):
 
     id: str
     theme_id: str
+    ticket_id: str | None = None
     verification_status: str
     created_at: datetime
 
@@ -57,6 +58,7 @@ class SourceOut(BaseModel):
 
     id: str
     theme_id: str
+    ticket_id: str | None
     type: SourceType
     publisher: str | None
     as_of_date: date | None
@@ -73,6 +75,7 @@ def to_out(record: SourceRecord) -> SourceOut:
     return SourceOut(
         id=record.id,
         theme_id=record.theme_id,
+        ticket_id=record.ticket_id,
         type=record.type,
         publisher=record.publisher,
         as_of_date=record.as_of_date,

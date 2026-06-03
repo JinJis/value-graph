@@ -28,9 +28,13 @@ class ThemeRepository(Protocol):
 
     def set_status(self, theme_id: str, status: str) -> Theme | None: ...
 
-    def add_source(self, theme_id: str, data: SourceCreate) -> SourceRecord: ...
+    def add_source(
+        self, theme_id: str, data: SourceCreate, ticket_id: str | None = None
+    ) -> SourceRecord: ...
 
     def list_sources(self, theme_id: str) -> list[SourceRecord]: ...
+
+    def list_sources_for_ticket(self, ticket_id: str) -> list[SourceRecord]: ...
 
     def get_source(self, source_id: str) -> SourceRecord | None: ...
 
@@ -72,10 +76,13 @@ class InMemoryThemeRepository:
         self._themes[theme_id] = updated
         return updated
 
-    def add_source(self, theme_id: str, data: SourceCreate) -> SourceRecord:
+    def add_source(
+        self, theme_id: str, data: SourceCreate, ticket_id: str | None = None
+    ) -> SourceRecord:
         record = SourceRecord(
             id=str(uuid4()),
             theme_id=theme_id,
+            ticket_id=ticket_id,
             verification_status="unverified",
             created_at=datetime.now(UTC),
             **data.model_dump(),
@@ -85,6 +92,9 @@ class InMemoryThemeRepository:
 
     def list_sources(self, theme_id: str) -> list[SourceRecord]:
         return [s for s in self._sources.values() if s.theme_id == theme_id]
+
+    def list_sources_for_ticket(self, ticket_id: str) -> list[SourceRecord]:
+        return [s for s in self._sources.values() if s.ticket_id == ticket_id]
 
     def get_source(self, source_id: str) -> SourceRecord | None:
         return self._sources.get(source_id)
@@ -108,6 +118,7 @@ def _row_to_source(row: dict[str, Any]) -> SourceRecord:
     return SourceRecord(
         id=str(row["id"]),
         theme_id=str(row["theme_id"]),
+        ticket_id=str(row["ticket_id"]) if row["ticket_id"] is not None else None,
         type=row["type"],
         publisher=row["publisher"],
         as_of_date=row["as_of_date"],
@@ -125,7 +136,7 @@ _THEME_COLS = (
     "published_at, created_at, updated_at"
 )
 _SOURCE_COLS = (
-    "id, theme_id, type, url, publisher, as_of_date, language, "
+    "id, theme_id, ticket_id, type, url, publisher, as_of_date, language, "
     "verification_status, storage_key, original_filename, content_type, created_at"
 )
 
@@ -171,15 +182,18 @@ class PostgresThemeRepository:
             row = cur.fetchone()
             return _row_to_theme(row) if row is not None else None
 
-    def add_source(self, theme_id: str, data: SourceCreate) -> SourceRecord:
+    def add_source(
+        self, theme_id: str, data: SourceCreate, ticket_id: str | None = None
+    ) -> SourceRecord:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sources "
-                "(theme_id, type, url, publisher, as_of_date, language, "
+                "(theme_id, ticket_id, type, url, publisher, as_of_date, language, "
                 "storage_key, original_filename, content_type) "
-                f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {_SOURCE_COLS}",
+                f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {_SOURCE_COLS}",
                 (
                     theme_id,
+                    ticket_id,
                     data.type,
                     data.url,
                     data.publisher,
@@ -199,6 +213,14 @@ class PostgresThemeRepository:
             cur.execute(
                 f"SELECT {_SOURCE_COLS} FROM sources WHERE theme_id = %s ORDER BY created_at",
                 (theme_id,),
+            )
+            return [_row_to_source(row) for row in cur.fetchall()]
+
+    def list_sources_for_ticket(self, ticket_id: str) -> list[SourceRecord]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {_SOURCE_COLS} FROM sources WHERE ticket_id = %s ORDER BY created_at",
+                (ticket_id,),
             )
             return [_row_to_source(row) for row in cur.fetchall()]
 
