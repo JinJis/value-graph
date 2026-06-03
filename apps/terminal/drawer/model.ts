@@ -5,8 +5,27 @@
 import { edgeKey } from "../canvas/controls";
 import type { MarketFeed } from "../canvas/marketFeed";
 import type { GraphCompany, GraphEdge, PublishedGraph } from "../canvas/types";
+import type { FigureProvenance } from "../provenance/provenance";
 
 export const UNSPECIFIED_PRODUCT = "(unspecified product)";
+
+function figureFromEdge(
+  edge: GraphEdge,
+  value: number | null,
+  unit: string,
+  sources: PublishedGraph["edge_sources"],
+): FigureProvenance {
+  return {
+    value,
+    unit,
+    interval: edge.confidence_interval ?? null,
+    confidence: edge.confidence,
+    freshness: edge.freshness,
+    asOf: edge.as_of_date ?? null,
+    nextUpdate: edge.next_expected_update ?? null,
+    sources: sources[edgeKey(edge.supplier, edge.customer)] ?? [],
+  };
+}
 
 export interface CustomerLink {
   key: string; // edge key for canvas highlighting
@@ -16,6 +35,7 @@ export interface CustomerLink {
   confidence: string;
   freshness: string;
   gap: boolean;
+  provenance: FigureProvenance;
 }
 
 export interface ProductGroup {
@@ -30,6 +50,7 @@ export interface SupplierLink {
   supplierRevShare: number | null;
   confidence: string;
   freshness: string;
+  provenance: FigureProvenance;
 }
 
 export interface MarketSnapshot {
@@ -45,19 +66,27 @@ export interface CompanyView {
   suppliers: SupplierLink[]; // incoming: who supplies this company
 }
 
-function customerLink(e: GraphEdge): CustomerLink {
+function customerLink(
+  e: GraphEdge,
+  sources: PublishedGraph["edge_sources"],
+): CustomerLink {
+  const share = e.customer_cost_share ?? null;
   return {
     key: edgeKey(e.supplier, e.customer),
     customer: e.customer,
-    customerCostShare: e.customer_cost_share ?? null,
+    customerCostShare: share,
     tradeValue: e.trade_value ?? null,
     confidence: e.confidence,
     freshness: e.freshness,
     gap: e.gap ?? false,
+    provenance: figureFromEdge(e, share, "% of cost", sources),
   };
 }
 
-function groupByProduct(edges: GraphEdge[]): ProductGroup[] {
+function groupByProduct(
+  edges: GraphEdge[],
+  sources: PublishedGraph["edge_sources"],
+): ProductGroup[] {
   const groups = new Map<string, ProductGroup>();
   for (const e of edges) {
     const product = e.product_ref ?? UNSPECIFIED_PRODUCT;
@@ -66,7 +95,7 @@ function groupByProduct(edges: GraphEdge[]): ProductGroup[] {
       g = { product, edgeKeys: [], customers: [] };
       groups.set(product, g);
     }
-    g.customers.push(customerLink(e));
+    g.customers.push(customerLink(e, sources));
     g.edgeKeys.push(edgeKey(e.supplier, e.customer));
   }
   return [...groups.values()];
@@ -92,13 +121,19 @@ export function buildCompanyView(
       marketCap: company.market_cap ?? feed.marketCap(ticker),
       live: feed.live,
     },
-    products: groupByProduct(outgoing),
+    products: groupByProduct(outgoing, graph.edge_sources),
     suppliers: incoming.map((e) => ({
       key: edgeKey(e.supplier, e.customer),
       supplier: e.supplier,
       supplierRevShare: e.supplier_rev_share ?? null,
       confidence: e.confidence,
       freshness: e.freshness,
+      provenance: figureFromEdge(
+        e,
+        e.supplier_rev_share ?? null,
+        "% of rev",
+        graph.edge_sources,
+      ),
     })),
   };
 }

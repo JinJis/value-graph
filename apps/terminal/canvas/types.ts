@@ -8,6 +8,11 @@ export interface GraphCompany {
   // ...other Company fields are ignored by the macro map.
 }
 
+export interface ConfidenceInterval {
+  low: number;
+  high: number;
+}
+
 export interface GraphEdge {
   supplier: string;
   customer: string;
@@ -18,10 +23,19 @@ export interface GraphEdge {
   customer_cost_share?: number | null;
   cost_bucket?: string | null;
   confidence: string; // verified | derived | estimated
+  confidence_interval?: ConfidenceInterval;
   freshness: string; // fresh | aging | stale | gap
   as_of_date?: string;
   next_expected_update?: string;
   gap?: boolean;
+}
+
+// A Source backing an edge's figures (PROV-02).
+export interface SourceRef {
+  source_id: string;
+  url?: string | null;
+  type?: string | null;
+  as_of_date?: string | null;
 }
 
 export interface GhostEdge {
@@ -39,6 +53,8 @@ export interface PublishedGraph {
   companies: GraphCompany[];
   edges: GraphEdge[];
   ghost_edges: GhostEdge[];
+  // "supplier->customer" -> the Source(s) backing that edge's figures.
+  edge_sources: Record<string, SourceRef[]>;
 }
 
 export interface ThemeSummary {

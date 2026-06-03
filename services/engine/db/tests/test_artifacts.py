@@ -139,3 +139,23 @@ def test_supplied_source_records_are_validated_and_stored() -> None:
     assert is_valid("Source", build.sources["src-intc"])
     assert build.sources["src-intc"]["url"] == "https://www.sec.gov/intc-10k"
     assert build.sources["src-tsm"] == {}  # not supplied -> bare reference
+
+
+def test_edge_sources_link_each_figure_to_its_document() -> None:
+    sources = [
+        {
+            "id": "src-intc",
+            "type": "filing",
+            "url": "https://www.sec.gov/intc-10k",
+            "as_of_date": "2026-05-20",
+        }
+    ]
+    build = build_from_cve(_state(), version=1, sources=sources, created_at=CREATED)
+
+    # Only the admitted (publishable) edge gets source refs; the gap edge does not.
+    assert set(build.edge_sources) == {"INTC->HPQ"}
+    refs = build.edge_sources["INTC->HPQ"]
+    assert len(refs) == 1
+    assert refs[0]["source_id"] == "src-intc"
+    assert refs[0]["url"] == "https://www.sec.gov/intc-10k"
+    assert refs[0]["as_of_date"] == "2026-05-20"

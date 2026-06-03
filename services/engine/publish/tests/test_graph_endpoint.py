@@ -27,6 +27,11 @@ def _snapshot() -> ProductionSnapshot:
             GapEdge(supplier="TSM", customer="NVDA", confidence="estimated",
                     freshness="gap", reason="missing as_of_date")
         ],
+        edge_sources={
+            "INTC->HPQ": [
+                {"source_id": "src-intc", "url": "https://sec.gov/x", "as_of_date": "2026-05-20"}
+            ]
+        },
     )
 
 
@@ -58,6 +63,8 @@ def test_graph_endpoint_serves_published_snapshot() -> None:
         assert {c["ticker"] for c in body["companies"]} == {"INTC", "HPQ"}
         assert body["edges"][0]["supplier"] == "INTC"
         assert body["ghost_edges"][0]["customer"] == "NVDA"
+        # Per-figure source links travel to the Terminal (PROV-02).
+        assert body["edge_sources"]["INTC->HPQ"][0]["url"] == "https://sec.gov/x"
         # No admin-only provenance leaks to the user-facing graph.
         assert "published_by" not in body
 

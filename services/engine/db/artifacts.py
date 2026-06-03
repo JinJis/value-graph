@@ -54,6 +54,34 @@ class ThemeBuild(BaseModel):
     claims: list[dict[str, Any]] = Field(default_factory=list)
     sources: dict[str, dict[str, Any]] = Field(default_factory=dict)  # source_id -> Source payload
     gap_edges: list[GapEdge] = Field(default_factory=list)
+    # "supplier->customer" -> the Source(s) backing that edge's figures (PROV-02).
+    edge_sources: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
+def edge_source_refs(
+    claims: list[dict[str, Any]], sources: dict[str, dict[str, Any]]
+) -> dict[str, list[dict[str, Any]]]:
+    """Per-edge Source references, derived from the claim->Source chain (PROV-02).
+
+    Every figure on an edge traces to the Source(s) of the claims that produced it;
+    each ref carries the link (url) + type + as_of so the Terminal can open the
+    actual document. Bare reference sources contribute ``url=None`` (id only).
+    """
+    out: dict[str, list[dict[str, Any]]] = {}
+    for claim in claims:
+        key = f"{claim['subject']}->{claim['object']}"
+        source_id = claim["source_id"]
+        meta = sources.get(source_id, {})
+        ref = {
+            "source_id": source_id,
+            "url": meta.get("url"),
+            "type": meta.get("type"),
+            "as_of_date": meta.get("as_of_date") or claim.get("as_of"),
+        }
+        refs = out.setdefault(key, [])
+        if not any(r["source_id"] == source_id for r in refs):
+            refs.append(ref)
+    return out
 
 
 def _edge_claims(edge: EdgeResult, claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -172,6 +200,11 @@ def build_from_cve(
     for claim in valid_claims:
         source_nodes.setdefault(claim["source_id"], {})
 
+    # Only keep source refs for edges that were admitted (publishable figures).
+    admitted_keys = {f"{e['supplier']}->{e['customer']}" for e in edges}
+    all_refs = edge_source_refs(valid_claims, source_nodes)
+    edge_sources = {k: v for k, v in all_refs.items() if k in admitted_keys}
+
     return ThemeBuild(
         theme_id=state.theme_id,
         version=version,
@@ -181,4 +214,5 @@ def build_from_cve(
         claims=valid_claims,
         sources=source_nodes,
         gap_edges=gap_edges,
+        edge_sources=edge_sources,
     )

@@ -7,13 +7,15 @@
 // edges on the canvas. Full provenance cards (M6-PROV-02) + edge inspector (M6-EDGE-03)
 // build on this.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { confidenceStyle, freshnessColor } from "../canvas/encoding";
 import { useSelection } from "../canvas/controls";
 import { mockMarketFeed } from "../canvas/marketFeed";
 import type { PublishedGraph } from "../canvas/types";
-import { buildCompanyView, formatMarketCap, type CustomerLink } from "./model";
+import { ProvenanceCard } from "../provenance/ProvenanceCard";
+import type { FigureProvenance } from "../provenance/provenance";
+import { buildCompanyView, formatMarketCap } from "./model";
 
 function Chip({
   confidence,
@@ -39,25 +41,43 @@ function Chip({
   );
 }
 
-function CustomerRow({ link }: { link: CustomerLink }) {
+// A relationship figure: label + share + chip, expandable to its provenance card.
+function FigureRow({
+  label,
+  share,
+  figure,
+}: {
+  label: string;
+  share: string;
+  figure: FigureProvenance;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <li
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 8,
-        padding: "3px 0",
-      }}
-    >
-      <span>{link.customer}</span>
-      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ opacity: 0.85 }}>
-          {link.customerCostShare != null
-            ? `${link.customerCostShare.toFixed(1)}% of cost`
-            : "—"}
+    <li style={{ padding: "3px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <span>{label}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ opacity: 0.85 }}>{share}</span>
+          <Chip confidence={figure.confidence} freshness={figure.freshness} />
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-label="Provenance"
+            title="Show provenance"
+            style={{
+              background: "transparent",
+              color: open ? "#8fd0ff" : "#5a6b86",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 13,
+              lineHeight: 1,
+            }}
+          >
+            ⓘ
+          </button>
         </span>
-        <Chip confidence={link.confidence} freshness={link.freshness} />
-      </span>
+      </div>
+      {open && <ProvenanceCard figure={figure} />}
     </li>
   );
 }
@@ -187,7 +207,16 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
               style={{ listStyle: "none", margin: "4px 0 0", padding: "0 4px" }}
             >
               {group.customers.map((c) => (
-                <CustomerRow key={c.key} link={c} />
+                <FigureRow
+                  key={c.key}
+                  label={c.customer}
+                  share={
+                    c.customerCostShare != null
+                      ? `${c.customerCostShare.toFixed(1)}% of cost`
+                      : "—"
+                  }
+                  figure={c.provenance}
+                />
               ))}
             </ul>
           </div>
@@ -199,31 +228,22 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
       </h3>
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {view.suppliers.map((s) => (
-          <li
+          <FigureRow
             key={s.key}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
-              padding: "3px 0",
-            }}
-          >
-            <span>{s.supplier}</span>
-            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ opacity: 0.85 }}>
-                {s.supplierRevShare != null
-                  ? `${s.supplierRevShare.toFixed(1)}% of rev`
-                  : "—"}
-              </span>
-              <Chip confidence={s.confidence} freshness={s.freshness} />
-            </span>
-          </li>
+            label={s.supplier}
+            share={
+              s.supplierRevShare != null
+                ? `${s.supplierRevShare.toFixed(1)}% of rev`
+                : "—"
+            }
+            figure={s.provenance}
+          />
         ))}
       </ul>
 
       <p style={{ marginTop: 14, opacity: 0.45, fontSize: 11 }}>
-        Per-figure provenance & edge inspector arrive next. Not investment
-        advice.
+        Tap ⓘ for a figure&apos;s source &amp; freshness. Edge inspector arrives
+        next. Not investment advice.
       </p>
     </aside>
   );

@@ -56,6 +56,8 @@ class AssembledGraph(BaseModel):
     companies: list[dict[str, Any]] = Field(default_factory=list)
     edges: list[dict[str, Any]] = Field(default_factory=list)  # publishable SuppliesEdges only
     ghost_edges: list[GapEdge] = Field(default_factory=list)
+    # "supplier->customer" -> backing Source refs, for per-figure provenance (PROV-02).
+    edge_sources: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
 
 
 def _completeness(publishable: int, gaps: int, threshold: float) -> CompletenessReport:
@@ -117,6 +119,9 @@ def assemble(
     admitted_tickers |= {t for g in build.gap_edges for t in (g.supplier, g.customer)}
     companies = [c for c in build.companies if c["ticker"] in admitted_tickers]
 
+    admitted_keys = {f"{e['supplier']}->{e['customer']}" for e in edges}
+    edge_sources = {k: v for k, v in build.edge_sources.items() if k in admitted_keys}
+
     return AssembledGraph(
         theme_id=build.theme_id,
         version=build.version,
@@ -126,4 +131,5 @@ def assemble(
         companies=companies,
         edges=edges,
         ghost_edges=list(build.gap_edges),
+        edge_sources=edge_sources,
     )

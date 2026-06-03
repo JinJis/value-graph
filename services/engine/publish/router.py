@@ -27,6 +27,7 @@ class PublishedGraph(BaseModel):
     companies: list[dict[str, Any]] = Field(default_factory=list)
     edges: list[dict[str, Any]] = Field(default_factory=list)
     ghost_edges: list[GapEdge] = Field(default_factory=list)
+    edge_sources: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
 
 
 def get_production_store() -> ProductionStore:
@@ -58,4 +59,5 @@ def theme_graph(theme_id: str, store: ProductionStoreDep) -> PublishedGraph:
         companies=snapshot.companies,
         edges=snapshot.edges,
         ghost_edges=snapshot.ghost_edges,
+        edge_sources=snapshot.edge_sources,
     )
