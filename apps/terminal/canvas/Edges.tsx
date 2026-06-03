@@ -1,6 +1,7 @@
-// [M5-FLOW-02] SUPPLIES edges as instanced cylinders (thickness = trade value) with
-// a pooled Points cloud flowing supplier->customer. Two draw calls total -> 60fps.
-// Confidence/freshness styling (solid/dashed/ghost, freshness dots) is M5-ENCODE-04.
+// [M5-FLOW-02 / M5-DEPTH-03] SUPPLIES edges as instanced cylinders (thickness = trade
+// value) with a pooled Points cloud flowing supplier->customer. Depth toggles
+// visibility per-instance (cylinder scale 0; particles parked past the far plane) —
+// never a re-mount. Two draw calls -> 60fps. LOD controls particle density + culling.
 
 import { useFrame } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef } from "react";
@@ -10,6 +11,7 @@ import {
   InstancedMesh,
   Object3D,
   Quaternion,
+  Sphere,
   Vector3,
 } from "three";
 
@@ -19,7 +21,7 @@ import {
   ParticlePool,
   valueToRadius,
 } from "./edges";
-import type { Vec3 } from "./layout";
+import { LAYOUT_RADIUS, type Vec3 } from "./layout";
 import type { GraphEdge } from "./types";
 
 const UP = new Vector3(0, 1, 0);
@@ -27,22 +29,34 @@ const dir = new Vector3();
 const mid = new Vector3();
 const quat = new Quaternion();
 const obj = new Object3D();
+const BOUNDS = new Sphere(new Vector3(0, 0, 0), LAYOUT_RADIUS + 2);
 
 export function Edges({
   edges,
   positions,
+  visibleEdges,
+  particlesPerEdge = 6,
+  radialSegments = 6,
+  frustumCull = false,
 }: {
   edges: GraphEdge[];
   positions: Map<string, Vec3>;
+  visibleEdges: boolean[];
+  particlesPerEdge?: number;
+  radialSegments?: number;
+  frustumCull?: boolean;
 }) {
   const lines = useMemo(() => buildEdges(edges, positions), [edges, positions]);
   const maxValue = useMemo(() => maxTradeValue(lines), [lines]);
-  const pool = useMemo(() => new ParticlePool(lines.length), [lines]);
+  const pool = useMemo(
+    () => new ParticlePool(lines.length, particlesPerEdge),
+    [lines, particlesPerEdge],
+  );
 
   const cylinders = useRef<InstancedMesh>(null);
   const flowGeom = useRef<BufferGeometry>(null);
 
-  // Orient one unit cylinder (Y-up) per edge from supplier to customer. Static.
+  // Orient one unit cylinder (Y-up) per edge; hidden edges collapse to scale 0.
   useLayoutEffect(() => {
     const mesh = cylinders.current;
     if (!mesh) return;
@@ -54,19 +68,20 @@ export function Edges({
       const len = dir.length() || 1e-6;
       mid.addVectors(va, vb).multiplyScalar(0.5);
       quat.setFromUnitVectors(UP, dir.clone().normalize());
-      const radius = valueToRadius(value, maxValue);
+      const radius = visibleEdges[i] ? valueToRadius(value, maxValue) : 0;
       obj.position.copy(mid);
       obj.quaternion.copy(quat);
-      obj.scale.set(radius, len, radius);
+      obj.scale.set(radius, visibleEdges[i] ? len : 0, radius);
       obj.updateMatrix();
       mesh.setMatrixAt(i, obj.matrix);
     }
     mesh.instanceMatrix.needsUpdate = true;
-  }, [lines, maxValue]);
+    mesh.boundingSphere = BOUNDS;
+  }, [lines, maxValue, visibleEdges]);
 
-  // Advance the pooled flow particles each frame (clamp dt so tab-switches don't jump).
+  // Advance pooled flow particles each frame (clamp dt so tab-switches don't jump).
   useFrame((_, delta) => {
-    pool.update(lines, Math.min(delta, 0.05));
+    pool.update(lines, Math.min(delta, 0.05), visibleEdges);
     if (flowGeom.current) {
       flowGeom.current.attributes.position.needsUpdate = true;
     }
@@ -79,9 +94,9 @@ export function Edges({
       <instancedMesh
         ref={cylinders}
         args={[undefined, undefined, lines.length]}
-        frustumCulled={false}
+        frustumCulled={frustumCull}
       >
-        <cylinderGeometry args={[1, 1, 1, 6]} />
+        <cylinderGeometry args={[1, 1, 1, radialSegments]} />
         <meshStandardMaterial
           color="#33507a"
           transparent

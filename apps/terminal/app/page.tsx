@@ -4,9 +4,10 @@
 // supply-chain graph itself is WebGL only (instanced nodes) — never DOM nodes.
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { getPublishedGraph, listThemes } from "../canvas/api";
+import { computeDepths } from "../canvas/depth";
 import { mockMarketFeed } from "../canvas/marketFeed";
 import type { PublishedGraph, ThemeSummary } from "../canvas/types";
 
@@ -20,6 +21,15 @@ export default function TerminalPage() {
   const [themeId, setThemeId] = useState<string>("");
   const [graph, setGraph] = useState<PublishedGraph | null>(null);
   const [status, setStatus] = useState<string>("Loading themes…");
+  const [depthLimit, setDepthLimit] = useState<number>(99);
+
+  const { depth, maxDepth } = useMemo(
+    () =>
+      graph
+        ? computeDepths(graph.companies, graph.edges)
+        : { depth: new Map<string, number>(), maxDepth: 1 },
+    [graph],
+  );
 
   useEffect(() => {
     listThemes()
@@ -46,6 +56,11 @@ export default function TerminalPage() {
       })
       .catch((e) => setStatus(`Could not load graph: ${String(e)}`));
   }, [themeId]);
+
+  // Default to showing every tier when a new graph loads.
+  useEffect(() => {
+    setDepthLimit(maxDepth);
+  }, [maxDepth]);
 
   return (
     <main
@@ -98,12 +113,31 @@ export default function TerminalPage() {
           </small>
         )}
         <span style={{ flex: 1 }} />
+        {graph && maxDepth > 1 && (
+          <label
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            title="Reveal deeper supply tiers"
+          >
+            <small style={{ opacity: 0.7 }}>Depth</small>
+            <input
+              type="range"
+              min={1}
+              max={maxDepth}
+              step={1}
+              value={Math.min(depthLimit, maxDepth)}
+              onChange={(e) => setDepthLimit(Number(e.target.value))}
+            />
+            <small style={{ width: 36, opacity: 0.7 }}>
+              {Math.min(depthLimit, maxDepth)}/{maxDepth}
+            </small>
+          </label>
+        )}
         <small style={{ opacity: 0.5 }}>Not investment advice.</small>
       </header>
 
       <div style={{ position: "absolute", inset: 0 }}>
         {graph ? (
-          <Scene graph={graph} />
+          <Scene graph={graph} depth={depth} depthLimit={depthLimit} />
         ) : (
           <div
             style={{

@@ -1,14 +1,15 @@
 "use client";
 
-// [M5-CANVAS-01] The WebGL macro map: a dark R3F canvas rendering Production
-// companies as instanced node spheres sized by the market feed. Edges, depth,
-// confidence/freshness encoding, and richer navigation land in M5-FLOW/DEPTH/
-// ENCODE/NAV. OrbitControls here is the minimal "look around" until M5-NAV-05.
+// [M5-CANVAS-01 / M5-FLOW-02 / M5-DEPTH-03] The WebGL macro map: a dark R3F canvas of
+// instanced nodes (sized by the market feed) + flowing SUPPLIES edges. A depth limit
+// toggles per-instance visibility (no re-mount); LOD/frustum culling kick in past ~1k
+// nodes. Confidence/freshness encoding is M5-ENCODE-04; richer nav is M5-NAV-05.
 
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useMemo } from "react";
 
+import { edgeVisibility, lodProfile, nodeVisibility } from "./depth";
 import { Edges } from "./Edges";
 import { nodeLayout } from "./layout";
 import { Nodes } from "./Nodes";
@@ -17,11 +18,30 @@ import type { PublishedGraph } from "./types";
 
 const BACKGROUND = "#0a0e16";
 
-export function Scene({ graph }: { graph: PublishedGraph }) {
+export function Scene({
+  graph,
+  depth,
+  depthLimit,
+}: {
+  graph: PublishedGraph;
+  depth: Map<string, number>;
+  depthLimit: number;
+}) {
   // One shared {ticker -> position} map so nodes and edges agree.
   const positions = useMemo(
     () => nodeLayout(graph.companies.map((c) => c.ticker)),
     [graph],
+  );
+  const lod = useMemo(() => lodProfile(graph.companies.length), [graph]);
+
+  // Per-instance visibility recomputed on each slider change (cheap -> < 100ms).
+  const nodeVisible = useMemo(
+    () => nodeVisibility(graph.companies, depth, depthLimit),
+    [graph, depth, depthLimit],
+  );
+  const edgeVisible = useMemo(
+    () => edgeVisibility(graph.edges, depth, depthLimit),
+    [graph, depth, depthLimit],
   );
 
   return (
@@ -33,11 +53,21 @@ export function Scene({ graph }: { graph: PublishedGraph }) {
       <color attach="background" args={[BACKGROUND]} />
       <ambientLight intensity={0.6} />
       <directionalLight position={[10, 12, 8]} intensity={1.1} />
-      <Edges edges={graph.edges} positions={positions} />
+      <Edges
+        edges={graph.edges}
+        positions={positions}
+        visibleEdges={edgeVisible}
+        particlesPerEdge={lod.particlesPerEdge}
+        radialSegments={lod.radialSegments}
+        frustumCull={lod.frustumCull}
+      />
       <Nodes
         companies={graph.companies}
         positions={positions}
         feed={mockMarketFeed}
+        visible={nodeVisible}
+        segments={lod.sphereSegments}
+        frustumCull={lod.frustumCull}
       />
       <OrbitControls enablePan enableZoom enableRotate makeDefault />
     </Canvas>

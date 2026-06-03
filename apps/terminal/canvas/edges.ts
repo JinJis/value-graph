@@ -101,19 +101,27 @@ export class ParticlePool {
   }
 
   // Advance every particle along its edge and write world positions.
-  update(lines: EdgeLine[], dt: number): void {
+  // Hidden particles are parked far past the camera's far plane so they clip out —
+  // depth toggling needs no re-mount and no per-frame allocation.
+  update(lines: EdgeLine[], dt: number, visible?: boolean[]): void {
     for (let p = 0; p < this.count; p++) {
       let t = this.phase[p] + this.speed[p] * dt;
       if (t >= 1) t -= Math.floor(t);
       this.phase[p] = t;
-      const line = lines[this.edgeOf[p]];
-      if (!line) continue;
+      const edge = this.edgeOf[p];
+      const line = lines[edge];
+      const o = p * 3;
+      if (!line || (visible && !visible[edge])) {
+        this.positions[o] = this.positions[o + 1] = this.positions[o + 2] = FAR;
+        continue;
+      }
       const [ax, ay, az] = line.a;
       const [bx, by, bz] = line.b;
-      const o = p * 3;
       this.positions[o] = ax + (bx - ax) * t;
       this.positions[o + 1] = ay + (by - ay) * t;
       this.positions[o + 2] = az + (bz - az) * t;
     }
   }
 }
+
+const FAR = 1e6;

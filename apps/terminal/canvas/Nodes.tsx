@@ -5,23 +5,37 @@
 
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
-import { Color, InstancedMesh, MathUtils, Object3D } from "three";
+import {
+  Color,
+  InstancedMesh,
+  MathUtils,
+  Object3D,
+  Sphere,
+  Vector3,
+} from "three";
 
-import { capToRadius, type Vec3 } from "./layout";
+import { capToRadius, LAYOUT_RADIUS, type Vec3 } from "./layout";
 import type { MarketFeed } from "./marketFeed";
 import type { GraphCompany } from "./types";
 
 const NODE_COLOR = new Color("#5ea0ff");
 const dummy = new Object3D();
+const BOUNDS = new Sphere(new Vector3(0, 0, 0), LAYOUT_RADIUS + 3);
 
 export function Nodes({
   companies,
   positions,
   feed,
+  visible,
+  segments = 16,
+  frustumCull = false,
 }: {
   companies: GraphCompany[];
   positions: Map<string, Vec3>;
   feed: MarketFeed;
+  visible: boolean[];
+  segments?: number;
+  frustumCull?: boolean;
 }) {
   const ref = useRef<InstancedMesh>(null);
 
@@ -45,7 +59,9 @@ export function Nodes({
     const mesh = ref.current;
     if (!mesh) return;
     for (let i = 0; i < companies.length; i++) {
-      current.current[i] = MathUtils.lerp(current.current[i], targets[i], 0.12);
+      // Depth toggling = ease the target to 0 (hide) or its cap radius (show); no re-mount.
+      const target = visible[i] ? targets[i] : 0;
+      current.current[i] = MathUtils.lerp(current.current[i], target, 0.18);
       const [x, y, z] = points[i];
       dummy.position.set(x, y, z);
       const s = current.current[i];
@@ -72,7 +88,7 @@ export function Nodes({
     <instancedMesh
       ref={ref}
       args={[undefined, undefined, companies.length]}
-      frustumCulled={false}
+      frustumCulled={frustumCull}
       onUpdate={(m: InstancedMesh) => {
         // Seed positions at ~0 scale so nothing flashes at the origin pre-first-frame.
         for (let i = 0; i < companies.length; i++) {
@@ -83,9 +99,10 @@ export function Nodes({
           m.setMatrixAt(i, dummy.matrix);
         }
         m.instanceMatrix.needsUpdate = true;
+        m.boundingSphere = BOUNDS;
       }}
     >
-      <sphereGeometry args={[1, 16, 16]} />
+      <sphereGeometry args={[1, segments, segments]} />
       <meshStandardMaterial metalness={0.1} roughness={0.5} />
     </instancedMesh>
   );
