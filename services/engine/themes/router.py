@@ -11,6 +11,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import RedirectResponse
 
 from graph_schema import SourceType
 from services.engine.db.config import DbSettings
@@ -102,7 +103,13 @@ def list_sources(theme_id: str, repo: RepoDep) -> list[SourceOut]:
 @router.get("/sources/{source_id}/content")
 def get_source_content(source_id: str, repo: RepoDep, storage: StorageDep) -> Response:
     record = repo.get_source(source_id)
-    if record is None or record.storage_key is None:
+    if record is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    # Discovered/citation sources have no uploaded file — just an external URL. Send the
+    # caller to the original source instead of 404ing on missing stored content.
+    if record.storage_key is None:
+        if record.url:
+            return RedirectResponse(record.url, status_code=307)
         raise HTTPException(status_code=404, detail="source content not found")
     data = storage.load(record.storage_key)
     return Response(

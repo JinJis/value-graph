@@ -194,7 +194,14 @@ export default function ThemeDetailPage() {
         <ul>
           {sources.map((s) => (
             <li key={s.id}>
-              <a href={sourceContentUrl(s)} target="_blank" rel="noreferrer">
+              {/* Discovered citations are external URLs (no uploaded file); link to
+                  the source itself. Uploaded files have no url, so serve their stored
+                  content instead. */}
+              <a
+                href={s.url ?? sourceContentUrl(s)}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {s.original_filename ?? s.url ?? s.id}
               </a>{" "}
               <small>
