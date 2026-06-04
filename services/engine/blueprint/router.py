@@ -25,7 +25,11 @@ from services.engine.blueprint.repository import (
     BlueprintRepository,
     PostgresBlueprintRepository,
 )
-from services.engine.blueprint.stream import generate_blueprint_events
+from services.engine.blueprint.stream import (
+    discover_companies_events,
+    generate_blueprint_events,
+    refine_blueprint_events,
+)
 from services.engine.db.config import DbSettings
 from services.engine.llm.router import LLMRouter
 from services.engine.themes.models import Theme
@@ -68,6 +72,31 @@ def generate_theme_blueprint(
     return BlueprintResponse(blueprint=record, coverage=summarize(record))
 
 
+def _sse(events: Iterator[dict[str, object]]) -> StreamingResponse:
+    """Wrap a progress-event iterator as a Server-Sent Events response. Any error
+    raised mid-stream is delivered as a final ``error`` event, never a dropped socket.
+    """
+
+    def frames() -> Iterator[bytes]:
+        try:
+            for event in events:
+                yield f"data: {json.dumps(event)}\n\n".encode()
+        except Exception as exc:  # never crash the stream silently
+            err = {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
+            yield f"data: {json.dumps(err)}\n\n".encode()
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Disable proxy buffering so events arrive incrementally (nginx/Next).
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/themes/{theme_id}/blueprint/stream")
 def stream_theme_blueprint(
     theme_id: str,
@@ -89,26 +118,43 @@ def stream_theme_blueprint(
         f"{s.original_filename or s.url or s.id} ({s.type})"
         for s in themes.list_sources(theme_id)
     ]
+    return _sse(generate_blueprint_events(theme, source_hints, llm, blueprints))
 
-    def sse() -> Iterator[bytes]:
-        events = generate_blueprint_events(theme, source_hints, llm, blueprints)
-        try:
-            for event in events:
-                yield f"data: {json.dumps(event)}\n\n".encode()
-        except Exception as exc:  # never crash the stream silently
-            err = {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
-            yield f"data: {json.dumps(err)}\n\n".encode()
 
-    return StreamingResponse(
-        sse(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            # Disable proxy buffering so events arrive incrementally (nginx/Next).
-            "X-Accel-Buffering": "no",
-        },
-    )
+@router.post("/themes/{theme_id}/blueprint/refine/stream")
+def stream_refine_blueprint(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    llm: RouterDep,
+) -> StreamingResponse:
+    """Iterative refinement (2-3 DEEP rounds) as a live SSE stream — one round per
+    DEEP call, with merge/convergence events between rounds."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    base = blueprints.get_latest(theme_id)
+    if base is None:
+        raise HTTPException(status_code=409, detail="no blueprint to refine; generate one first")
+    return _sse(refine_blueprint_events(theme, base, llm, blueprints))
+
+
+@router.post("/themes/{theme_id}/blueprint/discover/stream")
+def stream_discover_constituents(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    llm: RouterDep,
+) -> StreamingResponse:
+    """RESEARCH discovery pass as a live SSE stream — broaden constituents, attribute
+    each to a Source, merge into the plan."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    base = blueprints.get_latest(theme_id)
+    if base is None:
+        raise HTTPException(status_code=409, detail="no blueprint to extend; generate one first")
+    return _sse(discover_companies_events(theme, base, llm, blueprints, themes))
 
 
 @router.post("/themes/{theme_id}/blueprint/refine", response_model=RefinementResult)

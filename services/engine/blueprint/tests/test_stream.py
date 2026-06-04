@@ -80,3 +80,71 @@ def test_stream_all_attempts_fail_emits_error() -> None:
     assert events[-1]["event"] == "error"
     assert not any(e["event"] == "saved" for e in events)
     assert repo.get_latest(sample_theme().id) is None
+
+
+def _seed_blueprint(repo: InMemoryBlueprintRepository, theme_id: str) -> object:
+    """Persist an initial v1 blueprint so refine/discover have a base."""
+    import json
+
+    from services.engine.blueprint.models import Blueprint
+
+    content = json.loads(sample_json(32))
+    record = repo.save(
+        Blueprint(theme_id=theme_id, version=1, generated_by="seed", **content)
+    )
+    return record
+
+
+def test_refine_stream_runs_rounds_and_persists() -> None:
+    from services.engine.blueprint.stream import refine_blueprint_events
+
+    theme = sample_theme()
+    repo = InMemoryBlueprintRepository()
+    base = _seed_blueprint(repo, theme.id)
+    # Each round returns the same 32 companies → delta 0 → converges on round 1.
+    gen = StreamingFake(sample_json(32))
+    events = list(refine_blueprint_events(theme, base, _router(gen), repo))  # type: ignore[arg-type]
+    kinds = [e["event"] for e in events]
+
+    assert kinds[0] == "model"
+    assert "round" in kinds
+    assert "merged" in kinds
+    assert kinds[-1] == "done"
+    merged = next(e for e in events if e["event"] == "merged")
+    assert merged["converged"] is True
+
+
+def test_discover_stream_creates_sources_and_merges() -> None:
+    import json
+
+    from services.engine.blueprint.stream import discover_companies_events
+    from services.engine.themes.repository import InMemoryThemeRepository
+
+    theme = sample_theme()
+    bp_repo = InMemoryBlueprintRepository()
+    base = _seed_blueprint(bp_repo, theme.id)
+    theme_repo = InMemoryThemeRepository()
+
+    discovery = {
+        "companies": [
+            {
+                "ticker": "6857.T",
+                "name": "Advantest",
+                "country": "JP",
+                "exchange": "TSE",
+                "role": "ATE",
+                "products": ["testers"],
+                "required_data_points": ["revenue by customer"],
+                "source_url": "https://example.com/a",
+                "source_publisher": "Example",
+            }
+        ]
+    }
+    gen = StreamingFake(json.dumps(discovery))
+    events = list(
+        discover_companies_events(theme, base, _router(gen), bp_repo, theme_repo)  # type: ignore[arg-type]
+    )
+    kinds = [e["event"] for e in events]
+    assert kinds[0] == "model"
+    assert any(e["event"] == "sources" and e["created"] == 1 for e in events)
+    assert kinds[-1] == "done"

@@ -212,15 +212,15 @@ export interface BlueprintEvent {
   [key: string]: unknown;
 }
 
-// Generate the blueprint over Server-Sent Events, invoking `onEvent` per step so the
-// UI can show live progress (model, prompt, streamed output, saved result). Uses a
-// streaming fetch (not EventSource, which can't POST) and parses SSE frames manually.
-export async function generateBlueprintStream(
-  themeId: string,
+// POST `path` and parse the Server-Sent Events response, invoking `onEvent` per frame.
+// Uses a streaming fetch (not EventSource, which can't POST) and frames the SSE bytes
+// manually. Shared by the blueprint generate / refine / discover progress streams.
+async function postEventStream(
+  path: string,
   onEvent: (event: BlueprintEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(url(`/themes/${themeId}/blueprint/stream`), {
+  const response = await fetch(url(path), {
     method: "POST",
     headers: { Accept: "text/event-stream" },
     signal,
@@ -254,6 +254,31 @@ export async function generateBlueprintStream(
     }
   }
 }
+
+// Generate the blueprint over SSE, invoking `onEvent` per step (model, prompt,
+// streamed output, saved result).
+export const generateBlueprintStream = (
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream(`/themes/${themeId}/blueprint/stream`, onEvent, signal);
+
+// Iteratively refine the latest blueprint over SSE (2-3 DEEP rounds).
+export const refineBlueprintStream = (
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream(`/themes/${themeId}/blueprint/refine/stream`, onEvent, signal);
+
+// RESEARCH discovery pass over SSE — broadens constituents and attributes Sources.
+export const discoverBlueprintStream = (
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream(`/themes/${themeId}/blueprint/discover/stream`, onEvent, signal);
 
 export async function approveBlueprint(themeId: string): Promise<Theme> {
   return json(

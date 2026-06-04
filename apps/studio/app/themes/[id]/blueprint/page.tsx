@@ -6,9 +6,11 @@ import { useEffect, useState } from "react";
 
 import {
   approveBlueprint,
+  discoverBlueprintStream,
   generateBlueprintStream,
   getBlueprint,
   getTheme,
+  refineBlueprintStream,
   saveBlueprint,
   type BlueprintCompany,
   type BlueprintEvent,
@@ -210,11 +212,39 @@ export default function BlueprintReviewPage() {
             },
           ];
           break;
+        case "round":
+          next.steps = [
+            ...p.steps,
+            { label: `Round ${e.round}/${e.cap}` },
+          ];
+          break;
+        case "merged":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `Merged: +${e.added} new, ~${e.updated} updated (Δ${e.delta})`,
+              detail: e.converged ? "converged" : undefined,
+              tone: "ok",
+            },
+          ];
+          break;
+        case "sources":
+          next.steps = [
+            ...p.steps,
+            { label: `Created ${e.created} source(s)`, tone: "ok" },
+          ];
+          break;
+        case "note":
+          next.steps = [...p.steps, { label: String(e.text), tone: "warn" }];
+          break;
         case "validate":
           next.steps = [
             ...p.steps,
             {
-              label: `Validated ${e.companies} companies`,
+              label:
+                e.discovered !== undefined
+                  ? `Discovered ${e.discovered} → +${e.added} new (${e.companies} total)`
+                  : `Validated ${e.companies} companies`,
               tone: "ok",
             },
           ];
@@ -238,13 +268,25 @@ export default function BlueprintReviewPage() {
     });
   }
 
-  const onGenerate = () =>
-    run(async () => {
+  function streamRun(
+    stream: (
+      id: string,
+      cb: (e: BlueprintEvent) => void,
+    ) => Promise<void>,
+    label: string,
+  ) {
+    return run(async () => {
       setProg({ ...EMPTY_PROG, running: true });
-      await generateBlueprintStream(themeId, onProgEvent);
+      await stream(themeId, onProgEvent);
       setProg((p) => ({ ...p, running: false }));
       await load();
-    }, "Generate (DEEP)");
+    }, label);
+  }
+
+  const onGenerate = () => streamRun(generateBlueprintStream, "Generate (DEEP)");
+  const onRefine = () => streamRun(refineBlueprintStream, "Refine (DEEP)");
+  const onDiscover = () =>
+    streamRun(discoverBlueprintStream, "Discover (RESEARCH)");
 
   const onApprove = () =>
     run(async () => setTheme(await approveBlueprint(themeId)), "Approve");
@@ -267,6 +309,22 @@ export default function BlueprintReviewPage() {
       <div style={{ display: "flex", gap: 8, margin: "1rem 0" }}>
         <button type="button" onClick={onGenerate} disabled={busy}>
           Generate (DEEP)
+        </button>
+        <button
+          type="button"
+          onClick={onRefine}
+          disabled={busy || version === null}
+          title={version === null ? "Generate a blueprint first" : undefined}
+        >
+          Refine (DEEP)
+        </button>
+        <button
+          type="button"
+          onClick={onDiscover}
+          disabled={busy || version === null}
+          title={version === null ? "Generate a blueprint first" : undefined}
+        >
+          Discover (RESEARCH)
         </button>
         <button type="button" onClick={onSave} disabled={busy}>
           Save edits
