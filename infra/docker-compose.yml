@@ -103,12 +103,12 @@ services:
     build:
       context: ..
       dockerfile: apps/studio/Dockerfile
-      args:
-        # Next.js rewrites /engine/* -> the engine, BAKED AT BUILD TIME, so it must be a
-        # build arg (resolved at runtime over the compose network; no port to the browser).
-        ENGINE_INTERNAL_URL: "http://engine:8000"
     container_name: valuegraph-studio
     restart: unless-stopped
+    # The /engine proxy Route Handler reads this at RUNTIME (resolved over the compose
+    # network; no engine port exposed to the browser). Streams SSE, unlike a rewrite.
+    environment:
+      ENGINE_INTERNAL_URL: "http://engine:8000"
     ports:
       - "${STUDIO_PORT:-3001}:3001"
     depends_on:
