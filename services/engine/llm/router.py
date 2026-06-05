@@ -39,6 +39,12 @@ DEFAULT_MODELS: Mapping[Tier, str] = {
     Tier.RESEARCH: "deep-research-preview-04-2026",
 }
 
+# A Deep Research *agent* id (Interactions API) is distinguishable from a regular
+# generate_content model: every agent id is "deep-research-*". The RESEARCH tier MUST
+# be an agent — a regular model in the ``agent`` field is rejected ("refers to a model,
+# but was provided in the 'agent' field"). We use this to reject stale config.
+_DEEP_RESEARCH_AGENT_MARKER = "deep-research"
+
 ENV_VAR: Mapping[Tier, str] = {
     Tier.DEEP: "MODEL_DEEP",
     Tier.MEDIUM: "MODEL_MEDIUM",
@@ -228,6 +234,20 @@ class LLMRouter:
         """
         source: Mapping[str, str] = os.environ if env is None else env
         models = {tier: source.get(ENV_VAR[tier], DEFAULT_MODELS[tier]) for tier in Tier}
+        # Guard against a stale MODEL_RESEARCH pointing at a regular model (the old
+        # default was a generate_content model). The RESEARCH tier is the Deep Research
+        # agent; a non-agent id would be sent to the Interactions ``agent`` field and
+        # rejected, so coerce it back to the agent default with a loud warning.
+        research = models[Tier.RESEARCH]
+        if _DEEP_RESEARCH_AGENT_MARKER not in research:
+            logger.warning(
+                "MODEL_RESEARCH=%r is not a Deep Research agent; the RESEARCH tier uses "
+                "the Interactions API and needs a 'deep-research-*' agent. Falling back "
+                "to %s. Unset/fix MODEL_RESEARCH to silence this.",
+                research,
+                DEFAULT_MODELS[Tier.RESEARCH],
+            )
+            models[Tier.RESEARCH] = DEFAULT_MODELS[Tier.RESEARCH]
         gen = generator
         if gen is None:
             gen = GeminiTextGenerator(source.get("GOOGLE_API_KEY"))

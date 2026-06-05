@@ -52,9 +52,22 @@ def test_model_id_read_from_env_override() -> None:
 
 def test_all_models_come_from_env_when_set() -> None:
     env = {var: f"env-{tier.value}" for tier, var in ENV_VAR.items()}
+    # RESEARCH must stay a Deep Research agent id (else it's coerced to the default).
+    env[ENV_VAR[Tier.RESEARCH]] = "deep-research-max-preview-04-2026"
     router, _ = _router(env)
     for tier in Tier:
-        assert router.model_for(tier) == f"env-{tier.value}"
+        if tier is Tier.RESEARCH:
+            assert router.model_for(tier) == "deep-research-max-preview-04-2026"
+        else:
+            assert router.model_for(tier) == f"env-{tier.value}"
+
+
+def test_stale_research_model_coerced_to_agent() -> None:
+    # A leftover MODEL_RESEARCH pointing at a regular model would be sent to the
+    # Interactions ``agent`` field and rejected; the router coerces it to the agent.
+    router, _ = _router({ENV_VAR[Tier.RESEARCH]: "gemini-3.1-pro-preview"})
+    assert router.model_for(Tier.RESEARCH) == DEFAULT_MODELS[Tier.RESEARCH]
+    assert "deep-research" in router.model_for(Tier.RESEARCH)
 
 
 def test_research_tier_defaults_to_deep_research_agent() -> None:
