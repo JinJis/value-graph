@@ -32,9 +32,11 @@ DEFAULT_MODELS: Mapping[Tier, str] = {
     Tier.DEEP: "gemini-3.1-pro-preview",
     Tier.MEDIUM: "gemini-3.5-flash",
     Tier.LOW: "gemini-3.1-flash-lite",
-    # The real Deep Research Agent is wired in M1-DISC-04; until then RESEARCH
-    # routes to the DEEP model so the path is exercisable.
-    Tier.RESEARCH: "gemini-3.1-pro-preview",
+    # RESEARCH is the Gemini Deep Research Agent (preview) — it autonomously
+    # plans/searches/reads the live web and returns CITED findings. It is NOT a
+    # generate_content model: it is reached via the Interactions API
+    # (deep_research_stream below), never router.generate / generate_stream.
+    Tier.RESEARCH: "deep-research-preview-04-2026",
 }
 
 ENV_VAR: Mapping[Tier, str] = {
@@ -73,6 +75,14 @@ class GeminiError(RuntimeError):
     """A Gemini SDK/network call failed — carries the model + underlying cause."""
 
 
+# One streamed piece from the Deep Research agent. ``kind`` is one of:
+#   "text"    — part of the final report/output (concatenate to rebuild it)
+#   "thought" — an intermediate reasoning summary (progress only)
+#   "search"  — a Google Search the agent issued ("text" = the queries)
+#   "read"    — a web page the agent fetched via URL context ("text" = the URLs)
+ResearchDelta = dict[str, str]
+
+
 def _gemini_timeout_ms() -> int:
     """Per-call HTTP timeout (ms). Without it a blocked egress hangs forever and the
     upstream proxy resets the socket ("socket hang up") with no usable error."""
@@ -81,6 +91,17 @@ def _gemini_timeout_ms() -> int:
         return max(1, int(float(raw))) * 1000
     except ValueError:
         return 120_000
+
+
+def _deep_research_timeout_seconds() -> float:
+    """Per-call timeout (s) for a Deep Research run. These are agentic, multi-step
+    tasks (plan→search→read→write) that take MINUTES, not seconds — the standard
+    ``GEMINI_TIMEOUT_SECONDS`` is far too short. Default 1h (the agent's own cap)."""
+    raw = os.environ.get("DEEP_RESEARCH_TIMEOUT_SECONDS", "3600")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 3600.0
 
 
 class GeminiTextGenerator:
@@ -123,6 +144,64 @@ class GeminiTextGenerator:
                     yield piece
         except Exception as exc:
             raise GeminiError(f"Gemini stream failed for model {model!r}: {exc}") from exc
+
+    def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[ResearchDelta]:
+        """Run the Deep Research agent via the Interactions API, streaming progress.
+
+        Deep Research is an agent (plan→search→read→synthesize), not a chat model:
+        it is reached through ``client.interactions``, must run in the background
+        (``background=True`` ⇒ ``store=True``), and emits intermediate reasoning,
+        tool calls (search/url-context) and the final cited text as SSE events. We
+        normalise those into :data:`ResearchDelta` dicts; tool calls are surfaced as
+        progress so callers can show "searching…/reading…" while the report builds.
+        """
+        client = self._get_client()
+        try:
+            stream = client.interactions.create(
+                input=prompt,
+                agent=agent,
+                background=True,
+                store=True,
+                stream=True,
+                agent_config={
+                    "type": "deep-research",
+                    # surface the agent's reasoning as live progress…
+                    "thinking_summaries": "auto",
+                    # …but no charts/images: we only want a cited text report + JSON.
+                    "visualization": "off",
+                },
+                timeout=_deep_research_timeout_seconds(),
+            )
+            for event in stream:
+                if getattr(event, "event_type", None) == "error":
+                    err = getattr(event, "error", None)
+                    msg = getattr(err, "message", None) or "deep research stream error"
+                    raise GeminiError(f"Deep Research failed for agent {agent!r}: {msg}")
+                if getattr(event, "event_type", None) != "step.delta":
+                    continue
+                delta = getattr(event, "delta", None)
+                dtype = getattr(delta, "type", None)
+                if dtype == "text":
+                    text = getattr(delta, "text", None)
+                    if isinstance(text, str) and text:
+                        yield {"kind": "text", "text": text}
+                elif dtype == "thought_summary":
+                    content = getattr(delta, "content", None)
+                    text = getattr(content, "text", None)
+                    if isinstance(text, str) and text:
+                        yield {"kind": "thought", "text": text}
+                elif dtype == "google_search_call":
+                    queries = getattr(getattr(delta, "arguments", None), "queries", None) or []
+                    if queries:
+                        yield {"kind": "search", "text": ", ".join(queries)}
+                elif dtype == "url_context_call":
+                    urls = getattr(getattr(delta, "arguments", None), "urls", None) or []
+                    if urls:
+                        yield {"kind": "read", "text": ", ".join(urls)}
+        except GeminiError:
+            raise
+        except Exception as exc:  # SDK errors, timeouts, network
+            raise GeminiError(f"Deep Research stream failed for agent {agent!r}: {exc}") from exc
 
     def __repr__(self) -> str:
         # Never expose the key.
@@ -180,6 +259,25 @@ class LLMRouter:
             yield self._generator.generate_text(model=model, prompt=prompt)
             return
         yield from stream(model=model, prompt=prompt)
+
+    def deep_research_stream(
+        self, tier: Tier | str, prompt: str
+    ) -> Iterator[ResearchDelta]:
+        """Stream Deep Research deltas for ``prompt`` on the agent bound to ``tier``.
+
+        ``tier`` is normally :attr:`Tier.RESEARCH` (the Deep Research agent). Falls
+        back to a single ``text`` delta from :meth:`generate_text` when the generator
+        can't do Deep Research (e.g. unit-test fakes), so callers get the same shape.
+        """
+        resolved = resolve_tier(tier)
+        agent = self._models[resolved]
+        logger.info("llm.deep_research tier=%s agent=%s", resolved.value, agent)
+        fn = getattr(self._generator, "deep_research_stream", None)
+        if fn is None:
+            text = self._generator.generate_text(model=agent, prompt=prompt)
+            yield {"kind": "text", "text": text}
+            return
+        yield from fn(agent=agent, prompt=prompt)
 
     def __repr__(self) -> str:
         return f"LLMRouter(models={self._models!r}, generator={self._generator!r})"

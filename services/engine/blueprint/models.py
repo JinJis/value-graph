@@ -77,6 +77,25 @@ class RefinementResult(BaseModel):
     coverage: CoverageSummary
 
 
+class ResearchCompany(BlueprintCompany):
+    """A company surfaced by the research-grounded initial generation.
+
+    Like a discovered company it may carry a citation (``source_url`` +
+    ``source_publisher``), but the field stays OPTIONAL here: the first pass draws
+    the whole chain, and a company we couldn't yet cite is kept (drawn as a gap)
+    rather than dropped — the citation is filled later by research/CVE."""
+
+    source_publisher: str | None = None
+
+
+class ResearchBlueprintContent(BaseModel):
+    """The research-grounded generation output: cited companies + structure."""
+
+    companies: list[ResearchCompany]
+    relationship_types: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
 class DiscoveredCompany(BlueprintCompany):
     """A constituent found by the RESEARCH discovery pass — must carry a source."""
 

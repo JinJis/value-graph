@@ -197,6 +197,21 @@ export default function BlueprintReviewPage() {
         case "chunk":
           next.output = p.output + String(e.text);
           break;
+        case "thought":
+          next.steps = [
+            ...p.steps,
+            { label: `💭 ${String(e.text).slice(0, 200)}` },
+          ];
+          break;
+        case "research":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `${e.action === "read" ? "📄 Reading" : "🔎 Searching"}`,
+              detail: String(e.detail).slice(0, 200),
+            },
+          ];
+          break;
         case "parse":
           next.steps = [
             ...p.steps,
@@ -213,10 +228,7 @@ export default function BlueprintReviewPage() {
           ];
           break;
         case "round":
-          next.steps = [
-            ...p.steps,
-            { label: `Round ${e.round}/${e.cap}` },
-          ];
+          next.steps = [...p.steps, { label: `Round ${e.round}/${e.cap}` }];
           break;
         case "merged":
           next.steps = [
@@ -269,10 +281,7 @@ export default function BlueprintReviewPage() {
   }
 
   function streamRun(
-    stream: (
-      id: string,
-      cb: (e: BlueprintEvent) => void,
-    ) => Promise<void>,
+    stream: (id: string, cb: (e: BlueprintEvent) => void) => Promise<void>,
     label: string,
   ) {
     return run(async () => {
@@ -283,7 +292,8 @@ export default function BlueprintReviewPage() {
     }, label);
   }
 
-  const onGenerate = () => streamRun(generateBlueprintStream, "Generate (DEEP)");
+  const onGenerate = () =>
+    streamRun(generateBlueprintStream, "Generate (Deep Research)");
   const onRefine = () => streamRun(refineBlueprintStream, "Refine (DEEP)");
   const onDiscover = () =>
     streamRun(discoverBlueprintStream, "Discover (RESEARCH)");
@@ -307,8 +317,13 @@ export default function BlueprintReviewPage() {
       </p>
 
       <div style={{ display: "flex", gap: 8, margin: "1rem 0" }}>
-        <button type="button" onClick={onGenerate} disabled={busy}>
-          Generate (DEEP)
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={busy}
+          title="First-pass generation via the Gemini Deep Research agent (web-cited)"
+        >
+          Generate (Deep Research)
         </button>
         <button
           type="button"

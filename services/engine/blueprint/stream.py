@@ -7,12 +7,15 @@ which tier/model is used, the exact endpoint called, the full prompt, the model'
 output as it streams in, parse/validate outcomes, and the saved result.
 
 Events (each a plain dict, serialized as SSE ``data:`` frames by the router):
-  - ``model``    {tier, model}                — which Gemini model is routed
+  - ``model``    {tier, model}                — which Gemini model/agent is routed
   - ``endpoint`` {provider, method}           — where the call goes (server-side)
   - ``prompt``   {text, chars}                — the exact prompt sent
   - ``llm_start``{attempt, attempts}          — generation started (per attempt)
-  - ``chunk``    {text, accumulated_chars}    — streamed model output
+  - ``thought``  {text}                       — Deep Research reasoning summary
+  - ``research`` {action, detail}             — a search/url-fetch the agent ran
+  - ``chunk``    {text, accumulated_chars}    — streamed (report) output
   - ``parse``    {status, detail?}            — ok | retry (with reason)
+  - ``sources``  {created}                    — Source rows created from citations
   - ``validate`` {companies, relationship_types}
   - ``saved``    {blueprint, coverage, version}
   - ``error``    {detail}
@@ -36,12 +39,14 @@ from services.engine.blueprint.dedupe import (
 from services.engine.blueprint.generate import (
     BlueprintParseError,
     _extract_json,
+    create_citation_sources,
     parse_blueprint_content,
+    parse_research_blueprint_content,
+    to_blueprint_company,
 )
 from services.engine.blueprint.models import (
     Blueprint,
     BlueprintCompany,
-    BlueprintContent,
     BlueprintRecord,
     BlueprintResponse,
     DiscoveryContent,
@@ -49,8 +54,8 @@ from services.engine.blueprint.models import (
 )
 from services.engine.blueprint.prompt import (
     build_discovery_prompt,
-    build_prompt,
     build_refine_prompt,
+    build_research_generate_prompt,
 )
 from services.engine.blueprint.refine import DELTA_THRESHOLD, ROUND_CAP
 from services.engine.blueprint.repository import BlueprintRepository
@@ -70,49 +75,68 @@ def _stream_chunks(router: LLMRouter, tier: Tier, prompt: str) -> Iterator[Event
         yield {"event": "chunk", "text": piece, "accumulated_chars": total}
 
 
+def _research_stream(router: LLMRouter, tier: Tier, prompt: str) -> Iterator[Event]:
+    """Run the Deep Research agent, mapping its deltas to progress events. Report
+    text becomes ``chunk`` events (concatenate them to rebuild the output); reasoning
+    and tool calls become ``thought``/``research`` events. Callers accumulate the
+    output by summing the ``text`` of ``chunk`` events only."""
+    total = 0
+    for delta in router.deep_research_stream(tier, prompt):
+        kind = delta.get("kind")
+        text = delta.get("text", "")
+        if kind == "text":
+            total += len(text)
+            yield {"event": "chunk", "text": text, "accumulated_chars": total}
+        elif kind == "thought":
+            yield {"event": "thought", "text": text}
+        elif kind == "search":
+            yield {"event": "research", "action": "search", "detail": text}
+        elif kind == "read":
+            yield {"event": "research", "action": "read", "detail": text}
+
+
 def generate_blueprint_events(
     theme: Theme,
     source_hints: list[str],
     router: LLMRouter,
     blueprints: BlueprintRepository,
+    theme_repo: ThemeRepository,
     *,
-    tier: Tier = Tier.DEEP,
+    tier: Tier = Tier.RESEARCH,
     attempts: int = 2,
 ) -> Iterator[Event]:
-    """Run blueprint generation, yielding progress events and persisting the result.
+    """Run first-pass blueprint generation on the Deep Research agent, yielding
+    progress events and persisting the result.
 
-    Mirrors :func:`generate.generate_blueprint` (same prompt, same 2-attempt parse
-    retry, same persistence) but observable. The final ``saved`` event carries the
-    persisted :class:`BlueprintResponse` so the caller can refresh the table.
+    Mirrors :func:`generate.generate_blueprint`: streams the agent's cited report
+    (with live thought/search progress), parses the trailing JSON, records a Source
+    per citation, and persists. The final ``saved`` event carries the persisted
+    :class:`BlueprintResponse` so the caller can refresh the table.
     """
     model = router.model_for(tier)
-    yield {"event": "model", "tier": tier.value, "model": model}
-    yield {
-        "event": "endpoint",
-        "provider": "google-genai",
-        "method": "models.generate_content_stream",
-    }
+    yield from _header_events(tier, model, method="interactions.create (deep-research)")
 
-    prompt = build_prompt(theme, source_hints)
+    prompt = build_research_generate_prompt(theme, source_hints)
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
 
-    content: BlueprintContent | None = None
+    content = None
     last_error: str | None = None
     for attempt in range(attempts):
-        nudge = "" if attempt == 0 else "\n\nReturn ONLY valid JSON, no prose, no fences."
+        nudge = "" if attempt == 0 else "\n\nEnd your reply with ONLY the fenced ```json block."
         yield {"event": "llm_start", "attempt": attempt + 1, "attempts": attempts}
 
         buffer = ""
         try:
-            for piece in router.generate_stream(tier, prompt + nudge):
-                buffer += piece
-                yield {"event": "chunk", "text": piece, "accumulated_chars": len(buffer)}
+            for ev in _research_stream(router, tier, prompt + nudge):
+                if ev["event"] == "chunk":
+                    buffer += str(ev["text"])
+                yield ev
         except Exception as exc:  # GeminiError, timeout, network
             yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
             return
 
         try:
-            content = parse_blueprint_content(buffer)
+            content = parse_research_blueprint_content(buffer)
             yield {"event": "parse", "status": "ok"}
             break
         except BlueprintParseError as exc:
@@ -128,6 +152,9 @@ def generate_blueprint_events(
         yield {"event": "error", "detail": last_error or "blueprint generation failed"}
         return
 
+    sources_created = create_citation_sources(theme.id, content.companies, theme_repo)
+    yield {"event": "sources", "created": sources_created}
+
     yield {
         "event": "validate",
         "companies": len(content.companies),
@@ -140,7 +167,7 @@ def generate_blueprint_events(
             theme_id=theme.id,
             version=version,
             generated_by=model,
-            companies=content.companies,
+            companies=[to_blueprint_company(c) for c in content.companies],
             relationship_types=content.relationship_types,
             notes=content.notes,
         )
@@ -155,13 +182,11 @@ def generate_blueprint_events(
     yield {"event": "done"}
 
 
-def _header_events(tier: Tier, model: str) -> Iterator[Event]:
+def _header_events(
+    tier: Tier, model: str, *, method: str = "models.generate_content_stream"
+) -> Iterator[Event]:
     yield {"event": "model", "tier": tier.value, "model": model}
-    yield {
-        "event": "endpoint",
-        "provider": "google-genai",
-        "method": "models.generate_content_stream",
-    }
+    yield {"event": "endpoint", "provider": "google-genai", "method": method}
 
 
 def _final_events(record: BlueprintRecord) -> Iterator[Event]:
@@ -271,10 +296,11 @@ def discover_companies_events(
     *,
     tier: Tier = Tier.RESEARCH,
 ) -> Iterator[Event]:
-    """Stream the RESEARCH discovery pass. Mirrors :func:`discover.discover_companies`:
-    find additional constituents, create one Source per citation, merge into the plan."""
+    """Stream the RESEARCH discovery pass on the Deep Research agent. Mirrors
+    :func:`discover.discover_companies`: find additional constituents (web-cited),
+    create one Source per citation, merge into the plan."""
     model = router.model_for(tier)
-    yield from _header_events(tier, model)
+    yield from _header_events(tier, model, method="interactions.create (deep-research)")
 
     known = sorted({normalize_ticker(c.ticker) for c in base.companies})
     prompt = build_discovery_prompt(theme, known)
@@ -283,8 +309,9 @@ def discover_companies_events(
 
     buffer = ""
     try:
-        for ev in _stream_chunks(router, tier, prompt):
-            buffer += str(ev["text"])
+        for ev in _research_stream(router, tier, prompt):
+            if ev["event"] == "chunk":
+                buffer += str(ev["text"])
             yield ev
     except Exception as exc:
         yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}

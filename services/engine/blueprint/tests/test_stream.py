@@ -8,26 +8,40 @@ from services.engine.blueprint.repository import InMemoryBlueprintRepository
 from services.engine.blueprint.stream import generate_blueprint_events
 from services.engine.blueprint.tests.fixtures import sample_json, sample_theme
 from services.engine.llm.router import DEFAULT_MODELS, LLMRouter, Tier
+from services.engine.themes.repository import InMemoryThemeRepository
 
 
 class StreamingFake:
-    """TextGenerator that streams a canned response in fixed-size pieces."""
+    """Generator that streams a canned response in fixed-size pieces.
+
+    Implements both the generate_content stream (DEEP refine) and the Deep Research
+    stream (RESEARCH generate/discover). The Deep Research path also emits a thought
+    delta so callers exercise the thought/chunk split."""
 
     def __init__(self, *responses: str, chunk: int = 50) -> None:
         self._responses = list(responses) or [""]
         self._chunk = chunk
         self.calls = 0
 
-    def generate_text(self, *, model: str, prompt: str) -> str:
+    def _next(self) -> str:
         response = self._responses[min(self.calls, len(self._responses) - 1)]
         self.calls += 1
         return response
 
+    def generate_text(self, *, model: str, prompt: str) -> str:
+        return self._next()
+
     def generate_text_stream(self, *, model: str, prompt: str) -> Iterator[str]:
-        response = self._responses[min(self.calls, len(self._responses) - 1)]
-        self.calls += 1
+        response = self._next()
         for i in range(0, len(response), self._chunk):
             yield response[i : i + self._chunk]
+
+    def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+        response = self._next()
+        yield {"kind": "thought", "text": "planning the research"}
+        yield {"kind": "search", "text": "supply chain constituents"}
+        for i in range(0, len(response), self._chunk):
+            yield {"kind": "text", "text": response[i : i + self._chunk]}
 
 
 def _router(gen: object) -> LLMRouter:
@@ -37,21 +51,25 @@ def _router(gen: object) -> LLMRouter:
 def test_stream_happy_path_emits_steps_and_persists() -> None:
     gen = StreamingFake(sample_json(32))
     repo = InMemoryBlueprintRepository()
+    themes = InMemoryThemeRepository()
     events = list(
-        generate_blueprint_events(sample_theme(), ["report.pdf (filing)"], _router(gen), repo)
+        generate_blueprint_events(
+            sample_theme(), ["report.pdf (filing)"], _router(gen), repo, themes
+        )
     )
     kinds = [e["event"] for e in events]
 
     assert kinds[0] == "model"
     assert kinds[1] == "endpoint"
     assert "prompt" in kinds
-    assert "chunk" in kinds  # streamed in multiple pieces
+    assert "thought" in kinds  # Deep Research reasoning surfaced
+    assert "chunk" in kinds  # report streamed in multiple pieces
     assert kinds.count("chunk") > 1
     assert kinds[-1] == "done"
 
     model_ev = events[0]
-    assert model_ev["tier"] == "DEEP"
-    assert model_ev["model"] == DEFAULT_MODELS[Tier.DEEP]
+    assert model_ev["tier"] == "RESEARCH"
+    assert model_ev["model"] == DEFAULT_MODELS[Tier.RESEARCH]
 
     saved = next(e for e in events if e["event"] == "saved")
     assert saved["version"] == 1
@@ -62,8 +80,9 @@ def test_stream_happy_path_emits_steps_and_persists() -> None:
 def test_stream_retries_then_succeeds() -> None:
     gen = StreamingFake("not json", sample_json(32))
     repo = InMemoryBlueprintRepository()
+    themes = InMemoryThemeRepository()
     events = list(
-        generate_blueprint_events(sample_theme(), [], _router(gen), repo)
+        generate_blueprint_events(sample_theme(), [], _router(gen), repo, themes)
     )
     parse_events = [e for e in events if e["event"] == "parse"]
     assert parse_events[0]["status"] == "retry"
@@ -74,8 +93,9 @@ def test_stream_retries_then_succeeds() -> None:
 def test_stream_all_attempts_fail_emits_error() -> None:
     gen = StreamingFake("nope", "still nope")
     repo = InMemoryBlueprintRepository()
+    themes = InMemoryThemeRepository()
     events = list(
-        generate_blueprint_events(sample_theme(), [], _router(gen), repo)
+        generate_blueprint_events(sample_theme(), [], _router(gen), repo, themes)
     )
     assert events[-1]["event"] == "error"
     assert not any(e["event"] == "saved" for e in events)

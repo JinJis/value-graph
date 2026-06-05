@@ -39,7 +39,11 @@ def discover_companies(
     tier: Tier = Tier.RESEARCH,
 ) -> DiscoveryResult:
     known = sorted({normalize_ticker(c.ticker) for c in base.companies})
-    raw = router.generate(tier, build_discovery_prompt(theme, known))
+    raw = "".join(
+        delta["text"]
+        for delta in router.deep_research_stream(tier, build_discovery_prompt(theme, known))
+        if delta.get("kind") == "text"
+    )
     content = DiscoveryContent.model_validate_json(_extract_json(raw))
 
     # One Source per distinct citation URL (each discovered company carries a Source).

@@ -57,6 +57,23 @@ def test_all_models_come_from_env_when_set() -> None:
         assert router.model_for(tier) == f"env-{tier.value}"
 
 
+def test_research_tier_defaults_to_deep_research_agent() -> None:
+    router, _ = _router()
+    assert router.model_for(Tier.RESEARCH) == DEFAULT_MODELS[Tier.RESEARCH]
+    assert "deep-research" in DEFAULT_MODELS[Tier.RESEARCH]
+
+
+def test_deep_research_stream_falls_back_to_generate_text() -> None:
+    # A generator without a deep_research_stream (e.g. a fake) still yields the whole
+    # output as one text delta, so callers get the same {kind: "text"} shape.
+    router, fake = _router()
+    deltas = list(router.deep_research_stream(Tier.RESEARCH, "find the chain"))
+    assert deltas and all(d["kind"] == "text" for d in deltas)
+    assert "".join(d["text"] for d in deltas)
+    # routed to the RESEARCH agent id, not a generate_content model
+    assert fake.calls[-1][0] == DEFAULT_MODELS[Tier.RESEARCH]
+
+
 def test_bad_tier_raises() -> None:
     router, _ = _router()
     with pytest.raises(ValueError):
@@ -92,8 +109,10 @@ def test_router_repr_redacts_key() -> None:
     not os.environ.get("GOOGLE_API_KEY"),
     reason="no GOOGLE_API_KEY set; skipping live Gemini smoke test",
 )
-@pytest.mark.parametrize("tier", list(Tier))
+@pytest.mark.parametrize("tier", [t for t in Tier if t is not Tier.RESEARCH])
 def test_live_smoke_each_tier_returns_text(tier: Tier) -> None:
+    # RESEARCH is excluded: it is the Deep Research agent (Interactions API), not a
+    # generate_content model — a live smoke would take minutes and cost dollars.
     router = LLMRouter.from_env()
     out = router.generate(tier, "Reply with the single word: ok")
     assert isinstance(out, str) and out.strip()

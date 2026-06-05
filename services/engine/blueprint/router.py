@@ -67,7 +67,9 @@ def generate_theme_blueprint(
         for s in themes.list_sources(theme_id)
     ]
     version = blueprints.next_version(theme_id)
-    blueprint = generate_blueprint(theme, source_hints, llm, version=version)
+    blueprint = generate_blueprint(
+        theme, source_hints, llm, version=version, theme_repo=themes
+    )
     record = blueprints.save(blueprint)
     return BlueprintResponse(blueprint=record, coverage=summarize(record))
 
@@ -107,9 +109,10 @@ def stream_theme_blueprint(
     """Generate the blueprint as a live Server-Sent Events stream.
 
     Same generation + persistence as POST ``/blueprint`` but observable: emits the
-    routed model, the endpoint, the exact prompt, the model output as it streams,
-    and the saved result. The DEEP call takes tens of seconds; streaming keeps the
-    connection alive and shows progress instead of looking like a hung request.
+    routed agent, the endpoint, the exact prompt, the report as it streams (plus the
+    agent's live search/reasoning progress), and the saved result. The Deep Research
+    run takes minutes; streaming keeps the connection alive and shows progress
+    instead of looking like a hung request.
     """
     theme = themes.get_theme(theme_id)
     if theme is None:
@@ -118,7 +121,7 @@ def stream_theme_blueprint(
         f"{s.original_filename or s.url or s.id} ({s.type})"
         for s in themes.list_sources(theme_id)
     ]
-    return _sse(generate_blueprint_events(theme, source_hints, llm, blueprints))
+    return _sse(generate_blueprint_events(theme, source_hints, llm, blueprints, themes))
 
 
 @router.post("/themes/{theme_id}/blueprint/refine/stream")

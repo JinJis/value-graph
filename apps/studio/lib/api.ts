@@ -205,8 +205,9 @@ export async function generateBlueprint(
 }
 
 // A single progress event from the streaming blueprint endpoint. `event` names the
-// step (model / endpoint / prompt / llm_start / chunk / parse / validate / saved /
-// error / done); other fields depend on the step (see engine blueprint/stream.py).
+// step (model / endpoint / prompt / llm_start / thought / research / chunk / parse /
+// sources / validate / saved / error / done); other fields depend on the step (see
+// engine blueprint/stream.py). thought/research come from the Deep Research agent.
 export interface BlueprintEvent {
   event: string;
   [key: string]: unknown;
@@ -270,7 +271,11 @@ export const refineBlueprintStream = (
   onEvent: (event: BlueprintEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> =>
-  postEventStream(`/themes/${themeId}/blueprint/refine/stream`, onEvent, signal);
+  postEventStream(
+    `/themes/${themeId}/blueprint/refine/stream`,
+    onEvent,
+    signal,
+  );
 
 // RESEARCH discovery pass over SSE — broadens constituents and attributes Sources.
 export const discoverBlueprintStream = (
@@ -278,7 +283,11 @@ export const discoverBlueprintStream = (
   onEvent: (event: BlueprintEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> =>
-  postEventStream(`/themes/${themeId}/blueprint/discover/stream`, onEvent, signal);
+  postEventStream(
+    `/themes/${themeId}/blueprint/discover/stream`,
+    onEvent,
+    signal,
+  );
 
 export async function approveBlueprint(themeId: string): Promise<Theme> {
   return json(
