@@ -215,15 +215,21 @@ export interface BlueprintEvent {
 
 // POST `path` and parse the Server-Sent Events response, invoking `onEvent` per frame.
 // Uses a streaming fetch (not EventSource, which can't POST) and frames the SSE bytes
-// manually. Shared by the blueprint generate / refine / discover progress streams.
-async function postEventStream(
+// manually. An optional JSON `body` is sent for endpoints that need a payload (e.g. the
+// list of ticket ids to research). Shared by the blueprint and ticket-research streams.
+async function postEventStream<E = BlueprintEvent>(
   path: string,
-  onEvent: (event: BlueprintEvent) => void,
+  onEvent: (event: E) => void,
   signal?: AbortSignal,
+  body?: unknown,
 ): Promise<void> {
   const response = await fetch(url(path), {
     method: "POST",
-    headers: { Accept: "text/event-stream" },
+    headers: {
+      Accept: "text/event-stream",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });
   if (!response.ok || !response.body) {
@@ -247,7 +253,7 @@ async function postEventStream(
         const payload = line.slice(5).trim();
         if (!payload) continue;
         try {
-          onEvent(JSON.parse(payload) as BlueprintEvent);
+          onEvent(JSON.parse(payload) as E);
         } catch {
           /* ignore malformed frame */
         }
@@ -308,8 +314,32 @@ export interface Ticket {
   status: string;
   reason_code: string | null;
   current_estimate: Record<string, unknown> | null;
+  // A Deep Research answer awaiting admin review (value + cited source URL), or null.
+  research_proposal: ResearchProposal | null;
   created_at: string;
   updated_at: string;
+}
+
+// What Deep Research found for a ticket, persisted for the admin to accept or reject.
+export interface ResearchProposal {
+  value?: string | number | null;
+  unit?: string | null;
+  as_of_date?: string | null;
+  confidence?: string | null;
+  source_url?: string | null;
+  source_publisher?: string | null;
+  notes?: string | null;
+  by?: string | null;
+}
+
+// A single progress event from the ticket Deep Research stream. `event` names the step
+// (model / endpoint / ticket_start / prompt / llm_start / thought / research / chunk /
+// parse / proposed / auto_resolved / skipped / ticket_done / error / done); other fields
+// depend on the step (see engine tickets/research.py). All per-ticket events carry `ticket_id`.
+export interface TicketResearchEvent {
+  event: string;
+  ticket_id?: string;
+  [key: string]: unknown;
 }
 
 export interface GenerateResult {
@@ -371,6 +401,30 @@ export async function resolveTicket(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, reason_code: reasonCode }),
+    }),
+  );
+}
+
+// Resolve the selected tickets with the Deep Research agent over SSE (run sequentially).
+// Each ticket either gets a reviewable proposal (status stays OPEN) or auto-resolves.
+export const researchTicketsStream = (
+  themeId: string,
+  ticketIds: string[],
+  onEvent: (event: TicketResearchEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<TicketResearchEvent>(
+    `/themes/${themeId}/tickets/research/stream`,
+    onEvent,
+    signal,
+    { ticket_ids: ticketIds },
+  );
+
+// Reject a Deep Research proposal — clears it, leaving the ticket's status unchanged.
+export async function dismissTicketProposal(ticketId: string): Promise<Ticket> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/research/dismiss`), {
+      method: "POST",
     }),
   );
 }

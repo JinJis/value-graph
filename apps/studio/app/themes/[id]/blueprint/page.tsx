@@ -17,7 +17,7 @@ import {
   type Coverage,
   type Theme,
 } from "../../../../lib/api";
-import { BlueprintProgress, type Prog } from "./Progress";
+import { BlueprintProgress, type Prog } from "../../../../components/Progress";
 
 const EMPTY_PROG: Prog = {
   output: "",

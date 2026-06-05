@@ -72,6 +72,9 @@ async def upload_ticket_evidence(
     )
     tickets.set_status(ticket_id, "SUBMITTED")
     tickets.record_event(ticket_id, ticket.status, "SUBMITTED", actor, None)
+    # Accepting a Deep Research proposal (or any manual upload) clears the pending
+    # proposal — the cited source is now real evidence on the ticket.
+    tickets.set_research_proposal(ticket_id, None)
     return to_out(record)
 
 
