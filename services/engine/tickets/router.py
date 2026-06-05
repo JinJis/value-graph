@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from services.engine.blueprint.models import BlueprintCompany
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.db.config import DbSettings
@@ -111,18 +110,18 @@ def stream_research_tickets(
     proposes a cited answer (persisted for admin review) or the ticket auto-resolves to
     UNRESOLVABLE/DEFERRED. Streams the prompt + report per ticket (like blueprint generate).
     """
-    if themes.get_theme(theme_id) is None:
+    theme = themes.get_theme(theme_id)
+    if theme is None:
         raise HTTPException(status_code=404, detail="theme not found")
     blueprint = blueprints.get_latest(theme_id)
-    company_by_ticker: dict[str, BlueprintCompany] = (
-        {c.ticker: c for c in blueprint.companies} if blueprint is not None else {}
-    )
     selected = [
         t
         for ticket_id in req.ticket_ids
         if (t := tickets.get_ticket(ticket_id)) is not None and t.theme_id == theme_id
     ]
-    return sse_response(research_tickets_events(selected, company_by_ticker, llm, tickets))
+    return sse_response(
+        research_tickets_events(theme, selected, blueprint, llm, tickets)
+    )
 
 
 @router.post("/tickets/{ticket_id}/research/dismiss", response_model=Ticket)

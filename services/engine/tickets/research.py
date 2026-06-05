@@ -1,8 +1,9 @@
-"""Per-ticket Deep Research resolution — streamed, with human-in-the-loop on success.
+"""Batched per-ticket Deep Research resolution — one run, streamed, human-in-the-loop.
 
-Runs the Deep Research agent against each selected ticket (sequentially) and yields the
-same kind of progress events as ``blueprint/stream.py`` (model/prompt/chunk/…), tagged
-with ``ticket_id``. The agent returns a verdict:
+Resolves ALL selected tickets in a single Deep Research run (the agent shares theme +
+value-chain context across them) and yields the same kind of progress events as
+``blueprint/stream.py`` (model/prompt/chunk/…). The agent returns one result per ticket,
+keyed by a stable ``ref``; each result carries a verdict:
 
 - ``found``         → the figure + a cited source URL is persisted as a *proposal* on the
   ticket (status stays OPEN); the admin reviews and accepts it (attaching the cited URL
@@ -24,12 +25,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from services.engine.blueprint.generate import BlueprintParseError, _extract_json
-from services.engine.blueprint.models import BlueprintCompany
+from services.engine.blueprint.models import BlueprintRecord
 from services.engine.blueprint.stream import _research_stream
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.themes.models import Theme
 from services.engine.tickets.models import Ticket
 from services.engine.tickets.repository import TicketRepository
-from services.engine.tickets.research_prompt import build_ticket_research_prompt
+from services.engine.tickets.research_prompt import (
+    ResearchItem,
+    build_ticket_research_batch_prompt,
+)
 from services.engine.tickets.state import ReasonCode, can_transition, derived_estimate
 
 Event = dict[str, Any]
@@ -41,8 +46,9 @@ Verdict = Literal["found", "not_disclosed", "not_found", "paywalled", "ambiguous
 
 
 class TicketResolution(BaseModel):
-    """The agent's structured answer for one ticket (parsed from its report)."""
+    """The agent's structured answer for one ticket (keyed back by ``ref``)."""
 
+    ref: str
     verdict: Verdict
     value: str | float | int | None = None
     unit: str | None = None
@@ -51,6 +57,12 @@ class TicketResolution(BaseModel):
     source_url: str | None = None
     source_publisher: str | None = None
     notes: str | None = None
+
+
+class TicketResolutionBatch(BaseModel):
+    """The agent's full output: one resolution per ticket."""
+
+    results: list[TicketResolution]
 
 
 # Non-"found" verdicts map deterministically to a resolution status + reason code.
@@ -62,22 +74,36 @@ _VERDICT_RESOLUTION: dict[str, tuple[str, ReasonCode]] = {
 }
 
 
-def _parse_resolution(buffer: str) -> TicketResolution:
+def _parse_batch(buffer: str) -> TicketResolutionBatch:
     """Pull the trailing JSON object out of the agent's report and validate it."""
-    return TicketResolution.model_validate_json(_extract_json(buffer))
+    return TicketResolutionBatch.model_validate_json(_extract_json(buffer))
 
 
 def research_tickets_events(
+    theme: Theme,
     tickets: Iterable[Ticket],
-    company_by_ticker: dict[str, BlueprintCompany],
+    blueprint: BlueprintRecord | None,
     router: LLMRouter,
     ticket_repo: TicketRepository,
     *,
     tier: Tier = Tier.RESEARCH,
     attempts: int = 2,
 ) -> Iterator[Event]:
-    """Research each ticket on the Deep Research agent, yielding progress events and
-    persisting the outcome (proposal on success, auto-resolution otherwise)."""
+    """Research every selected ticket in one Deep Research run, yielding progress events
+    and persisting each outcome (proposal on success, auto-resolution otherwise)."""
+    ticket_list = list(tickets)
+    company_by_ticker = (
+        {c.ticker: c for c in blueprint.companies} if blueprint is not None else {}
+    )
+    relationship_types = blueprint.relationship_types if blueprint is not None else []
+    notes = blueprint.notes if blueprint is not None else None
+
+    refs = [f"T{i + 1}" for i in range(len(ticket_list))]
+    items: list[ResearchItem] = [
+        (ref, ticket, company_by_ticker.get(ticket.target))
+        for ref, ticket in zip(refs, ticket_list, strict=True)
+    ]
+
     model = router.model_for(tier)
     yield {"event": "model", "tier": tier.value, "model": model}
     yield {
@@ -85,81 +111,81 @@ def research_tickets_events(
         "provider": "google-genai",
         "method": "interactions.create (deep-research)",
     }
-    for ticket in tickets:
-        yield from _research_one(
-            ticket,
-            company_by_ticker.get(ticket.target),
-            router,
-            ticket_repo,
-            tier=tier,
-            attempts=attempts,
-        )
-    yield {"event": "done"}
-
-
-def _research_one(
-    ticket: Ticket,
-    company: BlueprintCompany | None,
-    router: LLMRouter,
-    ticket_repo: TicketRepository,
-    *,
-    tier: Tier,
-    attempts: int,
-) -> Iterator[Event]:
-    tid = ticket.id
     yield {
-        "event": "ticket_start",
-        "ticket_id": tid,
-        "target": ticket.target,
-        "metric": ticket.metric,
+        "event": "batch_start",
+        "count": len(ticket_list),
+        "tickets": [
+            {"ticket_id": t.id, "ref": ref, "target": t.target, "metric": t.metric}
+            for ref, t in zip(refs, ticket_list, strict=True)
+        ],
     }
+    if not ticket_list:
+        yield {"event": "done"}
+        return
 
-    prompt = build_ticket_research_prompt(ticket, company)
-    yield {"event": "prompt", "ticket_id": tid, "text": prompt, "chars": len(prompt)}
+    prompt = build_ticket_research_batch_prompt(
+        theme, items, relationship_types=relationship_types, notes=notes
+    )
+    yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
 
-    resolution: TicketResolution | None = None
+    batch: TicketResolutionBatch | None = None
     last_error: str | None = None
     for attempt in range(attempts):
-        nudge = "" if attempt == 0 else "\n\nEnd your reply with ONLY the fenced ```json block."
-        yield {"event": "llm_start", "ticket_id": tid, "attempt": attempt + 1, "attempts": attempts}
+        nudge = (
+            ""
+            if attempt == 0
+            else "\n\nEnd your reply with ONLY the fenced ```json block containing every ref."
+        )
+        yield {"event": "llm_start", "attempt": attempt + 1, "attempts": attempts}
 
         buffer = ""
         try:
             for ev in _research_stream(router, tier, prompt + nudge):
                 if ev.get("event") == "chunk":
                     buffer += str(ev.get("text", ""))
-                yield {**ev, "ticket_id": tid}
+                yield ev
         except Exception as exc:  # GeminiError, timeout, network
-            yield {"event": "error", "ticket_id": tid, "detail": f"{type(exc).__name__}: {exc}"}
-            yield {"event": "ticket_done", "ticket_id": tid, "outcome": "error"}
+            yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
             return
 
         try:
-            resolution = _parse_resolution(buffer)
-            yield {"event": "parse", "ticket_id": tid, "status": "ok"}
+            batch = _parse_batch(buffer)
+            yield {"event": "parse", "status": "ok"}
             break
         except (ValidationError, BlueprintParseError) as exc:
             last_error = str(exc)
             more = attempt + 1 < attempts
             yield {
                 "event": "parse",
-                "ticket_id": tid,
                 "status": "retry" if more else "failed",
                 "detail": last_error,
             }
 
-    if resolution is None:
-        yield {"event": "error", "ticket_id": tid, "detail": last_error or "ticket research failed"}
-        yield {"event": "ticket_done", "ticket_id": tid, "outcome": "error"}
+    if batch is None:
+        yield {"event": "error", "detail": last_error or "ticket research failed"}
         return
 
-    yield from _apply_resolution(ticket, resolution, ticket_repo)
+    by_ref = {r.ref: r for r in batch.results}
+    for ref, ticket in zip(refs, ticket_list, strict=True):
+        result = by_ref.get(ref)
+        if result is None:
+            yield {
+                "event": "skipped",
+                "ticket_id": ticket.id,
+                "target": ticket.target,
+                "metric": ticket.metric,
+                "detail": "no result returned for this ticket",
+            }
+            continue
+        yield from _apply_resolution(ticket, result, ticket_repo)
+    yield {"event": "done"}
 
 
 def _apply_resolution(
     ticket: Ticket, resolution: TicketResolution, ticket_repo: TicketRepository
 ) -> Iterator[Event]:
     tid = ticket.id
+    tag = {"ticket_id": tid, "target": ticket.target, "metric": ticket.metric}
 
     if resolution.verdict == "found":
         url = (resolution.source_url or "").strip()
@@ -176,8 +202,7 @@ def _apply_resolution(
                 "by": DEEP_RESEARCH_ACTOR,
             }
             ticket_repo.set_research_proposal(tid, proposal)
-            yield {"event": "proposed", "ticket_id": tid, **proposal}
-            yield {"event": "ticket_done", "ticket_id": tid, "outcome": "proposed"}
+            yield {"event": "proposed", **tag, **proposal}
             return
         # "found" but no usable source/value: a number cannot enter without a Source —
         # downgrade to a deferral the admin can revisit.
@@ -189,21 +214,19 @@ def _apply_resolution(
 
     if not can_transition(ticket.status, status):
         yield {
+            **tag,
             "event": "skipped",
-            "ticket_id": tid,
             "detail": f"cannot transition {ticket.status} -> {status}",
         }
-        yield {"event": "ticket_done", "ticket_id": tid, "outcome": "skipped"}
         return
 
     estimate = derived_estimate(reason)
     ticket_repo.set_resolution(tid, status, reason.value, current_estimate=estimate)
     ticket_repo.record_event(tid, ticket.status, status, DEEP_RESEARCH_ACTOR, reason.value)
     yield {
+        **tag,
         "event": "auto_resolved",
-        "ticket_id": tid,
         "status": status,
         "reason_code": reason.value,
         "notes": note,
     }
-    yield {"event": "ticket_done", "ticket_id": tid, "outcome": "auto_resolved"}

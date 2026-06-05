@@ -164,10 +164,7 @@ export default function TicketQueuePage() {
   const [researching, setResearching] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
-  const [active, setActive] = useState<{
-    target: string;
-    metric: string;
-  } | null>(null);
+  const [batchCount, setBatchCount] = useState(0);
   const [outcomes, setOutcomes] = useState<TicketOutcome[]>([]);
 
   // Evidence upload (for the selected ticket).
@@ -317,21 +314,25 @@ export default function TicketQueuePage() {
           endpoint: { provider: String(e.provider), method: String(e.method) },
         }));
         break;
-      case "ticket_start":
-        setActive({ target: String(e.target), metric: String(e.metric) });
-        setProg((p) => ({
-          ...EMPTY_PROG,
-          model: p.model,
-          endpoint: p.endpoint,
-          running: true,
-        }));
-        if (tid)
-          upsertOutcome(tid, {
-            target: String(e.target),
-            metric: String(e.metric),
-            kind: "running",
-          });
+      case "batch_start": {
+        const list = Array.isArray(e.tickets)
+          ? (e.tickets as Array<{
+              ticket_id?: string;
+              target?: string;
+              metric?: string;
+            }>)
+          : [];
+        setBatchCount(list.length);
+        setOutcomes(
+          list.map((t) => ({
+            ticketId: String(t.ticket_id ?? ""),
+            target: String(t.target ?? ""),
+            metric: String(t.metric ?? ""),
+            kind: "running" as const,
+          })),
+        );
         break;
+      }
       case "prompt":
         setProg((p) => ({ ...p, prompt: String(e.text) }));
         break;
@@ -431,7 +432,7 @@ export default function TicketQueuePage() {
     if (selectedIds.size === 0) return;
     setResearching(true);
     setShowPanel(true);
-    setActive(null);
+    setBatchCount(0);
     setOutcomes([]);
     setProg({ ...EMPTY_PROG, running: true });
     try {
@@ -557,10 +558,10 @@ export default function TicketQueuePage() {
 
       {showPanel && (researching || outcomes.length > 0 || !!prog.model) && (
         <div style={{ margin: "0.5rem 0" }}>
-          {active && (
+          {batchCount > 0 && (
             <p style={{ fontSize: 13, margin: "4px 0" }}>
-              Researching <strong>{active.metric}</strong> for{" "}
-              <strong>{active.target}</strong>
+              Researching <strong>{batchCount}</strong> ticket
+              {batchCount === 1 ? "" : "s"} in a single run…
             </p>
           )}
           <BlueprintProgress prog={prog} />

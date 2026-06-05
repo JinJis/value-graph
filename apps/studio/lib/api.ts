@@ -332,10 +332,11 @@ export interface ResearchProposal {
   by?: string | null;
 }
 
-// A single progress event from the ticket Deep Research stream. `event` names the step
-// (model / endpoint / ticket_start / prompt / llm_start / thought / research / chunk /
-// parse / proposed / auto_resolved / skipped / ticket_done / error / done); other fields
-// depend on the step (see engine tickets/research.py). All per-ticket events carry `ticket_id`.
+// A single progress event from the ticket Deep Research stream. The whole batch is one
+// run. `event` names the step (model / endpoint / batch_start / prompt / llm_start /
+// thought / research / chunk / parse / proposed / auto_resolved / skipped / error / done);
+// other fields depend on the step (see engine tickets/research.py). The per-ticket result
+// events (proposed / auto_resolved / skipped) carry `ticket_id`; batch_start lists them all.
 export interface TicketResearchEvent {
   event: string;
   ticket_id?: string;

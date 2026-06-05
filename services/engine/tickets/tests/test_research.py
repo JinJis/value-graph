@@ -12,7 +12,7 @@ from services.engine.blueprint.repository import InMemoryBlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.llm.router import DEFAULT_MODELS, LLMRouter, Tier
 from services.engine.main import app
-from services.engine.themes.models import ThemeCreate
+from services.engine.themes.models import Theme, ThemeCreate
 from services.engine.themes.repository import InMemoryThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.themes.router import get_storage
@@ -63,8 +63,18 @@ def _open_ticket(
     return ticket
 
 
-_FOUND = json.dumps(
+def _theme(name: str = "AI Data Centers") -> Theme:
+    return InMemoryThemeRepository().create_theme(ThemeCreate(name=name))
+
+
+def _batch(*results: dict[str, object]) -> str:
+    """The agent's output: one resolution per ref under a "results" array."""
+    return json.dumps({"results": list(results)})
+
+
+_FOUND = _batch(
     {
+        "ref": "T1",
         "verdict": "found",
         "value": "21% of revenue",
         "unit": "% of revenue",
@@ -80,20 +90,19 @@ _FOUND = json.dumps(
 def test_found_persists_proposal_and_keeps_open() -> None:
     repo = InMemoryTicketRepository()
     ticket = _open_ticket(repo)
-    events = list(research_tickets_events([ticket], {}, _router(ResearchFake(_FOUND)), repo))
+    events = list(
+        research_tickets_events(_theme(), [ticket], None, _router(ResearchFake(_FOUND)), repo)
+    )
     kinds = [e["event"] for e in events]
 
     assert kinds[0] == "model" and kinds[1] == "endpoint"
     assert events[0]["tier"] == "RESEARCH"
     assert events[0]["model"] == DEFAULT_MODELS[Tier.RESEARCH]
-    assert "ticket_start" in kinds and "prompt" in kinds and "chunk" in kinds
+    assert "batch_start" in kinds and "prompt" in kinds and "chunk" in kinds
     assert kinds[-1] == "done"
-    # Every per-ticket event is tagged with the ticket id.
-    for e in events:
-        if e["event"] not in ("model", "endpoint", "done"):
-            assert e["ticket_id"] == ticket.id
 
     proposed = next(e for e in events if e["event"] == "proposed")
+    assert proposed["ticket_id"] == ticket.id
     assert proposed["value"] == "21% of revenue"
     assert proposed["source_url"] == "https://example.com/ir"
     assert proposed["by"] == "deep-research"
@@ -108,8 +117,10 @@ def test_found_persists_proposal_and_keeps_open() -> None:
 def test_not_found_marks_unresolvable() -> None:
     repo = InMemoryTicketRepository()
     ticket = _open_ticket(repo)
-    payload = json.dumps({"verdict": "not_found", "notes": "no public disclosure"})
-    events = list(research_tickets_events([ticket], {}, _router(ResearchFake(payload)), repo))
+    payload = _batch({"ref": "T1", "verdict": "not_found", "notes": "no public disclosure"})
+    events = list(
+        research_tickets_events(_theme(), [ticket], None, _router(ResearchFake(payload)), repo)
+    )
 
     resolved = next(e for e in events if e["event"] == "auto_resolved")
     assert resolved["status"] == "UNRESOLVABLE" and resolved["reason_code"] == "not-found"
@@ -123,8 +134,8 @@ def test_not_found_marks_unresolvable() -> None:
 def test_not_disclosed_records_10pct_constraint() -> None:
     repo = InMemoryTicketRepository()
     ticket = _open_ticket(repo)
-    payload = json.dumps({"verdict": "not_disclosed"})
-    list(research_tickets_events([ticket], {}, _router(ResearchFake(payload)), repo))
+    payload = _batch({"ref": "T1", "verdict": "not_disclosed"})
+    list(research_tickets_events(_theme(), [ticket], None, _router(ResearchFake(payload)), repo))
 
     updated = repo.get_ticket(ticket.id)
     assert updated is not None and updated.status == "UNRESOLVABLE"
@@ -133,24 +144,50 @@ def test_not_disclosed_records_10pct_constraint() -> None:
     assert updated.current_estimate["upper_bound_pct"] == 10.0  # CVE 10% rule
 
 
-def test_paywalled_and_ambiguous_defer() -> None:
+def test_batch_resolves_all_in_one_run() -> None:
     repo = InMemoryTicketRepository()
     t1 = _open_ticket(repo, metric="m1")
     t2 = _open_ticket(repo, metric="m2")
-    gen = ResearchFake(json.dumps({"verdict": "paywalled"}), json.dumps({"verdict": "ambiguous"}))
-    events = list(research_tickets_events([t1, t2], {}, _router(gen), repo))
+    payload = _batch(
+        {"ref": "T1", "verdict": "paywalled"}, {"ref": "T2", "verdict": "ambiguous"}
+    )
+    events = list(
+        research_tickets_events(_theme(), [t1, t2], None, _router(ResearchFake(payload)), repo)
+    )
+    kinds = [e["event"] for e in events]
 
-    assert [e["event"] for e in events].count("ticket_start") == 2
+    # A single research run, not one per ticket.
+    assert kinds.count("prompt") == 1 and kinds.count("llm_start") == 1
+    assert kinds.count("batch_start") == 1
+    assert kinds.count("auto_resolved") == 2
     u1, u2 = repo.get_ticket(t1.id), repo.get_ticket(t2.id)
     assert u1 is not None and u1.status == "DEFERRED" and u1.reason_code == "paywalled"
     assert u2 is not None and u2.status == "DEFERRED" and u2.reason_code == "ambiguous"
 
 
+def test_missing_result_skips_its_ticket() -> None:
+    repo = InMemoryTicketRepository()
+    t1 = _open_ticket(repo, metric="m1")
+    t2 = _open_ticket(repo, metric="m2")
+    # Agent returns only T1; T2 has no result and must be left untouched.
+    payload = _batch({"ref": "T1", "verdict": "not_found"})
+    events = list(
+        research_tickets_events(_theme(), [t1, t2], None, _router(ResearchFake(payload)), repo)
+    )
+    skipped = [e for e in events if e["event"] == "skipped"]
+    assert any(e["ticket_id"] == t2.id for e in skipped)
+    u1, u2 = repo.get_ticket(t1.id), repo.get_ticket(t2.id)
+    assert u1 is not None and u1.status == "UNRESOLVABLE"
+    assert u2 is not None and u2.status == "OPEN"  # untouched
+
+
 def test_found_without_source_is_downgraded() -> None:
     repo = InMemoryTicketRepository()
     ticket = _open_ticket(repo)
-    payload = json.dumps({"verdict": "found", "value": "21%", "source_url": ""})
-    events = list(research_tickets_events([ticket], {}, _router(ResearchFake(payload)), repo))
+    payload = _batch({"ref": "T1", "verdict": "found", "value": "21%", "source_url": ""})
+    events = list(
+        research_tickets_events(_theme(), [ticket], None, _router(ResearchFake(payload)), repo)
+    )
 
     assert not any(e["event"] == "proposed" for e in events)
     resolved = next(e for e in events if e["event"] == "auto_resolved")
@@ -166,10 +203,9 @@ def test_skipped_when_transition_not_allowed() -> None:
     current = repo.get_ticket(ticket.id)
     assert current is not None
     # UNRESOLVABLE -> DEFERRED is rejected by the state machine, so paywalled is skipped.
+    payload = _batch({"ref": "T1", "verdict": "paywalled"})
     events = list(
-        research_tickets_events(
-            [current], {}, _router(ResearchFake(json.dumps({"verdict": "paywalled"}))), repo
-        )
+        research_tickets_events(_theme(), [current], None, _router(ResearchFake(payload)), repo)
     )
     assert any(e["event"] == "skipped" for e in events)
     again = repo.get_ticket(ticket.id)
@@ -181,7 +217,9 @@ def test_parse_failure_emits_error_and_leaves_ticket() -> None:
     ticket = _open_ticket(repo)
     # Both attempts return non-JSON → all parse attempts fail.
     events = list(
-        research_tickets_events([ticket], {}, _router(ResearchFake("nope", "still nope")), repo)
+        research_tickets_events(
+            _theme(), [ticket], None, _router(ResearchFake("nope", "still nope")), repo
+        )
     )
     assert any(e["event"] == "error" for e in events)
     assert not any(e["event"] in ("proposed", "auto_resolved") for e in events)
