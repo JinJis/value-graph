@@ -2,9 +2,12 @@
 
 import { useEffect, useRef } from "react";
 
-// Live view of a blueprint generation run (fed by the SSE stream). Shows, top to
-// bottom: which Gemini model is routed and where the call goes, the step timeline,
-// the exact prompt sent, and the model's JSON output as it streams in.
+import { Markdown } from "./Markdown";
+
+// Live view of a streamed LLM run (fed by the SSE stream). Shows, top to bottom: which
+// Gemini model is routed and where the call goes, the step timeline, the exact prompt
+// sent, and the model's output as it streams in. Pass `markdown` to render the output as
+// Markdown (e.g. a Deep Research report) instead of raw monospace text.
 
 export interface ProgStep {
   label: string;
@@ -47,8 +50,14 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function BlueprintProgress({ prog }: { prog: Prog }) {
-  const outRef = useRef<HTMLPreElement>(null);
+export function BlueprintProgress({
+  prog,
+  markdown = false,
+}: {
+  prog: Prog;
+  markdown?: boolean;
+}) {
+  const outRef = useRef<HTMLDivElement>(null);
 
   // Keep the streaming output scrolled to the newest tokens.
   useEffect(() => {
@@ -144,23 +153,41 @@ export function BlueprintProgress({ prog }: { prog: Prog }) {
 
       {prog.output && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>Model output</div>
-          <pre
+          <div style={{ fontSize: 13, marginBottom: 4 }}>
+            {markdown ? "Research report" : "Model output"}
+          </div>
+          <div
             ref={outRef}
             style={{
-              whiteSpace: "pre-wrap",
-              fontSize: 12,
-              background: "#0b1020",
-              color: "#7dd3fc",
-              padding: 12,
-              borderRadius: 6,
               maxHeight: 320,
               overflow: "auto",
-              fontFamily: "ui-monospace, monospace",
+              borderRadius: 6,
+              padding: 12,
+              ...(markdown
+                ? {
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    color: "#0f172a",
+                  }
+                : { background: "#0b1020" }),
             }}
           >
-            {prog.output}
-          </pre>
+            {markdown ? (
+              <Markdown source={prog.output} />
+            ) : (
+              <pre
+                style={{
+                  whiteSpace: "pre-wrap",
+                  fontSize: 12,
+                  color: "#7dd3fc",
+                  margin: 0,
+                  fontFamily: "ui-monospace, monospace",
+                }}
+              >
+                {prog.output}
+              </pre>
+            )}
+          </div>
         </div>
       )}
     </section>
