@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from services.engine.background import run_detached
 from services.engine.blueprint.coverage import summarize
 from services.engine.blueprint.discover import discover_companies
 from services.engine.blueprint.generate import generate_blueprint
@@ -96,7 +97,10 @@ def stream_theme_blueprint(
         for s in themes.list_sources(theme_id)
     ]
     return sse_response(
-        generate_blueprint_events(theme, source_hints, llm, blueprints, themes)
+        run_detached(
+            lambda: generate_blueprint_events(theme, source_hints, llm, blueprints, themes),
+            label=f"blueprint-generate:{theme_id}",
+        )
     )
 
 
@@ -115,7 +119,12 @@ def stream_refine_blueprint(
     base = blueprints.get_latest(theme_id)
     if base is None:
         raise HTTPException(status_code=409, detail="no blueprint to refine; generate one first")
-    return sse_response(refine_blueprint_events(theme, base, llm, blueprints))
+    return sse_response(
+        run_detached(
+            lambda: refine_blueprint_events(theme, base, llm, blueprints),
+            label=f"blueprint-refine:{theme_id}",
+        )
+    )
 
 
 @router.post("/themes/{theme_id}/blueprint/discover/stream")
@@ -133,7 +142,12 @@ def stream_discover_constituents(
     base = blueprints.get_latest(theme_id)
     if base is None:
         raise HTTPException(status_code=409, detail="no blueprint to extend; generate one first")
-    return sse_response(discover_companies_events(theme, base, llm, blueprints, themes))
+    return sse_response(
+        run_detached(
+            lambda: discover_companies_events(theme, base, llm, blueprints, themes),
+            label=f"blueprint-discover:{theme_id}",
+        )
+    )
 
 
 @router.post("/themes/{theme_id}/blueprint/refine", response_model=RefinementResult)

@@ -360,7 +360,7 @@ export default function BlueprintReviewPage() {
       )}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
 
-      <BlueprintProgress prog={prog} />
+      <BlueprintProgress prog={prog} markdown />
 
       <p>
         <label>

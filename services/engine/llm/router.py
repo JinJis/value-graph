@@ -162,6 +162,10 @@ class GeminiTextGenerator:
         progress so callers can show "searching…/reading…" while the report builds.
         """
         client = self._get_client()
+        logger.info("deep_research.start agent=%s prompt_chars=%d", agent, len(prompt))
+        report_chars = 0
+        searches = 0
+        reads = 0
         try:
             stream = client.interactions.create(
                 input=prompt,
@@ -190,20 +194,33 @@ class GeminiTextGenerator:
                 if dtype == "text":
                     text = getattr(delta, "text", None)
                     if isinstance(text, str) and text:
+                        report_chars += len(text)
                         yield {"kind": "text", "text": text}
                 elif dtype == "thought_summary":
                     content = getattr(delta, "content", None)
                     text = getattr(content, "text", None)
                     if isinstance(text, str) and text:
+                        logger.debug("deep_research.thought agent=%s %.200s", agent, text)
                         yield {"kind": "thought", "text": text}
                 elif dtype == "google_search_call":
                     queries = getattr(getattr(delta, "arguments", None), "queries", None) or []
                     if queries:
+                        searches += 1
+                        logger.info("deep_research.search agent=%s queries=%s", agent, queries)
                         yield {"kind": "search", "text": ", ".join(queries)}
                 elif dtype == "url_context_call":
                     urls = getattr(getattr(delta, "arguments", None), "urls", None) or []
                     if urls:
+                        reads += 1
+                        logger.info("deep_research.read agent=%s urls=%s", agent, urls)
                         yield {"kind": "read", "text": ", ".join(urls)}
+            logger.info(
+                "deep_research.done agent=%s report_chars=%d searches=%d reads=%d",
+                agent,
+                report_chars,
+                searches,
+                reads,
+            )
         except GeminiError:
             raise
         except Exception as exc:  # SDK errors, timeouts, network

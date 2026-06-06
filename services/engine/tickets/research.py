@@ -19,6 +19,7 @@ with actor ``deep-research``; a disallowed transition yields a ``skipped`` event
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Iterator
 from typing import Any, Literal
 
@@ -36,6 +37,8 @@ from services.engine.tickets.research_prompt import (
     build_ticket_research_batch_prompt,
 )
 from services.engine.tickets.state import ReasonCode, can_transition, derived_estimate
+
+logger = logging.getLogger("valuegraph.engine.tickets.research")
 
 Event = dict[str, Any]
 
@@ -103,6 +106,13 @@ def research_tickets_events(
         (ref, ticket, company_by_ticker.get(ticket.target))
         for ref, ticket in zip(refs, ticket_list, strict=True)
     ]
+    logger.info(
+        "research.batch theme=%s tickets=%d blueprint=%s targets=%s",
+        theme.id,
+        len(ticket_list),
+        "yes" if blueprint is not None else "none",
+        ", ".join(t.target for t in ticket_list) or "-",
+    )
 
     model = router.model_for(tier)
     yield {"event": "model", "tier": tier.value, "model": model}
@@ -127,6 +137,7 @@ def research_tickets_events(
         theme, items, relationship_types=relationship_types, notes=notes
     )
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
+    logger.info("research.prompt theme=%s chars=%d model=%s", theme.id, len(prompt), model)
 
     batch: TicketResolutionBatch | None = None
     last_error: str | None = None
@@ -137,6 +148,7 @@ def research_tickets_events(
             else "\n\nEnd your reply with ONLY the fenced ```json block containing every ref."
         )
         yield {"event": "llm_start", "attempt": attempt + 1, "attempts": attempts}
+        logger.info("research.attempt theme=%s %d/%d", theme.id, attempt + 1, attempts)
 
         buffer = ""
         try:
@@ -145,16 +157,30 @@ def research_tickets_events(
                     buffer += str(ev.get("text", ""))
                 yield ev
         except Exception as exc:  # GeminiError, timeout, network
+            logger.warning("research.stream_error theme=%s: %s", theme.id, exc)
             yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
             return
 
         try:
             batch = _parse_batch(buffer)
             yield {"event": "parse", "status": "ok"}
+            logger.info(
+                "research.parsed theme=%s results=%d report_chars=%d",
+                theme.id,
+                len(batch.results),
+                len(buffer),
+            )
             break
         except (ValidationError, BlueprintParseError) as exc:
             last_error = str(exc)
             more = attempt + 1 < attempts
+            logger.warning(
+                "research.parse_failed theme=%s attempt=%d retry=%s: %s",
+                theme.id,
+                attempt + 1,
+                more,
+                exc,
+            )
             yield {
                 "event": "parse",
                 "status": "retry" if more else "failed",
@@ -162,6 +188,7 @@ def research_tickets_events(
             }
 
     if batch is None:
+        logger.warning("research.failed theme=%s: %s", theme.id, last_error)
         yield {"event": "error", "detail": last_error or "ticket research failed"}
         return
 
@@ -169,6 +196,9 @@ def research_tickets_events(
     for ref, ticket in zip(refs, ticket_list, strict=True):
         result = by_ref.get(ref)
         if result is None:
+            logger.warning(
+                "research.no_result theme=%s ticket=%s ref=%s", theme.id, ticket.id, ref
+            )
             yield {
                 "event": "skipped",
                 "ticket_id": ticket.id,
@@ -178,6 +208,7 @@ def research_tickets_events(
             }
             continue
         yield from _apply_resolution(ticket, result, ticket_repo)
+    logger.info("research.done theme=%s tickets=%d", theme.id, len(ticket_list))
     yield {"event": "done"}
 
 
@@ -202,6 +233,13 @@ def _apply_resolution(
                 "by": DEEP_RESEARCH_ACTOR,
             }
             ticket_repo.set_research_proposal(tid, proposal)
+            logger.info(
+                "research.proposed ticket=%s target=%s value=%r source=%s",
+                tid,
+                ticket.target,
+                resolution.value,
+                url,
+            )
             yield {"event": "proposed", **tag, **proposal}
             return
         # "found" but no usable source/value: a number cannot enter without a Source —
@@ -213,6 +251,13 @@ def _apply_resolution(
         note = resolution.notes
 
     if not can_transition(ticket.status, status):
+        logger.info(
+            "research.skipped ticket=%s target=%s reason=cannot-transition %s->%s",
+            tid,
+            ticket.target,
+            ticket.status,
+            status,
+        )
         yield {
             **tag,
             "event": "skipped",
@@ -223,6 +268,14 @@ def _apply_resolution(
     estimate = derived_estimate(reason)
     ticket_repo.set_resolution(tid, status, reason.value, current_estimate=estimate)
     ticket_repo.record_event(tid, ticket.status, status, DEEP_RESEARCH_ACTOR, reason.value)
+    logger.info(
+        "research.auto_resolved ticket=%s target=%s verdict=%s status=%s reason=%s",
+        tid,
+        ticket.target,
+        resolution.verdict,
+        status,
+        reason.value,
+    )
     yield {
         **tag,
         "event": "auto_resolved",

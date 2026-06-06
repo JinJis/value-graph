@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from services.engine.background import run_detached
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.db.config import DbSettings
@@ -25,6 +27,8 @@ from services.engine.tickets.models import (
 from services.engine.tickets.repository import PostgresTicketRepository, TicketRepository
 from services.engine.tickets.research import research_tickets_events
 from services.engine.tickets.state import derived_estimate, validate_transition
+
+logger = logging.getLogger("valuegraph.engine.tickets")
 
 router = APIRouter(tags=["tickets"])
 
@@ -119,8 +123,19 @@ def stream_research_tickets(
         for ticket_id in req.ticket_ids
         if (t := tickets.get_ticket(ticket_id)) is not None and t.theme_id == theme_id
     ]
+    logger.info(
+        "tickets.research request theme=%s requested=%d eligible=%d",
+        theme_id,
+        len(req.ticket_ids),
+        len(selected),
+    )
+    # Detached: the Deep Research run + persistence finish even if the admin closes the
+    # tab mid-run; the SSE response just tails the live progress.
     return sse_response(
-        research_tickets_events(theme, selected, blueprint, llm, tickets)
+        run_detached(
+            lambda: research_tickets_events(theme, selected, blueprint, llm, tickets),
+            label=f"tickets-research:{theme_id}:{len(selected)}",
+        )
     )
 
 
