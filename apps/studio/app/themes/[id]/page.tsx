@@ -1,368 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { StepFooter } from "../../../components/WorkflowSteps";
 import {
-  getPublishPreview,
-  getTheme,
-  getThemeQuality,
   listSources,
-  publishTheme,
-  researchAndBuildStream,
-  runThemeCveStream,
   sourceContentUrl,
   uploadSource,
-  type CveRunEvent,
-  type PublishPreview,
-  type QualityReport,
   type Source,
-  type Theme,
 } from "../../../lib/api";
-import { BlueprintProgress, type Prog } from "../../../components/Progress";
-
-const EMPTY_PROG: Prog = { output: "", steps: [], done: false, running: false };
 
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 
-// verified / derived / estimated / gap — confidence-tier colours (CLAUDE.md §5).
-const TIERS = [
-  { key: "verified", label: "Verified", color: "#1b8a3a" },
-  { key: "derived", label: "Derived", color: "#2f6fb0" },
-  { key: "estimated", label: "Estimated", color: "#c98a00" },
-  { key: "gap", label: "Gap", color: "#b03030" },
-] as const;
-
-function DataQualityMeter({ report }: { report: QualityReport }) {
-  const q = report.quality;
-  return (
-    <div style={{ margin: "1rem 0" }}>
-      <h2 style={{ marginBottom: 4 }}>Data quality</h2>
-      <p style={{ margin: "0 0 8px" }}>
-        <small>
-          Published v{report.snapshot_version} · {report.total} relationships
-        </small>
-      </p>
-      <div
-        style={{
-          display: "flex",
-          height: 18,
-          borderRadius: 4,
-          overflow: "hidden",
-          border: "1px solid #ddd",
-        }}
-      >
-        {TIERS.map((t) => {
-          const pct = q[t.key];
-          return pct > 0 ? (
-            <div
-              key={t.key}
-              title={`${t.label}: ${pct}%`}
-              style={{ width: `${pct}%`, background: t.color }}
-            />
-          ) : null;
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
-        {TIERS.map((t) => (
-          <small
-            key={t.key}
-            style={{ display: "flex", alignItems: "center", gap: 4 }}
-          >
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                background: t.color,
-                display: "inline-block",
-                borderRadius: 2,
-              }}
-            />
-            {t.label} {q[t.key]}%
-          </small>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Staging -> Production publish (explicit human action). Shows completeness + every
-// blocking validation issue; publishing past issues requires an override reason.
-function PublishPanel({
-  themeId,
-  onPublished,
-}: {
-  themeId: string;
-  onPublished: () => void;
-}) {
-  const [preview, setPreview] = useState<PublishPreview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [actor, setActor] = useState("");
-  const [overrideReason, setOverrideReason] = useState("");
-  const [publishing, setPublishing] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [cveProg, setCveProg] = useState<Prog>(EMPTY_PROG);
-
-  async function loadPreview() {
-    setLoading(true);
-    try {
-      setPreview(await getPublishPreview(themeId));
-      setPreviewError(null);
-    } catch (e) {
-      setPreviewError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadPreview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeId]);
-
-  function onCveEvent(e: CveRunEvent) {
-    const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
-      setCveProg((p) => ({
-        ...p,
-        steps: [...p.steps, { label, detail, tone }],
-      }));
-    switch (e.event) {
-      case "model":
-        setCveProg((p) => ({
-          ...p,
-          model: { tier: String(e.tier), model: String(e.model) },
-        }));
-        break;
-      case "phase":
-        step(e.phase === "research" ? "▼ Deep Research" : "▼ Build (CVE)");
-        break;
-      case "prompt":
-        setCveProg((p) => ({ ...p, prompt: String(e.text) }));
-        break;
-      case "chunk":
-        setCveProg((p) => ({ ...p, output: p.output + String(e.text ?? "") }));
-        break;
-      case "research":
-        step(String(e.action), String(e.detail ?? ""));
-        break;
-      case "researched":
-        step(
-          "researched",
-          `${e.trades} trade(s) · ${e.financials} financials · ${e.sources} source(s)`,
-          "ok",
-        );
-        break;
-      case "financial_tickets":
-        step(
-          "financial tickets",
-          `${e.opened} opened for missing figures`,
-          "warn",
-        );
-        break;
-      case "start":
-        step("ingest", `${e.documents} document(s) · ${e.companies} companies`);
-        break;
-      case "stage":
-        step(`${e.stage} ${e.label}`, String(e.detail ?? ""));
-        break;
-      case "persisted":
-        step(
-          `persisted build v${e.build_version}`,
-          `${e.publishable_edges} publishable · ${e.ghost_edges} gap · ` +
-            `${e.estimated_edges} estimated`,
-          "ok",
-        );
-        break;
-      case "done":
-        setCveProg((p) => ({ ...p, running: false, done: true }));
-        break;
-      case "error":
-        setCveProg((p) => ({
-          ...p,
-          running: false,
-          error: String(e.detail ?? "run error"),
-        }));
-        break;
-    }
-  }
-
-  async function runStream(
-    stream: (id: string, cb: (e: CveRunEvent) => void) => Promise<void>,
-  ) {
-    setRunning(true);
-    setCveProg({ ...EMPTY_PROG, running: true });
-    try {
-      await stream(themeId, onCveEvent);
-      await loadPreview();
-    } catch (e) {
-      setCveProg((p) => ({ ...p, running: false, error: String(e) }));
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  async function onPublish() {
-    if (!actor.trim()) {
-      setMsg("Enter your name/email first.");
-      return;
-    }
-    setPublishing(true);
-    setMsg(null);
-    try {
-      const r = await publishTheme(themeId, actor.trim(), overrideReason);
-      setMsg(
-        `Published v${r.snapshot_version} — ${r.edges} relationships` +
-          (r.overridden ? " (overridden)." : "."),
-      );
-      setOverrideReason("");
-      await loadPreview();
-      onPublished();
-    } catch (e) {
-      setMsg(`Publish failed: ${String(e)}`);
-    } finally {
-      setPublishing(false);
-    }
-  }
-
-  const c = preview?.completeness;
-  const canPublish = preview?.can_publish ?? false;
-  const blocked = !!preview && !canPublish;
-
-  return (
-    <section style={{ margin: "1.5rem 0" }}>
-      <h2 style={{ marginBottom: 4 }}>Publish</h2>
-
-      <div style={{ margin: "0 0 12px" }}>
-        <button
-          type="button"
-          onClick={() => void runStream(researchAndBuildStream)}
-          disabled={running}
-        >
-          {running ? "Working…" : "Research & build"}
-        </button>{" "}
-        <button
-          type="button"
-          onClick={() => void runStream(runThemeCveStream)}
-          disabled={running}
-        >
-          Run CVE only
-        </button>{" "}
-        <small style={{ color: "#64748b" }}>
-          Deep Research the chain (trades + financials) into a Staging build;
-          gaps become tickets. “Run CVE only” rebuilds from existing data
-          without re-researching.
-        </small>
-        <BlueprintProgress
-          prog={cveProg}
-          markdown
-          labels={{
-            running: "Researching & building…",
-            done: "Build complete",
-            idle: "CVE build",
-          }}
-        />
-      </div>
-
-      {loading ? (
-        <p>
-          <small>Checking publish readiness…</small>
-        </p>
-      ) : previewError ? (
-        <p style={{ color: "crimson" }}>
-          <small>Couldn’t check readiness: {previewError}</small>{" "}
-          <button type="button" onClick={() => void loadPreview()}>
-            Retry
-          </button>
-        </p>
-      ) : !preview ? (
-        <p>
-          <small>No CVE build yet — run CVE before publishing.</small>
-        </p>
-      ) : (
-        <>
-          <p style={{ margin: "0 0 6px" }}>
-            <small>
-              Build v{preview.build_version} ·{" "}
-              {Math.round((c?.completeness ?? 0) * 100)}% complete (
-              {c?.publishable_edges}/{c?.total_edges} relationships · threshold{" "}
-              {Math.round((c?.threshold ?? 0) * 100)}%)
-            </small>
-          </p>
-          {canPublish ? (
-            <p style={{ color: "#15803d", margin: "0 0 8px" }}>
-              ✓ Ready to publish — every exposed figure is fully sourced.
-            </p>
-          ) : (
-            <div style={{ margin: "0 0 8px" }}>
-              <p style={{ color: "#b45309", margin: "0 0 4px" }}>
-                {preview.gate.violations.length} issue(s) block a clean publish:
-              </p>
-              <ul
-                style={{
-                  margin: 0,
-                  fontSize: 13,
-                  maxHeight: 160,
-                  overflow: "auto",
-                }}
-              >
-                {preview.gate.violations.map((v, i) => (
-                  <li key={i}>
-                    <code>{v.edge}</code> · {v.field} — {v.detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div style={{ display: "grid", gap: 6, maxWidth: 480 }}>
-            <input
-              placeholder="Your name / email (recorded in the audit log)"
-              value={actor}
-              onChange={(e) => setActor(e.target.value)}
-            />
-            {blocked && (
-              <input
-                placeholder="Override reason (required to publish with issues)"
-                value={overrideReason}
-                onChange={(e) => setOverrideReason(e.target.value)}
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => void onPublish()}
-              disabled={
-                publishing ||
-                !actor.trim() ||
-                (blocked && !overrideReason.trim())
-              }
-            >
-              {publishing
-                ? "Publishing…"
-                : blocked
-                  ? "Publish with override"
-                  : "Publish"}
-            </button>
-          </div>
-        </>
-      )}
-      {msg && (
-        <p style={{ marginTop: 8, fontSize: 13 }}>
-          <small>{msg}</small>
-        </p>
-      )}
-    </section>
-  );
-}
-
-export default function ThemeDetailPage() {
-  const params = useParams<{ id: string }>();
-  const themeId = params.id;
-
-  const [theme, setTheme] = useState<Theme | null>(null);
-  const [quality, setQuality] = useState<QualityReport | null>(null);
+export default function ThemePage() {
+  const { id: themeId } = useParams<{ id: string }>();
   const [sources, setSources] = useState<Source[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [type, setType] = useState("report");
@@ -372,17 +24,10 @@ export default function ThemeDetailPage() {
 
   async function refresh() {
     try {
-      const [t, s, q] = await Promise.all([
-        getTheme(themeId),
-        listSources(themeId),
-        getThemeQuality(themeId),
-      ]);
-      setTheme(t);
-      setSources(s);
-      setQuality(q);
+      setSources(await listSources(themeId));
       setError(null);
     } catch (e) {
-      setError(`Could not load theme: ${String(e)}`);
+      setError(`Could not load sources: ${String(e)}`);
     }
   }
 
@@ -408,45 +53,20 @@ export default function ThemeDetailPage() {
   }
 
   return (
-    <main
-      style={{ maxWidth: 720, margin: "2rem auto", fontFamily: "system-ui" }}
-    >
-      <p>
-        <Link href="/themes">← All themes</Link>
-      </p>
-      <h1>{theme ? theme.name : "Loading…"}</h1>
-      {theme && (
-        <p>
-          <small>
-            {theme.status} · v{theme.version}
-            {theme.seed_tickers.length > 0 &&
-              ` · seeds: ${theme.seed_tickers.join(", ")}`}
-          </small>
-        </p>
-      )}
-
-      <p>
-        <Link href={`/themes/${themeId}/blueprint`}>→ Review blueprint</Link>
-        {" · "}
-        <Link href={`/themes/${themeId}/tickets`}>→ Ticket queue</Link>
-        {" · "}
-        <Link href={`/themes/${themeId}/financials`}>→ Financials</Link>
+    <section>
+      <h2 style={{ marginBottom: 4 }}>Theme &amp; context</h2>
+      <p style={{ color: "#475569", marginTop: 0 }}>
+        <small>
+          Optionally add source documents (filings, IR decks, reports) for this
+          theme, then move on to the blueprint. Sources here — and citations
+          found later during research — all feed the graph’s provenance.
+        </small>
       </p>
 
-      {quality ? (
-        <DataQualityMeter report={quality} />
-      ) : (
-        <p>
-          <small>Data quality appears here once the theme is published.</small>
-        </p>
-      )}
-
-      <PublishPanel themeId={themeId} onPublished={() => void refresh()} />
-
-      <h2>Additional context</h2>
+      <h3>Add context</h3>
       <form
         onSubmit={onUpload}
-        style={{ display: "grid", gap: 8, margin: "1rem 0" }}
+        style={{ display: "grid", gap: 8, maxWidth: 520 }}
       >
         <input
           type="file"
@@ -471,15 +91,18 @@ export default function ThemeDetailPage() {
 
       {error && <p style={{ color: "crimson" }}>{error}</p>}
 
+      <h3>Sources ({sources.length})</h3>
       {sources.length === 0 ? (
-        <p>No sources uploaded yet.</p>
+        <p>
+          <small>
+            No sources yet (optional — you can generate a blueprint without
+            them).
+          </small>
+        </p>
       ) : (
         <ul>
           {sources.map((s) => (
             <li key={s.id}>
-              {/* Discovered citations are external URLs (no uploaded file); link to
-                  the source itself. Uploaded files have no url, so serve their stored
-                  content instead. */}
               <a
                 href={s.url ?? sourceContentUrl(s)}
                 target="_blank"
@@ -495,6 +118,8 @@ export default function ThemeDetailPage() {
           ))}
         </ul>
       )}
-    </main>
+
+      <StepFooter themeId={themeId} currentKey="theme" />
+    </section>
   );
 }

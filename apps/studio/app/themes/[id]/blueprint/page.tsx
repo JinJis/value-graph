@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
   approveBlueprint,
   discoverBlueprintStream,
@@ -302,17 +302,12 @@ export default function BlueprintReviewPage() {
     run(async () => setTheme(await approveBlueprint(themeId)), "Approve");
 
   return (
-    <main
-      style={{ maxWidth: 1100, margin: "2rem auto", fontFamily: "system-ui" }}
-    >
-      <p>
-        <Link href={`/themes/${themeId}`}>← Theme</Link>
-      </p>
-      <h1>Blueprint review</h1>
-      <p>
+    <section>
+      <h2 style={{ marginBottom: 4 }}>Blueprint</h2>
+      <p style={{ color: "#475569", marginTop: 0 }}>
         <small>
-          {theme ? `${theme.name} · status: ${theme.status}` : "Loading…"}
-          {version !== null && ` · blueprint v${version}`}
+          {version !== null ? `Blueprint v${version}` : "No blueprint yet"}
+          {theme?.status === "approved" ? " · approved ✓" : ""}
         </small>
       </p>
 
@@ -441,6 +436,7 @@ export default function BlueprintReviewPage() {
           />
         </label>
       </p>
-    </main>
+      <StepFooter themeId={themeId} currentKey="blueprint" />
+    </section>
   );
 }

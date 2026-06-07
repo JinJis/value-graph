@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+
+import { StepFooter } from "../../../../components/WorkflowSteps";
 
 import {
   dismissTicketProposal,
@@ -543,13 +544,8 @@ export default function TicketQueuePage() {
   }, [tickets, target, metric, status, sortKey]);
 
   return (
-    <main
-      style={{ maxWidth: 1000, margin: "2rem auto", fontFamily: "system-ui" }}
-    >
-      <p>
-        <Link href={`/themes/${themeId}`}>← Theme</Link>
-      </p>
-      <h1>Ticket queue</h1>
+    <section>
+      <h2 style={{ marginBottom: 4 }}>Ticket queue</h2>
 
       <div
         style={{
@@ -916,6 +912,7 @@ export default function TicketQueuePage() {
           </ul>
         </div>
       )}
-    </main>
+      <StepFooter themeId={themeId} currentKey="tickets" />
+    </section>
   );
 }

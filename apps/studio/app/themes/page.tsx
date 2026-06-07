@@ -55,6 +55,12 @@ export default function ThemesPage() {
       style={{ maxWidth: 720, margin: "2rem auto", fontFamily: "system-ui" }}
     >
       <h1>ValueGraph Studio — Themes</h1>
+      <p style={{ color: "#475569" }}>
+        <small>
+          Create a theme, then it guides you through Theme → Blueprint → Tickets
+          → Financials → Build → Publish.
+        </small>
+      </p>
 
       <form
         onSubmit={onCreate}

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
   getBlueprint,
   listFinancials,
@@ -110,13 +110,8 @@ export default function FinancialsPage() {
   }
 
   return (
-    <main
-      style={{ maxWidth: 1000, margin: "2rem auto", fontFamily: "system-ui" }}
-    >
-      <p>
-        <Link href={`/themes/${themeId}`}>← Theme</Link>
-      </p>
-      <h1>Financials</h1>
+    <section>
+      <h2 style={{ marginBottom: 4 }}>Financials</h2>
       <p style={{ color: "#475569" }}>
         <small>
           The complementary side of the CVE math: revenue + cost buckets let a
@@ -220,6 +215,7 @@ export default function FinancialsPage() {
           </tbody>
         </table>
       )}
-    </main>
+      <StepFooter themeId={themeId} currentKey="financials" />
+    </section>
   );
 }
