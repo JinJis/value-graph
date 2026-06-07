@@ -19,6 +19,7 @@ from services.engine.calendar.repository import (
 from services.engine.cve.run_repository import CveRunRepository, PostgresCveRunRepository
 from services.engine.cve.run_service import (
     CveRunSummary,
+    research_and_build_events,
     run_cve_events_for_theme,
     run_cve_for_theme,
 )
@@ -142,5 +143,52 @@ def stream_theme_cve(
                 today=date.today().isoformat(),
             ),
             label=f"cve-run:{theme_id}",
+        )
+    )
+
+
+@router.post("/themes/{theme_id}/cve/research/stream")
+def stream_research_and_build(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    tickets: TicketRepoDep,
+    llm: RouterDep,
+    storage: StorageDep,
+    graph: GraphStoreDep,
+    runs: CveRunRepoDep,
+    calendar: CalendarRepoDep,
+    financials: FinancialsRepoDep,
+) -> StreamingResponse:
+    """One streamed action: Deep Research the chain (trades + financials) into the graph,
+    then build it; what can't be sourced becomes tickets. Detached: finishes even if the
+    admin closes the tab."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    blueprint = blueprints.get_latest(theme_id)
+    if blueprint is None:
+        raise HTTPException(
+            status_code=409, detail="no blueprint to research; generate one first"
+        )
+    sources = themes.list_sources(theme_id)
+    logger.info("cve.research request theme=%s sources=%d", theme_id, len(sources))
+    return sse_response(
+        run_detached(
+            lambda: research_and_build_events(
+                theme=theme,
+                blueprint=blueprint,
+                sources=sources,
+                storage=storage,
+                router=llm,
+                ticket_repo=tickets,
+                theme_repo=themes,
+                graph_store=graph,
+                run_repo=runs,
+                calendar_repo=calendar,
+                financials_repo=financials,
+                today=date.today().isoformat(),
+            ),
+            label=f"cve-research:{theme_id}",
         )
     )

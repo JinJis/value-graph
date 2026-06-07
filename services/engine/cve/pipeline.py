@@ -186,8 +186,13 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def s1_extract(state: CVEState, *, router: LLMRouter) -> dict[str, Any]:
-    """S1: extract span-anchored claims from every ingested document."""
-    claims: list[Claim] = []
+    """S1: extract span-anchored claims from every ingested document.
+
+    Pre-seeded claims (e.g. structured trades from the chain-research pass) are kept and
+    merged with anything extracted from documents — so a run can be seeded with claims
+    that did not come from uploaded text.
+    """
+    claims: list[Claim] = list(state.claims)
     for doc in state.documents:
         claims.extend(
             extract_claims(doc.text, source_id=doc.source_id, as_of=doc.as_of, router=router)

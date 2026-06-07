@@ -17,7 +17,7 @@ complementary side become VSCA-est (estimated) edges — drawn with intervals, t
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import date
 from typing import Any
 
@@ -25,6 +25,8 @@ from pydantic import BaseModel
 
 from services.engine.blueprint.models import BlueprintRecord
 from services.engine.calendar.repository import CalendarRepository, next_update_map
+from services.engine.cve.chain_research import research_chain_events
+from services.engine.cve.extract import Claim
 from services.engine.cve.pipeline import (
     TRIGGERS,
     CVEDeps,
@@ -39,8 +41,14 @@ from services.engine.db.persist import persist_cve_run
 from services.engine.financials.repository import FinancialsRepository, financials_map
 from services.engine.llm.router import LLMRouter
 from services.engine.storage import Storage
-from services.engine.themes.models import SourceRecord
+from services.engine.themes.models import SourceRecord, Theme
+from services.engine.themes.repository import ThemeRepository
+from services.engine.tickets.models import TicketCreate
 from services.engine.tickets.repository import TicketRepository
+
+# Financial buckets the CVE derivation needs (supplier revenue + customer COGS); missing
+# ones become tickets so "couldn't source -> ticket" holds for financials too.
+_REQUIRED_FINANCIAL_BUCKETS = ("revenue", "cogs")
 
 logger = logging.getLogger("valuegraph.engine.cve.run")
 
@@ -125,6 +133,7 @@ def run_cve_events_for_theme(
     run_repo: CveRunRepository,
     calendar_repo: CalendarRepository | None = None,
     financials_repo: FinancialsRepository | None = None,
+    seed_claims: Sequence[Claim] = (),
     today: str | None = None,
     trigger: str = "admin",
 ) -> Iterator[Event]:
@@ -171,6 +180,7 @@ def run_cve_events_for_theme(
         documents=documents,
         financials=financials,  # complementary side -> derived (not just estimated) edges
         calendar=calendar,
+        claims=list(seed_claims),  # researched trades seeded before S1 (merged, not replaced)
     )
     record = run_repo.start(theme_id, trigger)
     state = initial
@@ -229,6 +239,7 @@ def run_cve_for_theme(
     run_repo: CveRunRepository,
     calendar_repo: CalendarRepository | None = None,
     financials_repo: FinancialsRepository | None = None,
+    seed_claims: Sequence[Claim] = (),
     today: str | None = None,
     trigger: str = "admin",
 ) -> CveRunSummary:
@@ -246,6 +257,7 @@ def run_cve_for_theme(
         run_repo=run_repo,
         calendar_repo=calendar_repo,
         financials_repo=financials_repo,
+        seed_claims=seed_claims,
         today=today,
         trigger=trigger,
     ):
@@ -265,4 +277,84 @@ def run_cve_for_theme(
         publishable_edges=summary["publishable_edges"],
         ghost_edges=summary["ghost_edges"],
         estimated_edges=summary["estimated_edges"],
+    )
+
+
+def _open_financial_gap_tickets(
+    theme_id: str,
+    blueprint: BlueprintRecord,
+    financials_repo: FinancialsRepository,
+    ticket_repo: TicketRepository,
+) -> int:
+    """Open a ``financials:<bucket>`` ticket per company still missing a required bucket
+    (idempotent via the repo's unique key). So unsourced financials become tickets too."""
+    tickers = [c.ticker for c in blueprint.companies]
+    have = {r.company_ticker: r for r in financials_repo.list_for(tickers)}
+    opened = 0
+    for company in blueprint.companies:
+        record = have.get(company.ticker)
+        for bucket in _REQUIRED_FINANCIAL_BUCKETS:
+            if record is not None and getattr(record, bucket) is not None:
+                continue
+            ticket = ticket_repo.create_open_ticket(
+                theme_id,
+                TicketCreate(
+                    target=company.ticker,
+                    metric=f"financials:{bucket}",
+                    reason=f"missing {bucket} for {company.name} ({company.ticker})",
+                ),
+            )
+            if ticket is not None:
+                ticket_repo.record_event(ticket.id, None, "OPEN", "system")
+                opened += 1
+    return opened
+
+
+def research_and_build_events(
+    *,
+    theme: Theme,
+    blueprint: BlueprintRecord,
+    sources: list[SourceRecord],
+    storage: Storage,
+    router: LLMRouter,
+    ticket_repo: TicketRepository,
+    theme_repo: ThemeRepository,
+    graph_store: GraphStore,
+    run_repo: CveRunRepository,
+    calendar_repo: CalendarRepository | None = None,
+    financials_repo: FinancialsRepository | None = None,
+    today: str | None = None,
+    trigger: str = "admin",
+) -> Iterator[Event]:
+    """One streamed action: Deep Research the chain into claims + financials, then run the
+    CVE pipeline seeded with those claims, and ticket the financials it couldn't source."""
+    today = today or date.today().isoformat()
+
+    yield {"event": "phase", "phase": "research"}
+    claims: list[Claim] = []
+    if financials_repo is not None:
+        claims = yield from research_chain_events(
+            theme, blueprint, theme_repo, financials_repo, router, today=today
+        )
+        opened = _open_financial_gap_tickets(
+            theme.id, blueprint, financials_repo, ticket_repo
+        )
+        if opened:
+            yield {"event": "financial_tickets", "opened": opened}
+
+    yield {"event": "phase", "phase": "build"}
+    yield from run_cve_events_for_theme(
+        theme_id=theme.id,
+        blueprint=blueprint,
+        sources=sources,
+        storage=storage,
+        router=router,
+        ticket_repo=ticket_repo,
+        graph_store=graph_store,
+        run_repo=run_repo,
+        calendar_repo=calendar_repo,
+        financials_repo=financials_repo,
+        seed_claims=claims,
+        today=today,
+        trigger=trigger,
     )

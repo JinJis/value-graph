@@ -9,11 +9,18 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from graph_schema import SourceType
+from services.engine.financials.repository import (
+    BUCKET_FIELDS,
+    FinancialsRepository,
+    set_bucket,
+)
+from services.engine.financials.router import get_financials_repository
 from services.engine.storage import Storage
 from services.engine.themes.models import SourceCreate, SourceOut, to_out
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.themes.router import get_storage
+from services.engine.tickets.models import Ticket
 from services.engine.tickets.repository import TicketRepository
 from services.engine.tickets.router import get_ticket_repository
 from services.engine.tickets.state import validate_transition
@@ -23,6 +30,38 @@ router = APIRouter(tags=["sources"])
 ThemeRepoDep = Annotated[ThemeRepository, Depends(get_theme_repository)]
 TicketRepoDep = Annotated[TicketRepository, Depends(get_ticket_repository)]
 StorageDep = Annotated[Storage, Depends(get_storage)]
+FinancialsRepoDep = Annotated[FinancialsRepository, Depends(get_financials_repository)]
+
+
+def _coerce_number(value: object) -> float | None:
+    """Best-effort parse of a proposal value into a number (strips $, commas, spaces).
+    Percent values are rejected — financials buckets are absolute amounts, not shares."""
+    if isinstance(value, int | float):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().replace(",", "").replace("$", "").strip()
+    if not cleaned or cleaned.endswith("%"):
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _write_back_financials(ticket: Ticket, financials: FinancialsRepository) -> None:
+    """If a ``financials:<bucket>`` ticket carries a Deep Research proposal, fill that
+    bucket in the financials store (so accepting a financial ticket isn't manual)."""
+    if not ticket.metric.startswith("financials:") or not ticket.research_proposal:
+        return
+    field = ticket.metric.split(":", 1)[1]
+    if field not in BUCKET_FIELDS:
+        return
+    value = _coerce_number(ticket.research_proposal.get("value"))
+    if value is None:
+        return
+    source = ticket.research_proposal.get("source_url")
+    set_bucket(financials, ticket.target, field, value, source=str(source) if source else None)
 
 
 @router.post("/tickets/{ticket_id}/evidence", response_model=SourceOut, status_code=201)
@@ -31,6 +70,7 @@ async def upload_ticket_evidence(
     themes: ThemeRepoDep,
     tickets: TicketRepoDep,
     storage: StorageDep,
+    financials: FinancialsRepoDep,
     file: Annotated[UploadFile | None, File()] = None,
     url: Annotated[str | None, Form()] = None,
     type: Annotated[SourceType, Form()] = "report",
@@ -72,6 +112,8 @@ async def upload_ticket_evidence(
     )
     tickets.set_status(ticket_id, "SUBMITTED")
     tickets.record_event(ticket_id, ticket.status, "SUBMITTED", actor, None)
+    # A financials:<bucket> proposal fills the financials store on accept (no manual entry).
+    _write_back_financials(ticket, financials)
     # Accepting a Deep Research proposal (or any manual upload) clears the pending
     # proposal — the cited source is now real evidence on the ticket.
     tickets.set_research_proposal(ticket_id, None)

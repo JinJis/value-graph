@@ -54,6 +54,35 @@ class InMemoryFinancialsRepository:
         return sorted(items, key=lambda r: r.company_ticker)
 
 
+# Editable bucket fields (revenue + cost buckets); maps a ``financials:<bucket>`` ticket.
+BUCKET_FIELDS = ("revenue", "cogs", "capex", "rnd", "sga")
+
+
+def set_bucket(
+    repo: FinancialsRepository,
+    company_ticker: str,
+    field: str,
+    value: float,
+    *,
+    source: str | None = None,
+) -> FinancialsRecord | None:
+    """Set one bucket on a company's financials, preserving the others. Returns None for
+    an unknown field (used by the ticket->financials write-back)."""
+    if field not in BUCKET_FIELDS:
+        return None
+    existing = repo.get(company_ticker)
+    base: dict[str, Any] = (
+        existing.model_dump(exclude={"id", "updated_at"})
+        if existing is not None
+        else {"company_ticker": company_ticker}
+    )
+    base["company_ticker"] = company_ticker
+    base[field] = value
+    if source:
+        base["source"] = source
+    return repo.upsert(FinancialsUpsert(**base))
+
+
 def financials_map(
     repo: FinancialsRepository, tickers: list[str]
 ) -> dict[str, dict[str, float]]:

@@ -625,6 +625,18 @@ export const runThemeCveStream = (
     signal,
   );
 
+// Research the chain (trades + financials) via Deep Research, then build, over SSE.
+export const researchAndBuildStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/cve/research/stream`,
+    onEvent,
+    signal,
+  );
+
 // --- Jobs (M7-SCHED-04) ---
 
 export interface CveJob {

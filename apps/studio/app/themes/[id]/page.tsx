@@ -10,6 +10,7 @@ import {
   getThemeQuality,
   listSources,
   publishTheme,
+  researchAndBuildStream,
   runThemeCveStream,
   sourceContentUrl,
   uploadSource,
@@ -123,42 +124,57 @@ function PublishPanel({
   }, [themeId]);
 
   function onCveEvent(e: CveRunEvent) {
+    const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
+      setCveProg((p) => ({
+        ...p,
+        steps: [...p.steps, { label, detail, tone }],
+      }));
     switch (e.event) {
+      case "model":
+        setCveProg((p) => ({
+          ...p,
+          model: { tier: String(e.tier), model: String(e.model) },
+        }));
+        break;
+      case "phase":
+        step(e.phase === "research" ? "▼ Deep Research" : "▼ Build (CVE)");
+        break;
+      case "prompt":
+        setCveProg((p) => ({ ...p, prompt: String(e.text) }));
+        break;
+      case "chunk":
+        setCveProg((p) => ({ ...p, output: p.output + String(e.text ?? "") }));
+        break;
+      case "research":
+        step(String(e.action), String(e.detail ?? ""));
+        break;
+      case "researched":
+        step(
+          "researched",
+          `${e.trades} trade(s) · ${e.financials} financials · ${e.sources} source(s)`,
+          "ok",
+        );
+        break;
+      case "financial_tickets":
+        step(
+          "financial tickets",
+          `${e.opened} opened for missing figures`,
+          "warn",
+        );
+        break;
       case "start":
-        setCveProg({
-          ...EMPTY_PROG,
-          running: true,
-          steps: [
-            {
-              label: "ingest",
-              detail: `${e.documents} document(s) · ${e.companies} companies`,
-            },
-          ],
-        });
+        step("ingest", `${e.documents} document(s) · ${e.companies} companies`);
         break;
       case "stage":
-        setCveProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            { label: `${e.stage} ${e.label}`, detail: String(e.detail ?? "") },
-          ],
-        }));
+        step(`${e.stage} ${e.label}`, String(e.detail ?? ""));
         break;
       case "persisted":
-        setCveProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            {
-              label: `persisted build v${e.build_version}`,
-              detail:
-                `${e.publishable_edges} publishable · ${e.ghost_edges} gap · ` +
-                `${e.estimated_edges} estimated`,
-              tone: "ok",
-            },
-          ],
-        }));
+        step(
+          `persisted build v${e.build_version}`,
+          `${e.publishable_edges} publishable · ${e.ghost_edges} gap · ` +
+            `${e.estimated_edges} estimated`,
+          "ok",
+        );
         break;
       case "done":
         setCveProg((p) => ({ ...p, running: false, done: true }));
@@ -167,17 +183,19 @@ function PublishPanel({
         setCveProg((p) => ({
           ...p,
           running: false,
-          error: String(e.detail ?? "CVE run error"),
+          error: String(e.detail ?? "run error"),
         }));
         break;
     }
   }
 
-  async function onRunCve() {
+  async function runStream(
+    stream: (id: string, cb: (e: CveRunEvent) => void) => Promise<void>,
+  ) {
     setRunning(true);
     setCveProg({ ...EMPTY_PROG, running: true });
     try {
-      await runThemeCveStream(themeId, onCveEvent);
+      await stream(themeId, onCveEvent);
       await loadPreview();
     } catch (e) {
       setCveProg((p) => ({ ...p, running: false, error: String(e) }));
@@ -220,20 +238,30 @@ function PublishPanel({
       <div style={{ margin: "0 0 12px" }}>
         <button
           type="button"
-          onClick={() => void onRunCve()}
+          onClick={() => void runStream(researchAndBuildStream)}
           disabled={running}
         >
-          {running ? "Running CVE…" : "Run CVE (build the graph)"}
+          {running ? "Working…" : "Research & build"}
+        </button>{" "}
+        <button
+          type="button"
+          onClick={() => void runStream(runThemeCveStream)}
+          disabled={running}
+        >
+          Run CVE only
         </button>{" "}
         <small style={{ color: "#64748b" }}>
-          Cross-verify the theme’s sources + tickets into a Staging build.
+          Deep Research the chain (trades + financials) into a Staging build;
+          gaps become tickets. “Run CVE only” rebuilds from existing data
+          without re-researching.
         </small>
         <BlueprintProgress
           prog={cveProg}
+          markdown
           labels={{
-            running: "Running CVE…",
-            done: "CVE complete",
-            idle: "CVE run",
+            running: "Researching & building…",
+            done: "Build complete",
+            idle: "CVE build",
           }}
         />
       </div>
