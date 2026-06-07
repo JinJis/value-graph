@@ -36,6 +36,7 @@ from services.engine.cve.resolve import CanonicalCompany, LLMAdjudicator, Resolv
 from services.engine.cve.run_repository import DONE, FAILED, CveRunRepository
 from services.engine.db.graph_store import GraphStore
 from services.engine.db.persist import persist_cve_run
+from services.engine.financials.repository import FinancialsRepository, financials_map
 from services.engine.llm.router import LLMRouter
 from services.engine.storage import Storage
 from services.engine.themes.models import SourceRecord
@@ -123,6 +124,7 @@ def run_cve_events_for_theme(
     graph_store: GraphStore,
     run_repo: CveRunRepository,
     calendar_repo: CalendarRepository | None = None,
+    financials_repo: FinancialsRepository | None = None,
     today: str | None = None,
     trigger: str = "admin",
 ) -> Iterator[Event]:
@@ -143,13 +145,15 @@ def run_cve_events_for_theme(
     deps = CVEDeps(router=router, resolver=resolver, ticket_repo=ticket_repo)
     tickers = [c.ticker for c in blueprint.companies]
     calendar = next_update_map(calendar_repo, tickers) if calendar_repo is not None else {}
+    financials = financials_map(financials_repo, tickers) if financials_repo is not None else {}
 
     logger.info(
-        "cve.run theme=%s documents=%d companies=%d calendar=%d trigger=%s",
+        "cve.run theme=%s documents=%d companies=%d calendar=%d financials=%d trigger=%s",
         theme_id,
         len(documents),
         len(companies),
         len(calendar),
+        len(financials),
         trigger,
     )
     yield {
@@ -157,6 +161,7 @@ def run_cve_events_for_theme(
         "documents": len(documents),
         "companies": len(companies),
         "calendar": len(calendar),
+        "financials": len(financials),
     }
 
     initial = CVEState(
@@ -164,7 +169,7 @@ def run_cve_events_for_theme(
         trigger=trigger,
         today=today,
         documents=documents,
-        financials={},  # market-data fetcher is a later seam; undisclosed -> VSCA-est
+        financials=financials,  # complementary side -> derived (not just estimated) edges
         calendar=calendar,
     )
     record = run_repo.start(theme_id, trigger)
@@ -223,6 +228,7 @@ def run_cve_for_theme(
     graph_store: GraphStore,
     run_repo: CveRunRepository,
     calendar_repo: CalendarRepository | None = None,
+    financials_repo: FinancialsRepository | None = None,
     today: str | None = None,
     trigger: str = "admin",
 ) -> CveRunSummary:
@@ -239,6 +245,7 @@ def run_cve_for_theme(
         graph_store=graph_store,
         run_repo=run_repo,
         calendar_repo=calendar_repo,
+        financials_repo=financials_repo,
         today=today,
         trigger=trigger,
     ):

@@ -24,6 +24,8 @@ from services.engine.cve.run_service import (
 )
 from services.engine.db.config import DbSettings
 from services.engine.db.graph_store import GraphStore
+from services.engine.financials.repository import FinancialsRepository
+from services.engine.financials.router import get_financials_repository
 from services.engine.llm.router import LLMRouter
 from services.engine.publish.router import get_graph_store
 from services.engine.sse import sse_response
@@ -55,6 +57,7 @@ StorageDep = Annotated[Storage, Depends(get_storage)]
 GraphStoreDep = Annotated[GraphStore, Depends(get_graph_store)]
 CveRunRepoDep = Annotated[CveRunRepository, Depends(get_cve_run_repository)]
 CalendarRepoDep = Annotated[CalendarRepository, Depends(get_calendar_repository)]
+FinancialsRepoDep = Annotated[FinancialsRepository, Depends(get_financials_repository)]
 
 
 @router.post("/themes/{theme_id}/cve/run", response_model=CveRunSummary)
@@ -68,6 +71,7 @@ def run_theme_cve(
     graph: GraphStoreDep,
     runs: CveRunRepoDep,
     calendar: CalendarRepoDep,
+    financials: FinancialsRepoDep,
 ) -> CveRunSummary:
     """Run the CVE pipeline over the theme's current sources + tickets and persist the
     next Staging build (the artifact Publish consumes). Reflects ticket state (incl. the
@@ -92,6 +96,7 @@ def run_theme_cve(
         graph_store=graph,
         run_repo=runs,
         calendar_repo=calendar,
+        financials_repo=financials,
         today=date.today().isoformat(),
     )
 
@@ -107,6 +112,7 @@ def stream_theme_cve(
     graph: GraphStoreDep,
     runs: CveRunRepoDep,
     calendar: CalendarRepoDep,
+    financials: FinancialsRepoDep,
 ) -> StreamingResponse:
     """Run the CVE pipeline as a live SSE stream (per-stage S1-S7 progress + the build
     summary). Detached: the run + persistence finish even if the admin closes the tab."""
@@ -132,6 +138,7 @@ def stream_theme_cve(
                 graph_store=graph,
                 run_repo=runs,
                 calendar_repo=calendar,
+                financials_repo=financials,
                 today=date.today().isoformat(),
             ),
             label=f"cve-run:{theme_id}",

@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from services.engine.blueprint.router import router as blueprint_router
 from services.engine.cve.router import router as cve_router
 from services.engine.feed.router import router as feed_router
+from services.engine.financials.router import router as financials_router
 from services.engine.jobs.router import router as jobs_router
 from services.engine.publish.router import router as publish_router
 from services.engine.sources.router import router as sources_router
@@ -95,6 +96,7 @@ app.include_router(themes_router)
 app.include_router(blueprint_router)
 app.include_router(tickets_router)
 app.include_router(cve_router)
+app.include_router(financials_router)
 app.include_router(sources_router)
 app.include_router(publish_router)
 app.include_router(feed_router)

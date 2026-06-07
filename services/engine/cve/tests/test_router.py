@@ -17,6 +17,9 @@ from services.engine.calendar.repository import InMemoryCalendarRepository
 from services.engine.cve.router import get_calendar_repository, get_cve_run_repository
 from services.engine.cve.run_repository import InMemoryCveRunRepository
 from services.engine.db.graph_store import InMemoryGraphStore
+from services.engine.financials.models import FinancialsUpsert
+from services.engine.financials.repository import InMemoryFinancialsRepository
+from services.engine.financials.router import get_financials_repository
 from services.engine.llm.router import LLMRouter
 from services.engine.main import app
 from services.engine.publish.router import get_graph_store
@@ -73,7 +76,9 @@ class _Storage:
         return key in self._blobs
 
 
-def _seed(*, with_blueprint: bool = True, with_source: bool = True) -> Theme:
+def _seed(
+    *, with_blueprint: bool = True, with_source: bool = True, with_financials: bool = False
+) -> Theme:
     themes = InMemoryThemeRepository()
     theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
     if with_source:
@@ -97,6 +102,11 @@ def _seed(*, with_blueprint: bool = True, with_source: bool = True) -> Theme:
     calendar.upsert(
         CalendarUpsert(company_ticker="INTC", next_filing_estimate=date(2026, 8, 15))
     )
+    financials = InMemoryFinancialsRepository()
+    if with_financials:
+        # Worked CVE example: Rev_INTC=100, HPQ COGS=221 -> 0.21*100/221 ~= 9.5%.
+        financials.upsert(FinancialsUpsert(company_ticker="INTC", revenue=100.0))
+        financials.upsert(FinancialsUpsert(company_ticker="HPQ", cogs=221.0))
 
     graph = InMemoryGraphStore()  # one instance: the build must persist across requests
     app.dependency_overrides[get_theme_repository] = lambda: themes
@@ -107,6 +117,7 @@ def _seed(*, with_blueprint: bool = True, with_source: bool = True) -> Theme:
     app.dependency_overrides[get_graph_store] = lambda: graph
     app.dependency_overrides[get_cve_run_repository] = lambda: InMemoryCveRunRepository()
     app.dependency_overrides[get_calendar_repository] = lambda: calendar
+    app.dependency_overrides[get_financials_repository] = lambda: financials
     return theme
 
 
@@ -170,6 +181,17 @@ def test_cve_run_stream_emits_stages_and_persists() -> None:
     # The streamed run persisted a build the publish preview can see.
     preview = client.get(f"/themes/{theme.id}/publish/preview?threshold=0.1")
     assert preview.status_code == 200 and preview.json()["can_publish"] is True
+
+
+def test_cve_run_with_financials_derives_edge() -> None:
+    # With financials the disclosure is cross-checked into a DERIVED edge (not estimated).
+    theme = _seed(with_financials=True)
+    client = TestClient(app)
+    resp = client.post(f"/themes/{theme.id}/cve/run")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["estimated_edges"] == 0  # financials -> derived, not VSCA-est
+    assert body["publishable_edges"] >= 1
 
 
 def test_cve_run_requires_blueprint() -> None:

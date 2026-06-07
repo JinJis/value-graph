@@ -545,6 +545,45 @@ export async function publishTheme(
   );
 }
 
+// --- Financials (complementary side of the CVE math) ---
+
+export interface Financials {
+  id?: string;
+  company_ticker: string;
+  revenue: number | null;
+  cogs: number | null;
+  capex: number | null;
+  rnd: number | null;
+  sga: number | null;
+  currency: string | null;
+  as_of_date: string | null;
+  source: string | null;
+  updated_at?: string;
+}
+
+export async function listFinancials(
+  tickers?: string[],
+): Promise<Financials[]> {
+  const q =
+    tickers && tickers.length
+      ? `?tickers=${encodeURIComponent(tickers.join(","))}`
+      : "";
+  return json(await fetch(url(`/financials${q}`), { cache: "no-store" }));
+}
+
+export async function putFinancials(
+  ticker: string,
+  data: Partial<Omit<Financials, "company_ticker">>,
+): Promise<Financials> {
+  return json(
+    await fetch(url(`/financials/${encodeURIComponent(ticker)}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company_ticker: ticker, ...data }),
+    }),
+  );
+}
+
 // --- CVE run (M3-ORCH-08) ---
 
 export interface CveRunSummary {

@@ -1,0 +1,225 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import {
+  getBlueprint,
+  listFinancials,
+  putFinancials,
+  type BlueprintCompany,
+} from "../../../../lib/api";
+
+// Editable fields -> the CVE cost buckets they feed (revenue + COGS/CAPEX/R&D/SG&A).
+const FIELDS = [
+  { key: "revenue", label: "Revenue" },
+  { key: "cogs", label: "COGS" },
+  { key: "capex", label: "CAPEX" },
+  { key: "rnd", label: "R&D" },
+  { key: "sga", label: "SG&A" },
+] as const;
+
+type FieldKey = (typeof FIELDS)[number]["key"];
+type Draft = Record<FieldKey, string> & { as_of_date: string };
+
+const EMPTY_DRAFT: Draft = {
+  revenue: "",
+  cogs: "",
+  capex: "",
+  rnd: "",
+  sga: "",
+  as_of_date: "",
+};
+
+const numOrNull = (s: string): number | null => {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+};
+
+export default function FinancialsPage() {
+  const params = useParams<{ id: string }>();
+  const themeId = params.id;
+
+  const [companies, setCompanies] = useState<BlueprintCompany[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const bp = await getBlueprint(themeId);
+      const list = bp?.blueprint.companies ?? [];
+      setCompanies(list);
+      const tickers = list.map((c) => c.ticker);
+      const fin = tickers.length ? await listFinancials(tickers) : [];
+      const next: Record<string, Draft> = {};
+      for (const c of list) next[c.ticker] = { ...EMPTY_DRAFT };
+      for (const f of fin) {
+        next[f.company_ticker] = {
+          revenue: f.revenue?.toString() ?? "",
+          cogs: f.cogs?.toString() ?? "",
+          capex: f.capex?.toString() ?? "",
+          rnd: f.rnd?.toString() ?? "",
+          sga: f.sga?.toString() ?? "",
+          as_of_date: f.as_of_date ?? "",
+        };
+      }
+      setDrafts(next);
+      setError(null);
+    } catch (e) {
+      setError(`Load failed: ${String(e)}`);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeId]);
+
+  function setField(ticker: string, key: keyof Draft, value: string) {
+    setDrafts((d) => ({
+      ...d,
+      [ticker]: { ...(d[ticker] ?? EMPTY_DRAFT), [key]: value },
+    }));
+  }
+
+  async function onSave(ticker: string) {
+    const d = drafts[ticker] ?? EMPTY_DRAFT;
+    setSaving(ticker);
+    setSaved(null);
+    try {
+      await putFinancials(ticker, {
+        revenue: numOrNull(d.revenue),
+        cogs: numOrNull(d.cogs),
+        capex: numOrNull(d.capex),
+        rnd: numOrNull(d.rnd),
+        sga: numOrNull(d.sga),
+        as_of_date: d.as_of_date.trim() || null,
+      });
+      setSaved(ticker);
+      setError(null);
+    } catch (e) {
+      setError(`Save failed for ${ticker}: ${String(e)}`);
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <main
+      style={{ maxWidth: 1000, margin: "2rem auto", fontFamily: "system-ui" }}
+    >
+      <p>
+        <Link href={`/themes/${themeId}`}>← Theme</Link>
+      </p>
+      <h1>Financials</h1>
+      <p style={{ color: "#475569" }}>
+        <small>
+          The complementary side of the CVE math: revenue + cost buckets let a
+          supplier-side disclosure be cross-checked into a{" "}
+          <strong>derived</strong> edge (instead of an estimate). Admin-entered
+          for now.
+        </small>
+      </p>
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {companies.length === 0 ? (
+        <p>
+          <small>
+            No blueprint companies yet — generate a blueprint first.
+          </small>
+        </p>
+      ) : (
+        <table
+          style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}
+        >
+          <thead>
+            <tr>
+              <th
+                style={{
+                  textAlign: "left",
+                  borderBottom: "1px solid #ccc",
+                  padding: 6,
+                }}
+              >
+                Company
+              </th>
+              {FIELDS.map((f) => (
+                <th
+                  key={f.key}
+                  style={{
+                    textAlign: "left",
+                    borderBottom: "1px solid #ccc",
+                    padding: 6,
+                  }}
+                >
+                  {f.label}
+                </th>
+              ))}
+              <th
+                style={{
+                  textAlign: "left",
+                  borderBottom: "1px solid #ccc",
+                  padding: 6,
+                }}
+              >
+                As of
+              </th>
+              <th style={{ borderBottom: "1px solid #ccc", padding: 6 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {companies.map((c) => {
+              const d = drafts[c.ticker] ?? EMPTY_DRAFT;
+              return (
+                <tr key={c.ticker}>
+                  <td style={{ padding: 6 }}>
+                    <strong>{c.ticker}</strong>
+                    <br />
+                    <small style={{ color: "#64748b" }}>{c.name}</small>
+                  </td>
+                  {FIELDS.map((f) => (
+                    <td key={f.key} style={{ padding: 6 }}>
+                      <input
+                        inputMode="decimal"
+                        style={{ width: 90 }}
+                        value={d[f.key]}
+                        onChange={(e) =>
+                          setField(c.ticker, f.key, e.target.value)
+                        }
+                      />
+                    </td>
+                  ))}
+                  <td style={{ padding: 6 }}>
+                    <input
+                      type="date"
+                      value={d.as_of_date}
+                      onChange={(e) =>
+                        setField(c.ticker, "as_of_date", e.target.value)
+                      }
+                    />
+                  </td>
+                  <td style={{ padding: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => void onSave(c.ticker)}
+                      disabled={saving === c.ticker}
+                    >
+                      {saving === c.ticker ? "Saving…" : "Save"}
+                    </button>
+                    {saved === c.ticker && (
+                      <span style={{ color: "#15803d", marginLeft: 6 }}>✓</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </main>
+  );
+}

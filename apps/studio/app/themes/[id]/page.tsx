@@ -394,6 +394,8 @@ export default function ThemeDetailPage() {
         <Link href={`/themes/${themeId}/blueprint`}>→ Review blueprint</Link>
         {" · "}
         <Link href={`/themes/${themeId}/tickets`}>→ Ticket queue</Link>
+        {" · "}
+        <Link href={`/themes/${themeId}/financials`}>→ Financials</Link>
       </p>
 
       {quality ? (
