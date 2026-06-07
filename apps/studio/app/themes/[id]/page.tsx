@@ -5,11 +5,14 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import {
+  getPublishPreview,
   getTheme,
   getThemeQuality,
   listSources,
+  publishTheme,
   sourceContentUrl,
   uploadSource,
+  type PublishPreview,
   type QualityReport,
   type Source,
   type Theme,
@@ -75,6 +78,161 @@ function DataQualityMeter({ report }: { report: QualityReport }) {
         ))}
       </div>
     </div>
+  );
+}
+
+// Staging -> Production publish (explicit human action). Shows completeness + every
+// blocking validation issue; publishing past issues requires an override reason.
+function PublishPanel({
+  themeId,
+  onPublished,
+}: {
+  themeId: string;
+  onPublished: () => void;
+}) {
+  const [preview, setPreview] = useState<PublishPreview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [actor, setActor] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [publishing, setPublishing] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function loadPreview() {
+    setLoading(true);
+    try {
+      setPreview(await getPublishPreview(themeId));
+      setPreviewError(null);
+    } catch (e) {
+      setPreviewError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeId]);
+
+  async function onPublish() {
+    if (!actor.trim()) {
+      setMsg("Enter your name/email first.");
+      return;
+    }
+    setPublishing(true);
+    setMsg(null);
+    try {
+      const r = await publishTheme(themeId, actor.trim(), overrideReason);
+      setMsg(
+        `Published v${r.snapshot_version} — ${r.edges} relationships` +
+          (r.overridden ? " (overridden)." : "."),
+      );
+      setOverrideReason("");
+      await loadPreview();
+      onPublished();
+    } catch (e) {
+      setMsg(`Publish failed: ${String(e)}`);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  const c = preview?.completeness;
+  const canPublish = preview?.can_publish ?? false;
+  const blocked = !!preview && !canPublish;
+
+  return (
+    <section style={{ margin: "1.5rem 0" }}>
+      <h2 style={{ marginBottom: 4 }}>Publish</h2>
+      {loading ? (
+        <p>
+          <small>Checking publish readiness…</small>
+        </p>
+      ) : previewError ? (
+        <p style={{ color: "crimson" }}>
+          <small>Couldn’t check readiness: {previewError}</small>{" "}
+          <button type="button" onClick={() => void loadPreview()}>
+            Retry
+          </button>
+        </p>
+      ) : !preview ? (
+        <p>
+          <small>No CVE build yet — run CVE before publishing.</small>
+        </p>
+      ) : (
+        <>
+          <p style={{ margin: "0 0 6px" }}>
+            <small>
+              Build v{preview.build_version} ·{" "}
+              {Math.round((c?.completeness ?? 0) * 100)}% complete (
+              {c?.publishable_edges}/{c?.total_edges} relationships · threshold{" "}
+              {Math.round((c?.threshold ?? 0) * 100)}%)
+            </small>
+          </p>
+          {canPublish ? (
+            <p style={{ color: "#15803d", margin: "0 0 8px" }}>
+              ✓ Ready to publish — every exposed figure is fully sourced.
+            </p>
+          ) : (
+            <div style={{ margin: "0 0 8px" }}>
+              <p style={{ color: "#b45309", margin: "0 0 4px" }}>
+                {preview.gate.violations.length} issue(s) block a clean publish:
+              </p>
+              <ul
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  maxHeight: 160,
+                  overflow: "auto",
+                }}
+              >
+                {preview.gate.violations.map((v, i) => (
+                  <li key={i}>
+                    <code>{v.edge}</code> · {v.field} — {v.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gap: 6, maxWidth: 480 }}>
+            <input
+              placeholder="Your name / email (recorded in the audit log)"
+              value={actor}
+              onChange={(e) => setActor(e.target.value)}
+            />
+            {blocked && (
+              <input
+                placeholder="Override reason (required to publish with issues)"
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => void onPublish()}
+              disabled={
+                publishing ||
+                !actor.trim() ||
+                (blocked && !overrideReason.trim())
+              }
+            >
+              {publishing
+                ? "Publishing…"
+                : blocked
+                  ? "Publish with override"
+                  : "Publish"}
+            </button>
+          </div>
+        </>
+      )}
+      {msg && (
+        <p style={{ marginTop: 8, fontSize: 13 }}>
+          <small>{msg}</small>
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -159,6 +317,8 @@ export default function ThemeDetailPage() {
           <small>Data quality appears here once the theme is published.</small>
         </p>
       )}
+
+      <PublishPanel themeId={themeId} onPublished={() => void refresh()} />
 
       <h2>Additional context</h2>
       <form

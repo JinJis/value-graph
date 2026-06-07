@@ -468,6 +468,83 @@ export async function getThemeQuality(
   return json(response);
 }
 
+// --- Publish (M4-PUB-04) ---
+
+export interface GateViolation {
+  edge: string;
+  field: string;
+  detail: string;
+}
+
+export interface GateReport {
+  theme_id: string;
+  version: number;
+  checked_edges: number;
+  violations: GateViolation[];
+  clean: boolean;
+  passed: boolean;
+}
+
+export interface CompletenessReport {
+  publishable_edges: number;
+  gap_edges: number;
+  total_edges: number;
+  completeness: number;
+  threshold: number;
+  meets_threshold: boolean;
+}
+
+export interface PublishPreview {
+  theme_id: string;
+  build_version: number;
+  completeness: CompletenessReport;
+  gate: GateReport;
+  can_publish: boolean;
+}
+
+export interface PublishResult {
+  theme_id: string;
+  snapshot_version: number;
+  source_build_version: number;
+  completeness: number;
+  published_by: string;
+  published_at: string;
+  edges: number;
+  ghost_edges: number;
+  overridden: boolean;
+}
+
+// Assemble + gate the latest Staging build WITHOUT publishing — shows completeness and
+// any blocking validation violations. Returns null when there is no build yet (409).
+export async function getPublishPreview(
+  themeId: string,
+): Promise<PublishPreview | null> {
+  const response = await fetch(url(`/themes/${themeId}/publish/preview`), {
+    cache: "no-store",
+  });
+  if (response.status === 409) return null;
+  return json(response);
+}
+
+// Publish the latest build to Production (explicit human action). Supply
+// `overrideReason` to publish past validation issues (logged server-side).
+export async function publishTheme(
+  themeId: string,
+  actor: string,
+  overrideReason?: string,
+): Promise<PublishResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/publish`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor,
+        override_reason: overrideReason?.trim() || null,
+      }),
+    }),
+  );
+}
+
 // --- Jobs (M7-SCHED-04) ---
 
 export interface CveJob {
