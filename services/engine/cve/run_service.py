@@ -17,15 +17,23 @@ complementary side become VSCA-est (estimated) edges — drawn with intervals, t
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from datetime import date
+from typing import Any
 
 from pydantic import BaseModel
 
 from services.engine.blueprint.models import BlueprintRecord
 from services.engine.calendar.repository import CalendarRepository, next_update_map
-from services.engine.cve.pipeline import CVEDeps, Document, run_cve
+from services.engine.cve.pipeline import (
+    TRIGGERS,
+    CVEDeps,
+    CVEState,
+    Document,
+    stream_cve_state,
+)
 from services.engine.cve.resolve import CanonicalCompany, LLMAdjudicator, Resolver
-from services.engine.cve.run_repository import CveRunRepository
+from services.engine.cve.run_repository import DONE, FAILED, CveRunRepository
 from services.engine.db.graph_store import GraphStore
 from services.engine.db.persist import persist_cve_run
 from services.engine.llm.router import LLMRouter
@@ -34,6 +42,39 @@ from services.engine.themes.models import SourceRecord
 from services.engine.tickets.repository import TicketRepository
 
 logger = logging.getLogger("valuegraph.engine.cve.run")
+
+Event = dict[str, Any]
+
+# Human-readable label per pipeline stage, for the live progress timeline.
+_STAGE_LABELS = {
+    "S1_extract": "extract claims",
+    "S2_resolve": "resolve entities",
+    "S3_derive": "derive edges",
+    "S4_reconcile": "reconcile",
+    "S5_estimate": "estimate gaps (VSCA)",
+    "S6_score": "score",
+    "S7_gaps": "gap-detect",
+}
+
+
+def _stage_detail(stage: str, state: CVEState) -> str:
+    """One-line summary of what a stage produced, for the progress timeline."""
+    edges = state.edges.values()
+    if stage == "S1_extract":
+        return f"{len(state.claims)} claim(s)"
+    if stage == "S2_resolve":
+        return f"{len(state.resolutions)} mention(s) resolved"
+    if stage == "S3_derive":
+        return f"{len(state.edges)} edge(s)"
+    if stage == "S4_reconcile":
+        return f"{sum(1 for e in edges if e.reconciled is not None)} reconciled"
+    if stage == "S5_estimate":
+        return f"{sum(1 for e in edges if e.estimated)} estimated"
+    if stage == "S6_score":
+        return f"{sum(1 for e in edges if e.scored is not None)} scored"
+    if stage == "S7_gaps":
+        return f"{len(state.gap_results)} edge(s) assessed"
+    return ""
 
 
 class CveRunSummary(BaseModel):
@@ -71,7 +112,7 @@ def _documents(
     return docs
 
 
-def run_cve_for_theme(
+def run_cve_events_for_theme(
     *,
     theme_id: str,
     blueprint: BlueprintRecord,
@@ -84,8 +125,15 @@ def run_cve_for_theme(
     calendar_repo: CalendarRepository | None = None,
     today: str | None = None,
     trigger: str = "admin",
-) -> CveRunSummary:
-    """Run S0-S7 for ``theme_id`` over its current inputs and persist the next build."""
+) -> Iterator[Event]:
+    """Run S1-S7 for ``theme_id``, streaming per-stage progress and persisting the build.
+
+    Emits: ``start`` (inputs) → one ``stage`` per S1-S7 (with a count) → ``persisted``
+    (the build summary) → ``done``; any failure marks the run FAILED and emits ``error``.
+    The full run + persistence happen as a side effect of consuming this generator.
+    """
+    if trigger not in TRIGGERS:
+        raise ValueError(f"unknown trigger {trigger!r}; expected one of {TRIGGERS}")
     today = today or date.today().isoformat()
     documents = _documents(sources, storage, fallback_as_of=today)
     companies = [
@@ -104,35 +152,110 @@ def run_cve_for_theme(
         len(calendar),
         trigger,
     )
-    result = run_cve(
+    yield {
+        "event": "start",
+        "documents": len(documents),
+        "companies": len(companies),
+        "calendar": len(calendar),
+    }
+
+    initial = CVEState(
         theme_id=theme_id,
-        deps=deps,
+        trigger=trigger,
+        today=today,
         documents=documents,
         financials={},  # market-data fetcher is a later seam; undisclosed -> VSCA-est
         calendar=calendar,
-        today=today,
-        trigger=trigger,
-        run_repo=run_repo,
     )
-    build = persist_cve_run(result.state, graph_store)
-    estimated = sum(1 for e in result.state.edges.values() if e.estimated)
+    record = run_repo.start(theme_id, trigger)
+    state = initial
+    try:
+        for stage, state in stream_cve_state(initial, deps):
+            detail = _stage_detail(stage, state)
+            logger.info("cve.stage theme=%s %s %s", theme_id, stage, detail)
+            yield {
+                "event": "stage",
+                "stage": stage,
+                "label": _STAGE_LABELS.get(stage, stage),
+                "detail": detail,
+            }
+    except Exception as exc:
+        run_repo.finish(record.id, status=FAILED, state=initial.model_dump(mode="json"))
+        logger.warning("cve.failed theme=%s: %s", theme_id, exc)
+        yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
+        return
+
+    run_repo.finish(record.id, status=DONE, state=state.model_dump(mode="json"))
+    build = persist_cve_run(state, graph_store)
+    estimated = sum(1 for e in state.edges.values() if e.estimated)
     logger.info(
         "cve.persisted theme=%s build=%s edges=%d publishable=%d ghost=%d claims=%d",
         theme_id,
         build.version,
-        len(result.state.edges),
+        len(state.edges),
         len(build.edges),
         len(build.gap_edges),
-        len(result.state.claims),
+        len(state.claims),
     )
+    yield {
+        "event": "persisted",
+        "run_id": record.id,
+        "status": DONE,
+        "build_version": build.version,
+        "documents_ingested": len(documents),
+        "claims": len(state.claims),
+        "edges": len(state.edges),
+        "publishable_edges": len(build.edges),
+        "ghost_edges": len(build.gap_edges),
+        "estimated_edges": estimated,
+    }
+    yield {"event": "done"}
+
+
+def run_cve_for_theme(
+    *,
+    theme_id: str,
+    blueprint: BlueprintRecord,
+    sources: list[SourceRecord],
+    storage: Storage,
+    router: LLMRouter,
+    ticket_repo: TicketRepository,
+    graph_store: GraphStore,
+    run_repo: CveRunRepository,
+    calendar_repo: CalendarRepository | None = None,
+    today: str | None = None,
+    trigger: str = "admin",
+) -> CveRunSummary:
+    """Non-streaming run: drive :func:`run_cve_events_for_theme` to completion and
+    return its summary (same persistence + side effects)."""
+    summary: Event | None = None
+    for event in run_cve_events_for_theme(
+        theme_id=theme_id,
+        blueprint=blueprint,
+        sources=sources,
+        storage=storage,
+        router=router,
+        ticket_repo=ticket_repo,
+        graph_store=graph_store,
+        run_repo=run_repo,
+        calendar_repo=calendar_repo,
+        today=today,
+        trigger=trigger,
+    ):
+        if event["event"] == "error":
+            raise RuntimeError(str(event["detail"]))
+        if event["event"] == "persisted":
+            summary = event
+    if summary is None:  # pragma: no cover - persisted always precedes done
+        raise RuntimeError("CVE run produced no result")
     return CveRunSummary(
-        run_id=result.run_id,
-        status=result.status,
-        build_version=build.version,
-        documents_ingested=len(documents),
-        claims=len(result.state.claims),
-        edges=len(result.state.edges),
-        publishable_edges=len(build.edges),
-        ghost_edges=len(build.gap_edges),
-        estimated_edges=estimated,
+        run_id=summary["run_id"],
+        status=summary["status"],
+        build_version=summary["build_version"],
+        documents_ingested=summary["documents_ingested"],
+        claims=summary["claims"],
+        edges=summary["edges"],
+        publishable_edges=summary["publishable_edges"],
+        ghost_edges=summary["ghost_edges"],
+        estimated_edges=summary["estimated_edges"],
     )

@@ -567,6 +567,25 @@ export async function runThemeCve(themeId: string): Promise<CveRunSummary> {
   );
 }
 
+// A progress event from the CVE run stream: start / stage (S1..S7) / persisted / done /
+// error. The run + persistence finish server-side even if the client disconnects.
+export interface CveRunEvent {
+  event: string;
+  [key: string]: unknown;
+}
+
+// Run CVE over SSE, invoking `onEvent` per stage. Mirrors the blueprint streams.
+export const runThemeCveStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/cve/run/stream`,
+    onEvent,
+    signal,
+  );
+
 // --- Jobs (M7-SCHED-04) ---
 
 export interface CveJob {

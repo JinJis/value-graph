@@ -10,14 +10,18 @@ import {
   getThemeQuality,
   listSources,
   publishTheme,
-  runThemeCve,
+  runThemeCveStream,
   sourceContentUrl,
   uploadSource,
+  type CveRunEvent,
   type PublishPreview,
   type QualityReport,
   type Source,
   type Theme,
 } from "../../../lib/api";
+import { BlueprintProgress, type Prog } from "../../../components/Progress";
+
+const EMPTY_PROG: Prog = { output: "", steps: [], done: false, running: false };
 
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 
@@ -99,7 +103,7 @@ function PublishPanel({
   const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [cveMsg, setCveMsg] = useState<string | null>(null);
+  const [cveProg, setCveProg] = useState<Prog>(EMPTY_PROG);
 
   async function loadPreview() {
     setLoading(true);
@@ -118,19 +122,65 @@ function PublishPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeId]);
 
+  function onCveEvent(e: CveRunEvent) {
+    switch (e.event) {
+      case "start":
+        setCveProg({
+          ...EMPTY_PROG,
+          running: true,
+          steps: [
+            {
+              label: "ingest",
+              detail: `${e.documents} document(s) · ${e.companies} companies`,
+            },
+          ],
+        });
+        break;
+      case "stage":
+        setCveProg((p) => ({
+          ...p,
+          steps: [
+            ...p.steps,
+            { label: `${e.stage} ${e.label}`, detail: String(e.detail ?? "") },
+          ],
+        }));
+        break;
+      case "persisted":
+        setCveProg((p) => ({
+          ...p,
+          steps: [
+            ...p.steps,
+            {
+              label: `persisted build v${e.build_version}`,
+              detail:
+                `${e.publishable_edges} publishable · ${e.ghost_edges} gap · ` +
+                `${e.estimated_edges} estimated`,
+              tone: "ok",
+            },
+          ],
+        }));
+        break;
+      case "done":
+        setCveProg((p) => ({ ...p, running: false, done: true }));
+        break;
+      case "error":
+        setCveProg((p) => ({
+          ...p,
+          running: false,
+          error: String(e.detail ?? "CVE run error"),
+        }));
+        break;
+    }
+  }
+
   async function onRunCve() {
     setRunning(true);
-    setCveMsg(null);
+    setCveProg({ ...EMPTY_PROG, running: true });
     try {
-      const s = await runThemeCve(themeId);
-      setCveMsg(
-        `Built v${s.build_version}: ${s.publishable_edges} publishable · ` +
-          `${s.ghost_edges} gap · ${s.estimated_edges} estimated ` +
-          `(from ${s.documents_ingested} document(s), ${s.claims} claim(s)).`,
-      );
+      await runThemeCveStream(themeId, onCveEvent);
       await loadPreview();
     } catch (e) {
-      setCveMsg(`CVE run failed: ${String(e)}`);
+      setCveProg((p) => ({ ...p, running: false, error: String(e) }));
     } finally {
       setRunning(false);
     }
@@ -178,11 +228,7 @@ function PublishPanel({
         <small style={{ color: "#64748b" }}>
           Cross-verify the theme’s sources + tickets into a Staging build.
         </small>
-        {cveMsg && (
-          <p style={{ marginTop: 6, fontSize: 13 }}>
-            <small>{cveMsg}</small>
-          </p>
-        )}
+        <BlueprintProgress prog={cveProg} />
       </div>
 
       {loading ? (

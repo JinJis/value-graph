@@ -7,7 +7,9 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
+from services.engine.background import run_detached
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.calendar.repository import (
@@ -15,11 +17,16 @@ from services.engine.calendar.repository import (
     PostgresCalendarRepository,
 )
 from services.engine.cve.run_repository import CveRunRepository, PostgresCveRunRepository
-from services.engine.cve.run_service import CveRunSummary, run_cve_for_theme
+from services.engine.cve.run_service import (
+    CveRunSummary,
+    run_cve_events_for_theme,
+    run_cve_for_theme,
+)
 from services.engine.db.config import DbSettings
 from services.engine.db.graph_store import GraphStore
 from services.engine.llm.router import LLMRouter
 from services.engine.publish.router import get_graph_store
+from services.engine.sse import sse_response
 from services.engine.storage import Storage
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
@@ -86,4 +93,47 @@ def run_theme_cve(
         run_repo=runs,
         calendar_repo=calendar,
         today=date.today().isoformat(),
+    )
+
+
+@router.post("/themes/{theme_id}/cve/run/stream")
+def stream_theme_cve(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    tickets: TicketRepoDep,
+    llm: RouterDep,
+    storage: StorageDep,
+    graph: GraphStoreDep,
+    runs: CveRunRepoDep,
+    calendar: CalendarRepoDep,
+) -> StreamingResponse:
+    """Run the CVE pipeline as a live SSE stream (per-stage S1-S7 progress + the build
+    summary). Detached: the run + persistence finish even if the admin closes the tab."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    blueprint = blueprints.get_latest(theme_id)
+    if blueprint is None:
+        raise HTTPException(
+            status_code=409, detail="no blueprint to build from; generate one first"
+        )
+    sources = themes.list_sources(theme_id)
+    logger.info("cve.stream request theme=%s sources=%d", theme_id, len(sources))
+    return sse_response(
+        run_detached(
+            lambda: run_cve_events_for_theme(
+                theme_id=theme_id,
+                blueprint=blueprint,
+                sources=sources,
+                storage=storage,
+                router=llm,
+                ticket_repo=tickets,
+                graph_store=graph,
+                run_repo=runs,
+                calendar_repo=calendar,
+                today=date.today().isoformat(),
+            ),
+            label=f"cve-run:{theme_id}",
+        )
     )

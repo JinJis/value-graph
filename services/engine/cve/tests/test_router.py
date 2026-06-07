@@ -134,6 +134,44 @@ def test_cve_run_builds_publishable_edge() -> None:
     assert preview.json()["can_publish"] is True
 
 
+def _frames(text: str) -> list[dict[str, object]]:
+    return [
+        json.loads(line[5:].strip())
+        for line in text.splitlines()
+        if line.startswith("data:")
+    ]
+
+
+def test_cve_run_stream_emits_stages_and_persists() -> None:
+    theme = _seed()
+    client = TestClient(app)
+    resp = client.post(f"/themes/{theme.id}/cve/run/stream")
+    assert resp.status_code == 200, resp.text
+    events = _frames(resp.text)
+    kinds = [e["event"] for e in events]
+
+    assert kinds[0] == "start"
+    assert kinds.count("stage") == 7  # S1..S7
+    assert kinds[-1] == "done"
+    stages = [e["stage"] for e in events if e["event"] == "stage"]
+    assert stages == [
+        "S1_extract",
+        "S2_resolve",
+        "S3_derive",
+        "S4_reconcile",
+        "S5_estimate",
+        "S6_score",
+        "S7_gaps",
+    ]
+    persisted = next(e for e in events if e["event"] == "persisted")
+    assert persisted["build_version"] == 1
+    assert int(persisted["publishable_edges"]) >= 1  # type: ignore[call-overload]
+
+    # The streamed run persisted a build the publish preview can see.
+    preview = client.get(f"/themes/{theme.id}/publish/preview?threshold=0.1")
+    assert preview.status_code == 200 and preview.json()["can_publish"] is True
+
+
 def test_cve_run_requires_blueprint() -> None:
     theme = _seed(with_blueprint=False)
     client = TestClient(app)

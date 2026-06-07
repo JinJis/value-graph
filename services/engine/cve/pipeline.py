@@ -24,7 +24,7 @@ customer-side ``customer_cost_share`` (the worked CVE example's output side).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import date
 from typing import Any
 
@@ -361,6 +361,51 @@ def build_cve_graph(deps: CVEDeps) -> Any:
     graph.add_edge("S7_gaps", END)
 
     return graph.compile()
+
+
+# --------------------------------------------------------------------------- streaming
+
+# The S1-S7 stages in order, mirroring the LangGraph edge chain in build_cve_graph.
+# Streaming runs them sequentially so progress can be observed stage by stage; the
+# accumulated state after S7 is identical to the compiled graph's result.
+STAGE_ORDER = (
+    "S1_extract",
+    "S2_resolve",
+    "S3_derive",
+    "S4_reconcile",
+    "S5_estimate",
+    "S6_score",
+    "S7_gaps",
+)
+
+
+def stream_cve_state(initial: CVEState, deps: CVEDeps) -> Iterator[tuple[str, CVEState]]:
+    """Run S1-S7 sequentially, yielding ``(stage_name, state)`` after each stage.
+
+    Same stage functions and order as :func:`build_cve_graph`; threading the state
+    with ``model_copy(update=...)`` reproduces LangGraph's merge so the final state
+    matches :func:`run_cve`. Lets callers stream live progress through a long run.
+    """
+    router, resolver, ticket_repo = deps.router, deps.resolver, deps.ticket_repo
+    state = initial
+    state = state.model_copy(update=s1_extract(state, router=router))
+    yield "S1_extract", state
+    state = state.model_copy(
+        update=s2_resolve(state, resolver=resolver, ticket_repo=ticket_repo)
+    )
+    yield "S2_resolve", state
+    state = state.model_copy(update=s3_derive(state))
+    yield "S3_derive", state
+    state = state.model_copy(update=s4_reconcile(state, ticket_repo=ticket_repo))
+    yield "S4_reconcile", state
+    state = state.model_copy(
+        update=s5_estimate(state, router=router, ticket_repo=ticket_repo)
+    )
+    yield "S5_estimate", state
+    state = state.model_copy(update=s6_score(state))
+    yield "S6_score", state
+    state = state.model_copy(update=s7_gaps(state, ticket_repo=ticket_repo))
+    yield "S7_gaps", state
 
 
 # --------------------------------------------------------------------------- entry point
