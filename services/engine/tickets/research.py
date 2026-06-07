@@ -30,6 +30,7 @@ from services.engine.blueprint.models import BlueprintRecord
 from services.engine.blueprint.stream import _research_stream
 from services.engine.llm.router import LLMRouter, Tier
 from services.engine.themes.models import Theme
+from services.engine.tickets.cluster import DEFAULT_MAX_CLUSTER_SIZE, cluster_tickets
 from services.engine.tickets.models import Ticket
 from services.engine.tickets.repository import TicketRepository
 from services.engine.tickets.research_prompt import (
@@ -82,19 +83,22 @@ def _parse_batch(buffer: str) -> TicketResolutionBatch:
     return TicketResolutionBatch.model_validate_json(_extract_json(buffer))
 
 
-def research_tickets_events(
+def _research_batch(
     theme: Theme,
-    tickets: Iterable[Ticket],
+    ticket_list: list[Ticket],
     blueprint: BlueprintRecord | None,
     router: LLMRouter,
     ticket_repo: TicketRepository,
     *,
-    tier: Tier = Tier.RESEARCH,
-    attempts: int = 2,
+    tier: Tier,
+    attempts: int,
 ) -> Iterator[Event]:
-    """Research every selected ticket in one Deep Research run, yielding progress events
-    and persisting each outcome (proposal on success, auto-resolution otherwise)."""
-    ticket_list = list(tickets)
+    """Resolve ONE batch (cluster) of tickets in a single Deep Research call.
+
+    Emits prompt/llm_start/chunk/parse and per-ticket proposed/auto_resolved/skipped;
+    the caller frames model/endpoint/batch_start/done."""
+    if not ticket_list:
+        return
     company_by_ticker = (
         {c.ticker: c for c in blueprint.companies} if blueprint is not None else {}
     )
@@ -106,38 +110,13 @@ def research_tickets_events(
         (ref, ticket, company_by_ticker.get(ticket.target))
         for ref, ticket in zip(refs, ticket_list, strict=True)
     ]
-    logger.info(
-        "research.batch theme=%s tickets=%d blueprint=%s targets=%s",
-        theme.id,
-        len(ticket_list),
-        "yes" if blueprint is not None else "none",
-        ", ".join(t.target for t in ticket_list) or "-",
-    )
-
-    model = router.model_for(tier)
-    yield {"event": "model", "tier": tier.value, "model": model}
-    yield {
-        "event": "endpoint",
-        "provider": "google-genai",
-        "method": "interactions.create (deep-research)",
-    }
-    yield {
-        "event": "batch_start",
-        "count": len(ticket_list),
-        "tickets": [
-            {"ticket_id": t.id, "ref": ref, "target": t.target, "metric": t.metric}
-            for ref, t in zip(refs, ticket_list, strict=True)
-        ],
-    }
-    if not ticket_list:
-        yield {"event": "done"}
-        return
-
     prompt = build_ticket_research_batch_prompt(
         theme, items, relationship_types=relationship_types, notes=notes
     )
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
-    logger.info("research.prompt theme=%s chars=%d model=%s", theme.id, len(prompt), model)
+    logger.info(
+        "research.batch theme=%s tickets=%d chars=%d", theme.id, len(ticket_list), len(prompt)
+    )
 
     batch: TicketResolutionBatch | None = None
     last_error: str | None = None
@@ -148,7 +127,6 @@ def research_tickets_events(
             else "\n\nEnd your reply with ONLY the fenced ```json block containing every ref."
         )
         yield {"event": "llm_start", "attempt": attempt + 1, "attempts": attempts}
-        logger.info("research.attempt theme=%s %d/%d", theme.id, attempt + 1, attempts)
 
         buffer = ""
         try:
@@ -164,23 +142,10 @@ def research_tickets_events(
         try:
             batch = _parse_batch(buffer)
             yield {"event": "parse", "status": "ok"}
-            logger.info(
-                "research.parsed theme=%s results=%d report_chars=%d",
-                theme.id,
-                len(batch.results),
-                len(buffer),
-            )
             break
         except (ValidationError, BlueprintParseError) as exc:
             last_error = str(exc)
             more = attempt + 1 < attempts
-            logger.warning(
-                "research.parse_failed theme=%s attempt=%d retry=%s: %s",
-                theme.id,
-                attempt + 1,
-                more,
-                exc,
-            )
             yield {
                 "event": "parse",
                 "status": "retry" if more else "failed",
@@ -196,9 +161,6 @@ def research_tickets_events(
     for ref, ticket in zip(refs, ticket_list, strict=True):
         result = by_ref.get(ref)
         if result is None:
-            logger.warning(
-                "research.no_result theme=%s ticket=%s ref=%s", theme.id, ticket.id, ref
-            )
             yield {
                 "event": "skipped",
                 "ticket_id": ticket.id,
@@ -208,7 +170,89 @@ def research_tickets_events(
             }
             continue
         yield from _apply_resolution(ticket, result, ticket_repo)
-    logger.info("research.done theme=%s tickets=%d", theme.id, len(ticket_list))
+
+
+def _header_events(tier: Tier, model: str, ticket_list: list[Ticket]) -> Iterator[Event]:
+    yield {"event": "model", "tier": tier.value, "model": model}
+    yield {
+        "event": "endpoint",
+        "provider": "google-genai",
+        "method": "interactions.create (deep-research)",
+    }
+    yield {
+        "event": "batch_start",
+        "count": len(ticket_list),
+        "tickets": [
+            {"ticket_id": t.id, "target": t.target, "metric": t.metric} for t in ticket_list
+        ],
+    }
+
+
+def research_tickets_events(
+    theme: Theme,
+    tickets: Iterable[Ticket],
+    blueprint: BlueprintRecord | None,
+    router: LLMRouter,
+    ticket_repo: TicketRepository,
+    *,
+    tier: Tier = Tier.RESEARCH,
+    attempts: int = 2,
+) -> Iterator[Event]:
+    """Research all selected tickets in ONE Deep Research call (no clustering)."""
+    ticket_list = list(tickets)
+    yield from _header_events(tier, router.model_for(tier), ticket_list)
+    yield from _research_batch(
+        theme, ticket_list, blueprint, router, ticket_repo, tier=tier, attempts=attempts
+    )
+    yield {"event": "done"}
+
+
+def research_ticket_clusters_events(
+    theme: Theme,
+    tickets: Iterable[Ticket],
+    blueprint: BlueprintRecord | None,
+    router: LLMRouter,
+    ticket_repo: TicketRepository,
+    *,
+    tier: Tier = Tier.RESEARCH,
+    cluster_tier: Tier = Tier.LOW,
+    attempts: int = 2,
+    max_cluster_size: int = DEFAULT_MAX_CLUSTER_SIZE,
+) -> Iterator[Event]:
+    """Cluster similar tickets with a cheap model, then run ONE Deep Research call per
+    cluster (focused + bounded) instead of one mega-prompt over everything."""
+    ticket_list = list(tickets)
+    yield from _header_events(tier, router.model_for(tier), ticket_list)
+    if not ticket_list:
+        yield {"event": "done"}
+        return
+
+    yield {
+        "event": "clustering",
+        "tier": cluster_tier.value,
+        "model": router.model_for(cluster_tier),
+    }
+    clusters = cluster_tickets(ticket_list, router, tier=cluster_tier, max_size=max_cluster_size)
+    sizes = [len(c) for c in clusters]
+    logger.info("research.clusters theme=%s clusters=%d sizes=%s", theme.id, len(clusters), sizes)
+    yield {"event": "clusters", "count": len(clusters), "sizes": sizes}
+
+    for index, cluster in enumerate(clusters):
+        yield {
+            "event": "cluster_start",
+            "index": index + 1,
+            "total": len(clusters),
+            "size": len(cluster),
+            "tickets": [
+                {"ticket_id": t.id, "target": t.target, "metric": t.metric} for t in cluster
+            ],
+        }
+        yield from _research_batch(
+            theme, cluster, blueprint, router, ticket_repo, tier=tier, attempts=attempts
+        )
+    logger.info(
+        "research.done theme=%s tickets=%d clusters=%d", theme.id, len(ticket_list), len(clusters)
+    )
     yield {"event": "done"}
 
 

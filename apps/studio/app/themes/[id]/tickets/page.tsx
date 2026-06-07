@@ -333,6 +333,46 @@ export default function TicketQueuePage() {
         );
         break;
       }
+      case "clustering":
+        setProg((p) => ({
+          ...p,
+          steps: [
+            ...p.steps,
+            {
+              label: "clustering (cheap model)",
+              detail: String(e.model ?? ""),
+            },
+          ],
+        }));
+        break;
+      case "clusters":
+        setProg((p) => ({
+          ...p,
+          steps: [
+            ...p.steps,
+            {
+              label: `grouped into ${e.count} cluster(s)`,
+              detail: Array.isArray(e.sizes)
+                ? `sizes ${e.sizes.join(", ")}`
+                : "",
+              tone: "ok",
+            },
+          ],
+        }));
+        break;
+      case "cluster_start":
+        setProg((p) => ({
+          ...p,
+          output: "",
+          steps: [
+            ...p.steps,
+            {
+              label: `▼ cluster ${e.index}/${e.total}`,
+              detail: `${e.size} ticket(s) · one Deep Research call`,
+            },
+          ],
+        }));
+        break;
       case "prompt":
         setProg((p) => ({ ...p, prompt: String(e.text) }));
         break;

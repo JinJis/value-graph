@@ -25,7 +25,7 @@ from services.engine.tickets.models import (
     TicketEvent,
 )
 from services.engine.tickets.repository import PostgresTicketRepository, TicketRepository
-from services.engine.tickets.research import research_tickets_events
+from services.engine.tickets.research import research_ticket_clusters_events
 from services.engine.tickets.state import derived_estimate, validate_transition
 
 logger = logging.getLogger("valuegraph.engine.tickets")
@@ -129,11 +129,11 @@ def stream_research_tickets(
         len(req.ticket_ids),
         len(selected),
     )
-    # Detached: the Deep Research run + persistence finish even if the admin closes the
-    # tab mid-run; the SSE response just tails the live progress.
+    # Cluster similar tickets (cheap model), then one Deep Research call per cluster.
+    # Detached: the run + persistence finish even if the admin closes the tab mid-run.
     return sse_response(
         run_detached(
-            lambda: research_tickets_events(theme, selected, blueprint, llm, tickets),
+            lambda: research_ticket_clusters_events(theme, selected, blueprint, llm, tickets),
             label=f"tickets-research:{theme_id}:{len(selected)}",
         )
     )
