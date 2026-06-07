@@ -564,7 +564,15 @@ export default function TicketQueuePage() {
               {batchCount === 1 ? "" : "s"} in a single run…
             </p>
           )}
-          <BlueprintProgress prog={prog} markdown />
+          <BlueprintProgress
+            prog={prog}
+            markdown
+            labels={{
+              running: "Researching…",
+              done: "Research complete",
+              idle: "Deep Research",
+            }}
+          />
           {outcomes.length > 0 && (
             <ul style={{ fontSize: 13, paddingLeft: 18 }}>
               {outcomes.map((o) => (

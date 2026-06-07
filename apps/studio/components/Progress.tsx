@@ -50,13 +50,29 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Per-state header text, so each panel reads for its task (generate / research / CVE).
+export interface ProgLabels {
+  running?: string;
+  done?: string;
+  idle?: string;
+}
+
+const DEFAULT_LABELS: Required<ProgLabels> = {
+  running: "Generating…",
+  done: "Done",
+  idle: "Generation",
+};
+
 export function BlueprintProgress({
   prog,
   markdown = false,
+  labels,
 }: {
   prog: Prog;
   markdown?: boolean;
+  labels?: ProgLabels;
 }) {
+  const text = { ...DEFAULT_LABELS, ...labels };
   const outRef = useRef<HTMLDivElement>(null);
 
   // Keep the streaming output scrolled to the newest tokens.
@@ -91,7 +107,7 @@ export function BlueprintProgress({
         }}
       >
         <strong style={{ fontSize: 14 }}>
-          {prog.running ? "Generating…" : prog.done ? "Done" : "Generation"}
+          {prog.running ? text.running : prog.done ? text.done : text.idle}
         </strong>
         {prog.model && (
           <Badge>
@@ -103,7 +119,7 @@ export function BlueprintProgress({
             {prog.endpoint.provider}.{prog.endpoint.method}
           </Badge>
         )}
-        {prog.running && (
+        {prog.running && prog.output.length > 0 && (
           <span style={{ fontSize: 12, color: "#64748b" }}>
             streaming {prog.output.length.toLocaleString()} chars…
           </span>

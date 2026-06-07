@@ -228,7 +228,14 @@ function PublishPanel({
         <small style={{ color: "#64748b" }}>
           Cross-verify the theme’s sources + tickets into a Staging build.
         </small>
-        <BlueprintProgress prog={cveProg} />
+        <BlueprintProgress
+          prog={cveProg}
+          labels={{
+            running: "Running CVE…",
+            done: "CVE complete",
+            idle: "CVE run",
+          }}
+        />
       </div>
 
       {loading ? (
