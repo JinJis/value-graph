@@ -545,6 +545,28 @@ export async function publishTheme(
   );
 }
 
+// --- CVE run (M3-ORCH-08) ---
+
+export interface CveRunSummary {
+  run_id: string | null;
+  status: string;
+  build_version: number;
+  documents_ingested: number;
+  claims: number;
+  edges: number;
+  publishable_edges: number;
+  ghost_edges: number;
+  estimated_edges: number;
+}
+
+// Run the CVE pipeline over the theme's sources + tickets and persist a Staging build
+// (the artifact Publish consumes). Can take a while (LLM extraction per document).
+export async function runThemeCve(themeId: string): Promise<CveRunSummary> {
+  return json(
+    await fetch(url(`/themes/${themeId}/cve/run`), { method: "POST" }),
+  );
+}
+
 // --- Jobs (M7-SCHED-04) ---
 
 export interface CveJob {

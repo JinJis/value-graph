@@ -10,6 +10,7 @@ import {
   getThemeQuality,
   listSources,
   publishTheme,
+  runThemeCve,
   sourceContentUrl,
   uploadSource,
   type PublishPreview,
@@ -97,6 +98,8 @@ function PublishPanel({
   const [overrideReason, setOverrideReason] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [cveMsg, setCveMsg] = useState<string | null>(null);
 
   async function loadPreview() {
     setLoading(true);
@@ -114,6 +117,24 @@ function PublishPanel({
     void loadPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeId]);
+
+  async function onRunCve() {
+    setRunning(true);
+    setCveMsg(null);
+    try {
+      const s = await runThemeCve(themeId);
+      setCveMsg(
+        `Built v${s.build_version}: ${s.publishable_edges} publishable · ` +
+          `${s.ghost_edges} gap · ${s.estimated_edges} estimated ` +
+          `(from ${s.documents_ingested} document(s), ${s.claims} claim(s)).`,
+      );
+      await loadPreview();
+    } catch (e) {
+      setCveMsg(`CVE run failed: ${String(e)}`);
+    } finally {
+      setRunning(false);
+    }
+  }
 
   async function onPublish() {
     if (!actor.trim()) {
@@ -145,6 +166,25 @@ function PublishPanel({
   return (
     <section style={{ margin: "1.5rem 0" }}>
       <h2 style={{ marginBottom: 4 }}>Publish</h2>
+
+      <div style={{ margin: "0 0 12px" }}>
+        <button
+          type="button"
+          onClick={() => void onRunCve()}
+          disabled={running}
+        >
+          {running ? "Running CVE…" : "Run CVE (build the graph)"}
+        </button>{" "}
+        <small style={{ color: "#64748b" }}>
+          Cross-verify the theme’s sources + tickets into a Staging build.
+        </small>
+        {cveMsg && (
+          <p style={{ marginTop: 6, fontSize: 13 }}>
+            <small>{cveMsg}</small>
+          </p>
+        )}
+      </div>
+
       {loading ? (
         <p>
           <small>Checking publish readiness…</small>

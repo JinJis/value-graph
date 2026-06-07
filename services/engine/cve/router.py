@@ -1,0 +1,89 @@
+"""CVE run endpoint — trigger the S0-S7 pipeline for a theme and persist a build."""
+
+from __future__ import annotations
+
+import logging
+from datetime import date
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from services.engine.blueprint.repository import BlueprintRepository
+from services.engine.blueprint.router import get_blueprint_repository, get_router
+from services.engine.calendar.repository import (
+    CalendarRepository,
+    PostgresCalendarRepository,
+)
+from services.engine.cve.run_repository import CveRunRepository, PostgresCveRunRepository
+from services.engine.cve.run_service import CveRunSummary, run_cve_for_theme
+from services.engine.db.config import DbSettings
+from services.engine.db.graph_store import GraphStore
+from services.engine.llm.router import LLMRouter
+from services.engine.publish.router import get_graph_store
+from services.engine.storage import Storage
+from services.engine.themes.repository import ThemeRepository
+from services.engine.themes.router import get_repository as get_theme_repository
+from services.engine.themes.router import get_storage
+from services.engine.tickets.repository import TicketRepository
+from services.engine.tickets.router import get_ticket_repository
+
+logger = logging.getLogger("valuegraph.engine.cve")
+
+router = APIRouter(tags=["cve"])
+
+
+def get_cve_run_repository() -> CveRunRepository:
+    return PostgresCveRunRepository(DbSettings.from_env())
+
+
+def get_calendar_repository() -> CalendarRepository:
+    return PostgresCalendarRepository(DbSettings.from_env())
+
+
+ThemeRepoDep = Annotated[ThemeRepository, Depends(get_theme_repository)]
+BlueprintRepoDep = Annotated[BlueprintRepository, Depends(get_blueprint_repository)]
+TicketRepoDep = Annotated[TicketRepository, Depends(get_ticket_repository)]
+RouterDep = Annotated[LLMRouter, Depends(get_router)]
+StorageDep = Annotated[Storage, Depends(get_storage)]
+GraphStoreDep = Annotated[GraphStore, Depends(get_graph_store)]
+CveRunRepoDep = Annotated[CveRunRepository, Depends(get_cve_run_repository)]
+CalendarRepoDep = Annotated[CalendarRepository, Depends(get_calendar_repository)]
+
+
+@router.post("/themes/{theme_id}/cve/run", response_model=CveRunSummary)
+def run_theme_cve(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    tickets: TicketRepoDep,
+    llm: RouterDep,
+    storage: StorageDep,
+    graph: GraphStoreDep,
+    runs: CveRunRepoDep,
+    calendar: CalendarRepoDep,
+) -> CveRunSummary:
+    """Run the CVE pipeline over the theme's current sources + tickets and persist the
+    next Staging build (the artifact Publish consumes). Reflects ticket state (incl. the
+    not-disclosed 10% bound) and the disclosure calendar."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    blueprint = blueprints.get_latest(theme_id)
+    if blueprint is None:
+        raise HTTPException(
+            status_code=409, detail="no blueprint to build from; generate one first"
+        )
+    sources = themes.list_sources(theme_id)
+    logger.info("cve.request theme=%s sources=%d", theme_id, len(sources))
+    return run_cve_for_theme(
+        theme_id=theme_id,
+        blueprint=blueprint,
+        sources=sources,
+        storage=storage,
+        router=llm,
+        ticket_repo=tickets,
+        graph_store=graph,
+        run_repo=runs,
+        calendar_repo=calendar,
+        today=date.today().isoformat(),
+    )
