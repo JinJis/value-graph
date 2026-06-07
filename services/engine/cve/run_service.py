@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from services.engine.blueprint.models import BlueprintRecord
 from services.engine.calendar.repository import CalendarRepository, next_update_map
 from services.engine.cve.chain_research import research_chain_events
+from services.engine.cve.cost_bucket import LLMCostBucketClassifier
 from services.engine.cve.extract import Claim
 from services.engine.cve.pipeline import (
     TRIGGERS,
@@ -134,6 +135,7 @@ def run_cve_events_for_theme(
     calendar_repo: CalendarRepository | None = None,
     financials_repo: FinancialsRepository | None = None,
     seed_claims: Sequence[Claim] = (),
+    theme_name: str = "",
     today: str | None = None,
     trigger: str = "admin",
 ) -> Iterator[Event]:
@@ -151,7 +153,15 @@ def run_cve_events_for_theme(
         CanonicalCompany(ticker=c.ticker, name=c.name) for c in blueprint.companies
     ]
     resolver = Resolver(companies=companies, adjudicator=LLMAdjudicator(router=router))
-    deps = CVEDeps(router=router, resolver=resolver, ticket_repo=ticket_repo)
+    # Theme-aware cost-bucket typing so the engine isn't hardwired to one domain.
+    classifier = LLMCostBucketClassifier(router, theme=theme_name or theme_id)
+    deps = CVEDeps(
+        router=router,
+        resolver=resolver,
+        ticket_repo=ticket_repo,
+        cost_bucket_classifier=classifier,
+    )
+    products = {c.ticker: c.products for c in blueprint.companies}
     tickers = [c.ticker for c in blueprint.companies]
     calendar = next_update_map(calendar_repo, tickers) if calendar_repo is not None else {}
     financials = financials_map(financials_repo, tickers) if financials_repo is not None else {}
@@ -180,6 +190,7 @@ def run_cve_events_for_theme(
         documents=documents,
         financials=financials,  # complementary side -> derived (not just estimated) edges
         calendar=calendar,
+        products=products,  # ticker -> products, for theme-aware cost-bucket typing
         claims=list(seed_claims),  # researched trades seeded before S1 (merged, not replaced)
     )
     record = run_repo.start(theme_id, trigger)
@@ -240,6 +251,7 @@ def run_cve_for_theme(
     calendar_repo: CalendarRepository | None = None,
     financials_repo: FinancialsRepository | None = None,
     seed_claims: Sequence[Claim] = (),
+    theme_name: str = "",
     today: str | None = None,
     trigger: str = "admin",
 ) -> CveRunSummary:
@@ -258,6 +270,7 @@ def run_cve_for_theme(
         calendar_repo=calendar_repo,
         financials_repo=financials_repo,
         seed_claims=seed_claims,
+        theme_name=theme_name,
         today=today,
         trigger=trigger,
     ):
@@ -355,6 +368,7 @@ def research_and_build_events(
         calendar_repo=calendar_repo,
         financials_repo=financials_repo,
         seed_claims=claims,
+        theme_name=theme.name,
         today=today,
         trigger=trigger,
     )

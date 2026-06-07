@@ -98,6 +98,7 @@ def run_theme_cve(
         run_repo=runs,
         calendar_repo=calendar,
         financials_repo=financials,
+        theme_name=theme.name,
         today=date.today().isoformat(),
     )
 
@@ -140,6 +141,7 @@ def stream_theme_cve(
                 run_repo=runs,
                 calendar_repo=calendar,
                 financials_repo=financials,
+                theme_name=theme.name,
                 today=date.today().isoformat(),
             ),
             label=f"cve-run:{theme_id}",

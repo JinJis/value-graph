@@ -17,8 +17,14 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 _COST_BUCKETS = {"COGS", "CAPEX", "R&D", "SG&A"}
+# The cost buckets are universal accounting categories (CLAUDE.md §4) — theme-independent.
+# Public alias for the bucket vocabulary (used by the theme-aware LLM classifier).
+COST_BUCKETS = _COST_BUCKETS
 
-# product/role keyword -> cost bucket. Order matters (first match wins).
+# product/role keyword -> cost bucket. Order matters (first match wins). These keyword
+# rules are a CHEAP, offline FALLBACK; the authoritative, theme-aware bucket is set by the
+# LLM at extraction (extract.py / chain_research.py) and, failing that, by the injected
+# theme-aware classifier (cost_bucket.py). Keep them generic where possible.
 _COST_BUCKET_RULES: list[tuple[tuple[str, ...], str]] = [
     (("equipment", "tool", "lithography", "fab ", "machine", "capacity", "capex"), "CAPEX"),
     (("research", "r&d", "rnd", "intellectual property", " ip ", "license", "patent"), "R&D"),

@@ -31,7 +31,8 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from services.engine.cve.derive import assign_cost_bucket, derive_trade
+from services.engine.cve.cost_bucket import CostBucketClassifier, RuleCostBucketClassifier
+from services.engine.cve.derive import derive_trade
 from services.engine.cve.estimate import estimate_edge
 from services.engine.cve.extract import (
     ABSOLUTE,
@@ -94,6 +95,7 @@ class CVEState(BaseModel):
     # company -> {"revenue": x, "COGS": y, "CAPEX": ...}; enables the complementary side.
     financials: dict[str, dict[str, float]] = Field(default_factory=dict)
     calendar: dict[str, str] = Field(default_factory=dict)  # company -> next_expected_update ISO
+    products: dict[str, list[str]] = Field(default_factory=dict)  # ticker -> products (cost typing)
     claims: list[Claim] = Field(default_factory=list)
     resolutions: list[Resolution] = Field(default_factory=list)
     edges: dict[str, EdgeResult] = Field(default_factory=dict)
@@ -123,10 +125,13 @@ class CVEDeps:
         router: LLMRouter,
         resolver: Resolver,
         ticket_repo: TicketRepository,
+        cost_bucket_classifier: CostBucketClassifier | None = None,
     ) -> None:
         self.router = router
         self.resolver = resolver
         self.ticket_repo = ticket_repo
+        # Theme-aware cost-bucket typing; defaults to the offline keyword rules.
+        self.cost_bucket_classifier = cost_bucket_classifier or RuleCostBucketClassifier()
 
 
 # --------------------------------------------------------------------------- helpers
@@ -142,7 +147,13 @@ def _bucket_value(funds: dict[str, float], bucket: str | None) -> float | None:
     return funds.get(bucket)
 
 
-def _claim_to_estimate(claim: Claim, financials: dict[str, dict[str, float]]) -> Estimate | None:
+def _claim_to_estimate(
+    claim: Claim,
+    financials: dict[str, dict[str, float]],
+    *,
+    classifier: CostBucketClassifier,
+    products: dict[str, list[str]],
+) -> Estimate | None:
     """Convert one disclosure into a customer_cost_share estimate (the edge metric).
 
     Returns None when the complementary side can't be derived (missing financials)
@@ -153,7 +164,10 @@ def _claim_to_estimate(claim: Claim, financials: dict[str, dict[str, float]]) ->
     if claim.relation == CUSTOMER_SHARE:  # already the metric
         return Estimate(value=claim.value, source_id=claim.source_id)
 
-    bucket = claim.cost_bucket or assign_cost_bucket(None) or DEFAULT_COST_BUCKET
+    # Cost bucket: the LLM-set bucket on the claim wins; else classify the supplier's
+    # product (theme-aware classifier); else the universal default.
+    product = ", ".join(products.get(claim.subject, [])) or None
+    bucket = claim.cost_bucket or classifier.classify(product) or DEFAULT_COST_BUCKET
     bucket_value = _bucket_value(financials.get(claim.object, {}), bucket)
 
     if claim.relation == SUPPLIER_SHARE:
@@ -226,7 +240,7 @@ def s2_resolve(
     return {"resolutions": resolutions, "claims": resolved_claims}
 
 
-def s3_derive(state: CVEState) -> dict[str, Any]:
+def s3_derive(state: CVEState, *, classifier: CostBucketClassifier) -> dict[str, Any]:
     """S3: group claims into edges; derive the customer-side metric for each disclosure."""
     edges: dict[str, EdgeResult] = {}
     for claim in state.claims:
@@ -237,7 +251,9 @@ def s3_derive(state: CVEState) -> dict[str, Any]:
             edges[key] = edge
         if edge.as_of is None or claim.as_of > edge.as_of:
             edge.as_of = claim.as_of
-        estimate = _claim_to_estimate(claim, state.financials)
+        estimate = _claim_to_estimate(
+            claim, state.financials, classifier=classifier, products=state.products
+        )
         if estimate is not None:
             edge.estimates.append(estimate)
     return {"edges": edges}
@@ -347,7 +363,7 @@ def build_cve_graph(deps: CVEDeps) -> Any:
         "S2_resolve",
         lambda s: s2_resolve(s, resolver=deps.resolver, ticket_repo=deps.ticket_repo),
     )
-    graph.add_node("S3_derive", s3_derive)
+    graph.add_node("S3_derive", lambda s: s3_derive(s, classifier=deps.cost_bucket_classifier))
     graph.add_node("S4_reconcile", lambda s: s4_reconcile(s, ticket_repo=deps.ticket_repo))
     graph.add_node(
         "S5_estimate",
@@ -399,7 +415,7 @@ def stream_cve_state(initial: CVEState, deps: CVEDeps) -> Iterator[tuple[str, CV
         update=s2_resolve(state, resolver=resolver, ticket_repo=ticket_repo)
     )
     yield "S2_resolve", state
-    state = state.model_copy(update=s3_derive(state))
+    state = state.model_copy(update=s3_derive(state, classifier=deps.cost_bucket_classifier))
     yield "S3_derive", state
     state = state.model_copy(update=s4_reconcile(state, ticket_repo=ticket_repo))
     yield "S4_reconcile", state
