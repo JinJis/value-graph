@@ -90,6 +90,28 @@ _FOUND = _batch(
 )
 
 
+def test_structuring_fallback_when_report_has_no_json() -> None:
+    """Deep Research returns a prose report (no JSON); a cheap model extracts the JSON
+    instead of re-running the expensive agent."""
+    repo = InMemoryTicketRepository()
+    ticket = _open_ticket(repo)
+    prose = (
+        "NVIDIA discloses in its 10-K that about 21% of revenue came from its largest "
+        "customer in FY2024. No JSON here."
+    )
+    # call 0 -> deep_research_stream (prose); call 1 -> generate_text (the structured JSON).
+    fake = ResearchFake(prose, _FOUND)
+    events = list(
+        research_tickets_events(_theme(), [ticket], None, _router(fake), repo)
+    )
+    statuses = [e["status"] for e in events if e["event"] == "parse"]
+    assert "structuring" in statuses and statuses[-1] == "ok"
+    assert fake.calls == 2  # one Deep Research run + one cheap structuring call (no re-run)
+
+    proposed = next(e for e in events if e["event"] == "proposed")
+    assert proposed["value"] == "21% of revenue"
+
+
 def test_found_persists_proposal_and_keeps_open() -> None:
     repo = InMemoryTicketRepository()
     ticket = _open_ticket(repo)

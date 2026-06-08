@@ -83,6 +83,41 @@ def _parse_batch(buffer: str) -> TicketResolutionBatch:
     return TicketResolutionBatch.model_validate_json(_extract_json(buffer))
 
 
+# When Deep Research returns a prose report with no JSON block, a cheap formatter model
+# extracts the structured result from the report (the report HAS the answers; it just
+# didn't format them). This avoids re-running the expensive agent.
+_STRUCTURE_INSTRUCTIONS = """\
+ROLE: You are a strict JSON formatter.
+GOAL: Convert the RESEARCH REPORT below into the exact JSON the engine needs. Extract only
+what the report actually states — do NOT invent values or URLs.
+
+For EACH ref in REFS, output one result with a verdict:
+- "found"         — the report gives the figure AND a real source URL for it.
+- "not_disclosed" — the report says the company does not disclose it.
+- "not_found"     — the report couldn't find it in any public source.
+- "paywalled"     — the figure is behind a paywall.
+- "ambiguous"     — the report is unclear / didn't resolve it.
+
+OUTPUT FORMAT — return ONLY this JSON (no prose, no fences), one entry per ref, echoing it:
+{"results": [{"ref": "<ref>", "verdict": "<one of the five>", "value": <figure or null>,
+"unit": <string or null>, "as_of_date": "YYYY-MM-DD or null",
+"confidence": "high"|"medium"|"low"|null, "source_url": <url or null>,
+"source_publisher": <string or null>, "notes": <short string or null>}]}
+"""
+
+
+def _structure_batch(
+    report: str, refs: list[str], router: LLMRouter, *, tier: Tier
+) -> TicketResolutionBatch:
+    """Coerce a prose Deep Research report into the required JSON via a cheap model."""
+    prompt = (
+        f"{_STRUCTURE_INSTRUCTIONS}\n"
+        f"REFS (return EXACTLY one result per ref): {', '.join(refs)}\n\n"
+        f"RESEARCH REPORT:\n{report}"
+    )
+    return TicketResolutionBatch.model_validate_json(_extract_json(router.generate(tier, prompt)))
+
+
 def _research_batch(
     theme: Theme,
     ticket_list: list[Ticket],
@@ -92,6 +127,7 @@ def _research_batch(
     *,
     tier: Tier,
     attempts: int,
+    structure_tier: Tier = Tier.MEDIUM,
 ) -> Iterator[Event]:
     """Resolve ONE batch (cluster) of tickets in a single Deep Research call.
 
@@ -139,11 +175,40 @@ def _research_batch(
             yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
             return
 
+        report = buffer.strip()
+        if not report:
+            # The agent produced reasoning/tool-calls but no final report text.
+            last_error = "Deep Research returned no report text"
+            more = attempt + 1 < attempts
+            yield {
+                "event": "parse",
+                "status": "retry" if more else "failed",
+                "detail": last_error,
+            }
+            continue
+
+        # 1) The report may already end with the requested JSON block.
         try:
-            batch = _parse_batch(buffer)
+            batch = _parse_batch(report)
             yield {"event": "parse", "status": "ok"}
             break
-        except (ValidationError, BlueprintParseError) as exc:
+        except (ValueError, ValidationError, BlueprintParseError):
+            pass
+
+        # 2) Deep Research often returns prose without JSON — extract it with a cheap model
+        #    (no need to re-run the expensive agent).
+        yield {
+            "event": "parse",
+            "status": "structuring",
+            "detail": (
+                f"no JSON in the report; extracting it with {router.model_for(structure_tier)}"
+            ),
+        }
+        try:
+            batch = _structure_batch(report, refs, router, tier=structure_tier)
+            yield {"event": "parse", "status": "ok"}
+            break
+        except (ValueError, ValidationError, BlueprintParseError) as exc:
             last_error = str(exc)
             more = attempt + 1 < attempts
             yield {
