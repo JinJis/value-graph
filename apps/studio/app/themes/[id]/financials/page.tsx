@@ -3,7 +3,11 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { BlueprintProgress, type Prog } from "../../../../components/Progress";
+import {
+  applyProgEvent,
+  BlueprintProgress,
+  type Prog,
+} from "../../../../components/Progress";
 import { useResumableRun } from "../../../../components/useResumableRun";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
@@ -61,61 +65,34 @@ export default function FinancialsPage() {
     typeof v === "number" ? String(v) : typeof v === "string" ? v : null;
 
   function onResearchEvent(e: CveRunEvent) {
-    const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
-      setProg((p) => ({ ...p, steps: [...p.steps, { label, detail, tone }] }));
-    switch (e.event) {
-      case "task": // stream (re)attached
-        setProg({ ...EMPTY_PROG, running: true });
-        break;
-      case "model":
-        setProg((p) => ({
-          ...p,
-          model: { tier: String(e.tier), model: String(e.model) },
-        }));
-        break;
-      case "prompt":
-        setProg((p) => ({ ...p, prompt: String(e.text) }));
-        break;
-      case "chunk":
-        setProg((p) => ({ ...p, output: p.output + String(e.text ?? "") }));
-        break;
-      case "research":
-        step(String(e.action), String(e.detail ?? ""));
-        break;
-      case "filled": {
-        const t = String(e.ticker);
-        setDrafts((d) => {
-          const cur = d[t] ?? EMPTY_DRAFT;
-          return {
-            ...d,
-            [t]: {
-              revenue: numStr(e.revenue) ?? cur.revenue,
-              cogs: numStr(e.cogs) ?? cur.cogs,
-              capex: numStr(e.capex) ?? cur.capex,
-              rnd: numStr(e.rnd) ?? cur.rnd,
-              sga: numStr(e.sga) ?? cur.sga,
-              as_of_date: numStr(e.as_of_date) ?? cur.as_of_date,
-            },
-          };
-        });
-        step(
-          `filled ${t}`,
-          `revenue ${e.revenue ?? "—"} · cogs ${e.cogs ?? "—"}`,
-          "ok",
-        );
-        break;
-      }
-      case "done":
-        setProg((p) => ({ ...p, running: false, done: true }));
-        break;
-      case "error":
-        setProg((p) => ({
-          ...p,
-          running: false,
-          error: String(e.detail ?? "research error"),
-        }));
-        break;
-    }
+    setProg((p) => applyProgEvent(p, e)); // generic live progress (model, 💭, chunk, …)
+    if (e.event !== "filled") return;
+    const t = String(e.ticker);
+    setDrafts((d) => {
+      const cur = d[t] ?? EMPTY_DRAFT;
+      return {
+        ...d,
+        [t]: {
+          revenue: numStr(e.revenue) ?? cur.revenue,
+          cogs: numStr(e.cogs) ?? cur.cogs,
+          capex: numStr(e.capex) ?? cur.capex,
+          rnd: numStr(e.rnd) ?? cur.rnd,
+          sga: numStr(e.sga) ?? cur.sga,
+          as_of_date: numStr(e.as_of_date) ?? cur.as_of_date,
+        },
+      };
+    });
+    setProg((p) => ({
+      ...p,
+      steps: [
+        ...p.steps,
+        {
+          label: `filled ${t}`,
+          detail: `revenue ${e.revenue ?? "—"} · cogs ${e.cogs ?? "—"}`,
+          tone: "ok",
+        },
+      ],
+    }));
   }
 
   async function onResearch() {

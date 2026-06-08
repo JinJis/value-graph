@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import {
+  applyProgEvent,
   BlueprintProgress,
   type Prog,
 } from "../../../../components/Progress";
@@ -24,29 +25,12 @@ export default function BuildPage() {
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
 
   function onEvent(e: CveRunEvent) {
+    setProg((p) => applyProgEvent(p, e)); // generic live progress (model, 💭, chunk, …)
     const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
       setProg((p) => ({ ...p, steps: [...p.steps, { label, detail, tone }] }));
     switch (e.event) {
-      case "task": // stream (re)attached — start a fresh live panel
-        setProg({ ...EMPTY_PROG, running: true });
-        break;
-      case "model":
-        setProg((p) => ({
-          ...p,
-          model: { tier: String(e.tier), model: String(e.model) },
-        }));
-        break;
       case "phase":
         step(e.phase === "research" ? "▼ Deep Research" : "▼ Build (CVE)");
-        break;
-      case "prompt":
-        setProg((p) => ({ ...p, prompt: String(e.text) }));
-        break;
-      case "chunk":
-        setProg((p) => ({ ...p, output: p.output + String(e.text ?? "") }));
-        break;
-      case "research":
-        step(String(e.action), String(e.detail ?? ""));
         break;
       case "researched":
         step(
@@ -71,16 +55,6 @@ export default function BuildPage() {
             `${e.estimated_edges} estimated`,
           "ok",
         );
-        break;
-      case "done":
-        setProg((p) => ({ ...p, running: false, done: true }));
-        break;
-      case "error":
-        setProg((p) => ({
-          ...p,
-          running: false,
-          error: String(e.detail ?? "run error"),
-        }));
         break;
     }
   }

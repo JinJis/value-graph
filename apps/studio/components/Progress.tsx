@@ -32,6 +32,69 @@ const TONE: Record<string, string> = {
   err: "#b91c1c",
 };
 
+type AnyEvent = { event: string; [key: string]: unknown };
+
+const truncate = (t: string, n = 160): string =>
+  t.length > n ? `${t.slice(0, n)}…` : t;
+
+// Fold one streamed event into the live Prog. Handles every GENERIC step a Gemini/Deep
+// Research run emits (routing, prompt, attempts, 💭 thoughts, search/read tool calls,
+// streamed output, parse, errors) so every panel shows the same live progress as the
+// blueprint flow. Domain events (filled / stage / proposed / …) return `prev` unchanged —
+// the page layers those on top. `task` (re)starts a fresh run.
+export function applyProgEvent(prev: Prog, e: AnyEvent): Prog {
+  const withStep = (
+    label: string,
+    detail?: string,
+    tone?: "ok" | "warn" | "err",
+  ): Prog => ({ ...prev, steps: [...prev.steps, { label, detail, tone }] });
+
+  switch (e.event) {
+    case "task":
+      return { output: "", steps: [], done: false, running: true };
+    case "model":
+      return {
+        ...withStep(`Routed to ${e.tier} model ${e.model}`, undefined, "ok"),
+        model: { tier: String(e.tier), model: String(e.model) },
+      };
+    case "endpoint":
+      return {
+        ...prev,
+        endpoint: { provider: String(e.provider), method: String(e.method) },
+      };
+    case "prompt":
+      return {
+        ...withStep(
+          `Built prompt (${String(e.text ?? "").length.toLocaleString()} chars)`,
+        ),
+        prompt: String(e.text ?? ""),
+      };
+    case "llm_start":
+      return {
+        ...withStep(`Calling Gemini (attempt ${e.attempt}/${e.attempts})`),
+        output: "",
+      };
+    case "thought":
+      return withStep(`💭 ${truncate(String(e.text ?? ""))}`);
+    case "research":
+      return withStep(String(e.action), truncate(String(e.detail ?? "")));
+    case "chunk":
+      return { ...prev, output: prev.output + String(e.text ?? "") };
+    case "parse":
+      return withStep(
+        `Parse: ${e.status}`,
+        e.detail ? truncate(String(e.detail)) : undefined,
+        e.status === "ok" ? "ok" : e.status === "failed" ? "err" : "warn",
+      );
+    case "error":
+      return { ...prev, error: String(e.detail ?? "error"), running: false };
+    case "done":
+      return { ...prev, running: false, done: true };
+    default:
+      return prev; // domain-specific event — handled by the page
+  }
+}
+
 function Badge({ children }: { children: React.ReactNode }) {
   return (
     <span
