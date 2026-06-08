@@ -5,6 +5,9 @@
 // interval + #sources), a CONFLICT banner when flagged, and every SUPPORTS claim with
 // its verbatim span + source link.
 
+import { SourceHighlight, type SourceRef as UiSourceRef } from "@valuegraph/ui";
+import { useState } from "react";
+
 import type { EdgeDetail, SourceRef } from "../canvas/types";
 
 function sourceLink(sources: SourceRef[], sourceId: string) {
@@ -42,6 +45,13 @@ export function EdgeInspector({
   const rec = detail?.reconciliation ?? null;
   const conflict = rec?.status === "conflict";
   const claims = detail?.claims ?? [];
+  const [openClaim, setOpenClaim] = useState<number | null>(null);
+
+  const refFor = (sourceId: string): UiSourceRef =>
+    sources.find((s) => s.source_id === sourceId) ?? {
+      source_id: sourceId,
+      has_content: false,
+    };
 
   return (
     <div
@@ -124,7 +134,44 @@ export function EdgeInspector({
               <div style={{ opacity: 0.6 }}>
                 — {sourceLink(sources, c.source_id)}
                 {c.as_of ? ` · ${c.as_of}` : ""}
+                {c.text_span && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenClaim((cur) => (cur === i ? null : i))
+                      }
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#8fd0ff",
+                        cursor: "pointer",
+                        padding: 0,
+                        fontSize: 12,
+                      }}
+                    >
+                      {openClaim === i ? "hide source" : "🔍 view in source"}
+                    </button>
+                  </>
+                )}
               </div>
+              {openClaim === i && c.text_span && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    background: "#fff",
+                    color: "#0f172a",
+                    borderRadius: 6,
+                    padding: 8,
+                  }}
+                >
+                  <SourceHighlight
+                    source={refFor(c.source_id)}
+                    quote={c.text_span}
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>

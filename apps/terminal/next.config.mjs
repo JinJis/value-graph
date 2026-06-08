@@ -7,6 +7,8 @@
 const ENGINE = process.env.ENGINE_INTERNAL_URL ?? "http://localhost:8000";
 
 const nextConfig = {
+  // Transpile the shared workspace UI package (raw TS/TSX, incl. the source-highlight viewer).
+  transpilePackages: ["@valuegraph/ui"],
   async rewrites() {
     return [{ source: "/engine/:path*", destination: `${ENGINE}/:path*` }];
   },

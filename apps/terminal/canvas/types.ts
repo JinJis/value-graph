@@ -30,11 +30,14 @@ export interface GraphEdge {
   gap?: boolean;
 }
 
-// A Source backing an edge's figures (PROV-02).
+// A Source backing an edge's figures (PROV-02). `content_type` + `has_content` let the
+// source-highlight viewer embed a stored doc vs. deep-link an external URL.
 export interface SourceRef {
   source_id: string;
   url?: string | null;
   type?: string | null;
+  content_type?: string | null;
+  has_content?: boolean | null;
   as_of_date?: string | null;
 }
 

@@ -23,6 +23,7 @@ from services.engine.publish.assemble import (
     assemble,
 )
 from services.engine.publish.gate import GateReport, gate
+from services.engine.publish.provenance import enrich_edge_sources
 from services.engine.publish.publish import (
     PostgresProductionStore,
     ProductionStore,
@@ -192,7 +193,9 @@ def theme_quality(theme_id: str, store: ProductionStoreDep) -> QualityReport:
 
 
 @router.get("/themes/{theme_id}/graph", response_model=PublishedGraph)
-def theme_graph(theme_id: str, store: ProductionStoreDep) -> PublishedGraph:
+def theme_graph(
+    theme_id: str, store: ProductionStoreDep, themes: ThemeRepoDep
+) -> PublishedGraph:
     """The currently published supply-chain graph the Terminal 3D canvas renders."""
     snapshot = store.current(theme_id)
     if snapshot is None:
@@ -204,6 +207,31 @@ def theme_graph(theme_id: str, store: ProductionStoreDep) -> PublishedGraph:
         companies=snapshot.companies,
         edges=snapshot.edges,
         ghost_edges=snapshot.ghost_edges,
-        edge_sources=snapshot.edge_sources,
+        # Fill each citation with url/content_type/has_content so the Terminal source-
+        # highlight viewer can embed a stored doc or deep-link the original.
+        edge_sources=enrich_edge_sources(snapshot.edge_sources, themes),
         edge_details=snapshot.edge_details,
+    )
+
+
+@router.get("/themes/{theme_id}/staging/graph", response_model=PublishedGraph)
+def staging_graph(
+    theme_id: str, store: GraphStoreDep, themes: ThemeRepoDep
+) -> PublishedGraph:
+    """The latest STAGING build's graph — same shape as the published graph, so Studio can
+    review trade edges + their sources (and highlight provenance) before publishing.
+    Read-only; never mutates and never publishes."""
+    build = store.load_latest(theme_id)
+    if build is None:
+        raise HTTPException(status_code=404, detail="no staging build for theme")
+    total = len(build.edges) + len(build.gap_edges)
+    return PublishedGraph(
+        theme_id=theme_id,
+        snapshot_version=build.version,
+        completeness=(len(build.edges) / total) if total else 0.0,
+        companies=build.companies,
+        edges=build.edges,
+        ghost_edges=build.gap_edges,
+        edge_sources=enrich_edge_sources(build.edge_sources, themes),
+        edge_details=build.edge_details,
     )

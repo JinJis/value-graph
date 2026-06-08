@@ -538,6 +538,61 @@ export interface PublishResult {
   overridden: boolean;
 }
 
+// --- Staging graph (trade edges + their sources, for provenance review) ---------------
+
+export interface EdgeSourceRef {
+  source_id: string;
+  url: string | null;
+  type: string | null;
+  content_type: string | null;
+  has_content: boolean;
+  as_of_date: string | null;
+}
+
+export interface EdgeClaimDetail {
+  relation: string;
+  value?: number | null;
+  unit?: string | null;
+  cost_bucket?: string | null;
+  text_span: string;
+  source_id: string;
+  as_of?: string | null;
+}
+
+export interface EdgeDetail {
+  reconciliation: unknown;
+  claims: EdgeClaimDetail[];
+}
+
+export interface StagingGraph {
+  theme_id: string;
+  snapshot_version: number;
+  completeness: number;
+  companies: { ticker: string; name?: string }[];
+  edges: Record<string, unknown>[];
+  ghost_edges: {
+    supplier: string;
+    customer: string;
+    confidence: string;
+    freshness: string;
+    reason: string;
+  }[];
+  edge_sources: Record<string, EdgeSourceRef[]>;
+  edge_details: Record<string, EdgeDetail>;
+}
+
+// The latest Staging build's graph (publishable edges + their sources + supporting claims),
+// so Studio can review trade-edge provenance before publishing. null when no build yet (404).
+export async function getStagingGraph(
+  themeId: string,
+): Promise<StagingGraph | null> {
+  const response = await fetch(url(`/themes/${themeId}/staging/graph`), {
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  return json(response);
+}
+
 // Assemble + gate the latest Staging build WITHOUT publishing — shows completeness and
 // any blocking validation violations. Returns null when there is no build yet (409).
 export async function getPublishPreview(

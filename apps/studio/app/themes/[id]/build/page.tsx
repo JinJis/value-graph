@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { BuildDiagnostics } from "../../../../components/BuildDiagnostics";
+import { EdgeSourcePanel } from "../../../../components/EdgeSourcePanel";
 import {
   applyProgEvent,
   BlueprintProgress,
@@ -129,6 +130,8 @@ export default function BuildPage() {
       )}
 
       <BuildDiagnostics themeId={themeId} refreshKey={diagKey} />
+
+      <EdgeSourcePanel themeId={themeId} refreshKey={diagKey} />
 
       <StepFooter themeId={themeId} currentKey="build" />
     </section>
