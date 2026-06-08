@@ -20,6 +20,8 @@ export default function Page() {
         <Link href="/themes">→ Themes</Link>
         {" · "}
         <Link href="/jobs">→ CVE jobs</Link>
+        {" · "}
+        <Link href="/prompts">→ Prompts</Link>
       </p>
     </main>
   );

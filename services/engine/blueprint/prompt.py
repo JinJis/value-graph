@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from services.engine.blueprint.models import Blueprint, BlueprintContent
+from services.engine.prompts import registry
 from services.engine.themes.models import Theme
 
 # Default number of companies to aim for when the admin doesn't pick one.
@@ -53,6 +54,13 @@ EXAMPLE (one company; return many):
 "relationship_types": ["SUPPLIES"], "notes": null}
 """
 
+_PLAIN_KEY = registry.register(
+    "blueprint.generate",
+    "Blueprint — generation (plain LLM)",
+    "Plain-LLM first pass: map the theme's listed companies (no web grounding).",
+    _INSTRUCTIONS,
+)
+
 
 def build_prompt(
     theme: Theme,
@@ -60,7 +68,7 @@ def build_prompt(
     *,
     target_count: int = DEFAULT_TARGET_COMPANIES,
 ) -> str:
-    lines = [_INSTRUCTIONS, "", f"THEME: {theme.name}"]
+    lines = [registry.get(_PLAIN_KEY), "", f"THEME: {theme.name}"]
     if theme.description:
         lines.append(f"DESCRIPTION: {theme.description}")
     if theme.seed_tickers:
@@ -123,6 +131,13 @@ EXAMPLE (one company; return many):
 ```
 """
 
+_RESEARCH_GENERATE_KEY = registry.register(
+    "blueprint.research_generate",
+    "Blueprint — Deep Research generation",
+    "First-pass, web-cited company discovery on the Deep Research agent (RESEARCH tier).",
+    _RESEARCH_GENERATE_INSTRUCTIONS,
+)
+
 
 def build_research_generate_prompt(
     theme: Theme,
@@ -131,7 +146,7 @@ def build_research_generate_prompt(
     target_count: int = DEFAULT_TARGET_COMPANIES,
 ) -> str:
     """Prompt for the Deep Research first-pass generation (cited companies)."""
-    lines = [_RESEARCH_GENERATE_INSTRUCTIONS, "", f"THEME: {theme.name}"]
+    lines = [registry.get(_RESEARCH_GENERATE_KEY), "", f"THEME: {theme.name}"]
     if theme.description:
         lines.append(f"DESCRIPTION: {theme.description}")
     if theme.seed_tickers:
@@ -157,6 +172,13 @@ OUTPUT FORMAT — return ONLY the FULL updated JSON object, same shape as the in
 {"companies": [ {ticker, name, country, exchange, role, products, required_data_points} ],
  "relationship_types": ["SUPPLIES"], "notes": "<or null>"}
 """
+
+_REFINE_KEY = registry.register(
+    "blueprint.refine",
+    "Blueprint — refinement (DEEP)",
+    "Iterative refinement of an existing blueprint (DEEP tier).",
+    _REFINE_INSTRUCTIONS,
+)
 
 
 _DISCOVERY_INSTRUCTIONS = """\
@@ -189,10 +211,17 @@ EXAMPLE (one company; return many):
 "source_url": "https://www.advantest.com/investors", "source_publisher": "Advantest IR"}]}
 """
 
+_DISCOVERY_KEY = registry.register(
+    "blueprint.discover",
+    "Blueprint — discovery (RESEARCH)",
+    "Broad worldwide constituent discovery on the Deep Research agent (RESEARCH tier).",
+    _DISCOVERY_INSTRUCTIONS,
+)
+
 
 def build_discovery_prompt(theme: Theme, known_tickers: list[str]) -> str:
     return (
-        f"{_DISCOVERY_INSTRUCTIONS}\n\nTHEME: {theme.name}\n"
+        f"{registry.get(_DISCOVERY_KEY)}\n\nTHEME: {theme.name}\n"
         f"ALREADY KNOWN (find ADDITIONAL, do not just repeat): {', '.join(known_tickers)}"
     )
 
@@ -204,6 +233,6 @@ def build_refine_prompt(theme: Theme, current: Blueprint) -> str:
         notes=current.notes,
     )
     return (
-        f"{_REFINE_INSTRUCTIONS}\n\nTHEME: {theme.name}\n"
+        f"{registry.get(_REFINE_KEY)}\n\nTHEME: {theme.name}\n"
         f"CURRENT BLUEPRINT (round {current.version}):\n{content.model_dump_json(indent=2)}"
     )

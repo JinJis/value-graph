@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from graph_schema import is_valid
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 
 # Claim-type relations.
 SUPPLIER_SHARE = "supplier_revenue_share"
@@ -48,6 +49,13 @@ EXAMPLE (document says "HP accounted for 21% of our revenue"):
 "value": 21, "unit": "%", "cost_bucket": "COGS",
 "text_span": "HP accounted for 21% of our revenue"}}]}}
 """
+
+_EXTRACT_KEY = registry.register(
+    "cve.extract",
+    "CVE S1 — claim extraction",
+    "Extract atomic, span-anchored supply-chain claims from a document (MEDIUM tier).",
+    _INSTRUCTIONS,
+)
 
 
 class RawClaim(BaseModel):
@@ -102,7 +110,7 @@ def extract_claims(
     tier: Tier = Tier.MEDIUM,
 ) -> list[Claim]:
     """Extract span-anchored, schema-valid claims from ``document_text``."""
-    prompt = f"{_INSTRUCTIONS}\n\nDOCUMENT:\n{document_text}"
+    prompt = f"{registry.get(_EXTRACT_KEY)}\n\nDOCUMENT:\n{document_text}"
     try:
         candidates = parse_raw_claims(router.generate(tier, prompt))
     except (ValueError, ValidationError):

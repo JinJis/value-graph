@@ -30,6 +30,7 @@ from services.engine.financials.models import FinancialsRecord
 from services.engine.financials.repository import FinancialsRepository
 from services.engine.financials.research import ResearchedFinancials, merge_financials
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.themes.models import SourceCreate, Theme
 from services.engine.themes.repository import ThemeRepository
 
@@ -114,6 +115,13 @@ EXAMPLE:
 ```
 """
 
+_CHAIN_KEY = registry.register(
+    "cve.chain_research",
+    "CVE — chain Deep Research",
+    "Research real supplier→customer trades + financials to seed the CVE build (RESEARCH).",
+    _INSTRUCTIONS,
+)
+
 
 def build_chain_research_prompt(
     theme: Theme,
@@ -125,7 +133,7 @@ def build_chain_research_prompt(
     # None => research financials for everyone (back-compat); a list => only those tickers.
     needed = companies if financials_needed is None else list(financials_needed)
     needed_str = ", ".join(c.ticker for c in needed) if needed else "(none)"
-    lines = [_INSTRUCTIONS, "", f"THEME: {theme.name}"]
+    lines = [registry.get(_CHAIN_KEY), "", f"THEME: {theme.name}"]
     if theme.description:
         lines.append(f"DESCRIPTION: {theme.description}")
     lines.append(f"KNOWN COMPANIES (use only these tickers): {known}")

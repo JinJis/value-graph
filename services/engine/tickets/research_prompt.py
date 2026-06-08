@@ -14,6 +14,7 @@ import json
 from collections.abc import Sequence
 
 from services.engine.blueprint.models import BlueprintCompany
+from services.engine.prompts import registry
 from services.engine.themes.models import Theme
 from services.engine.tickets.models import Ticket
 
@@ -73,6 +74,13 @@ EXAMPLE:
 ```
 """
 
+_TICKET_RESEARCH_KEY = registry.register(
+    "tickets.research",
+    "Tickets — Deep Research resolution",
+    "Resolve each selected ticket's data point on the Deep Research agent (RESEARCH).",
+    _INSTRUCTIONS,
+)
+
 
 def _ticket_block(ref: str, ticket: Ticket, company: BlueprintCompany | None) -> str:
     lines: list[str] = []
@@ -108,7 +116,7 @@ def build_ticket_research_batch_prompt(
 ) -> str:
     """Build one Deep Research prompt resolving every selected ticket, with theme +
     value-chain context shared across them."""
-    lines = [_INSTRUCTIONS, "", "THEME CONTEXT:", f"THEME: {theme.name}"]
+    lines = [registry.get(_TICKET_RESEARCH_KEY), "", "THEME CONTEXT:", f"THEME: {theme.name}"]
     if theme.description:
         lines.append(f"DESCRIPTION: {theme.description}")
     if theme.seed_tickers:

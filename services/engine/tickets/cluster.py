@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from services.engine.blueprint.generate import _extract_json
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.tickets.models import Ticket
 
 logger = logging.getLogger("valuegraph.engine.tickets.cluster")
@@ -44,9 +45,16 @@ EXAMPLE (refs T1 & T4 share a company, T2 & T3 share a metric):
 TICKETS:
 """
 
+_CLUSTER_KEY = registry.register(
+    "tickets.cluster",
+    "Tickets — clustering",
+    "Group similar tickets so one Deep Research call resolves many (LOW tier).",
+    _INSTRUCTIONS,
+)
+
 
 def build_cluster_prompt(refs: dict[str, Ticket]) -> str:
-    lines = [_INSTRUCTIONS]
+    lines = [registry.get(_CLUSTER_KEY)]
     for ref, ticket in refs.items():
         lines.append(f"[{ref}] {ticket.target} · {ticket.metric}")
     return "\n".join(lines)

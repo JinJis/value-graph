@@ -20,6 +20,7 @@ from services.engine.blueprint.stream import _research_stream
 from services.engine.financials.models import FinancialsUpsert
 from services.engine.financials.repository import FinancialsRepository
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.themes.models import Theme
 
 logger = logging.getLogger("valuegraph.engine.financials.research")
@@ -101,10 +102,17 @@ EXAMPLE:
 ```
 """
 
+_FINANCIALS_KEY = registry.register(
+    "financials.research",
+    "Financials — Deep Research",
+    "Research each company's latest annual financials in its native currency (RESEARCH).",
+    _INSTRUCTIONS,
+)
+
 
 def build_financials_prompt(theme_name: str, companies: Iterable[BlueprintCompany]) -> str:
     listed = ", ".join(f"{c.ticker} ({c.name})" for c in companies)
-    return f"{_INSTRUCTIONS}\nTHEME: {theme_name}\nCOMPANIES: {listed}"
+    return f"{registry.get(_FINANCIALS_KEY)}\nTHEME: {theme_name}\nCOMPANIES: {listed}"
 
 
 def research_financials_events(

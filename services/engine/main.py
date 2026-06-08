@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException
@@ -18,6 +20,8 @@ from services.engine.cve.router import router as cve_router
 from services.engine.feed.router import router as feed_router
 from services.engine.financials.router import router as financials_router
 from services.engine.jobs.router import router as jobs_router
+from services.engine.prompts.router import get_prompt_repository, hydrate_registry
+from services.engine.prompts.router import router as prompts_router
 from services.engine.publish.router import router as publish_router
 from services.engine.sources.router import router as sources_router
 from services.engine.tasks_router import router as tasks_router
@@ -46,7 +50,23 @@ def _configure_logging() -> None:
 
 _configure_logging()
 
-app = FastAPI(title="ValueGraph Engine", version="0.0.0")
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Load persisted prompt overrides into the in-process registry at startup.
+
+    Best-effort: a missing/unreachable database (e.g. in tests) just leaves every prompt at
+    its built-in default rather than failing the boot.
+    """
+    try:
+        count = hydrate_registry(get_prompt_repository())
+        logger.info("prompts.hydrated overrides=%d", count)
+    except Exception as exc:  # no DB / not migrated yet — defaults are fine
+        logger.warning("prompts.hydrate_skipped: %s", exc)
+    yield
+
+
+app = FastAPI(title="ValueGraph Engine", version="0.0.0", lifespan=_lifespan)
 
 
 @app.exception_handler(InvalidTransition)
@@ -103,6 +123,7 @@ app.include_router(publish_router)
 app.include_router(feed_router)
 app.include_router(jobs_router)
 app.include_router(tasks_router)
+app.include_router(prompts_router)
 
 
 @app.get("/health")

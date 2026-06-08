@@ -19,6 +19,7 @@ from typing import Protocol
 
 from services.engine.cve.derive import COST_BUCKETS, assign_cost_bucket
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 
 logger = logging.getLogger("valuegraph.engine.cve.cost_bucket")
 
@@ -54,9 +55,17 @@ EXAMPLES:
 - "CRM software subscription" -> SG&A
 """
 
+_COST_BUCKET_KEY = registry.register(
+    "cve.cost_bucket",
+    "CVE S3 — cost-bucket typing",
+    "Classify a purchased product/service into COGS/CAPEX/R&D/SG&A for the buyer (LOW tier).",
+    _INSTRUCTIONS,
+)
+
 
 def build_cost_bucket_prompt(theme: str, product: str) -> str:
-    return f'{_INSTRUCTIONS}\nTHEME: {theme}\nPRODUCT/SERVICE: "{product}"\nBUCKET:'
+    instructions = registry.get(_COST_BUCKET_KEY)
+    return f'{instructions}\nTHEME: {theme}\nPRODUCT/SERVICE: "{product}"\nBUCKET:'
 
 
 class LLMCostBucketClassifier:

@@ -29,6 +29,7 @@ from services.engine.blueprint.generate import BlueprintParseError, _extract_jso
 from services.engine.blueprint.models import BlueprintRecord
 from services.engine.blueprint.stream import _research_stream
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.themes.models import Theme
 from services.engine.tickets.cluster import DEFAULT_MAX_CLUSTER_SIZE, cluster_tickets
 from services.engine.tickets.models import Ticket
@@ -105,13 +106,20 @@ OUTPUT FORMAT — return ONLY this JSON (no prose, no fences), one entry per ref
 "source_publisher": <string or null>, "notes": <short string or null>}]}
 """
 
+_STRUCTURE_KEY = registry.register(
+    "tickets.research_structure",
+    "Tickets — report→JSON formatter",
+    "Extracts the required JSON from a prose Deep Research report (MEDIUM fallback).",
+    _STRUCTURE_INSTRUCTIONS,
+)
+
 
 def _structure_batch(
     report: str, refs: list[str], router: LLMRouter, *, tier: Tier
 ) -> TicketResolutionBatch:
     """Coerce a prose Deep Research report into the required JSON via a cheap model."""
     prompt = (
-        f"{_STRUCTURE_INSTRUCTIONS}\n"
+        f"{registry.get(_STRUCTURE_KEY)}\n"
         f"REFS (return EXACTLY one result per ref): {', '.join(refs)}\n\n"
         f"RESEARCH REPORT:\n{report}"
     )

@@ -858,3 +858,37 @@ export async function listJobs(
     await fetch(url(`/jobs${qs ? `?${qs}` : ""}`), { cache: "no-store" }),
   );
 }
+
+// --- Editable prompts -------------------------------------------------------------------
+
+export interface Prompt {
+  key: string;
+  title: string;
+  description: string;
+  default: string;
+  override: string | null;
+  effective: string;
+  is_overridden: boolean;
+}
+
+export async function listPrompts(): Promise<Prompt[]> {
+  return json(await fetch(url("/prompts"), { cache: "no-store" }));
+}
+
+export async function setPrompt(key: string, text: string): Promise<Prompt> {
+  return json(
+    await fetch(url(`/prompts/${encodeURIComponent(key)}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }),
+  );
+}
+
+export async function resetPrompt(key: string): Promise<Prompt> {
+  return json(
+    await fetch(url(`/prompts/${encodeURIComponent(key)}`), {
+      method: "DELETE",
+    }),
+  );
+}

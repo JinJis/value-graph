@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from services.engine.cve.reconcile import Interval
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.tickets.models import TicketCreate
 from services.engine.tickets.repository import TicketRepository
 
@@ -42,6 +43,13 @@ EXAMPLE:
 "rationale": "comparable foundry customers disclose 5-15% cost share"}
 """
 
+_ESTIMATE_KEY = registry.register(
+    "cve.estimate",
+    "CVE S5 — VSCA estimate",
+    "Estimate a suspected-but-undisclosed trade with a wide interval (DEEP tier).",
+    _INSTRUCTIONS,
+)
+
 
 class RawEstimate(BaseModel):
     value: float
@@ -66,7 +74,7 @@ def build_estimate_prompt(
     supplier: str, customer: str, product: str | None, metric: str, peers: list[str] | None
 ) -> str:
     lines = [
-        _INSTRUCTIONS,
+        registry.get(_ESTIMATE_KEY),
         "",
         f"SUPPLIER: {supplier}",
         f"CUSTOMER: {customer}",
