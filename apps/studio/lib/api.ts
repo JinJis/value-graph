@@ -160,6 +160,7 @@ export interface Coverage {
   company_count: number;
   focus_countries: string[];
   meets_threshold: boolean;
+  target: number; // the company-count bar this was judged against
 }
 
 export interface BlueprintResponse {

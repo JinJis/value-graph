@@ -15,8 +15,12 @@ def _company(country: str) -> BlueprintCompany:
     return BlueprintCompany(ticker="X", name="N", country=country, role="supplier")
 
 
-def _blueprint(companies: list[BlueprintCompany]) -> Blueprint:
-    return Blueprint(theme_id="t", version=1, companies=companies)
+def _blueprint(
+    companies: list[BlueprintCompany], *, target_count: int | None = None
+) -> Blueprint:
+    return Blueprint(
+        theme_id="t", version=1, companies=companies, target_count=target_count
+    )
 
 
 def test_meets_threshold_true() -> None:
@@ -42,3 +46,18 @@ def test_too_few_countries() -> None:
 def test_non_focus_countries_ignored() -> None:
     companies = [_company("DE") for _ in range(MIN_COMPANIES)]  # Germany: not a focus country
     assert focus_countries(_blueprint(companies)) == set()
+
+
+def test_target_count_lowers_the_bar() -> None:
+    # 12 companies across 4 focus countries: below the default 30, but meets a target of 12.
+    companies = [_company(["KR", "US", "JP", "CN"][i % 4]) for i in range(12)]
+    assert not meets_threshold(_blueprint(companies))  # default 30 bar
+    judged = _blueprint(companies, target_count=12)
+    assert meets_threshold(judged)
+    assert summarize(judged).target == 12
+
+
+def test_target_count_raises_the_bar() -> None:
+    companies = [_company(["KR", "US", "JP", "CN", "TW"][i % 5]) for i in range(30)]
+    assert not meets_threshold(_blueprint(companies, target_count=50))  # asked for more
+    assert summarize(_blueprint(companies, target_count=50)).target == 50

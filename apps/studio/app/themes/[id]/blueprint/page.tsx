@@ -116,6 +116,8 @@ export default function BlueprintReviewPage() {
         setNotes(bp.blueprint.notes ?? "");
         setVersion(bp.blueprint.version);
         setCoverage(bp.coverage);
+        // Restore the slider to the size this blueprint was generated for.
+        setTargetCount(bp.coverage.target);
       }
       setError(null);
     } catch (e) {
@@ -399,8 +401,8 @@ export default function BlueprintReviewPage() {
           Coverage: {coverage.company_count} companies · focus countries{" "}
           {coverage.focus_countries.join(", ") || "—"} ·{" "}
           {coverage.meets_threshold
-            ? "meets bar"
-            : "below bar (≥30, ≥4 countries)"}
+            ? `meets bar (≥${coverage.target}, ≥4 countries)`
+            : `below bar (≥${coverage.target}, ≥4 countries)`}
         </p>
       )}
       {error && <p style={{ color: "crimson" }}>{error}</p>}

@@ -50,6 +50,8 @@ class Blueprint(BlueprintContent):
     theme_id: str
     version: int
     generated_by: str | None = None
+    # The admin-chosen target size at generation; drives the coverage bar. None = default.
+    target_count: int | None = None
 
 
 class BlueprintRecord(Blueprint):
@@ -64,6 +66,7 @@ class CoverageSummary(BaseModel):
     company_count: int
     focus_countries: list[str]
     meets_threshold: bool
+    target: int  # the company-count bar this was judged against
 
 
 class BlueprintResponse(BaseModel):

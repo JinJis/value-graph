@@ -172,6 +172,7 @@ def generate_blueprint_events(
             companies=[to_blueprint_company(c) for c in content.companies],
             relationship_types=content.relationship_types,
             notes=content.notes,
+            target_count=target_count,
         )
     )
     response = BlueprintResponse(blueprint=record, coverage=summarize(record))
@@ -276,6 +277,7 @@ def refine_blueprint_events(
                     current.relationship_types, content.relationship_types
                 ),
                 notes=content.notes or current.notes,
+                target_count=base.target_count,
             ),
             round_meta=meta,
         )
@@ -373,6 +375,7 @@ def discover_companies_events(
             companies=merged.companies,
             relationship_types=base.relationship_types,
             notes=base.notes,
+            target_count=base.target_count,
         ),
         round_meta=meta,
     )

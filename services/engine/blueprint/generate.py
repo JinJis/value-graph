@@ -170,4 +170,5 @@ def generate_blueprint(
         companies=[to_blueprint_company(c) for c in content.companies],
         relationship_types=content.relationship_types,
         notes=content.notes,
+        target_count=target_count,
     )

@@ -83,6 +83,7 @@ def discover_companies(
             companies=merged.companies,
             relationship_types=base.relationship_types,
             notes=base.notes,
+            target_count=base.target_count,
         ),
         round_meta=meta,
     )

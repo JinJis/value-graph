@@ -206,6 +206,7 @@ def save_theme_blueprint(
     if themes.get_theme(theme_id) is None:
         raise HTTPException(status_code=404, detail="theme not found")
     version = blueprints.next_version(theme_id)
+    previous = blueprints.get_latest(theme_id)  # preserve the chosen target across edits
     record = blueprints.save(
         Blueprint(
             theme_id=theme_id,
@@ -214,6 +215,7 @@ def save_theme_blueprint(
             companies=content.companies,
             relationship_types=content.relationship_types,
             notes=content.notes,
+            target_count=previous.target_count if previous else None,
         )
     )
     return BlueprintResponse(blueprint=record, coverage=summarize(record))

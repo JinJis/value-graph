@@ -54,6 +54,7 @@ def _content_json(blueprint: Blueprint) -> dict[str, Any]:
         "companies": [c.model_dump() for c in blueprint.companies],
         "relationship_types": blueprint.relationship_types,
         "notes": blueprint.notes,
+        "target_count": blueprint.target_count,
     }
 
 
@@ -70,6 +71,7 @@ def _row_to_record(row: dict[str, Any]) -> BlueprintRecord:
         companies=content["companies"],
         relationship_types=content.get("relationship_types", []),
         notes=content.get("notes"),
+        target_count=content.get("target_count"),
     )
 
 
