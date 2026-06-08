@@ -9,12 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from services.engine.background import run_detached
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.db.config import DbSettings
 from services.engine.llm.router import LLMRouter
-from services.engine.sse import sse_response
+from services.engine.sse import task_sse
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.tickets.generate import generate_tickets
@@ -130,12 +129,14 @@ def stream_research_tickets(
         len(selected),
     )
     # Cluster similar tickets (cheap model), then one Deep Research call per cluster.
-    # Detached: the run + persistence finish even if the admin closes the tab mid-run.
-    return sse_response(
-        run_detached(
-            lambda: research_ticket_clusters_events(theme, selected, blueprint, llm, tickets),
-            label=f"tickets-research:{theme_id}:{len(selected)}",
-        )
+    # Registered as a re-attachable task so it stays visible after navigating away.
+    return task_sse(
+        theme_id=theme_id,
+        kind="tickets-research",
+        label="Ticket research",
+        factory=lambda: research_ticket_clusters_events(
+            theme, selected, blueprint, llm, tickets
+        ),
     )
 
 

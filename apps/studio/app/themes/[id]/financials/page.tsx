@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { BlueprintProgress, type Prog } from "../../../../components/Progress";
+import { useResumableRun } from "../../../../components/useResumableRun";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
   getBlueprint,
@@ -63,6 +64,9 @@ export default function FinancialsPage() {
     const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
       setProg((p) => ({ ...p, steps: [...p.steps, { label, detail, tone }] }));
     switch (e.event) {
+      case "task": // stream (re)attached
+        setProg({ ...EMPTY_PROG, running: true });
+        break;
       case "model":
         setProg((p) => ({
           ...p,
@@ -126,6 +130,14 @@ export default function FinancialsPage() {
       setResearching(false);
     }
   }
+
+  // Resume a financials research already running for this theme.
+  const { resuming } = useResumableRun(
+    themeId,
+    ["financials-research"],
+    onResearchEvent,
+  );
+  const busy = researching || resuming;
 
   async function load() {
     try {
@@ -203,9 +215,9 @@ export default function FinancialsPage() {
         <button
           type="button"
           onClick={() => void onResearch()}
-          disabled={researching || companies.length === 0}
+          disabled={busy || companies.length === 0}
         >
-          {researching ? "Researching…" : "Auto-fill with Deep Research"}
+          {busy ? "Researching…" : "Auto-fill with Deep Research"}
         </button>{" "}
         <small style={{ color: "#64748b" }}>
           Finds revenue + cost buckets per company (with citations) and fills

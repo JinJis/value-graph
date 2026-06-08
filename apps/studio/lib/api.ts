@@ -217,21 +217,12 @@ export interface BlueprintEvent {
 // Uses a streaming fetch (not EventSource, which can't POST) and frames the SSE bytes
 // manually. An optional JSON `body` is sent for endpoints that need a payload (e.g. the
 // list of ticket ids to research). Shared by the blueprint and ticket-research streams.
-async function postEventStream<E = BlueprintEvent>(
-  path: string,
+// Read an SSE response body, invoking `onEvent` per `data:` frame. Frames are separated
+// by a blank line. Shared by the POST start-streams and the GET task re-attach stream.
+async function readEventStream<E>(
+  response: Response,
   onEvent: (event: E) => void,
-  signal?: AbortSignal,
-  body?: unknown,
 ): Promise<void> {
-  const response = await fetch(url(path), {
-    method: "POST",
-    headers: {
-      Accept: "text/event-stream",
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal,
-  });
   if (!response.ok || !response.body) {
     await json(response); // reuse the detail-extracting error path
     return;
@@ -243,7 +234,6 @@ async function postEventStream<E = BlueprintEvent>(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    // SSE frames are separated by a blank line.
     let sep: number;
     while ((sep = buffer.indexOf("\n\n")) !== -1) {
       const frame = buffer.slice(0, sep);
@@ -260,6 +250,40 @@ async function postEventStream<E = BlueprintEvent>(
       }
     }
   }
+}
+
+// POST `path` (optional JSON `body`) and stream its SSE events.
+async function postEventStream<E = BlueprintEvent>(
+  path: string,
+  onEvent: (event: E) => void,
+  signal?: AbortSignal,
+  body?: unknown,
+): Promise<void> {
+  const response = await fetch(url(path), {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
+  });
+  await readEventStream(response, onEvent);
+}
+
+// GET `path` and stream its SSE events (used to re-attach to a running task).
+async function getEventStream<E>(
+  path: string,
+  onEvent: (event: E) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(url(path), {
+    method: "GET",
+    headers: { Accept: "text/event-stream" },
+    cache: "no-store",
+    signal,
+  });
+  await readEventStream(response, onEvent);
 }
 
 // Generate the blueprint over SSE, invoking `onEvent` per step (model, prompt,
@@ -544,6 +568,36 @@ export async function publishTheme(
     }),
   );
 }
+
+// --- Tasks (re-attachable long runs) ---
+
+export interface TaskInfo {
+  id: string;
+  theme_id: string;
+  kind: string; // blueprint-generate | tickets-research | financials-research | cve-* | …
+  label: string;
+  status: "running" | "done" | "error";
+  created_at: string;
+  updated_at: string;
+  event_count: number;
+}
+
+// Running + recent runs for a theme (what the activity indicator shows).
+export async function listTasks(themeId: string): Promise<TaskInfo[]> {
+  return json(
+    await fetch(url(`/tasks?theme_id=${encodeURIComponent(themeId)}`), {
+      cache: "no-store",
+    }),
+  );
+}
+
+// Re-attach to a running (or finished) task: replays what you missed, then tails live.
+export const attachTaskStream = (
+  taskId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  getEventStream<CveRunEvent>(`/tasks/${taskId}/stream`, onEvent, signal);
 
 // --- Financials (complementary side of the CVE math) ---
 

@@ -17,9 +17,22 @@ import {
   getTheme,
   getThemeQuality,
   listFinancials,
+  listTasks,
   listTickets,
+  type TaskInfo,
   type Theme,
 } from "../../../lib/api";
+
+// Which step a running task belongs to (for the activity chip's link).
+const KIND_STEP: Record<string, string> = {
+  "blueprint-generate": "/blueprint",
+  "blueprint-refine": "/blueprint",
+  "blueprint-discover": "/blueprint",
+  "tickets-research": "/tickets",
+  "financials-research": "/financials",
+  "cve-run": "/build",
+  "cve-research": "/build",
+};
 
 interface Signals {
   hasBlueprint: boolean;
@@ -90,6 +103,27 @@ export default function ThemeLayout({
   const pathname = usePathname();
   const [theme, setTheme] = useState<Theme | null>(null);
   const [sig, setSig] = useState<Signals>(EMPTY);
+  const [runningTasks, setRunningTasks] = useState<TaskInfo[]>([]);
+
+  // Poll running tasks so the activity row + stepper reflect background runs even when
+  // you're on another step (or just returned).
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const all = await listTasks(id);
+        if (alive) setRunningTasks(all.filter((t) => t.status === "running"));
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const handle = setInterval(() => void tick(), 4000);
+    return () => {
+      alive = false;
+      clearInterval(handle);
+    };
+  }, [id]);
 
   useEffect(() => {
     let alive = true;
@@ -127,7 +161,8 @@ export default function ThemeLayout({
     return () => {
       alive = false;
     };
-  }, [id, pathname]);
+    // runningTasks.length: re-derive step status when a background run starts/finishes.
+  }, [id, pathname, runningTasks.length]);
 
   const key = currentKey(id, pathname);
   const steps = buildSteps(id, sig);
@@ -150,6 +185,39 @@ export default function ThemeLayout({
         </p>
       )}
       <WorkflowSteps steps={steps} currentKey={key} />
+      {runningTasks.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+            margin: "-8px 0 16px",
+          }}
+        >
+          <small style={{ color: "#64748b" }}>Running:</small>
+          {runningTasks.map((t) => (
+            <Link
+              key={t.id}
+              href={stepHref(id, KIND_STEP[t.kind] ?? "")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                textDecoration: "none",
+                fontSize: 12,
+                padding: "2px 10px",
+                borderRadius: 999,
+                background: "#fef3c7",
+                color: "#92400e",
+                border: "1px solid #fcd34d",
+              }}
+            >
+              <span style={{ color: "#d97706" }}>●</span> {t.label}…
+            </Link>
+          ))}
+        </div>
+      )}
       {children}
     </div>
   );

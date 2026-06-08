@@ -161,7 +161,8 @@ def test_cve_run_stream_emits_stages_and_persists() -> None:
     events = _frames(resp.text)
     kinds = [e["event"] for e in events]
 
-    assert kinds[0] == "start"
+    assert kinds[0] == "task"  # re-attachable task marker, then the run begins
+    assert "start" in kinds
     assert kinds.count("stage") == 7  # S1..S7
     assert kinds[-1] == "done"
     stages = [e["stage"] for e in events if e["event"] == "stage"]

@@ -8,7 +8,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from services.engine.background import run_detached
 from services.engine.blueprint.coverage import summarize
 from services.engine.blueprint.discover import discover_companies
 from services.engine.blueprint.generate import generate_blueprint
@@ -31,7 +30,7 @@ from services.engine.blueprint.stream import (
 )
 from services.engine.db.config import DbSettings
 from services.engine.llm.router import LLMRouter
-from services.engine.sse import sse_response
+from services.engine.sse import task_sse
 from services.engine.themes.models import Theme
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
@@ -96,11 +95,11 @@ def stream_theme_blueprint(
         f"{s.original_filename or s.url or s.id} ({s.type})"
         for s in themes.list_sources(theme_id)
     ]
-    return sse_response(
-        run_detached(
-            lambda: generate_blueprint_events(theme, source_hints, llm, blueprints, themes),
-            label=f"blueprint-generate:{theme_id}",
-        )
+    return task_sse(
+        theme_id=theme_id,
+        kind="blueprint-generate",
+        label="Blueprint generation",
+        factory=lambda: generate_blueprint_events(theme, source_hints, llm, blueprints, themes),
     )
 
 
@@ -119,11 +118,11 @@ def stream_refine_blueprint(
     base = blueprints.get_latest(theme_id)
     if base is None:
         raise HTTPException(status_code=409, detail="no blueprint to refine; generate one first")
-    return sse_response(
-        run_detached(
-            lambda: refine_blueprint_events(theme, base, llm, blueprints),
-            label=f"blueprint-refine:{theme_id}",
-        )
+    return task_sse(
+        theme_id=theme_id,
+        kind="blueprint-refine",
+        label="Blueprint refinement",
+        factory=lambda: refine_blueprint_events(theme, base, llm, blueprints),
     )
 
 
@@ -142,11 +141,11 @@ def stream_discover_constituents(
     base = blueprints.get_latest(theme_id)
     if base is None:
         raise HTTPException(status_code=409, detail="no blueprint to extend; generate one first")
-    return sse_response(
-        run_detached(
-            lambda: discover_companies_events(theme, base, llm, blueprints, themes),
-            label=f"blueprint-discover:{theme_id}",
-        )
+    return task_sse(
+        theme_id=theme_id,
+        kind="blueprint-discover",
+        label="Blueprint discovery",
+        factory=lambda: discover_companies_events(theme, base, llm, blueprints, themes),
     )
 
 

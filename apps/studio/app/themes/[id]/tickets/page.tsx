@@ -21,6 +21,7 @@ import {
   type TicketResearchEvent,
 } from "../../../../lib/api";
 import { BlueprintProgress, type Prog } from "../../../../components/Progress";
+import { useResumableRun } from "../../../../components/useResumableRun";
 
 const EMPTY_PROG: Prog = { output: "", steps: [], done: false, running: false };
 
@@ -303,6 +304,12 @@ export default function TicketQueuePage() {
   function onResearchEvent(e: TicketResearchEvent) {
     const tid = typeof e.ticket_id === "string" ? e.ticket_id : undefined;
     switch (e.event) {
+      case "task": // stream (re)attached — fresh live panel
+        setProg({ ...EMPTY_PROG, running: true });
+        setBatchCount(0);
+        setOutcomes([]);
+        setShowPanel(true);
+        break;
       case "model":
         setProg((p) => ({
           ...p,
@@ -494,6 +501,14 @@ export default function TicketQueuePage() {
     }
   }
 
+  // Resume a ticket-research run already in flight for this theme.
+  const { resuming } = useResumableRun(
+    themeId,
+    ["tickets-research"],
+    onResearchEvent,
+  );
+  const researchBusy = researching || resuming;
+
   async function onAcceptProposal(t: Ticket) {
     const p = t.research_proposal;
     if (!p?.source_url) return;
@@ -573,9 +588,9 @@ export default function TicketQueuePage() {
         <button
           type="button"
           onClick={onRunResearch}
-          disabled={researching || busy || selectedIds.size === 0}
+          disabled={researchBusy || busy || selectedIds.size === 0}
         >
-          {researching
+          {researchBusy
             ? "Researching…"
             : `Run Deep Research (${selectedIds.size})`}
         </button>
@@ -592,7 +607,7 @@ export default function TicketQueuePage() {
         </small>
       </div>
 
-      {showPanel && (researching || outcomes.length > 0 || !!prog.model) && (
+      {showPanel && (researchBusy || outcomes.length > 0 || !!prog.model) && (
         <div style={{ margin: "0.5rem 0" }}>
           {batchCount > 0 && (
             <p style={{ fontSize: 13, margin: "4px 0" }}>

@@ -20,6 +20,7 @@ from services.engine.financials.router import router as financials_router
 from services.engine.jobs.router import router as jobs_router
 from services.engine.publish.router import router as publish_router
 from services.engine.sources.router import router as sources_router
+from services.engine.tasks_router import router as tasks_router
 from services.engine.themes.router import router as themes_router
 from services.engine.tickets.router import router as tickets_router
 from services.engine.tickets.state import InvalidTransition
@@ -101,6 +102,7 @@ app.include_router(sources_router)
 app.include_router(publish_router)
 app.include_router(feed_router)
 app.include_router(jobs_router)
+app.include_router(tasks_router)
 
 
 @app.get("/health")

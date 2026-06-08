@@ -18,6 +18,7 @@ import {
   type Theme,
 } from "../../../../lib/api";
 import { BlueprintProgress, type Prog } from "../../../../components/Progress";
+import { useResumableRun } from "../../../../components/useResumableRun";
 
 const EMPTY_PROG: Prog = {
   output: "",
@@ -164,6 +165,11 @@ export default function BlueprintReviewPage() {
     }, "Save");
 
   function onProgEvent(e: BlueprintEvent) {
+    if (e.event === "task") {
+      // Stream (re)attached — start a fresh live panel before replay.
+      setProg({ ...EMPTY_PROG, running: true });
+      return;
+    }
     setProg((p) => {
       const next: Prog = { ...p };
       switch (e.event) {
@@ -301,6 +307,14 @@ export default function BlueprintReviewPage() {
   const onApprove = () =>
     run(async () => setTheme(await approveBlueprint(themeId)), "Approve");
 
+  // Resume a blueprint run already in flight for this theme (generate/refine/discover).
+  const { resuming } = useResumableRun(
+    themeId,
+    ["blueprint-generate", "blueprint-refine", "blueprint-discover"],
+    onProgEvent,
+  );
+  const runBusy = busy || resuming;
+
   return (
     <section>
       <h2 style={{ marginBottom: 4 }}>Blueprint</h2>
@@ -315,7 +329,7 @@ export default function BlueprintReviewPage() {
         <button
           type="button"
           onClick={onGenerate}
-          disabled={busy}
+          disabled={runBusy}
           title="First-pass generation via the Gemini Deep Research agent (web-cited)"
         >
           Generate (Deep Research)
@@ -323,7 +337,7 @@ export default function BlueprintReviewPage() {
         <button
           type="button"
           onClick={onRefine}
-          disabled={busy || version === null}
+          disabled={runBusy || version === null}
           title={version === null ? "Generate a blueprint first" : undefined}
         >
           Refine (DEEP)
@@ -331,7 +345,7 @@ export default function BlueprintReviewPage() {
         <button
           type="button"
           onClick={onDiscover}
-          disabled={busy || version === null}
+          disabled={runBusy || version === null}
           title={version === null ? "Generate a blueprint first" : undefined}
         >
           Discover (RESEARCH)

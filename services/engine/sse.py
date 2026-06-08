@@ -8,9 +8,21 @@ client always sees a clean end-of-stream with a legible cause.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from fastapi.responses import StreamingResponse
+
+from services.engine.tasks import Event, tasks
+
+
+def task_sse(
+    *, theme_id: str, kind: str, label: str, factory: Callable[[], Iterator[Event]]
+) -> StreamingResponse:
+    """Register a long run as a re-attachable task and stream it. The run survives the
+    client leaving (it's discoverable via ``GET /tasks`` and resumable via the task
+    stream); a run of the same ``(theme_id, kind)`` already in flight is reused."""
+    task_id = tasks.start(theme_id=theme_id, kind=kind, label=label, factory=factory)
+    return sse_response(tasks.subscribe(task_id))
 
 
 def sse_response(events: Iterator[dict[str, object]]) -> StreamingResponse:

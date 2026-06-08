@@ -7,7 +7,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from services.engine.background import run_detached
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.db.config import DbSettings
@@ -18,7 +17,7 @@ from services.engine.financials.repository import (
 )
 from services.engine.financials.research import research_financials_events
 from services.engine.llm.router import LLMRouter
-from services.engine.sse import sse_response
+from services.engine.sse import task_sse
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 
@@ -71,9 +70,9 @@ def stream_research_financials(
         raise HTTPException(
             status_code=409, detail="no blueprint companies; generate one first"
         )
-    return sse_response(
-        run_detached(
-            lambda: research_financials_events(theme, blueprint.companies, repo, llm),
-            label=f"financials-research:{theme_id}",
-        )
+    return task_sse(
+        theme_id=theme_id,
+        kind="financials-research",
+        label="Financials research",
+        factory=lambda: research_financials_events(theme, blueprint.companies, repo, llm),
     )

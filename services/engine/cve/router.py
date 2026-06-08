@@ -9,7 +9,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from services.engine.background import run_detached
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.calendar.repository import (
@@ -29,7 +28,7 @@ from services.engine.financials.repository import FinancialsRepository
 from services.engine.financials.router import get_financials_repository
 from services.engine.llm.router import LLMRouter
 from services.engine.publish.router import get_graph_store
-from services.engine.sse import sse_response
+from services.engine.sse import task_sse
 from services.engine.storage import Storage
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
@@ -128,24 +127,24 @@ def stream_theme_cve(
         )
     sources = themes.list_sources(theme_id)
     logger.info("cve.stream request theme=%s sources=%d", theme_id, len(sources))
-    return sse_response(
-        run_detached(
-            lambda: run_cve_events_for_theme(
-                theme_id=theme_id,
-                blueprint=blueprint,
-                sources=sources,
-                storage=storage,
-                router=llm,
-                ticket_repo=tickets,
-                graph_store=graph,
-                run_repo=runs,
-                calendar_repo=calendar,
-                financials_repo=financials,
-                theme_name=theme.name,
-                today=date.today().isoformat(),
-            ),
-            label=f"cve-run:{theme_id}",
-        )
+    return task_sse(
+        theme_id=theme_id,
+        kind="cve-run",
+        label="CVE build",
+        factory=lambda: run_cve_events_for_theme(
+            theme_id=theme_id,
+            blueprint=blueprint,
+            sources=sources,
+            storage=storage,
+            router=llm,
+            ticket_repo=tickets,
+            graph_store=graph,
+            run_repo=runs,
+            calendar_repo=calendar,
+            financials_repo=financials,
+            theme_name=theme.name,
+            today=date.today().isoformat(),
+        ),
     )
 
 
@@ -175,22 +174,22 @@ def stream_research_and_build(
         )
     sources = themes.list_sources(theme_id)
     logger.info("cve.research request theme=%s sources=%d", theme_id, len(sources))
-    return sse_response(
-        run_detached(
-            lambda: research_and_build_events(
-                theme=theme,
-                blueprint=blueprint,
-                sources=sources,
-                storage=storage,
-                router=llm,
-                ticket_repo=tickets,
-                theme_repo=themes,
-                graph_store=graph,
-                run_repo=runs,
-                calendar_repo=calendar,
-                financials_repo=financials,
-                today=date.today().isoformat(),
-            ),
-            label=f"cve-research:{theme_id}",
-        )
+    return task_sse(
+        theme_id=theme_id,
+        kind="cve-research",
+        label="Research & build",
+        factory=lambda: research_and_build_events(
+            theme=theme,
+            blueprint=blueprint,
+            sources=sources,
+            storage=storage,
+            router=llm,
+            ticket_repo=tickets,
+            theme_repo=themes,
+            graph_store=graph,
+            run_repo=runs,
+            calendar_repo=calendar,
+            financials_repo=financials,
+            today=date.today().isoformat(),
+        ),
     )
