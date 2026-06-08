@@ -20,7 +20,11 @@ import {
   type TicketEvent,
   type TicketResearchEvent,
 } from "../../../../lib/api";
-import { BlueprintProgress, type Prog } from "../../../../components/Progress";
+import {
+  applyProgEvent,
+  BlueprintProgress,
+  type Prog,
+} from "../../../../components/Progress";
 import { useResumableRun } from "../../../../components/useResumableRun";
 
 const EMPTY_PROG: Prog = { output: "", steps: [], done: false, running: false };
@@ -302,25 +306,15 @@ export default function TicketQueuePage() {
 
   // Fold one SSE frame into the live panel (current ticket) + the outcome summary.
   function onResearchEvent(e: TicketResearchEvent) {
+    setProg((p) => applyProgEvent(p, e)); // generic live progress (model, 💭, chunk, …)
     const tid = typeof e.ticket_id === "string" ? e.ticket_id : undefined;
+    const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
+      setProg((p) => ({ ...p, steps: [...p.steps, { label, detail, tone }] }));
     switch (e.event) {
-      case "task": // stream (re)attached — fresh live panel
-        setProg({ ...EMPTY_PROG, running: true });
+      case "task": // (re)attached — applyProgEvent reset prog; clear the summary too
         setBatchCount(0);
         setOutcomes([]);
         setShowPanel(true);
-        break;
-      case "model":
-        setProg((p) => ({
-          ...p,
-          model: { tier: String(e.tier), model: String(e.model) },
-        }));
-        break;
-      case "endpoint":
-        setProg((p) => ({
-          ...p,
-          endpoint: { provider: String(e.provider), method: String(e.method) },
-        }));
         break;
       case "batch_start": {
         const list = Array.isArray(e.tickets)
@@ -342,31 +336,14 @@ export default function TicketQueuePage() {
         break;
       }
       case "clustering":
-        setProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            {
-              label: "clustering (cheap model)",
-              detail: String(e.model ?? ""),
-            },
-          ],
-        }));
+        step("clustering (cheap model)", String(e.model ?? ""));
         break;
       case "clusters":
-        setProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            {
-              label: `grouped into ${e.count} cluster(s)`,
-              detail: Array.isArray(e.sizes)
-                ? `sizes ${e.sizes.join(", ")}`
-                : "",
-              tone: "ok",
-            },
-          ],
-        }));
+        step(
+          `grouped into ${e.count} cluster(s)`,
+          Array.isArray(e.sizes) ? `sizes ${e.sizes.join(", ")}` : "",
+          "ok",
+        );
         break;
       case "cluster_start":
         setProg((p) => ({
@@ -381,60 +358,13 @@ export default function TicketQueuePage() {
           ],
         }));
         break;
-      case "prompt":
-        setProg((p) => ({ ...p, prompt: String(e.text) }));
-        break;
-      case "llm_start":
-        setProg((p) => ({ ...p, output: "" }));
-        break;
-      case "chunk":
-        setProg((p) => ({ ...p, output: p.output + String(e.text ?? "") }));
-        break;
-      case "thought":
-        setProg((p) => ({
-          ...p,
-          steps: [...p.steps, { label: "thinking", detail: String(e.text) }],
-        }));
-        break;
-      case "research":
-        setProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            { label: String(e.action), detail: String(e.detail) },
-          ],
-        }));
-        break;
-      case "parse":
-        setProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            {
-              label: "parse",
-              detail: String(e.status),
-              tone: e.status === "ok" ? "ok" : "warn",
-            },
-          ],
-        }));
-        break;
       case "proposed":
         if (tid)
           upsertOutcome(tid, {
             kind: "proposed",
             detail: String(e.value ?? ""),
           });
-        setProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            {
-              label: "proposal ready",
-              detail: String(e.value ?? ""),
-              tone: "ok",
-            },
-          ],
-        }));
+        step("proposal ready", String(e.value ?? ""), "ok");
         break;
       case "auto_resolved":
         if (tid)
@@ -442,17 +372,7 @@ export default function TicketQueuePage() {
             kind: "auto_resolved",
             detail: `${e.status} · ${e.reason_code}`,
           });
-        setProg((p) => ({
-          ...p,
-          steps: [
-            ...p.steps,
-            {
-              label: "auto-resolved",
-              detail: `${e.status} · ${e.reason_code}`,
-              tone: "warn",
-            },
-          ],
-        }));
+        step("auto-resolved", `${e.status} · ${e.reason_code}`, "warn");
         break;
       case "skipped":
         if (tid)
@@ -464,14 +384,6 @@ export default function TicketQueuePage() {
       case "error":
         if (tid)
           upsertOutcome(tid, { kind: "error", detail: String(e.detail ?? "") });
-        setProg((p) => ({
-          ...p,
-          error: String(e.detail ?? "research error"),
-          running: false,
-        }));
-        break;
-      case "done":
-        setProg((p) => ({ ...p, running: false, done: true }));
         break;
     }
   }
