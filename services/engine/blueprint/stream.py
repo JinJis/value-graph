@@ -53,6 +53,7 @@ from services.engine.blueprint.models import (
     RoundMeta,
 )
 from services.engine.blueprint.prompt import (
+    DEFAULT_TARGET_COMPANIES,
     build_discovery_prompt,
     build_refine_prompt,
     build_research_generate_prompt,
@@ -104,6 +105,7 @@ def generate_blueprint_events(
     *,
     tier: Tier = Tier.RESEARCH,
     attempts: int = 2,
+    target_count: int = DEFAULT_TARGET_COMPANIES,
 ) -> Iterator[Event]:
     """Run first-pass blueprint generation on the Deep Research agent, yielding
     progress events and persisting the result.
@@ -116,7 +118,7 @@ def generate_blueprint_events(
     model = router.model_for(tier)
     yield from _header_events(tier, model, method="interactions.create (deep-research)")
 
-    prompt = build_research_generate_prompt(theme, source_hints)
+    prompt = build_research_generate_prompt(theme, source_hints, target_count=target_count)
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
 
     content = None

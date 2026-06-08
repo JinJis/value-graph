@@ -77,6 +77,22 @@ def test_stream_happy_path_emits_steps_and_persists() -> None:
     assert repo.get_latest(sample_theme().id) is not None
 
 
+def test_target_count_flows_into_the_prompt() -> None:
+    gen = StreamingFake(sample_json(8))
+    events = list(
+        generate_blueprint_events(
+            sample_theme(),
+            [],
+            _router(gen),
+            InMemoryBlueprintRepository(),
+            InMemoryThemeRepository(),
+            target_count=15,
+        )
+    )
+    prompt = next(e for e in events if e["event"] == "prompt")["text"]
+    assert "about 15 listed companies" in prompt  # the admin-chosen size reaches the model
+
+
 def test_stream_retries_then_succeeds() -> None:
     gen = StreamingFake("not json", sample_json(32))
     repo = InMemoryBlueprintRepository()

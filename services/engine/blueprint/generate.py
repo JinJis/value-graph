@@ -21,7 +21,10 @@ from services.engine.blueprint.models import (
     BlueprintContent,
     ResearchBlueprintContent,
 )
-from services.engine.blueprint.prompt import build_research_generate_prompt
+from services.engine.blueprint.prompt import (
+    DEFAULT_TARGET_COMPANIES,
+    build_research_generate_prompt,
+)
 from services.engine.llm.router import LLMRouter, Tier
 from services.engine.themes.models import SourceCreate, Theme
 from services.engine.themes.repository import ThemeRepository
@@ -131,6 +134,7 @@ def generate_blueprint(
     tier: Tier = Tier.RESEARCH,
     attempts: int = 2,
     theme_repo: ThemeRepository | None = None,
+    target_count: int = DEFAULT_TARGET_COMPANIES,
 ) -> Blueprint:
     """First-pass blueprint generation via the Deep Research agent.
 
@@ -138,7 +142,7 @@ def generate_blueprint(
     ``theme_repo`` is given) records a Source per citation. The 2-attempt retry is a
     last-resort guard against a malformed JSON tail — Deep Research runs are slow, so
     we only re-run if the structured block can't be parsed at all."""
-    prompt = build_research_generate_prompt(theme, source_hints)
+    prompt = build_research_generate_prompt(theme, source_hints, target_count=target_count)
     last_error: BlueprintParseError | None = None
     content: ResearchBlueprintContent | None = None
     for attempt in range(attempts):

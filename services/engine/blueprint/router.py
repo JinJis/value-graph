@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from services.engine.blueprint.coverage import summarize
@@ -18,6 +18,7 @@ from services.engine.blueprint.models import (
     DiscoveryResult,
     RefinementResult,
 )
+from services.engine.blueprint.prompt import DEFAULT_TARGET_COMPANIES
 from services.engine.blueprint.refine import refine_blueprint
 from services.engine.blueprint.repository import (
     BlueprintRepository,
@@ -36,6 +37,15 @@ from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 
 router = APIRouter(tags=["blueprint"])
+
+# Admin-selectable blueprint size (slider bounds; the prompt aims for this many companies).
+MIN_TARGET_COMPANIES = 5
+MAX_TARGET_COMPANIES = 80
+
+# A query param for the target company count, clamped to the allowed range.
+CountQuery = Annotated[
+    int, Query(ge=MIN_TARGET_COMPANIES, le=MAX_TARGET_COMPANIES, alias="count")
+]
 
 
 def get_blueprint_repository() -> BlueprintRepository:
@@ -57,6 +67,7 @@ def generate_theme_blueprint(
     themes: ThemeRepoDep,
     blueprints: BlueprintRepoDep,
     llm: RouterDep,
+    count: CountQuery = DEFAULT_TARGET_COMPANIES,
 ) -> BlueprintResponse:
     theme = themes.get_theme(theme_id)
     if theme is None:
@@ -67,7 +78,7 @@ def generate_theme_blueprint(
     ]
     version = blueprints.next_version(theme_id)
     blueprint = generate_blueprint(
-        theme, source_hints, llm, version=version, theme_repo=themes
+        theme, source_hints, llm, version=version, theme_repo=themes, target_count=count
     )
     record = blueprints.save(blueprint)
     return BlueprintResponse(blueprint=record, coverage=summarize(record))
@@ -79,6 +90,7 @@ def stream_theme_blueprint(
     themes: ThemeRepoDep,
     blueprints: BlueprintRepoDep,
     llm: RouterDep,
+    count: CountQuery = DEFAULT_TARGET_COMPANIES,
 ) -> StreamingResponse:
     """Generate the blueprint as a live Server-Sent Events stream.
 
@@ -99,7 +111,9 @@ def stream_theme_blueprint(
         theme_id=theme_id,
         kind="blueprint-generate",
         label="Blueprint generation",
-        factory=lambda: generate_blueprint_events(theme, source_hints, llm, blueprints, themes),
+        factory=lambda: generate_blueprint_events(
+            theme, source_hints, llm, blueprints, themes, target_count=count
+        ),
     )
 
 

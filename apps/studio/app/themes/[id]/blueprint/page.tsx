@@ -104,6 +104,7 @@ export default function BlueprintReviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
+  const [targetCount, setTargetCount] = useState(30); // companies to aim for on Generate
 
   async function load() {
     try {
@@ -299,7 +300,10 @@ export default function BlueprintReviewPage() {
   }
 
   const onGenerate = () =>
-    streamRun(generateBlueprintStream, "Generate (Deep Research)");
+    streamRun(
+      (id, cb) => generateBlueprintStream(id, cb, targetCount),
+      "Generate (Deep Research)",
+    );
   const onRefine = () => streamRun(refineBlueprintStream, "Refine (DEEP)");
   const onDiscover = () =>
     streamRun(discoverBlueprintStream, "Discover (RESEARCH)");
@@ -325,7 +329,39 @@ export default function BlueprintReviewPage() {
         </small>
       </p>
 
-      <div style={{ display: "flex", gap: 8, margin: "1rem 0" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          margin: "1rem 0 0.5rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <label
+          htmlFor="target-count"
+          style={{ fontSize: 13, color: "#475569" }}
+        >
+          Target companies
+        </label>
+        <input
+          id="target-count"
+          type="range"
+          min={10}
+          max={60}
+          step={5}
+          value={targetCount}
+          disabled={runBusy}
+          onChange={(e) => setTargetCount(Number(e.target.value))}
+          style={{ width: 220 }}
+        />
+        <strong style={{ fontSize: 14, minWidth: 24 }}>{targetCount}</strong>
+        <small style={{ color: "#64748b" }}>
+          how many listed companies Generate should aim for
+        </small>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, margin: "0 0 1rem" }}>
         <button
           type="button"
           onClick={onGenerate}

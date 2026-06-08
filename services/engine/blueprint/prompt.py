@@ -5,13 +5,24 @@ from __future__ import annotations
 from services.engine.blueprint.models import Blueprint, BlueprintContent
 from services.engine.themes.models import Theme
 
+# Default number of companies to aim for when the admin doesn't pick one.
+DEFAULT_TARGET_COMPANIES = 30
+
+
+def _target_line(target_count: int) -> str:
+    """The admin-chosen size of the blueprint, appended to the prompt."""
+    return (
+        f"TARGET COMPANY COUNT: about {target_count} listed companies — return close to "
+        "this number; don't pad with weak/unsourced names to hit it, and don't stop far short."
+    )
+
 _INSTRUCTIONS = """\
 ROLE: You are a supply-chain analyst building a blueprint for an investment-research tool.
 GOAL: Given a THEME, map the listed companies that compose its real supplier->customer
 value chain — the PLAN of what to quantify later, not the numbers themselves.
 
 CRITERIA:
-- Coverage: at least 30 listed companies spanning at least 4 of KR, US, JP, CN, TW.
+- Coverage: aim for the TARGET COMPANY COUNT below, spanning at least 4 of KR, US, JP, CN, TW.
 - Depth: include hidden 2nd/3rd-tier suppliers (materials, equipment, packaging, substrates),
   not just the obvious leaders.
 - Identity: use REAL stock tickers; "country" MUST be an ISO-2 code (KR/US/JP/CN/TW/…).
@@ -43,7 +54,12 @@ EXAMPLE (one company; return many):
 """
 
 
-def build_prompt(theme: Theme, source_hints: list[str]) -> str:
+def build_prompt(
+    theme: Theme,
+    source_hints: list[str],
+    *,
+    target_count: int = DEFAULT_TARGET_COMPANIES,
+) -> str:
     lines = [_INSTRUCTIONS, "", f"THEME: {theme.name}"]
     if theme.description:
         lines.append(f"DESCRIPTION: {theme.description}")
@@ -51,6 +67,7 @@ def build_prompt(theme: Theme, source_hints: list[str]) -> str:
         lines.append(f"SEED TICKERS: {', '.join(theme.seed_tickers)}")
     if source_hints:
         lines.append("ADDITIONAL CONTEXT (uploaded): " + "; ".join(source_hints))
+    lines.append(_target_line(target_count))
     return "\n".join(lines)
 
 
@@ -74,7 +91,7 @@ GROUNDING (critical — you can actually browse, so do):
   a company, LEAVE IT OUT rather than fabricate a citation. Prefer primary over aggregators.
 
 COVERAGE & IDENTITY:
-- At least 30 listed companies spanning at least 4 of KR, US, JP, CN, TW.
+- Aim for the TARGET COMPANY COUNT below, spanning at least 4 of KR, US, JP, CN, TW.
 - Include hidden 2nd/3rd-tier suppliers (materials, equipment, packaging, substrates).
 - Use REAL stock tickers; "country" MUST be an ISO-2 code.
 - Do NOT invent trade values or forecasts — only the structure + "required_data_points".
@@ -107,7 +124,12 @@ EXAMPLE (one company; return many):
 """
 
 
-def build_research_generate_prompt(theme: Theme, source_hints: list[str]) -> str:
+def build_research_generate_prompt(
+    theme: Theme,
+    source_hints: list[str],
+    *,
+    target_count: int = DEFAULT_TARGET_COMPANIES,
+) -> str:
     """Prompt for the Deep Research first-pass generation (cited companies)."""
     lines = [_RESEARCH_GENERATE_INSTRUCTIONS, "", f"THEME: {theme.name}"]
     if theme.description:
@@ -116,6 +138,7 @@ def build_research_generate_prompt(theme: Theme, source_hints: list[str]) -> str
         lines.append(f"SEED TICKERS: {', '.join(theme.seed_tickers)}")
     if source_hints:
         lines.append("ADDITIONAL CONTEXT (uploaded): " + "; ".join(source_hints))
+    lines.append(_target_line(target_count))
     return "\n".join(lines)
 
 

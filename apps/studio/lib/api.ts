@@ -288,12 +288,18 @@ async function getEventStream<E>(
 
 // Generate the blueprint over SSE, invoking `onEvent` per step (model, prompt,
 // streamed output, saved result).
+// `count` = how many companies to aim for (the admin's slider choice).
 export const generateBlueprintStream = (
   themeId: string,
   onEvent: (event: BlueprintEvent) => void,
+  count?: number,
   signal?: AbortSignal,
 ): Promise<void> =>
-  postEventStream(`/themes/${themeId}/blueprint/stream`, onEvent, signal);
+  postEventStream(
+    `/themes/${themeId}/blueprint/stream${count ? `?count=${count}` : ""}`,
+    onEvent,
+    signal,
+  );
 
 // Iteratively refine the latest blueprint over SSE (2-3 DEEP rounds).
 export const refineBlueprintStream = (
