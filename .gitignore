@@ -6,6 +6,11 @@ build/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+# …but a Next.js route segment named "build"/"dist" is SOURCE, not build output — keep it.
+!apps/*/app/**/build/
+!apps/*/app/**/build/**
+!apps/*/app/**/dist/
+!apps/*/app/**/dist/**
 
 # Python / uv
 .venv/
