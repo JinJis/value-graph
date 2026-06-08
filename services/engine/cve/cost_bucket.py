@@ -35,12 +35,23 @@ class RuleCostBucketClassifier:
 
 
 _INSTRUCTIONS = """\
-Classify a purchased product/service into ONE accounting cost bucket for the BUYER. Reply \
-with EXACTLY one token: COGS, CAPEX, R&D, or SG&A.
-- COGS: goods/components/materials consumed in or resold as the product.
-- CAPEX: durable equipment/tools/property that is capitalised.
-- R&D: research, intellectual property, licenses.
+ROLE: You are an accounting classifier.
+GOAL: Classify ONE purchased product/service into the cost bucket the BUYER books it under,
+using the THEME for context (the same item can differ by industry).
+
+BUCKETS (choose exactly one):
+- COGS: goods/components/materials consumed in or resold as the buyer's product.
+- CAPEX: durable equipment/tools/property that is capitalised (depreciated over years).
+- R&D: research, intellectual property, technology licenses.
 - SG&A: selling/general/admin — marketing, software/SaaS, services, logistics.
+
+OUTPUT: reply with EXACTLY ONE token — COGS, CAPEX, R&D, or SG&A — and nothing else.
+
+EXAMPLES:
+- "EUV lithography machine" (chip theme) -> CAPEX
+- "HBM memory stacks" (GPU theme) -> COGS
+- "patent license" -> R&D
+- "CRM software subscription" -> SG&A
 """
 
 

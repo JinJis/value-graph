@@ -46,7 +46,7 @@ class ScriptedGenerator:
             )
         if "Which company does the mention" in prompt:  # S2 adjudication (unused here)
             return "NONE"
-        if "21%" in prompt:  # S1 extract — disclosed supplier-side claim
+        if "came from HP" in prompt:  # S1 extract — disclosed supplier-side claim
             return json.dumps(
                 {
                     "claims": [

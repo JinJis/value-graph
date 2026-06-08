@@ -95,12 +95,16 @@ class Adjudicator(Protocol):
 
 def build_adjudicate_prompt(mention: str, candidates: list[tuple[str, str]]) -> str:
     lines = [
-        f'Which company does the mention "{mention}" refer to? '
-        "Choose ONE ticker from the candidates, or reply NONE if unsure.",
-        "Candidates:",
+        "ROLE: You are an entity-resolution adjudicator.",
+        f'GOAL: Which company does the mention "{mention}" refer to?',
+        "CRITERIA: Choose the single best-matching ticker from the candidates below. If none "
+        "clearly matches, or it is genuinely ambiguous, answer NONE — do NOT guess.",
+        "",
+        "CANDIDATES:",
     ]
     lines += [f"- {ticker}: {name}" for ticker, name in candidates]
-    lines.append("Reply with ONLY the ticker (or NONE).")
+    lines.append("")
+    lines.append("OUTPUT: reply with ONLY the chosen ticker (exactly as written), or NONE.")
     return "\n".join(lines)
 
 

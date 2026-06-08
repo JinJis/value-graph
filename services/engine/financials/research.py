@@ -69,28 +69,36 @@ def merge_financials(
 
 
 _INSTRUCTIONS = """\
-You are a financial-data analyst. For EACH listed company, find its latest reported annual
-figures: revenue, COGS, CAPEX, R&D, SG&A. Use the live web (10-K / annual report / IR page).
+ROLE: You are a financial-data analyst with live-web research (Deep Research).
+GOAL: For EACH listed company, find its LATEST reported ANNUAL figures — revenue, COGS,
+CAPEX, R&D, SG&A — from a primary source (10-K / annual report / IR page).
 
-Report each company's figures in ITS OWN reporting currency (the currency used in its
-financial statements — e.g. JPY for Tokyo Electron, KRW for Samsung, USD for NVIDIA), in
-MILLIONS of that currency, and put the 3-letter ISO currency code in "currency". Do NOT
-convert to USD.
+UNITS (critical):
+- Report each company in ITS OWN reporting currency (the one used in its financial
+  statements — JPY for Tokyo Electron, KRW for Samsung, USD for NVIDIA), in MILLIONS of that
+  currency, and put the 3-letter ISO code in "currency". Do NOT convert to USD.
 
-Grounding rules (critical):
+GROUNDING:
 - Use Google Search and actually READ the filing/IR page before reporting a number.
-- Cite a real public page you retrieved in "source_url"; NEVER invent numbers or URLs.
-- Omit (null) any figure you cannot source. Use ONLY the given tickers.
+- Cite the real public page you retrieved in "source_url"; NEVER invent numbers or URLs.
+- Omit (null) any figure you cannot source. Use ONLY the given tickers. No forecasts.
 
-Output: end your reply with EXACTLY ONE fenced JSON code block (```json … ```) and nothing
-after it, in this shape (figures in MILLIONS of "currency"):
+OUTPUT FORMAT — end your reply with EXACTLY ONE fenced JSON code block (```json … ```) and
+nothing after it (all figures in MILLIONS of "currency"):
 {
   "financials": [
-    {"ticker": "8035", "currency": "JPY", "revenue": 2400000, "cogs": 1500000,
-     "capex": 150000, "rnd": 180000, "sga": 300000, "as_of": "2025-03-31",
-     "source_url": "https://… (a real page)"}
+    {"ticker": "<ticker>", "currency": "<ISO>", "revenue": number|null, "cogs": number|null,
+     "capex": number|null, "rnd": number|null, "sga": number|null, "as_of": "YYYY-MM-DD",
+     "source_url": "<a real page you retrieved>"}
   ]
 }
+
+EXAMPLE:
+```json
+{"financials": [{"ticker": "8035", "currency": "JPY", "revenue": 2400000, "cogs": 1500000,
+"capex": 150000, "rnd": 180000, "sga": 300000, "as_of": "2025-03-31",
+"source_url": "https://www.tel.com/ir/library/annual/"}]}
+```
 """
 
 

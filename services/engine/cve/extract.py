@@ -21,19 +21,32 @@ ABSOLUTE = "absolute_trade_value"
 QUALITATIVE = "qualitative"
 
 _INSTRUCTIONS = f"""\
-Extract atomic supply-chain claims from the DOCUMENT below. Each claim is ONE fact
-about a supplier->customer relationship, classified by `relation`:
-- "{SUPPLIER_SHARE}": a % of the SUPPLIER's revenue from a customer (value = percent, unit "%")
-- "{CUSTOMER_SHARE}": a % of the CUSTOMER's costs from a supplier (value = percent, unit "%")
-- "{ABSOLUTE}": an absolute trade value (value = amount, unit = currency, e.g. "USD")
-- "{QUALITATIVE}": a relationship with NO number (value = null)
+ROLE: You are a precise financial-disclosure extractor.
+GOAL: From the DOCUMENT below, extract atomic supply-chain claims — each ONE fact about a
+single supplier->customer relationship — and nothing else.
 
-Return ONLY JSON: {{"claims": [{{"relation": ..., "subject": "<supplier>",
+CLASSIFY each claim by `relation`:
+- "{SUPPLIER_SHARE}": a % of the SUPPLIER's revenue coming from a customer (value=percent, unit "%")
+- "{CUSTOMER_SHARE}": a % of the CUSTOMER's costs going to a supplier (value=percent, unit "%")
+- "{ABSOLUTE}": an absolute trade value (value=amount, unit=currency e.g. "USD")
+- "{QUALITATIVE}": a known relationship with NO disclosed number (value=null, unit=null)
+
+CRITERIA (strict):
+- `subject` is the SUPPLIER, `object` is the CUSTOMER (direction matters).
+- `text_span` MUST be copied VERBATIM from the DOCUMENT (an exact substring you can find by
+  search). No span -> drop the claim. Do NOT paraphrase, infer, or invent numbers.
+- `cost_bucket` is the BUYER's accounting bucket if stated/obvious, else null.
+- Extract only relationships the document actually states; skip everything else.
+
+OUTPUT FORMAT — return ONLY this JSON object (no prose, no fences):
+{{"claims": [{{"relation": "<one of the four above>", "subject": "<supplier>",
 "object": "<customer>", "value": number|null, "unit": string|null,
 "cost_bucket": "COGS"|"CAPEX"|"R&D"|"SG&A"|null, "text_span": "<verbatim quote>"}}]}}
 
-Rules: `text_span` MUST be copied VERBATIM from the DOCUMENT (an exact substring).
-Do NOT invent numbers. If a claim has no exact supporting span, omit it.
+EXAMPLE (document says "HP accounted for 21% of our revenue"):
+{{"claims": [{{"relation": "{SUPPLIER_SHARE}", "subject": "INTC", "object": "HPQ",
+"value": 21, "unit": "%", "cost_bucket": "COGS",
+"text_span": "HP accounted for 21% of our revenue"}}]}}
 """
 
 

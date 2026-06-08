@@ -63,40 +63,55 @@ class ChainResearch(BaseModel):
 
 
 _INSTRUCTIONS = f"""\
-You are a supply-chain analyst. Using the live web, research the REAL supplier->customer \
-trades AMONG the listed companies, and financials ONLY for the companies under FINANCIALS \
-NEEDED. Output structured data the engine will cross-check — every number must be sourced.
+ROLE: You are a supply-chain analyst with live-web research (Deep Research).
+GOAL: Research the REAL supplier->customer trades AMONG the listed companies, plus financials
+ONLY for the companies under FINANCIALS NEEDED. Output structured, fully-sourced data the
+engine will cross-check from both ledgers.
 
-Grounding rules (critical):
-- Use Google Search and actually READ the pages (URL context) before reporting a number.
-- ONLY use companies from the KNOWN COMPANIES list (use their exact tickers).
-- Every trade/financial figure MUST cite a real public page you retrieved (put it in \
-"source_url"). NEVER invent numbers or URLs. If a relationship exists but you cannot find a \
-number, still emit the trade with relation "{QUALITATIVE}" and value null.
-- Report financials ONLY for tickers in the FINANCIALS NEEDED list (the others already have \
-figures on file — do NOT re-research them). If that list is empty, return "financials": [].
-- Do NOT forecast; report only disclosed figures.
+GROUNDING (critical — you can browse, so do):
+- Use Google Search and actually READ the page (URL context) before reporting any number.
+- ONLY use companies from the KNOWN COMPANIES list, with their EXACT tickers.
+- Every trade/financial figure MUST cite a real public page you retrieved (put it in
+  "source_url"). NEVER invent numbers or URLs. Report only DISCLOSED figures — never forecast.
+- If a relationship exists but you cannot find a number, still emit the trade with relation
+  "{QUALITATIVE}" and value null (a known link with no figure is useful).
+- Financials: report ONLY tickers in FINANCIALS NEEDED (others already have figures on file —
+  do NOT re-research them). If that list is empty, return "financials": [].
 
-Trade "relation" is one of:
+TRADE "relation" is one of:
 - "{SUPPLIER_SHARE}": % of the SUPPLIER's revenue from the customer (value=percent, unit "%")
 - "{CUSTOMER_SHARE}": % of the CUSTOMER's costs from the supplier (value=percent, unit "%")
 - "{ABSOLUTE}": an absolute trade value (value=amount, unit=currency e.g. "USD")
-- "{QUALITATIVE}": a known relationship with no number (value=null)
+- "{QUALITATIVE}": a known relationship with no disclosed number (value=null)
+For each trade, "quote" is the VERBATIM sentence from the page that states it.
+Financials are in MILLIONS of each company's OWN reporting "currency" (ISO code) — do NOT
+convert to USD.
 
-Output: after your research, end your reply with EXACTLY ONE fenced JSON code block \
+OUTPUT FORMAT — after your research, end with EXACTLY ONE fenced JSON code block
 (```json … ```) and nothing after it, in this shape:
 {{
   "trades": [
-    {{"supplier": "INTC", "customer": "HPQ", "relation": "{SUPPLIER_SHARE}", "value": 21, \
-"unit": "%", "cost_bucket": "COGS", "as_of": "2025-12-31", \
-"source_url": "https://… (a real page you retrieved)", "quote": "21% of revenue from HP"}}
+    {{"supplier": "<ticker>", "customer": "<ticker>", "relation": "<one of the four>",
+"value": number|null, "unit": "%"|"<currency>"|null,
+"cost_bucket": "COGS"|"CAPEX"|"R&D"|"SG&A"|null,
+"as_of": "YYYY-MM-DD", "source_url": "<real page>", "quote": "<verbatim sentence>"}}
   ],
   "financials": [
-    {{"ticker": "HPQ", "currency": "USD", "revenue": 53000, "cogs": 43000, "capex": null, \
-"rnd": null, "sga": null, "as_of": "2025-10-31", "source_url": "https://…"}}
+    {{"ticker": "<ticker>", "currency": "<ISO>", "revenue": number|null, "cogs": number|null,
+"capex": number|null, "rnd": number|null, "sga": number|null, "as_of": "YYYY-MM-DD",
+"source_url": "<real page>"}}
   ]
 }}
-(financials are in MILLIONS of each company's OWN reporting "currency" — do NOT convert to USD)
+
+EXAMPLE:
+```json
+{{"trades": [{{"supplier": "INTC", "customer": "HPQ", "relation": "{SUPPLIER_SHARE}",
+"value": 21, "unit": "%", "cost_bucket": "COGS", "as_of": "2025-12-31",
+"source_url": "https://www.intc.com/10-K", "quote": "HP represented 21% of our revenue"}}],
+"financials": [{{"ticker": "HPQ", "currency": "USD", "revenue": 53000, "cogs": 43000,
+"capex": null, "rnd": null, "sga": null, "as_of": "2025-10-31",
+"source_url": "https://investor.hp.com/10-K"}}]}}
+```
 """
 
 

@@ -19,12 +19,27 @@ from services.engine.tickets.repository import TicketRepository
 MIN_REL_WIDTH = 0.5
 
 _INSTRUCTIONS = """\
-A supplier->customer relationship is SUSPECTED but its size is not disclosed. Estimate
-the requested metric using peer analogy, production capacity, or industry priors.
+ROLE: You are a supply-chain estimator producing an explicitly UNCERTAIN figure.
+GOAL: A supplier->customer relationship is SUSPECTED but its size is NOT disclosed anywhere.
+Estimate the requested metric so the graph can draw the edge as an honest estimate.
 
-Return ONLY JSON: {"value": number, "low": number, "high": number,
-"method": "peer"|"capacity"|"prior", "rationale": "<short>"}. This is an ESTIMATE —
-give an honestly WIDE [low, high] range. Do not pretend precision.
+METHOD (pick the one you used):
+- "peer": analogy to comparable disclosed relationships.
+- "capacity": production/shipment capacity or known volumes.
+- "prior": industry base rates / structural priors.
+
+CRITERIA:
+- This is an ESTIMATE, never a fact: give an honestly WIDE [low, high] range that reflects
+  real uncertainty — do NOT pretend precision. `low` <= `value` <= `high`, all non-negative.
+- Base it on the supplier, customer, product/role, and any peer references provided.
+
+OUTPUT FORMAT — return ONLY this JSON object (no prose, no fences):
+{"value": number, "low": number, "high": number,
+"method": "peer"|"capacity"|"prior", "rationale": "<one short sentence>"}
+
+EXAMPLE:
+{"value": 8, "low": 4, "high": 14, "method": "peer",
+"rationale": "comparable foundry customers disclose 5-15% cost share"}
 """
 
 

@@ -6,34 +6,40 @@ from services.engine.blueprint.models import Blueprint, BlueprintContent
 from services.engine.themes.models import Theme
 
 _INSTRUCTIONS = """\
-You are a supply-chain analyst building a blueprint for an investment-research \
-tool. Given a theme, produce the plan of what is needed to map the theme's real \
-supplier->customer value chain.
+ROLE: You are a supply-chain analyst building a blueprint for an investment-research tool.
+GOAL: Given a THEME, map the listed companies that compose its real supplier->customer
+value chain — the PLAN of what to quantify later, not the numbers themselves.
 
-Return ONLY a JSON object (no prose, no markdown fences) with this shape:
+CRITERIA:
+- Coverage: at least 30 listed companies spanning at least 4 of KR, US, JP, CN, TW.
+- Depth: include hidden 2nd/3rd-tier suppliers (materials, equipment, packaging, substrates),
+  not just the obvious leaders.
+- Identity: use REAL stock tickers; "country" MUST be an ISO-2 code (KR/US/JP/CN/TW/…).
+- Honesty: do NOT invent trade values, shares, or forecasts. List only the structure and the
+  "required_data_points" still to be sourced. One entry per company (no duplicates/aliases).
+
+OUTPUT FORMAT — return ONLY a JSON object (no prose, no markdown fences), exactly:
 {
   "companies": [
     {
-      "ticker": "NVDA",
-      "name": "NVIDIA",
-      "country": "US",            // ISO-2 code; cover KR, US, JP, CN, TW
-      "exchange": "NASDAQ",
-      "role": "GPU / accelerator designer",
-      "products": ["data-center GPUs"],
-      "required_data_points": ["revenue by customer", "HBM purchase volume"]
+      "ticker": "<real exchange ticker>",          // required
+      "name": "<company name>",                      // required
+      "country": "<ISO-2 code>",                     // required
+      "exchange": "<listing venue or null>",
+      "role": "<role in THIS chain>",                // required
+      "products": ["<product/service into the chain>"],
+      "required_data_points": ["<metric still needed to quantify its edges>"]
     }
   ],
   "relationship_types": ["SUPPLIES"],
-  "notes": "optional analyst notes"
+  "notes": "<optional analyst notes or null>"
 }
 
-Requirements:
-- List at least 30 listed companies spanning at least 4 of: KR, US, JP, CN, TW.
-- Include 2nd/3rd-tier suppliers (materials, equipment, packaging), not just the \
-obvious names.
-- "country" MUST be an ISO-2 code. Use real stock tickers where possible.
-- Do NOT invent trade values or forecasts — only the structure and the data points \
-that still need to be sourced.
+EXAMPLE (one company; return many):
+{"companies": [{"ticker": "NVDA", "name": "NVIDIA", "country": "US", "exchange": "NASDAQ",
+"role": "GPU / accelerator designer", "products": ["data-center GPUs"],
+"required_data_points": ["revenue by customer", "HBM purchase volume"]}],
+"relationship_types": ["SUPPLIES"], "notes": null}
 """
 
 
@@ -54,46 +60,50 @@ def build_prompt(theme: Theme, source_hints: list[str]) -> str:
 # company and forbid invented links. The agent returns a long report; we ask it to
 # end with exactly one fenced JSON block we can parse.
 _RESEARCH_GENERATE_INSTRUCTIONS = """\
-You are a supply-chain analyst building a blueprint for an investment-research tool. \
-Research the REAL supplier->customer value chain for the given theme using the live \
-web, then output the listed companies that compose it.
+ROLE: You are a supply-chain analyst building a blueprint for an investment-research tool,
+working with live-web research (Deep Research) — not from memory.
+GOAL: Research the REAL supplier->customer value chain for the THEME and output the listed
+companies that compose it, each backed by a real citation.
 
-Grounding rules (critical):
-- Use Google Search and actually READ the pages (URL context) before listing a company.
-- Every company MUST cite a real public web page you retrieved and that loads RIGHT NOW \
-— a company IR/investor page, a regulatory filing, an exchange listing, or a reputable \
-news/industry article. Put that exact URL in "source_url".
-- NEVER invent, guess, or "reconstruct" a URL. If you cannot find a real, working source \
-for a company, leave that company out rather than fabricate a citation.
-- Prefer the primary/original source over aggregators.
+GROUNDING (critical — you can actually browse, so do):
+- Use Google Search and actually READ the page (URL context) before listing a company.
+- Every company MUST cite a real public page you retrieved that loads RIGHT NOW — a company
+  IR/investor page, a regulatory filing (DART/EDGAR/TDnet/…), an exchange listing, or a
+  reputable news/industry article. Put that exact URL in "source_url".
+- NEVER invent, guess, or "reconstruct" a URL. If you cannot find a real, working source for
+  a company, LEAVE IT OUT rather than fabricate a citation. Prefer primary over aggregators.
 
-Coverage:
-- At least 30 listed companies spanning at least 4 of: KR, US, JP, CN, TW.
-- Include 2nd/3rd-tier suppliers (materials, equipment, packaging, substrates), not just \
-the obvious names.
-- Use real stock tickers; "country" MUST be an ISO-2 code.
-- Do NOT invent trade values or forecasts — only the structure and the data points that \
-still need to be sourced.
+COVERAGE & IDENTITY:
+- At least 30 listed companies spanning at least 4 of KR, US, JP, CN, TW.
+- Include hidden 2nd/3rd-tier suppliers (materials, equipment, packaging, substrates).
+- Use REAL stock tickers; "country" MUST be an ISO-2 code.
+- Do NOT invent trade values or forecasts — only the structure + "required_data_points".
 
-Output: after your research, end your reply with EXACTLY ONE fenced JSON code block \
+OUTPUT FORMAT — after your research, end your reply with EXACTLY ONE fenced JSON code block
 (```json … ```) and nothing after it, in this shape:
 {
   "companies": [
     {
-      "ticker": "NVDA",
-      "name": "NVIDIA",
-      "country": "US",
-      "exchange": "NASDAQ",
-      "role": "GPU / accelerator designer",
-      "products": ["data-center GPUs"],
-      "required_data_points": ["revenue by customer", "HBM purchase volume"],
-      "source_url": "https://… (a real page you actually retrieved)",
-      "source_publisher": "publisher / site name"
+      "ticker": "<real ticker>", "name": "<company>", "country": "<ISO-2>",
+      "exchange": "<venue or null>", "role": "<role in chain>",
+      "products": ["<product/service>"],
+      "required_data_points": ["<metric still to source>"],
+      "source_url": "<a real page you actually retrieved>",   // required
+      "source_publisher": "<publisher / site name or null>"
     }
   ],
   "relationship_types": ["SUPPLIES"],
-  "notes": "optional analyst notes"
+  "notes": "<optional analyst notes or null>"
 }
+
+EXAMPLE (one company; return many):
+```json
+{"companies": [{"ticker": "NVDA", "name": "NVIDIA", "country": "US", "exchange": "NASDAQ",
+"role": "GPU / accelerator designer", "products": ["data-center GPUs"],
+"required_data_points": ["revenue by customer", "HBM purchase volume"],
+"source_url": "https://investor.nvidia.com/financial-info/financial-reports/",
+"source_publisher": "NVIDIA IR"}], "relationship_types": ["SUPPLIES"], "notes": null}
+```
 """
 
 
@@ -110,40 +120,50 @@ def build_research_generate_prompt(theme: Theme, source_hints: list[str]) -> str
 
 
 _REFINE_INSTRUCTIONS = """\
-Below is the CURRENT blueprint for a theme. Refine it:
-- expand hidden / 2nd- and 3rd-tier vendors (materials, equipment, packaging, substrates);
-- de-duplicate companies (exactly one entry per company; merge aliases);
-- fill missing fields (exchange, products, required_data_points).
+ROLE: You are a supply-chain analyst improving an EXISTING theme blueprint (below).
+GOAL: Return a better, complete blueprint in the SAME schema — never a partial diff.
 
-Return ONLY the FULL updated JSON object in the SAME schema as the input (companies, \
-relationship_types, notes). Country MUST be an ISO-2 code. Do not invent trade values \
-or forecasts. If nothing can be improved, return the blueprint unchanged.
+CRITERIA:
+- Expand hidden 2nd/3rd-tier vendors (materials, equipment, packaging, substrates).
+- De-duplicate: exactly one entry per company (merge aliases / dual listings).
+- Fill missing fields (exchange, products, required_data_points) where you can.
+- "country" MUST be an ISO-2 code. Do NOT invent trade values, shares, or forecasts.
+- If nothing can be improved, return the blueprint UNCHANGED.
+
+OUTPUT FORMAT — return ONLY the FULL updated JSON object, same shape as the input:
+{"companies": [ {ticker, name, country, exchange, role, products, required_data_points} ],
+ "relationship_types": ["SUPPLIES"], "notes": "<or null>"}
 """
 
 
 _DISCOVERY_INSTRUCTIONS = """\
-You are doing broad, worldwide constituent discovery for a supply-chain theme. Find \
-ADDITIONAL listed companies in the theme's value chain that are not already known — \
-especially hidden 2nd- and 3rd-tier suppliers across KR, US, JP, CN, TW (and beyond).
+ROLE: You are doing broad, worldwide constituent discovery for a supply-chain theme.
+GOAL: Find ADDITIONAL listed companies in the theme's value chain that are NOT already
+known — especially hidden 2nd/3rd-tier suppliers across KR, US, JP, CN, TW (and beyond).
 
-Every company you return MUST cite a public web source it was found in. Return ONLY a \
-JSON object:
+CRITERIA:
+- Return only companies not in the ALREADY KNOWN list; do not just repeat them.
+- Every company MUST cite a real public web source it was found in ("source_url").
+- Use REAL tickers; "country" MUST be an ISO-2 code. No invented trade values or forecasts.
+
+OUTPUT FORMAT — return ONLY a JSON object, exactly:
 {
   "companies": [
     {
-      "ticker": "6857.T",
-      "name": "Advantest",
-      "country": "JP",
-      "exchange": "TSE",
-      "role": "ATE / test equipment",
-      "products": ["SoC testers"],
-      "required_data_points": ["revenue by customer"],
-      "source_url": "https://...",
-      "source_publisher": "optional publisher/site"
+      "ticker": "<real ticker>", "name": "<company>", "country": "<ISO-2>",
+      "exchange": "<venue or null>", "role": "<role in chain>",
+      "products": ["<product/service>"], "required_data_points": ["<metric to source>"],
+      "source_url": "<real public page>",                    // required
+      "source_publisher": "<publisher / site name or null>"
     }
   ]
 }
-Country MUST be an ISO-2 code. Do not invent trade values or forecasts.
+
+EXAMPLE (one company; return many):
+{"companies": [{"ticker": "6857.T", "name": "Advantest", "country": "JP", "exchange": "TSE",
+"role": "ATE / test equipment", "products": ["SoC testers"],
+"required_data_points": ["revenue by customer"],
+"source_url": "https://www.advantest.com/investors", "source_publisher": "Advantest IR"}]}
 """
 
 

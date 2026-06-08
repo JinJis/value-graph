@@ -27,11 +27,19 @@ class _ClusterPlan(BaseModel):
 
 
 _INSTRUCTIONS = """\
-Group data-research tasks so they can be batched efficiently. Put tickets about the SAME \
-or CLOSELY RELATED company, OR the SAME metric, in the same group — so one research pass \
-can answer them together. Keep groups focused (don't lump everything into one).
+ROLE: You are a research planner batching data-research tasks for efficiency.
+GOAL: Group the TICKETS below so one Deep Research pass can resolve each group together.
 
-Return ONLY JSON: {"clusters": [["T1", "T4"], ["T2", "T3"]]}. Use each ref EXACTLY once.
+CRITERIA:
+- Put tickets about the SAME or closely related company, OR the SAME metric, in one group.
+- Keep groups FOCUSED — don't lump everything into a single group.
+- Use each ref EXACTLY once (every ticket appears in exactly one group).
+
+OUTPUT FORMAT — return ONLY this JSON object (no prose):
+{"clusters": [["<ref>", "<ref>"], ["<ref>"]]}
+
+EXAMPLE (refs T1 & T4 share a company, T2 & T3 share a metric):
+{"clusters": [["T1", "T4"], ["T2", "T3"]]}
 
 TICKETS:
 """
