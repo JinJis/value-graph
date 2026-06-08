@@ -52,6 +52,8 @@ class CveRunRepository(Protocol):
 
     def get_latest(self, theme_id: str) -> CveRunRecord | None: ...
 
+    def list_runs(self, theme_id: str, *, limit: int = 20) -> list[CveRunRecord]: ...
+
 
 class InMemoryCveRunRepository:
     def __init__(self) -> None:
@@ -87,6 +89,11 @@ class InMemoryCveRunRepository:
     def get_latest(self, theme_id: str) -> CveRunRecord | None:
         runs = [r for r in self._runs.values() if r.theme_id == theme_id]
         return max(runs, default=None, key=lambda r: r.created_at)
+
+    def list_runs(self, theme_id: str, *, limit: int = 20) -> list[CveRunRecord]:
+        runs = [r for r in self._runs.values() if r.theme_id == theme_id]
+        runs.sort(key=lambda r: r.created_at, reverse=True)
+        return runs[:limit]
 
 
 def _payload(trigger: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -157,3 +164,12 @@ class PostgresCveRunRepository:
             )
             row = cur.fetchone()
             return _row_to_record(row) if row is not None else None
+
+    def list_runs(self, theme_id: str, *, limit: int = 20) -> list[CveRunRecord]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {_COLS} FROM jobs WHERE type = %s AND theme_id = %s "
+                "ORDER BY created_at DESC LIMIT %s",
+                (CVE_RUN_JOB_TYPE, theme_id, limit),
+            )
+            return [_row_to_record(row) for row in cur.fetchall()]

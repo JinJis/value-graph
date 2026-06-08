@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import { BuildDiagnostics } from "../../../../components/BuildDiagnostics";
 import {
   applyProgEvent,
   BlueprintProgress,
@@ -23,9 +24,11 @@ export default function BuildPage() {
   const { id: themeId } = useParams<{ id: string }>();
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
+  const [diagKey, setDiagKey] = useState(0); // bump to re-pull diagnostics after a run
 
   function onEvent(e: CveRunEvent) {
     setProg((p) => applyProgEvent(p, e)); // generic live progress (model, 💭, chunk, …)
+    if (e.event === "persisted" || e.event === "done") setDiagKey((k) => k + 1);
     const step = (label: string, detail = "", tone?: "ok" | "warn" | "err") =>
       setProg((p) => ({ ...p, steps: [...p.steps, { label, detail, tone }] }));
     switch (e.event) {
@@ -124,6 +127,8 @@ export default function BuildPage() {
           <Link href={`/themes/${themeId}/publish`}>review &amp; publish →</Link>
         </p>
       )}
+
+      <BuildDiagnostics themeId={themeId} refreshKey={diagKey} />
 
       <StepFooter themeId={themeId} currentKey="build" />
     </section>

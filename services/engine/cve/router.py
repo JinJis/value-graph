@@ -15,6 +15,7 @@ from services.engine.calendar.repository import (
     CalendarRepository,
     PostgresCalendarRepository,
 )
+from services.engine.cve.diagnostics import BuildDiagnostics, build_diagnostics
 from services.engine.cve.run_repository import CveRunRepository, PostgresCveRunRepository
 from services.engine.cve.run_service import (
     CveRunSummary,
@@ -58,6 +59,32 @@ GraphStoreDep = Annotated[GraphStore, Depends(get_graph_store)]
 CveRunRepoDep = Annotated[CveRunRepository, Depends(get_cve_run_repository)]
 CalendarRepoDep = Annotated[CalendarRepository, Depends(get_calendar_repository)]
 FinancialsRepoDep = Annotated[FinancialsRepository, Depends(get_financials_repository)]
+
+
+@router.get("/themes/{theme_id}/build/diagnostics", response_model=BuildDiagnostics)
+def get_build_diagnostics(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    runs: CveRunRepoDep,
+    graph: GraphStoreDep,
+    calendar: CalendarRepoDep,
+    financials: FinancialsRepoDep,
+) -> BuildDiagnostics:
+    """Explain the current build state: what data exists, what the last run produced at each
+    stage, and a plain-language list of what's missing / why the graph may be empty."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    return build_diagnostics(
+        theme_id=theme_id,
+        blueprint=blueprints.get_latest(theme_id),
+        sources=themes.list_sources(theme_id),
+        financials_repo=financials,
+        calendar_repo=calendar,
+        run_repo=runs,
+        graph_store=graph,
+    )
 
 
 @router.post("/themes/{theme_id}/cve/run", response_model=CveRunSummary)

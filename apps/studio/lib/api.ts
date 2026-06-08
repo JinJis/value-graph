@@ -673,6 +673,70 @@ export async function runThemeCve(themeId: string): Promise<CveRunSummary> {
   );
 }
 
+// --- Build diagnostics (why is the graph empty / what's missing) -----------------------
+
+export interface DiagStageCounts {
+  documents: number;
+  claims: number;
+  resolutions: number;
+  edges: number;
+  reconciled: number;
+  estimated: number;
+  scored: number;
+  gap_results: number;
+}
+
+export interface DiagRunInfo {
+  id: string;
+  status: string;
+  trigger: string;
+  created_at: string;
+  stages: DiagStageCounts | null;
+}
+
+export interface DiagFinding {
+  level: "error" | "warn" | "ok";
+  code: string;
+  message: string;
+  action: string | null;
+}
+
+export interface BuildDiagnostics {
+  theme_id: string;
+  has_blueprint: boolean;
+  blueprint_companies: number;
+  sources: { total: number; documents: number; citations: number };
+  financials: {
+    required: string[];
+    covered: number;
+    total: number;
+    missing: { ticker: string; name: string; missing: string[] }[];
+  };
+  calendar_covered: number;
+  last_run: DiagRunInfo | null;
+  runs: DiagRunInfo[];
+  build: {
+    version: number | null;
+    publishable_edges: number;
+    gap_edges: number;
+    total_edges: number;
+    completeness: number;
+    threshold: number;
+    meets_threshold: boolean;
+  };
+  findings: DiagFinding[];
+}
+
+export async function getBuildDiagnostics(
+  themeId: string,
+): Promise<BuildDiagnostics> {
+  return json(
+    await fetch(url(`/themes/${themeId}/build/diagnostics`), {
+      cache: "no-store",
+    }),
+  );
+}
+
 // A progress event from the CVE run stream: start / stage (S1..S7) / persisted / done /
 // error. The run + persistence finish server-side even if the client disconnects.
 export interface CveRunEvent {

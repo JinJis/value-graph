@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { BuildDiagnostics } from "../../../../components/BuildDiagnostics";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
   getPublishPreview,
@@ -144,6 +145,8 @@ export default function PublishPage() {
       </p>
 
       {quality && <DataQualityMeter report={quality} />}
+
+      <BuildDiagnostics themeId={themeId} />
 
       {loading ? (
         <p>
