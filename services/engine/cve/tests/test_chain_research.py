@@ -17,6 +17,7 @@ from services.engine.cve.chain_research import research_chain_events
 from services.engine.cve.router import get_calendar_repository, get_cve_run_repository
 from services.engine.cve.run_repository import InMemoryCveRunRepository
 from services.engine.db.graph_store import InMemoryGraphStore
+from services.engine.financials.models import FinancialsUpsert
 from services.engine.financials.repository import InMemoryFinancialsRepository
 from services.engine.financials.router import get_financials_repository
 from services.engine.llm.router import DEFAULT_MODELS, LLMRouter
@@ -117,6 +118,30 @@ def test_research_chain_persists_claims_financials_sources() -> None:
     assert intc is not None and intc.revenue == 100.0
     assert fin.get("HPQ").cogs == 221.0  # type: ignore[union-attr]
     assert len(themes.list_sources(theme.id)) == 2
+
+
+def test_research_chain_skips_financials_already_on_file() -> None:
+    """B: a company with revenue on file is dropped from the financials ask (no dup
+    Deep Research spend), while trades still cover every company."""
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    blueprint = _blueprint(theme.id)
+    fin = InMemoryFinancialsRepository()
+    fin.upsert(FinancialsUpsert(company_ticker="INTC", revenue=100.0))  # already filled
+
+    events, _ = _drain(
+        research_chain_events(theme, blueprint, themes, fin, _router(), today=TODAY)
+    )
+    reuse = next(e for e in events if e["event"] == "research")
+    assert reuse["action"] == "Financials on file"
+    assert reuse["detail"] == "reusing 1, researching 1"
+
+    prompt = str(next(e for e in events if e["event"] == "prompt")["text"])
+    needed = next(
+        line for line in prompt.splitlines() if line.startswith("FINANCIALS NEEDED")
+    )
+    assert "HPQ" in needed and "INTC" not in needed  # only the missing one
+    assert "KNOWN COMPANIES" in prompt and "INTC" in prompt  # trades still cover INTC
 
 
 def _seed_app() -> Theme:

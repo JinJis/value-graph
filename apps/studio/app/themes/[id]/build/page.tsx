@@ -84,7 +84,9 @@ export default function BuildPage() {
         <small>
           Cross-verify the theme into a Staging build. <strong>Research &amp; build</strong>{" "}
           uses Deep Research to gather supplier→customer trades + financials and seeds the
-          pipeline; figures it can’t source become tickets. <strong>Run CVE only</strong>{" "}
+          pipeline; figures it can’t source become tickets. It <strong>reuses financials
+          already on file</strong> (e.g. filled on the Financials step), so it only researches
+          the companies still missing them — no duplicate spend. <strong>Run CVE only</strong>{" "}
           rebuilds from existing claims/financials without re-researching.
         </small>
       </p>

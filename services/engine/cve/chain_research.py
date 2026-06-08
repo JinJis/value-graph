@@ -26,6 +26,7 @@ from services.engine.cve.extract import (
     SUPPLIER_SHARE,
     Claim,
 )
+from services.engine.financials.models import FinancialsRecord
 from services.engine.financials.repository import FinancialsRepository
 from services.engine.financials.research import ResearchedFinancials, merge_financials
 from services.engine.llm.router import LLMRouter, Tier
@@ -36,6 +37,12 @@ logger = logging.getLogger("valuegraph.engine.cve.chain_research")
 
 Event = dict[str, Any]
 DEEP_RESEARCH_EXTRACTOR = "deep-research"
+
+
+def _has_financials(record: FinancialsRecord | None) -> bool:
+    """A company is 'covered' once it has revenue on file (the CVE denominator) — enough
+    to skip re-researching it in the chain pass; missing cost buckets still get tickets."""
+    return record is not None and record.revenue is not None
 
 
 class ResearchedTrade(BaseModel):
@@ -57,8 +64,8 @@ class ChainResearch(BaseModel):
 
 _INSTRUCTIONS = f"""\
 You are a supply-chain analyst. Using the live web, research the REAL supplier->customer \
-trades AMONG the listed companies, and each company's latest financials. Output structured \
-data the engine will cross-check — every number must be sourced.
+trades AMONG the listed companies, and financials ONLY for the companies under FINANCIALS \
+NEEDED. Output structured data the engine will cross-check — every number must be sourced.
 
 Grounding rules (critical):
 - Use Google Search and actually READ the pages (URL context) before reporting a number.
@@ -66,6 +73,8 @@ Grounding rules (critical):
 - Every trade/financial figure MUST cite a real public page you retrieved (put it in \
 "source_url"). NEVER invent numbers or URLs. If a relationship exists but you cannot find a \
 number, still emit the trade with relation "{QUALITATIVE}" and value null.
+- Report financials ONLY for tickers in the FINANCIALS NEEDED list (the others already have \
+figures on file — do NOT re-research them). If that list is empty, return "financials": [].
 - Do NOT forecast; report only disclosed figures.
 
 Trade "relation" is one of:
@@ -92,13 +101,20 @@ Output: after your research, end your reply with EXACTLY ONE fenced JSON code bl
 
 
 def build_chain_research_prompt(
-    theme: Theme, companies: Iterable[BlueprintCompany]
+    theme: Theme,
+    companies: Iterable[BlueprintCompany],
+    financials_needed: Iterable[BlueprintCompany] | None = None,
 ) -> str:
+    companies = list(companies)
     known = ", ".join(f"{c.ticker} ({c.name})" for c in companies)
+    # None => research financials for everyone (back-compat); a list => only those tickers.
+    needed = companies if financials_needed is None else list(financials_needed)
+    needed_str = ", ".join(c.ticker for c in needed) if needed else "(none)"
     lines = [_INSTRUCTIONS, "", f"THEME: {theme.name}"]
     if theme.description:
         lines.append(f"DESCRIPTION: {theme.description}")
     lines.append(f"KNOWN COMPANIES (use only these tickers): {known}")
+    lines.append(f"FINANCIALS NEEDED (report financials ONLY for these): {needed_str}")
     return "\n".join(lines)
 
 
@@ -139,10 +155,28 @@ def research_chain_events(
         "provider": "google-genai",
         "method": "interactions.create (deep-research)",
     }
-    prompt = build_chain_research_prompt(theme, blueprint.companies)
+    # Don't re-research financials a company already has on file (e.g. filled on the
+    # Financials step) — only ask Deep Research for the ones still missing revenue.
+    needed = [
+        c
+        for c in blueprint.companies
+        if not _has_financials(financials_repo.get(c.ticker))
+    ]
+    skipped = len(blueprint.companies) - len(needed)
+    if skipped:
+        yield {
+            "event": "research",
+            "action": "Financials on file",
+            "detail": f"reusing {skipped}, researching {len(needed)}",
+        }
+    prompt = build_chain_research_prompt(theme, blueprint.companies, needed)
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
     logger.info(
-        "chain_research.start theme=%s companies=%d", theme.id, len(blueprint.companies)
+        "chain_research.start theme=%s companies=%d financials_needed=%d (reuse %d)",
+        theme.id,
+        len(blueprint.companies),
+        len(needed),
+        skipped,
     )
 
     content: ChainResearch | None = None
