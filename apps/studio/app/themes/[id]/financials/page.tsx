@@ -34,6 +34,7 @@ type FieldKey = (typeof FIELDS)[number]["key"];
 type Draft = Record<FieldKey, string> & {
   currency: string;
   as_of_date: string;
+  source: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -44,6 +45,7 @@ const EMPTY_DRAFT: Draft = {
   sga: "",
   currency: "",
   as_of_date: "",
+  source: "",
 };
 
 // Fallback reporting currency by listing country, used to pre-fill the column until Deep
@@ -71,6 +73,17 @@ const COUNTRY_CURRENCY: Record<string, string> = {
 
 const guessCurrency = (country?: string | null): string =>
   (country && COUNTRY_CURRENCY[country.trim()]) || "";
+
+const isHttpUrl = (s: string): boolean => /^https?:\/\//i.test(s.trim());
+
+// Short host label for a citation URL (used in the live step list).
+const hostOf = (s: string): string => {
+  try {
+    return new URL(s).hostname.replace(/^www\./, "");
+  } catch {
+    return s;
+  }
+};
 
 const numOrNull = (s: string): number | null => {
   const t = s.trim();
@@ -110,6 +123,7 @@ export default function FinancialsPage() {
           sga: numStr(e.sga) ?? cur.sga,
           currency: numStr(e.currency) ?? cur.currency,
           as_of_date: numStr(e.as_of_date) ?? cur.as_of_date,
+          source: numStr(e.source) ?? cur.source,
         },
       };
     });
@@ -119,7 +133,9 @@ export default function FinancialsPage() {
         ...p.steps,
         {
           label: `filled ${t}`,
-          detail: `revenue ${e.revenue ?? "—"} · cogs ${e.cogs ?? "—"}`,
+          detail:
+            `revenue ${e.revenue ?? "—"} · cogs ${e.cogs ?? "—"}` +
+            (e.source ? ` · src ${hostOf(String(e.source))}` : ""),
           tone: "ok",
         },
       ],
@@ -167,6 +183,7 @@ export default function FinancialsPage() {
           sga: f.sga?.toString() ?? "",
           currency: f.currency ?? guessCurrency(c?.country),
           as_of_date: f.as_of_date ?? "",
+          source: f.source ?? "",
         };
       }
       setDrafts(next);
@@ -201,6 +218,7 @@ export default function FinancialsPage() {
         sga: numOrNull(d.sga),
         currency: d.currency.trim().toUpperCase() || null,
         as_of_date: d.as_of_date.trim() || null,
+        source: d.source.trim() || null,
       });
       setSaved(ticker);
       setError(null);
@@ -224,7 +242,9 @@ export default function FinancialsPage() {
           <strong>
             millions of each company&apos;s own reporting currency
           </strong>{" "}
-          (the Currency column) — not converted to USD.
+          (the Currency column) — not converted to USD. Each researched figure
+          cites the filing / IR page it came from in the <strong>Source</strong>{" "}
+          column.
         </small>
       </p>
 
@@ -303,6 +323,15 @@ export default function FinancialsPage() {
               >
                 As of
               </th>
+              <th
+                style={{
+                  textAlign: "left",
+                  borderBottom: "1px solid #ccc",
+                  padding: 6,
+                }}
+              >
+                Source
+              </th>
               <th style={{ borderBottom: "1px solid #ccc", padding: 6 }} />
             </tr>
           </thead>
@@ -347,6 +376,32 @@ export default function FinancialsPage() {
                         setField(c.ticker, "as_of_date", e.target.value)
                       }
                     />
+                  </td>
+                  <td style={{ padding: 6 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      <input
+                        style={{ width: 200 }}
+                        placeholder="https://… (filing / IR page)"
+                        title={d.source || "Where these figures came from"}
+                        value={d.source}
+                        onChange={(e) =>
+                          setField(c.ticker, "source", e.target.value)
+                        }
+                      />
+                      {isHttpUrl(d.source) && (
+                        <a
+                          href={d.source}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={d.source}
+                          style={{ fontSize: 13, whiteSpace: "nowrap" }}
+                        >
+                          ↗ open
+                        </a>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: 6 }}>
                     <button
