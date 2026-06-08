@@ -15,3 +15,4 @@ export {
   type SourceRef,
 } from "./highlight";
 export { SourceHighlight, type SourceHighlightProps } from "./SourceHighlight";
+export { PdfHighlight } from "./PdfHighlight";

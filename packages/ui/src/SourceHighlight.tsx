@@ -9,14 +9,15 @@ import {
   sourceContentUrl,
   textFragmentUrl,
 } from "./highlight";
+import { PdfHighlight } from "./PdfHighlight";
 
 /**
  * Shared source-highlight viewer (Studio + Terminal). Given a verbatim `quote` and its
  * `source`, it proves provenance by either:
  *  - stored text/HTML  -> fetch the doc, render it as safe escaped text with the quote
  *    wrapped in a yellow <mark>, scrolled into view;
- *  - stored PDF        -> embed the browser PDF viewer + show the exact quote to locate
- *    (in-PDF text-layer highlighting is a follow-up; embedding alone proves the source);
+ *  - stored PDF        -> render with pdf.js and paint a yellow highlight on the exact
+ *    text-layer spans of the quote, jumping to the page (see PdfHighlight);
  *  - external URL only -> a "open original at the highlight" deep link (#:~:text=) plus the
  *    verbatim quote (we never embed third-party full text — CLAUDE.md §6).
  */
@@ -132,28 +133,6 @@ function TextHighlight({
   );
 }
 
-// Stored PDF: embed the browser viewer; show the quote to find (text-layer highlight = TODO).
-function PdfEmbed({ source, quote }: { source: SourceRef; quote: string }) {
-  return (
-    <>
-      <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 4px" }}>
-        Find this exact text in the document below:
-      </p>
-      <ResearchedQuote quote={quote} />
-      <iframe
-        title="source document"
-        src={sourceContentUrl(source.source_id)}
-        style={{
-          width: "100%",
-          height: 480,
-          border: "1px solid #e2e8f0",
-          borderRadius: 6,
-        }}
-      />
-    </>
-  );
-}
-
 // External URL-only citation: deep-link to the original at the highlighted text.
 function DeepLink({ source, quote }: { source: SourceRef; quote: string }) {
   const href = source.url ? textFragmentUrl(source.url, quote) : null;
@@ -187,7 +166,7 @@ export function SourceHighlight({
   allowEmbed = true,
 }: SourceHighlightProps) {
   const strategy = highlightStrategy(source, { allowEmbed });
-  if (strategy === "pdf") return <PdfEmbed source={source} quote={quote} />;
+  if (strategy === "pdf") return <PdfHighlight source={source} quote={quote} />;
   if (strategy === "html" || strategy === "text")
     return <TextHighlight source={source} quote={quote} />;
   return <DeepLink source={source} quote={quote} />;

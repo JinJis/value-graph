@@ -12,6 +12,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
   },
