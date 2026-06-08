@@ -584,6 +584,19 @@ export async function putFinancials(
   );
 }
 
+// Deep Research the blueprint companies' financials and fill the store, over SSE.
+// Events: model/prompt/chunk/parse, then `filled` per company, then `done`.
+export const researchFinancialsStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/financials/research/stream`,
+    onEvent,
+    signal,
+  );
+
 // --- CVE run (M3-ORCH-08) ---
 
 export interface CveRunSummary {

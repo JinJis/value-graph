@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator, Iterable
-from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
@@ -27,8 +26,8 @@ from services.engine.cve.extract import (
     SUPPLIER_SHARE,
     Claim,
 )
-from services.engine.financials.models import FinancialsUpsert
 from services.engine.financials.repository import FinancialsRepository
+from services.engine.financials.research import ResearchedFinancials, merge_financials
 from services.engine.llm.router import LLMRouter, Tier
 from services.engine.themes.models import SourceCreate, Theme
 from services.engine.themes.repository import ThemeRepository
@@ -49,17 +48,6 @@ class ResearchedTrade(BaseModel):
     as_of: str | None = None
     source_url: str | None = None
     quote: str | None = None
-
-
-class ResearchedFinancials(BaseModel):
-    ticker: str
-    revenue: float | None = None
-    cogs: float | None = None
-    capex: float | None = None
-    rnd: float | None = None
-    sga: float | None = None
-    as_of: str | None = None
-    source_url: str | None = None
 
 
 class ChainResearch(BaseModel):
@@ -128,28 +116,6 @@ def _distinct_urls(content: ChainResearch) -> list[str]:
         if url:
             seen.setdefault(url, None)
     return list(seen)
-
-
-def _merged_financials(
-    fin: ResearchedFinancials, existing: FinancialsUpsert | None
-) -> FinancialsUpsert:
-    """Fill only the buckets research found; keep any existing values otherwise."""
-
-    def pick(field: str, value: float | None) -> float | None:
-        if value is not None:
-            return value
-        return getattr(existing, field) if existing is not None else None
-
-    return FinancialsUpsert(
-        company_ticker=fin.ticker,
-        revenue=pick("revenue", fin.revenue),
-        cogs=pick("cogs", fin.cogs),
-        capex=pick("capex", fin.capex),
-        rnd=pick("rnd", fin.rnd),
-        sga=pick("sga", fin.sga),
-        as_of_date=date.fromisoformat(fin.as_of) if fin.as_of else None,
-        source=fin.source_url,
-    )
 
 
 def research_chain_events(
@@ -224,8 +190,7 @@ def research_chain_events(
     for fin in content.financials:
         if fin.ticker not in known:
             continue
-        existing = financials_repo.get(fin.ticker)
-        financials_repo.upsert(_merged_financials(fin, existing))
+        financials_repo.upsert(merge_financials(fin, financials_repo.get(fin.ticker)))
         fin_written += 1
 
     # Trades -> CVE claims (a number cannot enter without a Source).

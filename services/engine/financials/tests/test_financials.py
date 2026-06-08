@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
+from services.engine.blueprint.models import Blueprint, BlueprintCompany
+from services.engine.blueprint.repository import InMemoryBlueprintRepository
+from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.financials.models import FinancialsUpsert, to_buckets
 from services.engine.financials.repository import (
     InMemoryFinancialsRepository,
     financials_map,
     set_bucket,
 )
+from services.engine.financials.research import research_financials_events
 from services.engine.financials.router import get_financials_repository
+from services.engine.llm.router import DEFAULT_MODELS, LLMRouter
 from services.engine.main import app
 from services.engine.themes.models import ThemeCreate
 from services.engine.themes.repository import InMemoryThemeRepository
@@ -22,6 +28,34 @@ from services.engine.themes.router import get_storage
 from services.engine.tickets.models import TicketCreate
 from services.engine.tickets.repository import InMemoryTicketRepository
 from services.engine.tickets.router import get_ticket_repository
+
+_FIN_PAYLOAD = json.dumps(
+    {
+        "financials": [
+            {
+                "ticker": "HPQ",
+                "revenue": 53000,
+                "cogs": 43000,
+                "as_of": "2025-10-31",
+                "source_url": "https://example.com/hpq-10k",
+            }
+        ]
+    }
+)
+
+
+class _ResearchGen:
+    def generate_text(self, *, model: str, prompt: str) -> str:
+        return ""
+
+    def deep_research_stream(
+        self, *, agent: str, prompt: str
+    ) -> Iterator[dict[str, str]]:
+        yield {"kind": "text", "text": _FIN_PAYLOAD}
+
+
+def _research_router() -> LLMRouter:
+    return LLMRouter(_ResearchGen(), DEFAULT_MODELS)
 
 
 def test_to_buckets_maps_fields_and_skips_unset() -> None:
@@ -52,6 +86,54 @@ def test_set_bucket_preserves_other_buckets() -> None:
     assert rec is not None
     assert rec.revenue == 53000.0 and rec.cogs == 43000.0  # revenue preserved
     assert set_bucket(repo, "HPQ", "bogus", 1.0) is None  # unknown field
+
+
+def test_research_financials_fills_store() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    companies = [BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer")]
+    fin = InMemoryFinancialsRepository()
+    events = list(research_financials_events(theme, companies, fin, _research_router()))
+    kinds = [e["event"] for e in events]
+
+    assert "prompt" in kinds and any(e["event"] == "filled" for e in events)
+    assert kinds[-1] == "done"
+    rec = fin.get("HPQ")
+    assert rec is not None and rec.revenue == 53000.0 and rec.cogs == 43000.0
+
+
+def test_research_financials_endpoint_streams_and_fills() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    blueprints = InMemoryBlueprintRepository()
+    blueprints.save(
+        Blueprint(
+            theme_id=theme.id,
+            version=1,
+            companies=[
+                BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer")
+            ],
+        )
+    )
+    fin = InMemoryFinancialsRepository()
+    app.dependency_overrides[get_theme_repository] = lambda: themes
+    app.dependency_overrides[get_blueprint_repository] = lambda: blueprints
+    app.dependency_overrides[get_financials_repository] = lambda: fin
+    app.dependency_overrides[get_router] = lambda: _research_router()
+    try:
+        resp = TestClient(app).post(f"/themes/{theme.id}/financials/research/stream")
+        assert resp.status_code == 200, resp.text
+        frames = [
+            json.loads(line[5:].strip())
+            for line in resp.text.splitlines()
+            if line.startswith("data:")
+        ]
+        assert any(f["event"] == "filled" for f in frames)
+        assert frames[-1]["event"] == "done"
+    finally:
+        app.dependency_overrides.clear()
+    rec = fin.get("HPQ")
+    assert rec is not None and rec.revenue == 53000.0
 
 
 @pytest.fixture
