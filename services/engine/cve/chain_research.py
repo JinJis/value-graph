@@ -83,10 +83,11 @@ Output: after your research, end your reply with EXACTLY ONE fenced JSON code bl
 "source_url": "https://… (a real page you retrieved)", "quote": "21% of revenue from HP"}}
   ],
   "financials": [
-    {{"ticker": "HPQ", "revenue": 53000, "cogs": 43000, "capex": null, "rnd": null, \
-"sga": null, "as_of": "2025-10-31", "source_url": "https://…"}}
+    {{"ticker": "HPQ", "currency": "USD", "revenue": 53000, "cogs": 43000, "capex": null, \
+"rnd": null, "sga": null, "as_of": "2025-10-31", "source_url": "https://…"}}
   ]
 }}
+(financials are in MILLIONS of each company's OWN reporting "currency" — do NOT convert to USD)
 """
 
 

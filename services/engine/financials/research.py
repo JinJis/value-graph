@@ -31,6 +31,7 @@ class ResearchedFinancials(BaseModel):
     """One company's financials as returned by Deep Research (with a citation)."""
 
     ticker: str
+    currency: str | None = None  # the company's OWN reporting currency (ISO, e.g. JPY)
     revenue: float | None = None
     cogs: float | None = None
     capex: float | None = None
@@ -56,6 +57,7 @@ def merge_financials(
 
     return FinancialsUpsert(
         company_ticker=fin.ticker,
+        currency=fin.currency or (existing.currency if existing is not None else None),
         revenue=pick("revenue", fin.revenue),
         cogs=pick("cogs", fin.cogs),
         capex=pick("capex", fin.capex),
@@ -68,8 +70,12 @@ def merge_financials(
 
 _INSTRUCTIONS = """\
 You are a financial-data analyst. For EACH listed company, find its latest reported annual
-figures and report them in the SAME currency/unit (prefer USD millions): revenue, COGS,
-CAPEX, R&D, SG&A. Use the live web (10-K / annual report / IR page).
+figures: revenue, COGS, CAPEX, R&D, SG&A. Use the live web (10-K / annual report / IR page).
+
+Report each company's figures in ITS OWN reporting currency (the currency used in its
+financial statements — e.g. JPY for Tokyo Electron, KRW for Samsung, USD for NVIDIA), in
+MILLIONS of that currency, and put the 3-letter ISO currency code in "currency". Do NOT
+convert to USD.
 
 Grounding rules (critical):
 - Use Google Search and actually READ the filing/IR page before reporting a number.
@@ -77,11 +83,12 @@ Grounding rules (critical):
 - Omit (null) any figure you cannot source. Use ONLY the given tickers.
 
 Output: end your reply with EXACTLY ONE fenced JSON code block (```json … ```) and nothing
-after it, in this shape:
+after it, in this shape (figures in MILLIONS of "currency"):
 {
   "financials": [
-    {"ticker": "HPQ", "revenue": 53000, "cogs": 43000, "capex": 600, "rnd": 1500,
-     "sga": 5000, "as_of": "2025-10-31", "source_url": "https://… (a real page)"}
+    {"ticker": "8035", "currency": "JPY", "revenue": 2400000, "cogs": 1500000,
+     "capex": 150000, "rnd": 180000, "sga": 300000, "as_of": "2025-03-31",
+     "source_url": "https://… (a real page)"}
   ]
 }
 """
@@ -154,6 +161,7 @@ def research_financials_events(
         yield {
             "event": "filled",
             "ticker": record.company_ticker,
+            "currency": record.currency,
             "revenue": record.revenue,
             "cogs": record.cogs,
             "capex": record.capex,

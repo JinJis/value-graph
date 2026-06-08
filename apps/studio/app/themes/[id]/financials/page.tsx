@@ -31,7 +31,10 @@ const FIELDS = [
 ] as const;
 
 type FieldKey = (typeof FIELDS)[number]["key"];
-type Draft = Record<FieldKey, string> & { as_of_date: string };
+type Draft = Record<FieldKey, string> & {
+  currency: string;
+  as_of_date: string;
+};
 
 const EMPTY_DRAFT: Draft = {
   revenue: "",
@@ -39,8 +42,35 @@ const EMPTY_DRAFT: Draft = {
   capex: "",
   rnd: "",
   sga: "",
+  currency: "",
   as_of_date: "",
 };
+
+// Fallback reporting currency by listing country, used to pre-fill the column until Deep
+// Research (or the admin) confirms it. Figures are always in millions of THIS currency.
+const COUNTRY_CURRENCY: Record<string, string> = {
+  "United States": "USD",
+  USA: "USD",
+  US: "USD",
+  Japan: "JPY",
+  "South Korea": "KRW",
+  Korea: "KRW",
+  Taiwan: "TWD",
+  China: "CNY",
+  "Hong Kong": "HKD",
+  Germany: "EUR",
+  France: "EUR",
+  Netherlands: "EUR",
+  Ireland: "EUR",
+  "United Kingdom": "GBP",
+  UK: "GBP",
+  Switzerland: "CHF",
+  Canada: "CAD",
+  India: "INR",
+};
+
+const guessCurrency = (country?: string | null): string =>
+  (country && COUNTRY_CURRENCY[country.trim()]) || "";
 
 const numOrNull = (s: string): number | null => {
   const t = s.trim();
@@ -78,6 +108,7 @@ export default function FinancialsPage() {
           capex: numStr(e.capex) ?? cur.capex,
           rnd: numStr(e.rnd) ?? cur.rnd,
           sga: numStr(e.sga) ?? cur.sga,
+          currency: numStr(e.currency) ?? cur.currency,
           as_of_date: numStr(e.as_of_date) ?? cur.as_of_date,
         },
       };
@@ -124,14 +155,17 @@ export default function FinancialsPage() {
       const tickers = list.map((c) => c.ticker);
       const fin = tickers.length ? await listFinancials(tickers) : [];
       const next: Record<string, Draft> = {};
-      for (const c of list) next[c.ticker] = { ...EMPTY_DRAFT };
+      for (const c of list)
+        next[c.ticker] = { ...EMPTY_DRAFT, currency: guessCurrency(c.country) };
       for (const f of fin) {
+        const c = list.find((x) => x.ticker === f.company_ticker);
         next[f.company_ticker] = {
           revenue: f.revenue?.toString() ?? "",
           cogs: f.cogs?.toString() ?? "",
           capex: f.capex?.toString() ?? "",
           rnd: f.rnd?.toString() ?? "",
           sga: f.sga?.toString() ?? "",
+          currency: f.currency ?? guessCurrency(c?.country),
           as_of_date: f.as_of_date ?? "",
         };
       }
@@ -165,6 +199,7 @@ export default function FinancialsPage() {
         capex: numOrNull(d.capex),
         rnd: numOrNull(d.rnd),
         sga: numOrNull(d.sga),
+        currency: d.currency.trim().toUpperCase() || null,
         as_of_date: d.as_of_date.trim() || null,
       });
       setSaved(ticker);
@@ -184,7 +219,12 @@ export default function FinancialsPage() {
           The complementary side of the CVE math: revenue + cost buckets let a
           supplier-side disclosure be cross-checked into a{" "}
           <strong>derived</strong> edge (instead of an estimate). Auto-fill with
-          Deep Research, or enter values manually — then Save.
+          Deep Research, or enter values manually — then Save. All figures are
+          in{" "}
+          <strong>
+            millions of each company&apos;s own reporting currency
+          </strong>{" "}
+          (the Currency column) — not converted to USD.
         </small>
       </p>
 
@@ -252,6 +292,15 @@ export default function FinancialsPage() {
                   padding: 6,
                 }}
               >
+                Currency
+              </th>
+              <th
+                style={{
+                  textAlign: "left",
+                  borderBottom: "1px solid #ccc",
+                  padding: 6,
+                }}
+              >
                 As of
               </th>
               <th style={{ borderBottom: "1px solid #ccc", padding: 6 }} />
@@ -279,6 +328,17 @@ export default function FinancialsPage() {
                       />
                     </td>
                   ))}
+                  <td style={{ padding: 6 }}>
+                    <input
+                      style={{ width: 56, textTransform: "uppercase" }}
+                      maxLength={3}
+                      placeholder="USD"
+                      value={d.currency}
+                      onChange={(e) =>
+                        setField(c.ticker, "currency", e.target.value)
+                      }
+                    />
+                  </td>
                   <td style={{ padding: 6 }}>
                     <input
                       type="date"
