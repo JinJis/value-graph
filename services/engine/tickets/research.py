@@ -31,7 +31,6 @@ from services.engine.blueprint.stream import _research_stream
 from services.engine.llm.router import LLMRouter, Tier
 from services.engine.prompts import registry
 from services.engine.themes.models import Theme
-from services.engine.tickets.cluster import DEFAULT_MAX_CLUSTER_SIZE, cluster_tickets
 from services.engine.tickets.models import Ticket
 from services.engine.tickets.repository import TicketRepository
 from services.engine.tickets.research_prompt import (
@@ -137,7 +136,7 @@ def _research_batch(
     attempts: int,
     structure_tier: Tier = Tier.MEDIUM,
 ) -> Iterator[Event]:
-    """Resolve ONE batch (cluster) of tickets in a single Deep Research call.
+    """Resolve a batch of tickets in a single Deep Research call.
 
     Emits prompt/llm_start/chunk/parse and per-ticket proposed/auto_resolved/skipped;
     the caller frames model/endpoint/batch_start/done."""
@@ -271,60 +270,11 @@ def research_tickets_events(
     tier: Tier = Tier.RESEARCH,
     attempts: int = 2,
 ) -> Iterator[Event]:
-    """Research all selected tickets in ONE Deep Research call (no clustering)."""
+    """Research all selected tickets in ONE Deep Research call (shared theme context)."""
     ticket_list = list(tickets)
     yield from _header_events(tier, router.model_for(tier), ticket_list)
     yield from _research_batch(
         theme, ticket_list, blueprint, router, ticket_repo, tier=tier, attempts=attempts
-    )
-    yield {"event": "done"}
-
-
-def research_ticket_clusters_events(
-    theme: Theme,
-    tickets: Iterable[Ticket],
-    blueprint: BlueprintRecord | None,
-    router: LLMRouter,
-    ticket_repo: TicketRepository,
-    *,
-    tier: Tier = Tier.RESEARCH,
-    cluster_tier: Tier = Tier.LOW,
-    attempts: int = 2,
-    max_cluster_size: int = DEFAULT_MAX_CLUSTER_SIZE,
-) -> Iterator[Event]:
-    """Cluster similar tickets with a cheap model, then run ONE Deep Research call per
-    cluster (focused + bounded) instead of one mega-prompt over everything."""
-    ticket_list = list(tickets)
-    yield from _header_events(tier, router.model_for(tier), ticket_list)
-    if not ticket_list:
-        yield {"event": "done"}
-        return
-
-    yield {
-        "event": "clustering",
-        "tier": cluster_tier.value,
-        "model": router.model_for(cluster_tier),
-    }
-    clusters = cluster_tickets(ticket_list, router, tier=cluster_tier, max_size=max_cluster_size)
-    sizes = [len(c) for c in clusters]
-    logger.info("research.clusters theme=%s clusters=%d sizes=%s", theme.id, len(clusters), sizes)
-    yield {"event": "clusters", "count": len(clusters), "sizes": sizes}
-
-    for index, cluster in enumerate(clusters):
-        yield {
-            "event": "cluster_start",
-            "index": index + 1,
-            "total": len(clusters),
-            "size": len(cluster),
-            "tickets": [
-                {"ticket_id": t.id, "target": t.target, "metric": t.metric} for t in cluster
-            ],
-        }
-        yield from _research_batch(
-            theme, cluster, blueprint, router, ticket_repo, tier=tier, attempts=attempts
-        )
-    logger.info(
-        "research.done theme=%s tickets=%d clusters=%d", theme.id, len(ticket_list), len(clusters)
     )
     yield {"event": "done"}
 

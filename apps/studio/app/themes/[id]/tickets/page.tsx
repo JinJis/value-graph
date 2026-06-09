@@ -336,29 +336,6 @@ export default function TicketQueuePage() {
         );
         break;
       }
-      case "clustering":
-        step("clustering (cheap model)", String(e.model ?? ""));
-        break;
-      case "clusters":
-        step(
-          `grouped into ${e.count} cluster(s)`,
-          Array.isArray(e.sizes) ? `sizes ${e.sizes.join(", ")}` : "",
-          "ok",
-        );
-        break;
-      case "cluster_start":
-        setProg((p) => ({
-          ...p,
-          output: "",
-          steps: [
-            ...p.steps,
-            {
-              label: `▼ cluster ${e.index}/${e.total}`,
-              detail: `${e.size} ticket(s) · one Deep Research call`,
-            },
-          ],
-        }));
-        break;
       case "proposed":
         if (tid)
           upsertOutcome(tid, {

@@ -51,7 +51,7 @@ def test_api_list_set_reset_roundtrip() -> None:
 
     listed = client.get("/prompts").json()
     keys = {p["key"] for p in listed}
-    assert "tickets.research" in keys and "cve.estimate" in keys  # all 13 registered
+    assert "tickets.research" in keys and "cve.estimate" in keys  # all prompts registered
     item = next(p for p in listed if p["key"] == key)
     assert item["is_overridden"] is False and item["effective"] == item["default"]
 
