@@ -40,7 +40,12 @@ erDiagram
   tickets |o--o{ sources : "ticket_id (evidence)"
   themes_meta ||..o{ production_snapshots : "theme_id (no FK)"
   themes_meta ||..o{ feed_items : "theme_id (no FK)"
+  company ||..o{ company_financials : "company_ticker"
+  company ||..o{ disclosure_calendar : "company_ticker"
 
+  company {
+    text ticker PK "Neo4j :Company — joined by ticker (cross-store, not a DB FK)"
+  }
   users {
     uuid id PK
     text email UK
@@ -218,8 +223,10 @@ def erd() -> HTMLResponse:
         _page(
             "ValueGraph — Data model (ERD)",
             "The relational store (Postgres) and the published graph store (Neo4j). "
-            "Diagrams track infra/migrations and the graph store; financials/calendar are "
-            "keyed by ticker (a logical link to the Neo4j :Company nodes, not a Postgres FK).",
+            "Diagrams track infra/migrations and the graph store. <b>company_financials</b> and "
+            "<b>disclosure_calendar</b> are keyed by <code>company_ticker</code> and join to the "
+            "Neo4j <code>:Company</code> by ticker (shown as <code>company</code> below) — a "
+            "cross-store link, not a Postgres FK.",
             [
                 ("Postgres (relational)", "Users, themes, sources, blueprints, tickets, "
                  "jobs, snapshots, feed, calendar, financials, prompt overrides.", _PG_ERD),

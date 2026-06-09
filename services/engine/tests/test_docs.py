@@ -29,6 +29,9 @@ def test_erd_renders_both_stores() -> None:
     for table in ("themes_meta", "sources", "tickets", "production_snapshots", "prompt_overrides"):
         assert table in body
     assert "SUPPLIES" in body and "SOURCED_FROM" in body
+    # financials/calendar are linked to Company by ticker (cross-store join).
+    assert 'company ||..o{ company_financials : "company_ticker"' in body
+    assert 'company ||..o{ disclosure_calendar : "company_ticker"' in body
 
 
 def test_openapi_is_tagged_and_describes_the_service() -> None:
