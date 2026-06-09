@@ -18,7 +18,10 @@ from services.engine.themes.router import get_repository as get_theme_repository
 from services.engine.themes.router import get_storage
 from services.engine.tickets.models import Ticket, TicketCreate
 from services.engine.tickets.repository import InMemoryTicketRepository
-from services.engine.tickets.research import research_tickets_events
+from services.engine.tickets.research import (
+    research_ticket_clusters_events,
+    research_tickets_events,
+)
 from services.engine.tickets.router import get_ticket_repository
 
 THEME = "theme-1"
@@ -248,6 +251,38 @@ def test_multiple_tickets_resolved_in_one_call() -> None:
     kinds = [e["event"] for e in events]
     assert "batch_start" in kinds  # one Deep Research call over all selected tickets
     assert kinds.count("auto_resolved") == 2
+    assert kinds[-1] == "done"
+    u1, u2 = repo.get_ticket(t1.id), repo.get_ticket(t2.id)
+    assert u1 is not None and u1.status == "UNRESOLVABLE"
+    assert u2 is not None and u2.status == "UNRESOLVABLE"
+
+
+class _ClusterFake:
+    """Light model returns no plan (-> fallback clustering by metric); each Deep Research
+    cluster call returns one not_found result for its single ticket (ref T1)."""
+
+    def generate_text(self, *, model: str, prompt: str) -> str:
+        return ""
+
+    def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+        result = {"results": [{"ref": "T1", "verdict": "not_found"}]}
+        yield {"kind": "text", "text": json.dumps(result)}
+
+
+def test_clustered_research_runs_one_call_per_cluster() -> None:
+    repo = InMemoryTicketRepository()
+    t1 = _open_ticket(repo, metric="revenue")
+    t2 = _open_ticket(repo, metric="cogs")
+    events = list(
+        research_ticket_clusters_events(_theme(), [t1, t2], None, _router(_ClusterFake()), repo)
+    )
+    kinds = [e["event"] for e in events]
+
+    assert "clustering" in kinds
+    clusters = next(e for e in events if e["event"] == "clusters")
+    assert clusters["count"] == 2  # different metrics -> 2 clusters (fallback)
+    assert kinds.count("cluster_start") == 2
+    assert kinds.count("auto_resolved") == 2  # one Deep Research call resolved each cluster
     assert kinds[-1] == "done"
     u1, u2 = repo.get_ticket(t1.id), repo.get_ticket(t2.id)
     assert u1 is not None and u1.status == "UNRESOLVABLE"

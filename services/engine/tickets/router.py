@@ -24,7 +24,7 @@ from services.engine.tickets.models import (
     TicketEvent,
 )
 from services.engine.tickets.repository import PostgresTicketRepository, TicketRepository
-from services.engine.tickets.research import research_tickets_events
+from services.engine.tickets.research import research_ticket_clusters_events
 from services.engine.tickets.state import derived_estimate, validate_transition
 
 logger = logging.getLogger("valuegraph.engine.tickets")
@@ -130,13 +130,15 @@ def stream_research_tickets(
         len(req.ticket_ids),
         len(selected),
     )
-    # Resolve all selected tickets in ONE Deep Research call (shared theme/value-chain
-    # context). Registered as a re-attachable task so it stays visible after navigating away.
+    # Group similar tickets (cheap model), then one Deep Research call per cluster — focused
+    # and bounded. Registered as a re-attachable task so it stays visible after navigating away.
     return task_sse(
         theme_id=theme_id,
         kind="tickets-research",
         label="Ticket research",
-        factory=lambda: research_tickets_events(theme, selected, blueprint, llm, tickets),
+        factory=lambda: research_ticket_clusters_events(
+            theme, selected, blueprint, llm, tickets
+        ),
     )
 
 
