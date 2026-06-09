@@ -151,12 +151,24 @@ def _gemini_timeout_ms() -> int:
 def _deep_research_timeout_seconds() -> float:
     """Per-call timeout (s) for a Deep Research run. These are agentic, multi-step
     tasks (plan→search→read→write) that take MINUTES, not seconds — the standard
-    ``GEMINI_TIMEOUT_SECONDS`` is far too short. Default 1h (the agent's own cap)."""
+    ``GEMINI_TIMEOUT_SECONDS`` is far too short, and the Interactions client's own
+    default is only 60s. Default 1h (the agent's own cap)."""
     raw = os.environ.get("DEEP_RESEARCH_TIMEOUT_SECONDS", "3600")
     try:
         return max(1.0, float(raw))
     except ValueError:
         return 3600.0
+
+
+def _deep_research_retrieve_seconds() -> float:
+    """How long to keep polling the stored interaction for its final report after the
+    progress stream closes (background runs can finish synthesising AFTER the SSE ends).
+    Default 5 min; the poll returns as soon as the interaction reaches a terminal state."""
+    raw = os.environ.get("DEEP_RESEARCH_RETRIEVE_SECONDS", "300")
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return 300.0
 
 
 class GeminiTextGenerator:
@@ -305,7 +317,10 @@ class GeminiTextGenerator:
         getter = getattr(interactions, "retrieve", None) or getattr(interactions, "get", None)
         if getter is None:
             return None
-        for _ in range(10):
+        interval = 5.0
+        waited = 0.0
+        deadline = _deep_research_retrieve_seconds()
+        while True:
             try:
                 obj = getter(interaction_id)
             except Exception as exc:  # SDK/network — give up quietly
@@ -317,9 +332,15 @@ class GeminiTextGenerator:
                 return text
             status = str(getattr(obj, "status", "") or "").lower()
             if status in ("completed", "succeeded", "done", "failed", "error", "cancelled"):
-                return None  # finished, but no text we can read
-            time.sleep(3)  # still running — wait, then re-check
-        return None
+                return None  # reached a terminal state, but no text we can read
+            if waited >= deadline:
+                logger.warning(
+                    "deep_research.retrieve_timeout id=%s waited=%.0fs status=%s",
+                    interaction_id, waited, status or "?",
+                )
+                return None
+            time.sleep(interval)  # still running — wait, then re-check
+            waited += interval
 
     def __repr__(self) -> str:
         # Never expose the key.
