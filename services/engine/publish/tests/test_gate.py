@@ -74,11 +74,12 @@ def test_override_allows_publish_and_is_logged(caplog) -> None:  # type: ignore[
     assert "validation-gate override" in caplog.text
 
 
-def test_unassembled_graph_never_passes() -> None:
-    build = _build()
-    withheld = assemble(build, threshold=0.99)  # below threshold -> withheld
+def test_empty_build_never_passes() -> None:
+    # Best-effort assembles below threshold; only a truly empty build is withheld → never passes.
+    empty = build_from_cve(_state().model_copy(update={"edges": {}, "claims": []}), version=1)
+    withheld = assemble(empty, threshold=0.5)
 
-    report = gate(withheld, build)
+    report = gate(withheld, empty)
 
     assert withheld.assembled is False
     assert report.passed is False

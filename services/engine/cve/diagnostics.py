@@ -327,9 +327,10 @@ def _findings(
                     "so every edge is missing 'next_expected_update' — a required field — and is "
                     f"demoted to a drawn gap ({build.gap_edges}/{build.total_edges} edges). This "
                     "is the main reason the build is "
-                    f"{round(build.completeness * 100)}% publishable.",
+                    f"{round(build.completeness * 100)}% publishable. You can still publish "
+                    "best-effort (all gaps drawn as ghosts) and fill this in after.",
                     action="Add per-company filing dates on the Disclosure Calendar step, then "
-                    "re-run the build (or re-assemble).",
+                    "re-run the build to turn ghosts into verified edges.",
                 )
             )
         estimated = last_run.stages.estimated if last_run and last_run.stages else 0
@@ -375,9 +376,11 @@ def _findings(
                 level="warn",
                 code="below_threshold",
                 message=f"Build is {round(build.completeness * 100)}% complete "
-                f"({build.publishable_edges}/{build.total_edges}), below the "
-                f"{round(build.threshold * 100)}% threshold.",
-                action="Improve coverage, or publish with a logged override.",
+                f"({build.publishable_edges}/{build.total_edges}), below the recommended "
+                f"{round(build.threshold * 100)}% threshold — but you can still publish "
+                "best-effort: verified figures show, the rest are drawn as gaps.",
+                action="Publish now and fill the gaps later (calendar/financials/tickets), "
+                "then re-run and re-publish a fuller version.",
             )
         )
     else:

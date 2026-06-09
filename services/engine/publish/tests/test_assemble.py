@@ -1,4 +1,4 @@
-"""[M4-ASM-02] Graph assembly: completeness gating, override logging, schema-only edges."""
+"""[M4-ASM-02] Graph assembly: best-effort (gaps drawn, never withheld), schema-only edges."""
 
 from __future__ import annotations
 
@@ -29,26 +29,28 @@ def test_assembles_when_completeness_meets_threshold() -> None:
     assert {c["ticker"] for c in result.companies} == {"INTC", "HPQ", "TSM", "NVDA"}
 
 
-def test_withholds_graph_below_threshold_without_override() -> None:
+def test_best_effort_assembles_below_threshold() -> None:
+    # Below the recommended threshold we still publish what we have — gaps are drawn, not hidden.
     result = assemble(_build(), threshold=0.7)
 
-    assert result.assembled is False
-    assert result.completeness.meets_threshold is False
+    assert result.assembled is True
+    assert result.completeness.meets_threshold is False  # reported, but not a gate
     assert result.completeness.completeness == 0.5
-    # Nothing assembled — admin must improve data or override.
-    assert result.edges == [] and result.ghost_edges == [] and result.companies == []
+    assert len(result.edges) == 1  # the verified figure is shown
+    assert len(result.ghost_edges) == 1  # the gap is drawn as a ghost to fill later
+    assert {c["ticker"] for c in result.companies} == {"INTC", "HPQ", "TSM", "NVDA"}
 
 
-def test_admin_override_assembles_and_is_logged(caplog) -> None:  # type: ignore[no-untyped-def]
+def test_below_threshold_publish_is_logged(caplog) -> None:  # type: ignore[no-untyped-def]
     override = OverrideLog(actor="admin@vg", reason="flagship launch; gaps tracked by ticket")
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         result = assemble(_build(), threshold=0.7, override=override)
 
     assert result.assembled is True
     assert result.override is not None and result.override.actor == "admin@vg"
     assert len(result.edges) == 1
-    # The override is audited.
-    assert "assembly override" in caplog.text
+    # The below-threshold publish (with the override actor/reason) is audited.
+    assert "best-effort assembly below threshold" in caplog.text
     assert "admin@vg" in caplog.text
 
 
@@ -64,7 +66,8 @@ def test_only_schema_valid_edges_are_admitted() -> None:
     assert result.completeness.publishable_edges == 1
 
 
-def test_empty_build_is_incomplete() -> None:
+def test_empty_build_is_not_assembled() -> None:
+    # A truly empty build (no figure, no gap) has nothing to show — best-effort can't help.
     build = build_from_cve(
         _state().model_copy(update={"edges": {}, "claims": []}), version=1
     )

@@ -40,19 +40,17 @@ def _seed(*, drop_source: bool = False) -> tuple[Theme, InMemoryProductionStore]
     return theme, prod
 
 
-def test_preview_threshold_gates_publish() -> None:
+def test_preview_is_best_effort_below_threshold() -> None:
     theme, _ = _seed()
     client = TestClient(app)
-    # Default threshold (0.7) > the build's 0.5 completeness → withheld.
-    withheld = client.get(f"/themes/{theme.id}/publish/preview")
-    assert withheld.status_code == 200, withheld.text
-    assert withheld.json()["can_publish"] is False
-    # Lower the completeness bar → publishable, gate clean.
-    ok = client.get(f"/themes/{theme.id}/publish/preview?threshold=0.5")
-    body = ok.json()
-    assert body["can_publish"] is True
+    # Below the recommended threshold (0.7 > 0.5) we STILL allow publish — best-effort: the
+    # one verified figure is shown, the gap is drawn as a ghost. Only an unsourced *admitted*
+    # figure (the validation gate) blocks publish, not low completeness.
+    body = client.get(f"/themes/{theme.id}/publish/preview").json()
+    assert body["can_publish"] is True  # gate clean despite 0.5 completeness
     assert body["gate"]["clean"] is True
     assert body["completeness"]["completeness"] == 0.5
+    assert body["completeness"]["meets_threshold"] is False  # reported, not a gate
 
 
 def test_publish_creates_snapshot_terminal_reads() -> None:

@@ -167,9 +167,11 @@ export default function PublishPage() {
       <h2 style={{ marginBottom: 4 }}>Publish</h2>
       <p style={{ color: "#475569", marginTop: 0 }}>
         <small>
-          Publish the latest build to Production (read-only) for the Terminal.
-          Every exposed figure must be fully sourced; issues block publish
-          unless you override with a logged reason.
+          Publish a build to Production (read-only) for the Terminal.
+          Best-effort: verified figures are shown and every gap is drawn as a
+          ghost edge to fill later — low completeness does not block publish.
+          Only an exposed figure missing its Source blocks publish (override
+          with a logged reason).
         </small>
       </p>
 
@@ -237,7 +239,12 @@ export default function PublishPage() {
           </p>
           {canPublish ? (
             <p style={{ color: "#15803d", margin: "0 0 8px" }}>
-              ✓ Ready to publish — every exposed figure is fully sourced.
+              ✓ Ready to publish (best-effort): {c?.publishable_edges ?? 0}{" "}
+              verified figure(s) shown
+              {(c?.gap_edges ?? 0) > 0
+                ? `, ${c?.gap_edges} gap(s) drawn as ghosts to fill later`
+                : ""}
+              .
             </p>
           ) : (
             <div style={{ margin: "0 0 8px" }}>
