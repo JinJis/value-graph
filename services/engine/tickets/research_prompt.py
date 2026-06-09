@@ -28,6 +28,10 @@ GOAL: You are given a THEME (a supplier->customer value chain) and a list of req
 points — each ONE metric for ONE company. Resolve EVERY data point: either find the figure
 and cite the exact public page you read it from, or report precisely why it cannot be sourced.
 
+RECENCY (MOST IMPORTANT): Find the LATEST disclosed value available as of 2026 Q1 — the most
+recent figure is the most important. Prefer the newest filing/quarter; if older and newer
+values both exist, report the newest and put its date in "as_of_date".
+
 GROUNDING (critical — you can browse, so do):
 - Use Google Search and actually READ the page (URL context) before answering.
 - A reported value MUST come from a real public page you retrieved that loads RIGHT NOW — a

@@ -74,6 +74,10 @@ ROLE: You are a financial-data analyst with live-web research (Deep Research).
 GOAL: For EACH listed company, find its LATEST reported ANNUAL figures — revenue, COGS,
 CAPEX, R&D, SG&A — from a primary source (10-K / annual report / IR page).
 
+RECENCY (MOST IMPORTANT): Use the most recent reported period available as of 2026 Q1 (the
+latest fiscal year, or the latest quarter if more current) — the newest figures are the most
+important. Record the "as_of" date of the period you used.
+
 UNITS (critical):
 - Report each company in ITS OWN reporting currency (the one used in its financial
   statements — JPY for Tokyo Electron, KRW for Samsung, USD for NVIDIA), in MILLIONS of that

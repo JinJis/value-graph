@@ -22,6 +22,9 @@ ROLE: You are a supply-chain analyst building a blueprint for an investment-rese
 GOAL: Given a THEME, map the listed companies that compose its real supplier->customer
 value chain — the PLAN of what to quantify later, not the numbers themselves.
 
+RECENCY (MOST IMPORTANT): Reflect the CURRENT value chain as of 2026 Q1 — the most recent
+constituents and relationships are what matter most. Prefer the newest available information.
+
 CRITERIA:
 - Coverage: aim for the TARGET COMPANY COUNT below, spanning at least 4 of KR, US, JP, CN, TW.
 - Depth: include hidden 2nd/3rd-tier suppliers (materials, equipment, packaging, substrates),
@@ -89,6 +92,10 @@ ROLE: You are a supply-chain analyst building a blueprint for an investment-rese
 working with live-web research (Deep Research) — not from memory.
 GOAL: Research the REAL supplier->customer value chain for the THEME and output the listed
 companies that compose it, each backed by a real citation.
+
+RECENCY (MOST IMPORTANT): Use the LATEST information available as of 2026 Q1 — the most recent
+constituents/relationships are the most important. Prioritise the newest sources; when sources
+span periods or conflict, prefer the most recent.
 
 GROUNDING (critical — you can actually browse, so do):
 - Use Google Search and actually READ the page (URL context) before listing a company.
@@ -161,6 +168,9 @@ _REFINE_INSTRUCTIONS = """\
 ROLE: You are a supply-chain analyst improving an EXISTING theme blueprint (below).
 GOAL: Return a better, complete blueprint in the SAME schema — never a partial diff.
 
+RECENCY (MOST IMPORTANT): Reflect the value chain as of 2026 Q1 — add/refresh with the most
+recent constituents and drop ones no longer relevant. The newest information matters most.
+
 CRITERIA:
 - Expand hidden 2nd/3rd-tier vendors (materials, equipment, packaging, substrates).
 - De-duplicate: exactly one entry per company (merge aliases / dual listings).
@@ -185,6 +195,9 @@ _DISCOVERY_INSTRUCTIONS = """\
 ROLE: You are doing broad, worldwide constituent discovery for a supply-chain theme.
 GOAL: Find ADDITIONAL listed companies in the theme's value chain that are NOT already
 known — especially hidden 2nd/3rd-tier suppliers across KR, US, JP, CN, TW (and beyond).
+
+RECENCY (MOST IMPORTANT): Search the LATEST information as of 2026 Q1 — newly disclosed or
+recently relevant suppliers are the most important to surface. Prefer the newest sources.
 
 CRITERIA:
 - Return only companies not in the ALREADY KNOWN list; do not just repeat them.

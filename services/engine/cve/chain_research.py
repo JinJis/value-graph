@@ -69,6 +69,10 @@ GOAL: Research the REAL supplier->customer trades AMONG the listed companies, pl
 ONLY for the companies under FINANCIALS NEEDED. Output structured, fully-sourced data the
 engine will cross-check from both ledgers.
 
+RECENCY (MOST IMPORTANT): Report the LATEST disclosed figures available as of 2026 Q1 — the
+most recent trades/financials are the most important. Prefer the newest filing/quarter; when
+disclosures conflict or span periods, take the most recent and record its "as_of" date.
+
 GROUNDING (critical — you can browse, so do):
 - Use Google Search and actually READ the page (URL context) before reporting any number.
 - ONLY use companies from the KNOWN COMPANIES list, with their EXACT tickers.
