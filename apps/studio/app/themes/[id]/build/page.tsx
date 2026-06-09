@@ -44,8 +44,13 @@ export default function BuildPage() {
           "ok",
         );
         break;
-      case "financial_tickets":
-        step("financial tickets", `${e.opened} opened for missing figures`, "warn");
+      case "financials_missing":
+        step(
+          "financials missing",
+          `${e.count} compan${e.count === 1 ? "y" : "ies"} still need revenue/COGS — ` +
+            "fill them on the Financials step (per-company Research or manual entry)",
+          "warn",
+        );
         break;
       case "start":
         step("ingest", `${e.documents} document(s) · ${e.companies} companies`);

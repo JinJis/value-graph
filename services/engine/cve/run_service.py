@@ -44,7 +44,6 @@ from services.engine.llm.router import LLMRouter
 from services.engine.storage import Storage
 from services.engine.themes.models import SourceRecord, Theme
 from services.engine.themes.repository import ThemeRepository
-from services.engine.tickets.models import TicketCreate
 from services.engine.tickets.repository import TicketRepository
 
 # Financial buckets the CVE derivation needs (supplier revenue + customer COGS); missing
@@ -293,34 +292,27 @@ def run_cve_for_theme(
     )
 
 
-def _open_financial_gap_tickets(
-    theme_id: str,
-    blueprint: BlueprintRecord,
-    financials_repo: FinancialsRepository,
-    ticket_repo: TicketRepository,
-) -> int:
-    """Open a ``financials:<bucket>`` ticket per company still missing a required bucket
-    (idempotent via the repo's unique key). So unsourced financials become tickets too."""
+def _missing_financials(
+    blueprint: BlueprintRecord, financials_repo: FinancialsRepository
+) -> list[dict[str, Any]]:
+    """Companies still missing a required bucket (revenue/COGS). Financials are admin-entered
+    (or filled on the Financials step's Deep Research) — NOT a Deep-Research ticket — so we
+    surface them as guidance to fill on the Financials step rather than opening tickets."""
     tickers = [c.ticker for c in blueprint.companies]
     have = {r.company_ticker: r for r in financials_repo.list_for(tickers)}
-    opened = 0
+    out: list[dict[str, Any]] = []
     for company in blueprint.companies:
         record = have.get(company.ticker)
-        for bucket in _REQUIRED_FINANCIAL_BUCKETS:
-            if record is not None and getattr(record, bucket) is not None:
-                continue
-            ticket = ticket_repo.create_open_ticket(
-                theme_id,
-                TicketCreate(
-                    target=company.ticker,
-                    metric=f"financials:{bucket}",
-                    reason=f"missing {bucket} for {company.name} ({company.ticker})",
-                ),
+        missing = [
+            b
+            for b in _REQUIRED_FINANCIAL_BUCKETS
+            if record is None or getattr(record, b) is None
+        ]
+        if missing:
+            out.append(
+                {"ticker": company.ticker, "name": company.name, "missing": missing}
             )
-            if ticket is not None:
-                ticket_repo.record_event(ticket.id, None, "OPEN", "system")
-                opened += 1
-    return opened
+    return out
 
 
 def research_and_build_events(
@@ -349,11 +341,11 @@ def research_and_build_events(
         claims = yield from research_chain_events(
             theme, blueprint, theme_repo, financials_repo, router, today=today
         )
-        opened = _open_financial_gap_tickets(
-            theme.id, blueprint, financials_repo, ticket_repo
-        )
-        if opened:
-            yield {"event": "financial_tickets", "opened": opened}
+        # Missing financials are filled on the Financials step (manual or per-company Deep
+        # Research), not via tickets — surface them as guidance instead of opening tickets.
+        missing = _missing_financials(blueprint, financials_repo)
+        if missing:
+            yield {"event": "financials_missing", "count": len(missing), "companies": missing}
 
     yield {"event": "phase", "phase": "build"}
     yield from run_cve_events_for_theme(

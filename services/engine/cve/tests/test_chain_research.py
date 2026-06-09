@@ -217,6 +217,17 @@ def _frames(text: str) -> list[dict[str, object]]:
     ]
 
 
+def test_missing_financials_lists_companies_lacking_required_buckets() -> None:
+    from services.engine.cve.run_service import _missing_financials
+
+    blueprint = _blueprint("t1")  # INTC, HPQ
+    fin = InMemoryFinancialsRepository()
+    fin.upsert(FinancialsUpsert(company_ticker="INTC", revenue=100.0, cogs=80.0))  # complete
+    fin.upsert(FinancialsUpsert(company_ticker="HPQ", revenue=53.0))  # missing cogs
+    missing = _missing_financials(blueprint, fin)
+    assert missing == [{"ticker": "HPQ", "name": "HP Inc.", "missing": ["cogs"]}]
+
+
 def test_research_and_build_endpoint_yields_derived_publishable_graph() -> None:
     theme = _seed_app()
     client = TestClient(app)
@@ -228,6 +239,8 @@ def test_research_and_build_endpoint_yields_derived_publishable_graph() -> None:
     assert "researched" in kinds
     assert kinds.count("stage") == 7  # the build phase ran S1-S7
     assert kinds[-1] == "done"
+    # Missing financials are surfaced as guidance to the Financials step, NOT as tickets.
+    assert "financials_missing" in kinds and "financial_tickets" not in kinds
     persisted = next(e for e in events if e["event"] == "persisted")
     assert int(persisted["publishable_edges"]) >= 1  # type: ignore[call-overload]
     assert int(persisted["estimated_edges"]) == 0  # type: ignore[call-overload]
