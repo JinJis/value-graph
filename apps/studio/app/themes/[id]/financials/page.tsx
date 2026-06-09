@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   applyProgEvent,
@@ -107,6 +107,14 @@ export default function FinancialsPage() {
     null,
   );
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // The live panel sits at the top; a per-company Research button is down in the table — so
+  // scroll the panel into view when a run starts so its streaming progress is actually seen.
+  useEffect(() => {
+    if (prog.running)
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [prog.running]);
 
   const numStr = (v: unknown): string | null =>
     typeof v === "number" ? String(v) : typeof v === "string" ? v : null;
@@ -269,16 +277,20 @@ export default function FinancialsPage() {
           Finds revenue + cost buckets per company (with citations) and fills
           the table; review and Save.
         </small>
-        <BlueprintProgress
-          prog={prog}
-          markdown
-          onStop={(id) => void cancelTask(id)}
-          labels={{
-            running: "Researching financials…",
-            done: "Financials researched",
-            idle: "Financials research",
-          }}
-        />
+        <div ref={panelRef}>
+          <BlueprintProgress
+            prog={prog}
+            markdown
+            onStop={(id) => void cancelTask(id)}
+            labels={{
+              running: researchingTicker
+                ? `Researching ${researchingTicker}'s financials…`
+                : "Researching financials…",
+              done: "Financials researched",
+              idle: "Financials research",
+            }}
+          />
+        </div>
       </div>
 
       {error && <p style={{ color: "crimson" }}>{error}</p>}
