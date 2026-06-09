@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Markdown } from "./Markdown";
 
@@ -24,6 +24,7 @@ export interface Prog {
   error?: string;
   done: boolean;
   running: boolean;
+  taskId?: string; // the in-flight task (for Stop), from the leading `task` event
 }
 
 const TONE: Record<string, string> = {
@@ -51,7 +52,19 @@ export function applyProgEvent(prev: Prog, e: AnyEvent): Prog {
 
   switch (e.event) {
     case "task":
-      return { output: "", steps: [], done: false, running: true };
+      return {
+        output: "",
+        steps: [],
+        done: false,
+        running: true,
+        taskId: e.task_id ? String(e.task_id) : undefined,
+      };
+    case "cancelled":
+      return {
+        ...withStep("Stopped by admin", undefined, "warn"),
+        running: false,
+        done: true,
+      };
     case "model":
       return {
         ...withStep(`Routed to ${e.tier} model ${e.model}`, undefined, "ok"),
@@ -130,13 +143,22 @@ export function BlueprintProgress({
   prog,
   markdown = false,
   labels,
+  onStop,
 }: {
   prog: Prog;
   markdown?: boolean;
   labels?: ProgLabels;
+  // Stop the running task; shown when a run is live and we know its task id.
+  onStop?: (taskId: string) => void | Promise<void>;
 }) {
   const text = { ...DEFAULT_LABELS, ...labels };
   const outRef = useRef<HTMLDivElement>(null);
+  const [stopping, setStopping] = useState(false);
+
+  // Reset the stop button once the run is no longer live.
+  useEffect(() => {
+    if (!prog.running) setStopping(false);
+  }, [prog.running]);
 
   // Keep the streaming output scrolled to the newest tokens.
   useEffect(() => {
@@ -186,6 +208,24 @@ export function BlueprintProgress({
           <span style={{ fontSize: 12, color: "#64748b" }}>
             streaming {prog.output.length.toLocaleString()} chars…
           </span>
+        )}
+        {onStop && prog.running && prog.taskId && (
+          <button
+            type="button"
+            onClick={() => {
+              setStopping(true);
+              void onStop(prog.taskId as string);
+            }}
+            disabled={stopping}
+            style={{
+              marginLeft: "auto",
+              fontSize: 12,
+              color: "#b91c1c",
+              borderColor: "#fca5a5",
+            }}
+          >
+            {stopping ? "Stopping…" : "■ Stop"}
+          </button>
         )}
       </div>
 

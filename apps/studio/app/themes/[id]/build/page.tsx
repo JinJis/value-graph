@@ -14,6 +14,7 @@ import {
 import { useResumableRun } from "../../../../components/useResumableRun";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
+  cancelTask,
   researchAndBuildStream,
   runThemeCveStream,
   type CveRunEvent,
@@ -115,6 +116,7 @@ export default function BuildPage() {
       <BlueprintProgress
         prog={prog}
         markdown
+        onStop={(id) => void cancelTask(id)}
         labels={{
           running: "Researching & building…",
           done: "Build complete",

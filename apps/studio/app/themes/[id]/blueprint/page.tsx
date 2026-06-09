@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
   approveBlueprint,
+  cancelTask,
   discoverBlueprintStream,
   generateBlueprintStream,
   getBlueprint,
@@ -170,7 +171,11 @@ export default function BlueprintReviewPage() {
   function onProgEvent(e: BlueprintEvent) {
     if (e.event === "task") {
       // Stream (re)attached — start a fresh live panel before replay.
-      setProg({ ...EMPTY_PROG, running: true });
+      setProg({
+        ...EMPTY_PROG,
+        running: true,
+        taskId: e.task_id ? String(e.task_id) : undefined,
+      });
       return;
     }
     setProg((p) => {
@@ -283,6 +288,14 @@ export default function BlueprintReviewPage() {
         case "done":
           next.done = true;
           next.running = false;
+          break;
+        case "cancelled":
+          next.steps = [
+            ...p.steps,
+            { label: "Stopped by admin", tone: "warn" },
+          ];
+          next.running = false;
+          next.done = true;
           break;
       }
       return next;
@@ -407,7 +420,11 @@ export default function BlueprintReviewPage() {
       )}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
 
-      <BlueprintProgress prog={prog} markdown />
+      <BlueprintProgress
+        prog={prog}
+        markdown
+        onStop={(id) => void cancelTask(id)}
+      />
 
       <p>
         <label>

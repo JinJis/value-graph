@@ -638,10 +638,19 @@ export interface TaskInfo {
   theme_id: string;
   kind: string; // blueprint-generate | tickets-research | financials-research | cve-* | …
   label: string;
-  status: "running" | "done" | "error";
+  status: "running" | "done" | "error" | "cancelled";
   created_at: string;
   updated_at: string;
   event_count: number;
+}
+
+// Stop a running LLM/Deep-Research task; the worker halts at the next event boundary.
+export async function cancelTask(taskId: string): Promise<TaskInfo> {
+  return json(
+    await fetch(url(`/tasks/${encodeURIComponent(taskId)}/cancel`), {
+      method: "POST",
+    }),
+  );
 }
 
 // Running + recent runs for a theme (what the activity indicator shows).

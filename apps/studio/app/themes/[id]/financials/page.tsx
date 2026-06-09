@@ -11,6 +11,7 @@ import {
 import { useResumableRun } from "../../../../components/useResumableRun";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
+  cancelTask,
   getBlueprint,
   listFinancials,
   putFinancials,
@@ -263,6 +264,7 @@ export default function FinancialsPage() {
         <BlueprintProgress
           prog={prog}
           markdown
+          onStop={(id) => void cancelTask(id)}
           labels={{
             running: "Researching financials…",
             done: "Financials researched",

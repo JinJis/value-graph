@@ -103,6 +103,51 @@ def test_error_status_and_replays_error() -> None:
     assert "error" in _kinds(_drain(tm.subscribe(tid)))
 
 
+def test_cancel_stops_the_worker_and_emits_cancelled() -> None:
+    tm = TaskManager()
+    gate = threading.Event()
+    closed = threading.Event()
+
+    def factory() -> Iterator[Event]:
+        try:
+            while True:
+                yield {"event": "chunk"}
+                gate.wait(2)  # block until the test lets the next event through
+        finally:
+            closed.set()  # GeneratorExit from gen.close() runs this
+
+    tid = tm.start(theme_id="t", kind="k", label="K", factory=factory)
+    _wait(lambda: (i := tm.get(tid)) is not None and i.event_count >= 1)
+
+    info = tm.cancel(tid)
+    assert info is not None
+    gate.set()  # release the worker so it reaches the next cancel check
+
+    _wait(lambda: (i := tm.get(tid)) is not None and i.status == "cancelled")
+    assert closed.is_set()  # the underlying generator was closed (stream torn down)
+    assert "cancelled" in _kinds(_drain(tm.subscribe(tid)))
+
+
+def test_cancel_unknown_task_returns_none() -> None:
+    assert TaskManager().cancel("nope") is None
+
+
+def test_cancelled_kind_is_not_reused() -> None:
+    tm = TaskManager()
+    gate = threading.Event()
+
+    def factory() -> Iterator[Event]:
+        yield {"event": "chunk"}
+        gate.wait(2)
+
+    a = tm.start(theme_id="t", kind="k", label="K", factory=factory)
+    _wait(lambda: (i := tm.get(a)) is not None and i.event_count >= 1)
+    tm.cancel(a)  # request stop (status still RUNNING until the worker reacts)
+    b = tm.start(theme_id="t", kind="k", label="K", factory=lambda: iter([]))
+    assert b != a  # a cancelling task is not reused — a fresh one starts
+    gate.set()
+
+
 def test_list_filters_by_theme() -> None:
     tm = TaskManager()
     a = tm.start(theme_id="t1", kind="k", label="K", factory=lambda: iter([]))

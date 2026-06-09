@@ -29,6 +29,7 @@ Event = dict[str, object]
 RUNNING = "running"
 DONE = "done"
 ERROR = "error"
+CANCELLED = "cancelled"
 
 # How many finished tasks to keep around (so a returning admin still sees recent results).
 _MAX_FINISHED = 50
@@ -60,6 +61,13 @@ class _Task:
         self.events: list[Event] = []
         self._subscribers: set[queue.Queue[Event | None]] = set()
         self._lock = threading.Lock()
+        self._cancel = threading.Event()  # set by an admin "stop"; worker checks between events
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def is_cancelled(self) -> bool:
+        return self._cancel.is_set()
 
     def info(self) -> TaskInfo:
         with self._lock:
@@ -122,7 +130,10 @@ class TaskManager:
             (
                 t
                 for t in self._tasks.values()
-                if t.theme_id == theme_id and t.kind == kind and t.status == RUNNING
+                if t.theme_id == theme_id
+                and t.kind == kind
+                and t.status == RUNNING
+                and not t.is_cancelled()  # a cancelling task isn't reusable — start fresh
             ),
             None,
         )
@@ -159,15 +170,29 @@ class TaskManager:
 
         def worker() -> None:
             logger.info("task.start kind=%s theme=%s id=%s", kind, theme_id, task.id)
+            gen = factory()
             try:
-                for event in factory():
+                for event in gen:
+                    if task.is_cancelled():
+                        # Stop the underlying Gemini/Deep-Research stream and bail out.
+                        close = getattr(gen, "close", None)
+                        if close is not None:
+                            try:
+                                close()  # raises GeneratorExit inside for cleanup
+                            except Exception:  # pragma: no cover - defensive
+                                pass
+                        task.publish({"event": "cancelled", "detail": "stopped by admin"})
+                        task.finish(CANCELLED)
+                        logger.info("task.cancelled kind=%s id=%s", kind, task.id)
+                        return
                     task.publish(event)
-                task.finish(DONE)
-                logger.info("task.done kind=%s id=%s events=%d", kind, task.id, len(task.events))
             except Exception as exc:  # never lose the cause
                 logger.exception("task.error kind=%s id=%s: %s", kind, task.id, exc)
                 task.publish({"event": "error", "detail": f"{type(exc).__name__}: {exc}"})
                 task.finish(ERROR)
+                return
+            task.finish(DONE)
+            logger.info("task.done kind=%s id=%s events=%d", kind, task.id, len(task.events))
 
         threading.Thread(target=worker, name=f"task:{kind}:{task.id}", daemon=True).start()
         return task.id
@@ -182,6 +207,17 @@ class TaskManager:
     def get(self, task_id: str) -> TaskInfo | None:
         task = self._tasks.get(task_id)
         return task.info() if task is not None else None
+
+    def cancel(self, task_id: str) -> TaskInfo | None:
+        """Request a running task stop. The worker halts at the next event boundary, closing
+        the underlying Gemini stream. Returns the task info, or None if unknown."""
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+        if task.status == RUNNING:
+            task.cancel()
+            logger.info("task.cancel_requested kind=%s id=%s", task.kind, task_id)
+        return task.info()
 
     def list(self, theme_id: str | None = None) -> list[TaskInfo]:
         with self._lock:

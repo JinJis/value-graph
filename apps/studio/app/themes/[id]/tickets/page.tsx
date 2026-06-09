@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 
 import {
+  cancelTask,
   dismissTicketProposal,
   generateTickets,
   listTickets,
@@ -530,6 +531,7 @@ export default function TicketQueuePage() {
           <BlueprintProgress
             prog={prog}
             markdown
+            onStop={(id) => void cancelTask(id)}
             labels={{
               running: "Researching…",
               done: "Research complete",
