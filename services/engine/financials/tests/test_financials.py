@@ -136,6 +136,44 @@ def test_research_financials_endpoint_streams_and_fills() -> None:
     assert rec is not None and rec.revenue == 53000.0
 
 
+def test_research_financials_endpoint_filters_by_tickers() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    blueprints = InMemoryBlueprintRepository()
+    blueprints.save(
+        Blueprint(
+            theme_id=theme.id,
+            version=1,
+            companies=[
+                BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer"),
+                BlueprintCompany(ticker="INTC", name="Intel", country="US", role="supplier"),
+            ],
+        )
+    )
+    fin = InMemoryFinancialsRepository()
+    app.dependency_overrides[get_theme_repository] = lambda: themes
+    app.dependency_overrides[get_blueprint_repository] = lambda: blueprints
+    app.dependency_overrides[get_financials_repository] = lambda: fin
+    app.dependency_overrides[get_router] = lambda: _research_router()
+    try:
+        client = TestClient(app)
+        ok = client.post(f"/themes/{theme.id}/financials/research/stream?tickers=HPQ")
+        assert ok.status_code == 200, ok.text
+        prompt = next(
+            json.loads(line[5:])
+            for line in ok.text.splitlines()
+            if line.startswith("data:") and '"event": "prompt"' in line
+        )
+        assert "HPQ" in prompt["text"] and "INTC" not in prompt["text"]  # only HPQ researched
+
+        # An unknown ticker -> 404 (not a silent all-companies run).
+        bad = client.post(f"/themes/{theme.id}/financials/research/stream?tickers=NVDA")
+        assert bad.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+    assert fin.get("HPQ") is not None and fin.get("INTC") is None  # only HPQ filled
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     repo = InMemoryFinancialsRepository()  # one instance shared across requests

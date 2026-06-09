@@ -711,13 +711,18 @@ export async function putFinancials(
 
 // Deep Research the blueprint companies' financials and fill the store, over SSE.
 // Events: model/prompt/chunk/parse, then `filled` per company, then `done`.
+// `tickers` (optional) restricts research to those companies (e.g. one row); omit for all.
 export const researchFinancialsStream = (
   themeId: string,
   onEvent: (event: CveRunEvent) => void,
+  tickers?: string[],
   signal?: AbortSignal,
 ): Promise<void> =>
   postEventStream<CveRunEvent>(
-    `/themes/${themeId}/financials/research/stream`,
+    `/themes/${themeId}/financials/research/stream` +
+      (tickers && tickers.length
+        ? `?tickers=${encodeURIComponent(tickers.join(","))}`
+        : ""),
     onEvent,
     signal,
   );

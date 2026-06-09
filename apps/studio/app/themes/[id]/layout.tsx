@@ -199,7 +199,7 @@ export default function ThemeLayout({
           {runningTasks.map((t) => (
             <Link
               key={t.id}
-              href={stepHref(id, KIND_STEP[t.kind] ?? "")}
+              href={stepHref(id, KIND_STEP[t.kind.split(":")[0]] ?? "")}
               style={{
                 display: "inline-flex",
                 alignItems: "center",

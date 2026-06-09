@@ -59,9 +59,11 @@ def stream_research_financials(
     blueprints: BlueprintRepoDep,
     repo: FinancialsRepoDep,
     llm: RouterDep,
+    tickers: Annotated[str | None, Query()] = None,
 ) -> StreamingResponse:
-    """Deep Research the blueprint companies' financials (revenue + cost buckets) and fill
-    the store, as a live SSE stream. Detached: finishes even if the admin closes the tab."""
+    """Deep Research blueprint companies' financials (revenue + cost buckets) and fill the
+    store, as a live SSE stream. Pass ``tickers`` (comma-separated) to research only those
+    companies (e.g. one row) instead of all. Detached: finishes even if the tab closes."""
     theme = themes.get_theme(theme_id)
     if theme is None:
         raise HTTPException(status_code=404, detail="theme not found")
@@ -70,9 +72,19 @@ def stream_research_financials(
         raise HTTPException(
             status_code=409, detail="no blueprint companies; generate one first"
         )
+    companies = blueprint.companies
+    kind = "financials-research"
+    if tickers:
+        wanted = {t.strip().upper() for t in tickers.split(",") if t.strip()}
+        companies = [c for c in blueprint.companies if c.ticker.upper() in wanted]
+        if not companies:
+            raise HTTPException(status_code=404, detail="no matching blueprint companies")
+        # A distinct kind per ticker set so per-company runs don't dedupe with each other
+        # (or with the "all" run) and each stays independently re-attachable.
+        kind = "financials-research:" + ",".join(sorted(c.ticker for c in companies))
     return task_sse(
         theme_id=theme_id,
-        kind="financials-research",
+        kind=kind,
         label="Financials research",
-        factory=lambda: research_financials_events(theme, blueprint.companies, repo, llm),
+        factory=lambda: research_financials_events(theme, companies, repo, llm),
     )

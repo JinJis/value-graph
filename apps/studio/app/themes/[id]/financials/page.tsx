@@ -103,6 +103,9 @@ export default function FinancialsPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [researching, setResearching] = useState(false);
+  const [researchingTicker, setResearchingTicker] = useState<string | null>(
+    null,
+  );
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
 
   const numStr = (v: unknown): string | null =>
@@ -143,16 +146,19 @@ export default function FinancialsPage() {
     }));
   }
 
-  async function onResearch() {
+  // `tickers` undefined -> research all; a single-element array -> just that company.
+  async function onResearch(tickers?: string[]) {
     setResearching(true);
+    if (tickers?.length === 1) setResearchingTicker(tickers[0]);
     setProg({ ...EMPTY_PROG, running: true });
     try {
-      await researchFinancialsStream(themeId, onResearchEvent);
+      await researchFinancialsStream(themeId, onResearchEvent, tickers);
       await load();
     } catch (e) {
       setProg((p) => ({ ...p, running: false, error: String(e) }));
     } finally {
       setResearching(false);
+      setResearchingTicker(null);
     }
   }
 
@@ -255,7 +261,9 @@ export default function FinancialsPage() {
           onClick={() => void onResearch()}
           disabled={busy || companies.length === 0}
         >
-          {busy ? "Researching…" : "Auto-fill with Deep Research"}
+          {busy && !researchingTicker
+            ? "Researching all…"
+            : "Auto-fill ALL with Deep Research"}
         </button>{" "}
         <small style={{ color: "#64748b" }}>
           Finds revenue + cost buckets per company (with citations) and fills
@@ -405,7 +413,7 @@ export default function FinancialsPage() {
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: 6 }}>
+                  <td style={{ padding: 6, whiteSpace: "nowrap" }}>
                     <button
                       type="button"
                       onClick={() => void onSave(c.ticker)}
@@ -415,7 +423,18 @@ export default function FinancialsPage() {
                     </button>
                     {saved === c.ticker && (
                       <span style={{ color: "#15803d", marginLeft: 6 }}>✓</span>
-                    )}
+                    )}{" "}
+                    <button
+                      type="button"
+                      onClick={() => void onResearch([c.ticker])}
+                      disabled={busy}
+                      title={`Deep Research just ${c.ticker}'s financials`}
+                      style={{ fontSize: 12 }}
+                    >
+                      {researchingTicker === c.ticker
+                        ? "Researching…"
+                        : "🔍 Research"}
+                    </button>
                   </td>
                 </tr>
               );
