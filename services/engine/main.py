@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 
 from services.engine.blueprint.router import router as blueprint_router
 from services.engine.cve.router import router as cve_router
+from services.engine.docs_router import router as docs_router
 from services.engine.feed.router import router as feed_router
 from services.engine.financials.router import router as financials_router
 from services.engine.jobs.router import router as jobs_router
@@ -66,7 +67,46 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="ValueGraph Engine", version="0.0.0", lifespan=_lifespan)
+_DESCRIPTION = """\
+The **ValueGraph Engine** — FastAPI + LangGraph service that builds a B2C supply-chain graph
+and serves it to the Terminal.
+
+**Two-Track:** Studio edits **Staging** → an explicit **Publish** copies it to read-only
+**Production**, which the Terminal renders. All LLM calls go through the Gemini router.
+
+- 🗺️ **[Database ERD](/erd)** — Postgres schema + Neo4j graph model
+- 📖 **[ReDoc](/redoc)** · **[OpenAPI JSON](/openapi.json)**
+"""
+
+# Tag descriptions surface in Swagger UI / ReDoc as section intros (order = display order).
+_TAGS = [
+    {"name": "themes", "description": "Themes and their uploaded Sources."},
+    {"name": "blueprint",
+     "description": "Blueprint generation / refine / discovery (Deep Research)."},
+    {"name": "tickets",
+     "description": "Gap tickets + Deep Research resolution (human-in-the-loop)."},
+    {"name": "cve",
+     "description": "Cross-Verification Engine runs, research-and-build, diagnostics."},
+    {"name": "financials",
+     "description": "Per-company financials — the CVE complementary side."},
+    {"name": "sources", "description": "Source document content + ticket evidence uploads."},
+    {"name": "publish",
+     "description": "Assemble, gate, publish to Production; staging/published graph."},
+    {"name": "feed",
+     "description": "Live Context Feed items (raw, context only — no scoring)."},
+    {"name": "jobs", "description": "Background job / CVE-run records."},
+    {"name": "tasks", "description": "Resumable in-flight task registry (re-attach SSE)."},
+    {"name": "prompts",
+     "description": "Admin-editable LLM / Deep Research prompt templates."},
+]
+
+app = FastAPI(
+    title="ValueGraph Engine",
+    version="0.1.0",
+    description=_DESCRIPTION,
+    openapi_tags=_TAGS,
+    lifespan=_lifespan,
+)
 
 
 @app.exception_handler(InvalidTransition)
@@ -124,6 +164,7 @@ app.include_router(feed_router)
 app.include_router(jobs_router)
 app.include_router(tasks_router)
 app.include_router(prompts_router)
+app.include_router(docs_router)
 
 
 @app.get("/health")

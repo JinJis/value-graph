@@ -23,6 +23,12 @@ export default function Page() {
         {" · "}
         <Link href="/prompts">→ Prompts</Link>
       </p>
+      <p style={{ color: "#475569" }}>
+        <small>
+          {/* Full-page nav to the engine's docs (served through the /engine proxy). */}
+          <a href="/engine/">→ API docs &amp; database ERD</a>
+        </small>
+      </p>
     </main>
   );
 }
