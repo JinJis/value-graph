@@ -114,6 +114,7 @@ export default function FinancialsPage() {
   useEffect(() => {
     if (prog.running)
       panelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    else setResearchingTicker(null); // clear the company label once the run ends
   }, [prog.running]);
 
   const numStr = (v: unknown): string | null =>
@@ -121,6 +122,14 @@ export default function FinancialsPage() {
 
   function onResearchEvent(e: CveRunEvent) {
     setProg((p) => applyProgEvent(p, e)); // generic live progress (model, 💭, chunk, …)
+    if (e.event === "task") {
+      // (re)attached — name the company being researched from the task kind, if scoped.
+      const kind = String(e.kind ?? "");
+      const prefix = "financials-research:";
+      setResearchingTicker(
+        kind.startsWith(prefix) ? kind.slice(prefix.length) : null,
+      );
+    }
     if (e.event !== "filled") return;
     const t = String(e.ticker);
     setDrafts((d) => {

@@ -8,6 +8,9 @@ import { attachTaskStream, listTasks, type CveRunEvent } from "../lib/api";
 // and re-attach to it (replay what was missed, then tail live) by feeding its events into
 // the page's existing handler. Lets an admin leave a long Gemini run and resume its live
 // progress on return. Returns whether such a run is currently attached.
+//
+// A listed kind also matches sub-kinds (e.g. "financials-research" matches the per-company
+// "financials-research:INTC"), so scoped runs resume too.
 export function useResumableRun(
   themeId: string,
   kinds: string[],
@@ -28,9 +31,9 @@ export function useResumableRun(
       } catch {
         return;
       }
-      const task = tasks.find(
-        (t) => t.status === "running" && kinds.includes(t.kind),
-      );
+      const matches = (kind: string) =>
+        kinds.some((k) => kind === k || kind.startsWith(`${k}:`));
+      const task = tasks.find((t) => t.status === "running" && matches(t.kind));
       if (!task || !alive) return;
       setResuming(true);
       try {
