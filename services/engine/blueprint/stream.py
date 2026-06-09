@@ -42,6 +42,7 @@ from services.engine.blueprint.generate import (
     create_citation_sources,
     parse_blueprint_content,
     parse_research_blueprint_content,
+    parse_with_structuring,
     to_blueprint_company,
 )
 from services.engine.blueprint.models import (
@@ -57,6 +58,9 @@ from services.engine.blueprint.prompt import (
     build_discovery_prompt,
     build_refine_prompt,
     build_research_generate_prompt,
+    discovery_instructions,
+    refine_instructions,
+    research_generate_instructions,
 )
 from services.engine.blueprint.refine import DELTA_THRESHOLD, ROUND_CAP
 from services.engine.blueprint.repository import BlueprintRepository
@@ -138,7 +142,12 @@ def generate_blueprint_events(
             return
 
         try:
-            content = parse_research_blueprint_content(buffer)
+            content = yield from parse_with_structuring(
+                buffer,
+                parse_research_blueprint_content,
+                shape=research_generate_instructions(),
+                router=router,
+            )
             yield {"event": "parse", "status": "ok"}
             break
         except BlueprintParseError as exc:
@@ -240,7 +249,12 @@ def refine_blueprint_events(
             return
 
         try:
-            content = parse_blueprint_content(buffer)
+            content = yield from parse_with_structuring(
+                buffer,
+                parse_blueprint_content,
+                shape=refine_instructions(),
+                router=router,
+            )
             yield {"event": "parse", "status": "ok"}
         except BlueprintParseError as exc:
             yield {"event": "parse", "status": "failed", "detail": str(exc)}
@@ -322,7 +336,12 @@ def discover_companies_events(
         return
 
     try:
-        content = DiscoveryContent.model_validate_json(_extract_json(buffer))
+        content = yield from parse_with_structuring(
+            buffer,
+            lambda t: DiscoveryContent.model_validate_json(_extract_json(t)),
+            shape=discovery_instructions(),
+            router=router,
+        )
         yield {"event": "parse", "status": "ok"}
     except (ValidationError, BlueprintParseError) as exc:
         yield {"event": "parse", "status": "failed", "detail": str(exc)}

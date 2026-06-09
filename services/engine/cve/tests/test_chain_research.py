@@ -69,8 +69,38 @@ class _Gen:
             yield {"kind": "text", "text": _CHAIN[i : i + 50]}
 
 
+class _ProseGen:
+    """Deep Research returns a PROSE report (no JSON); the cheap model structures it."""
+
+    def generate_text(self, *, model: str, prompt: str) -> str:
+        if "Which company does the mention" in prompt:
+            return "NONE"
+        if "RESEARCH REPORT:" in prompt:  # the structuring fallback call
+            return _CHAIN
+        return ""
+
+    def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+        yield {"kind": "thought", "text": "researching"}
+        yield {"kind": "text", "text": "INTC reported 21% of revenue from HP. No JSON here."}
+
+
 def _router() -> LLMRouter:
     return LLMRouter(_Gen(), DEFAULT_MODELS)
+
+
+def test_chain_research_structures_report_without_json() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    blueprint = _blueprint(theme.id)
+    fin = InMemoryFinancialsRepository()
+    events, claims = _drain(
+        research_chain_events(
+            theme, blueprint, themes, fin, LLMRouter(_ProseGen(), DEFAULT_MODELS), today=TODAY
+        )
+    )
+    statuses = [e["status"] for e in events if e["event"] == "parse"]
+    assert "structuring" in statuses and statuses[-1] == "ok"  # no Deep Research re-run
+    assert isinstance(claims, list) and len(claims) == 1  # extracted via the cheap model
 
 
 def _blueprint(theme_id: str) -> BlueprintRecord:

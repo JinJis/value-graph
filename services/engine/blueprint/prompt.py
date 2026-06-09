@@ -239,6 +239,20 @@ def build_discovery_prompt(theme: Theme, known_tickers: list[str]) -> str:
     )
 
 
+# Accessors for the effective instruction text (used as the JSON shape for the cheap-model
+# structuring fallback when a Deep Research report lacks the requested JSON).
+def research_generate_instructions() -> str:
+    return registry.get(_RESEARCH_GENERATE_KEY)
+
+
+def refine_instructions() -> str:
+    return registry.get(_REFINE_KEY)
+
+
+def discovery_instructions() -> str:
+    return registry.get(_DISCOVERY_KEY)
+
+
 def build_refine_prompt(theme: Theme, current: Blueprint) -> str:
     content = BlueprintContent(
         companies=current.companies,

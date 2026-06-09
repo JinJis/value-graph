@@ -11,7 +11,8 @@ validate it against the schema, and create one Source per distinct citation.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Generator, Iterable
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -91,6 +92,54 @@ def parse_research_blueprint_content(text: str) -> ResearchBlueprintContent:
         return ResearchBlueprintContent.model_validate_json(_extract_json(text))
     except ValidationError as exc:
         raise BlueprintParseError(f"blueprint failed schema validation: {exc}") from exc
+
+
+# When a Deep Research report doesn't contain the requested JSON, a cheap model extracts it
+# from the report instead of re-running the (slow, expensive) agent. Shared by every research
+# JSON consumer (blueprint/chain/financials/...) — same shape, one place.
+_STRUCTURE_FRAME = (
+    "You are a strict JSON formatter. From the RESEARCH REPORT below, output EXACTLY the JSON "
+    "specified in the INSTRUCTIONS — extract only what the report states; do NOT invent values "
+    "or URLs. Return ONLY the JSON (no prose, no fences).\n\n"
+    "INSTRUCTIONS (the required JSON shape):\n{shape}\n\nRESEARCH REPORT:\n{report}"
+)
+
+
+def structure_report_json(
+    report: str, shape: str, router: LLMRouter, *, tier: Tier = Tier.MEDIUM
+) -> str:
+    """Extract strict JSON from a prose research report with a cheap model; returns JSON text.
+
+    ``shape`` is the research prompt's instruction text (it already describes the target JSON).
+    Raises :class:`BlueprintParseError` if no JSON object can be found in the model's output.
+    """
+    prompt = _STRUCTURE_FRAME.format(shape=shape, report=report)
+    return _extract_json(router.generate(tier, prompt))
+
+
+def parse_with_structuring(
+    buffer: str,
+    parse: Callable[[str], Any],
+    *,
+    shape: str,
+    router: LLMRouter,
+    tier: Tier = Tier.MEDIUM,
+) -> Generator[dict[str, Any], None, Any]:
+    """Parse the JSON a research report should contain; if it's missing/invalid, extract it
+    with a cheap model (emitting a ``parse: structuring`` event) INSTEAD of re-running Deep
+    Research. Returns the parsed value; re-raises the parse error if structuring also fails so
+    the caller's attempt loop can decide whether to retry the agent.
+    """
+    try:
+        return parse(buffer)
+    except (ValueError, ValidationError, BlueprintParseError):
+        pass
+    yield {
+        "event": "parse",
+        "status": "structuring",
+        "detail": f"no JSON in the report; extracting it with {router.model_for(tier)}",
+    }
+    return parse(structure_report_json(buffer, shape, router, tier=tier))
 
 
 def to_blueprint_company(company: BlueprintCompany) -> BlueprintCompany:

@@ -14,7 +14,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from services.engine.blueprint.generate import BlueprintParseError, _extract_json
+from services.engine.blueprint.generate import (
+    BlueprintParseError,
+    _extract_json,
+    parse_with_structuring,
+)
 from services.engine.blueprint.models import BlueprintCompany
 from services.engine.blueprint.stream import _research_stream
 from services.engine.financials.models import FinancialsUpsert
@@ -155,10 +159,15 @@ def research_financials_events(
             yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
             return
         try:
-            content = FinancialsResearch.model_validate_json(_extract_json(buffer))
+            content = yield from parse_with_structuring(
+                buffer,
+                lambda t: FinancialsResearch.model_validate_json(_extract_json(t)),
+                shape=registry.get(_FINANCIALS_KEY),
+                router=router,
+            )
             yield {"event": "parse", "status": "ok"}
             break
-        except (ValidationError, BlueprintParseError) as exc:
+        except (ValueError, ValidationError, BlueprintParseError) as exc:
             last_error = str(exc)
             more = attempt + 1 < attempts
             yield {

@@ -93,7 +93,8 @@ def test_target_count_flows_into_the_prompt() -> None:
     assert "about 15 listed companies" in prompt  # the admin-chosen size reaches the model
 
 
-def test_stream_retries_then_succeeds() -> None:
+def test_stream_structures_report_without_json() -> None:
+    # Report has no JSON -> a cheap model extracts it (no Deep Research re-run).
     gen = StreamingFake("not json", sample_json(32))
     repo = InMemoryBlueprintRepository()
     themes = InMemoryThemeRepository()
@@ -101,9 +102,10 @@ def test_stream_retries_then_succeeds() -> None:
         generate_blueprint_events(sample_theme(), [], _router(gen), repo, themes)
     )
     parse_events = [e for e in events if e["event"] == "parse"]
-    assert parse_events[0]["status"] == "retry"
+    assert parse_events[0]["status"] == "structuring"  # falls back to the cheap formatter
     assert parse_events[-1]["status"] == "ok"
     assert any(e["event"] == "saved" for e in events)
+    assert gen.calls == 2  # 1 Deep Research + 1 structuring, NOT a 2nd Deep Research run
 
 
 def test_stream_all_attempts_fail_emits_error() -> None:

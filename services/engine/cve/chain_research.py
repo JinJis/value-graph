@@ -16,7 +16,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from services.engine.blueprint.generate import BlueprintParseError, _extract_json
+from services.engine.blueprint.generate import (
+    BlueprintParseError,
+    _extract_json,
+    parse_with_structuring,
+)
 from services.engine.blueprint.models import BlueprintCompany, BlueprintRecord
 from services.engine.blueprint.stream import _research_stream
 from services.engine.cve.extract import (
@@ -223,10 +227,12 @@ def research_chain_events(
             return []
 
         try:
-            content = _parse_chain(buffer)
+            content = yield from parse_with_structuring(
+                buffer, _parse_chain, shape=registry.get(_CHAIN_KEY), router=router
+            )
             yield {"event": "parse", "status": "ok"}
             break
-        except (ValidationError, BlueprintParseError) as exc:
+        except (ValueError, ValidationError, BlueprintParseError) as exc:
             last_error = str(exc)
             more = attempt + 1 < attempts
             yield {
