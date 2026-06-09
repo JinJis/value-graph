@@ -805,6 +805,25 @@ export async function putCalendarEntry(
   );
 }
 
+// Deep Research the blueprint companies' filing history, infer each cadence, and fill the
+// calendar's next_filing_estimate, over SSE. Events: model/prompt/chunk/parse, then `filled`
+// per company (cadence_days + next_filing_estimate), `skipped`, then `done`.
+// `tickers` (optional) restricts research to those companies (e.g. one row); omit for all.
+export const researchCalendarStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  tickers?: string[],
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/calendar/research/stream` +
+      (tickers && tickers.length
+        ? `?tickers=${encodeURIComponent(tickers.join(","))}`
+        : ""),
+    onEvent,
+    signal,
+  );
+
 // --- CVE run (M3-ORCH-08) ---
 
 export interface CveRunSummary {

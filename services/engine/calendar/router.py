@@ -16,15 +16,19 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.engine.blueprint.repository import BlueprintRepository
-from services.engine.blueprint.router import get_blueprint_repository
+from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.calendar.models import CalendarUpsert
 from services.engine.calendar.repository import CalendarRepository, PostgresCalendarRepository
+from services.engine.calendar.research import research_calendar_events
 from services.engine.calendar.schedule import cadence_label, next_filing
 from services.engine.db.config import DbSettings
+from services.engine.llm.router import LLMRouter
+from services.engine.sse import task_sse
 from services.engine.themes.repository import ThemeRepository
 from services.engine.themes.router import get_repository as get_theme_repository
 
@@ -38,6 +42,7 @@ def get_calendar_repository() -> CalendarRepository:
 ThemeRepoDep = Annotated[ThemeRepository, Depends(get_theme_repository)]
 BlueprintRepoDep = Annotated[BlueprintRepository, Depends(get_blueprint_repository)]
 CalendarRepoDep = Annotated[CalendarRepository, Depends(get_calendar_repository)]
+RouterDep = Annotated[LLMRouter, Depends(get_router)]
 
 
 class CalendarRow(BaseModel):
@@ -145,4 +150,39 @@ def upsert_calendar(
         next_filing_estimate=entry.next_filing_estimate,
         source=entry.source,
         covered=entry.next_filing_estimate is not None,
+    )
+
+
+@router.post("/themes/{theme_id}/calendar/research/stream")
+def stream_research_calendar(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    calendar: CalendarRepoDep,
+    llm: RouterDep,
+    tickers: Annotated[str | None, Query()] = None,
+) -> StreamingResponse:
+    """Deep Research blueprint companies' filing history, infer each cadence, and fill the
+    calendar's next_filing_estimate — as a live SSE stream. Pass ``tickers`` (comma-separated)
+    to research only those companies (e.g. one row). Detached: finishes even if the tab closes."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    blueprint = blueprints.get_latest(theme_id)
+    if blueprint is None:
+        raise HTTPException(status_code=409, detail="no blueprint companies; generate one first")
+    companies = blueprint.companies
+    kind = "calendar-research"
+    if tickers:
+        wanted = {t.strip().upper() for t in tickers.split(",") if t.strip()}
+        companies = [c for c in blueprint.companies if c.ticker.upper() in wanted]
+        if not companies:
+            raise HTTPException(status_code=404, detail="no matching blueprint companies")
+        # A distinct kind per ticker set so per-company runs stay independently re-attachable.
+        kind = "calendar-research:" + ",".join(sorted(c.ticker for c in companies))
+    return task_sse(
+        theme_id=theme_id,
+        kind=kind,
+        label="Calendar research",
+        factory=lambda: research_calendar_events(theme, companies, calendar, llm),
     )
