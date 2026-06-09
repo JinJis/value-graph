@@ -99,7 +99,9 @@ TRADE "relation" is one of:
 - "{QUALITATIVE}": a known relationship with no disclosed number (value=null)
 For each trade, "quote" is the VERBATIM sentence from the page that states it.
 Financials are in MILLIONS of each company's OWN reporting "currency" (ISO code) — do NOT
-convert to USD.
+convert to USD. NORMALIZE THE SCALE: read each filing's stated scale ("in thousands",
+"in millions", "$bn") and convert before recording — "$9.0 billion" -> 9000, "9,000,000 (in
+thousands)" -> 9000. A ~$9B-revenue company is 9000, never 9 or 9000000.
 
 OUTPUT FORMAT — after your research, end with EXACTLY ONE fenced JSON code block
 (```json … ```) and nothing after it, in this shape:

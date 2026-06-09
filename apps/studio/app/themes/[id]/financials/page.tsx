@@ -93,6 +93,19 @@ const numOrNull = (s: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+// Figures are stored in MILLIONS of `currency`. Echo each value back human-compact so a
+// mis-scaled entry is obvious at a glance: 9000 → "≈ 9.0B USD" (not an ambiguous bare 9000),
+// 9 → "≈ 9M USD", 9000000 → "≈ 9.00T USD". `millions` is the raw entered value.
+const compactMoney = (millions: number | null, currency: string): string => {
+  if (millions == null) return "";
+  const ccy = currency.trim().toUpperCase() || "?";
+  const abs = Math.abs(millions);
+  if (abs >= 1e6) return `≈ ${(millions / 1e6).toFixed(2)}T ${ccy}`;
+  if (abs >= 1e3) return `≈ ${(millions / 1e3).toFixed(1)}B ${ccy}`;
+  if (abs >= 1) return `≈ ${millions.toFixed(0)}M ${ccy}`;
+  return `≈ ${(millions * 1e3).toFixed(0)}K ${ccy}`;
+};
+
 export default function FinancialsPage() {
   const params = useParams<{ id: string }>();
   const themeId = params.id;
@@ -281,9 +294,11 @@ export default function FinancialsPage() {
           <strong>
             millions of each company&apos;s own reporting currency
           </strong>{" "}
-          (the Currency column) — not converted to USD. Each researched figure
-          cites the filing / IR page it came from in the <strong>Source</strong>{" "}
-          column.
+          (the Currency column) — not converted to USD. So a $9B-revenue company
+          is <strong>9000</strong> (= 9,000M ≈ $9B), never 9 or 9,000,000 — the
+          gray <em>≈</em> readout under each value shows the magnitude so a
+          mis-scaled entry stands out. Each researched figure cites the filing /
+          IR page it came from in the <strong>Source</strong> column.
         </small>
       </p>
 
@@ -349,6 +364,10 @@ export default function FinancialsPage() {
                   }}
                 >
                   {f.label}
+                  <br />
+                  <small style={{ color: "#94a3b8", fontWeight: 400 }}>
+                    millions
+                  </small>
                 </th>
               ))}
               <th
@@ -392,7 +411,10 @@ export default function FinancialsPage() {
                     <small style={{ color: "#64748b" }}>{c.name}</small>
                   </td>
                   {FIELDS.map((f) => (
-                    <td key={f.key} style={{ padding: 6 }}>
+                    <td
+                      key={f.key}
+                      style={{ padding: 6, verticalAlign: "top" }}
+                    >
                       <input
                         inputMode="decimal"
                         style={{ width: 90 }}
@@ -401,6 +423,16 @@ export default function FinancialsPage() {
                           setField(c.ticker, f.key, e.target.value)
                         }
                       />
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#94a3b8",
+                          minHeight: 14,
+                          marginTop: 2,
+                        }}
+                      >
+                        {compactMoney(numOrNull(d[f.key]), d.currency)}
+                      </div>
                     </td>
                   ))}
                   <td style={{ padding: 6 }}>

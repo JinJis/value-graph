@@ -89,10 +89,17 @@ RECENCY (MOST IMPORTANT): Use the most recent reported period available as of 20
 latest fiscal year, or the latest quarter if more current) — the newest figures are the most
 important. Record the "as_of" date of the period you used.
 
-UNITS (critical):
+UNITS (critical — most reporting errors are unit errors):
 - Report each company in ITS OWN reporting currency (the one used in its financial
   statements — JPY for Tokyo Electron, KRW for Samsung, USD for NVIDIA), in MILLIONS of that
   currency, and put the 3-letter ISO code in "currency". Do NOT convert to USD.
+- NORMALIZE THE SCALE TO MILLIONS. Filings report in different scales — read the column
+  header ("in thousands", "in millions", "$bn", "百万円") and CONVERT before you record:
+  * "$9.0 billion"            -> 9000
+  * "9,000" under "($ millions)" -> 9000   (already millions; keep as-is)
+  * "9,000,000" under "(in thousands)" -> 9000
+  Never paste a raw figure without checking its stated scale. A company with ~$9B of revenue
+  must be recorded as 9000, not 9 and not 9000000.
 
 GROUNDING:
 - Use Google Search and actually READ the filing/IR page before reporting a number.
