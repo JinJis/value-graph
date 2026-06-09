@@ -461,8 +461,11 @@ export default function TicketQueuePage() {
         }}
       >
         <button type="button" onClick={onGenerate} disabled={busy}>
-          Generate tickets
+          {busy ? "Generating…" : "Generate tickets"}
         </button>
+        <small style={{ color: "#64748b" }}>
+          Writes a detailed research brief per ticket (cheap model).
+        </small>
         {genMsg && <small>{genMsg}</small>}
       </div>
 

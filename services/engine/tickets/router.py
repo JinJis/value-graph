@@ -54,6 +54,7 @@ def generate_theme_tickets(
     themes: ThemeRepoDep,
     blueprints: BlueprintRepoDep,
     tickets: TicketRepoDep,
+    llm: RouterDep,
 ) -> GenerateResult:
     theme = themes.get_theme(theme_id)
     if theme is None:
@@ -65,7 +66,8 @@ def generate_theme_tickets(
     blueprint = blueprints.get_latest(theme_id)
     if blueprint is None:
         raise HTTPException(status_code=409, detail="no blueprint to generate tickets from")
-    return generate_tickets(theme_id, blueprint, tickets)
+    # A cheap model writes a detailed research brief per ticket (falls back to a template).
+    return generate_tickets(theme_id, blueprint, tickets, theme=theme, router=llm)
 
 
 @router.get("/themes/{theme_id}/tickets", response_model=list[Ticket])
