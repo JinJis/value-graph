@@ -57,6 +57,37 @@ def _gap_metric(gap: GapType) -> str:
     return f"{GAP_METRIC_PREFIX}{gap.value}"
 
 
+# A detailed, researchable brief per gap type — what's wrong, why it matters, and what sourced
+# evidence resolves it — so the ticket is actionable instead of a bare "estimated gap".
+_GAP_REASONS: dict[GapType, str] = {
+    GapType.ESTIMATED: (
+        "The {edge} trade share is an algorithmic estimate with no primary disclosure behind it. "
+        "To upgrade it from 'estimated' to derived/verified, find a sourced figure — the "
+        "supplier's disclosed revenue share from this customer, or the customer's cost-bucket "
+        "share to this supplier — in a recent 10-K / annual report / earnings call / exchange "
+        "filing, and attach it as a Source."
+    ),
+    GapType.CONFLICT: (
+        "Sources disagree on the {edge} trade figure; the engine flagged the conflict rather than "
+        "averaging. Find an authoritative primary disclosure that reconciles the conflicting "
+        "values and note which source supersedes which."
+    ),
+    GapType.STALE: (
+        "The {edge} figure is past its expected next filing (stale). Refresh it from the "
+        "company's most recent disclosure so the relationship reflects the latest period."
+    ),
+    GapType.UNCLOSED_CONSERVATION: (
+        "The supplier's disclosed revenue shares across its customers exceed 100% for {edge} "
+        "(a conservation breach). Re-check the share figures against primary filings to find the "
+        "mis-stated or double-counted disclosure."
+    ),
+}
+
+
+def _gap_reason(gap: GapType, edge_target: str) -> str:
+    return _GAP_REASONS[gap].format(edge=edge_target)
+
+
 def sync_gaps(
     assessment: EdgeAssessment,
     *,
@@ -64,7 +95,7 @@ def sync_gaps(
     ticket_repo: TicketRepository,
     actor: str = "cve",
 ) -> GapSyncResult:
-    current = {_gap_metric(gap) for gap in detect_gaps(assessment)}
+    current = {_gap_metric(gap): gap for gap in detect_gaps(assessment)}
     existing = {
         t.metric: t
         for t in ticket_repo.list_tickets(theme_id)
@@ -77,13 +108,12 @@ def sync_gaps(
     for metric in sorted(current):
         ticket = existing.get(metric)
         if ticket is None:
-            label = metric.removeprefix(GAP_METRIC_PREFIX)
             created = ticket_repo.create_open_ticket(
                 theme_id,
                 TicketCreate(
                     target=assessment.edge_target,
                     metric=metric,
-                    reason=f"{label} gap detected by CVE",
+                    reason=_gap_reason(current[metric], assessment.edge_target),
                 ),
             )
             if created is not None:

@@ -65,6 +65,14 @@ export default function BuildPage() {
           "warn",
         );
         break;
+      case "tickets_retired":
+        step(
+          "tickets cleaned up",
+          `Closed ${e.count} stale financials/calendar ticket(s) — those are filled on ` +
+            "their own steps, not via tickets",
+          "ok",
+        );
+        break;
       case "start":
         step("ingest", `${e.documents} document(s) · ${e.companies} companies`);
         break;

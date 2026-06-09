@@ -19,6 +19,7 @@ from services.engine.tickets.enrich import (
     fallback_description,
 )
 from services.engine.tickets.models import GenerateResult, TicketCreate
+from services.engine.tickets.policy import is_page_backed
 from services.engine.tickets.repository import TicketRepository
 
 
@@ -36,6 +37,9 @@ def generate_tickets(
     items: list[EnrichItem] = []
     for company in blueprint.companies:
         for metric in company.required_data_points:
+            # Financials/calendar data points are filled on their own Studio step, not ticketed.
+            if is_page_backed(metric):
+                continue
             items.append((f"P{len(items) + 1}", company, metric))
 
     enriched = (

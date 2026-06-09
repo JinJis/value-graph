@@ -227,12 +227,25 @@ def resolve_mentions(
             and theme_id is not None
         ):
             candidates = [c.model_dump() for c in resolution.candidates]
+            near = ", ".join(
+                f"{c.ticker} (~{c.score:.2f})" for c in resolution.candidates[:3]
+            )
+            hint = (
+                f" Closest candidates: {near}. Confirm which (if any) is correct."
+                if near
+                else " No close candidate was found in the blueprint."
+            )
             ticket_repo.create_open_ticket(
                 theme_id,
                 TicketCreate(
                     target=mention,
                     metric="entity-resolution",
-                    reason=resolution.reason or "unresolved mention",
+                    reason=(
+                        f"Could not match the mention '{mention}' to a known company "
+                        f"({resolution.reason or 'unresolved'}).{hint} Identify the correct "
+                        "listed entity — exchange ticker + legal name — so its claims and edges "
+                        "attach to the right node instead of being dropped."
+                    ),
                     current_estimate={"candidates": candidates},
                 ),
             )

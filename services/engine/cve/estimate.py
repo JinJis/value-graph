@@ -144,11 +144,20 @@ def estimate_edge(
             TicketCreate(
                 target=f"{supplier}->{customer}",
                 metric=f"estimate:{metric}",
-                reason=f"estimated ({raw.method}); needs sourced evidence",
+                reason=(
+                    f"{supplier}->{customer} '{metric}' is currently an algorithmic estimate "
+                    f"(method: {raw.method}): {estimate.point:.1f} (range "
+                    f"{estimate.interval.low:.1f}-{estimate.interval.high:.1f}). Replace it with "
+                    f"sourced evidence — a primary disclosure of {supplier}'s revenue share from "
+                    f"{customer}, or {customer}'s cost-bucket share to {supplier}, in a recent "
+                    "10-K / annual report / earnings call / exchange filing — to upgrade it from "
+                    "estimated to derived/verified."
+                ),
                 current_estimate={
                     "point": estimate.point,
                     "interval": estimate.interval.model_dump(),
                     "method": estimate.method,
+                    "rationale": estimate.rationale,
                 },
             ),
         )

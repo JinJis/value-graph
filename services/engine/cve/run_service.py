@@ -44,6 +44,7 @@ from services.engine.llm.router import LLMRouter
 from services.engine.storage import Storage
 from services.engine.themes.models import SourceRecord, Theme
 from services.engine.themes.repository import ThemeRepository
+from services.engine.tickets.policy import close_superseded_tickets
 from services.engine.tickets.repository import TicketRepository
 
 # Financial buckets the CVE derivation needs (supplier revenue + customer COGS); missing
@@ -181,6 +182,13 @@ def run_cve_events_for_theme(
         "calendar": len(calendar),
         "financials": len(financials),
     }
+
+    # Retire any page-backed tickets (financials/calendar) left over from before those flows
+    # moved to their own Studio step — they're filled there now, not via tickets.
+    retired = close_superseded_tickets(theme_id, ticket_repo)
+    if retired:
+        logger.info("cve.run.retired_page_backed_tickets theme=%s count=%d", theme_id, retired)
+        yield {"event": "tickets_retired", "count": retired}
 
     initial = CVEState(
         theme_id=theme_id,
