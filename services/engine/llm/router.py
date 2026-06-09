@@ -10,11 +10,60 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Iterator, Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
 logger = logging.getLogger("valuegraph.engine.llm")
+
+
+def _delta_text(delta: Any) -> str | None:
+    """Text carried by a Deep Research step delta (``.text`` or ``.content.text``)."""
+    if delta is None:
+        return None
+    text = getattr(delta, "text", None)
+    if isinstance(text, str) and text:
+        return text
+    content = getattr(delta, "content", None)
+    text = getattr(content, "text", None)
+    return text if isinstance(text, str) and text else None
+
+
+def _event_text(event: Any) -> str | None:
+    """Text carried directly on an event (some completion events, not step deltas)."""
+    for attr in ("text", "output_text"):
+        text = getattr(event, attr, None)
+        if isinstance(text, str) and text:
+            return text
+    return None
+
+
+def _interaction_id(event: Any) -> str | None:
+    """The stored-interaction id from a stream event, if present."""
+    for attr in ("interaction_id", "id"):
+        val = getattr(event, attr, None)
+        if isinstance(val, str) and val:
+            return val
+    val = getattr(getattr(event, "interaction", None), "id", None)
+    return val if isinstance(val, str) and val else None
+
+
+def _interaction_output_text(obj: Any) -> str | None:
+    """Pull the final report text out of a retrieved interaction (shape varies)."""
+    for attr in ("output_text", "text"):
+        text = getattr(obj, attr, None)
+        if isinstance(text, str) and text:
+            return text
+    parts: list[str] = []
+    output = getattr(obj, "output", None)
+    for item in output if isinstance(output, list) else []:
+        content = getattr(item, "content", None)
+        for part in content if isinstance(content, list) else [item]:
+            text = getattr(part, "text", None)
+            if isinstance(text, str) and text:
+                parts.append(text)
+    return "\n".join(parts) if parts else None
 
 
 class Tier(StrEnum):
@@ -182,24 +231,21 @@ class GeminiTextGenerator:
                 },
                 timeout=_deep_research_timeout_seconds(),
             )
+            interaction_id: str | None = None
+            seen: set[str] = set()
             for event in stream:
-                if getattr(event, "event_type", None) == "error":
+                et = getattr(event, "event_type", None)
+                if et == "error":
                     err = getattr(event, "error", None)
                     msg = getattr(err, "message", None) or "deep research stream error"
                     raise GeminiError(f"Deep Research failed for agent {agent!r}: {msg}")
-                if getattr(event, "event_type", None) != "step.delta":
-                    continue
+                interaction_id = interaction_id or _interaction_id(event)
                 delta = getattr(event, "delta", None)
-                dtype = getattr(delta, "type", None)
-                if dtype == "text":
-                    text = getattr(delta, "text", None)
-                    if isinstance(text, str) and text:
-                        report_chars += len(text)
-                        yield {"kind": "text", "text": text}
-                elif dtype == "thought_summary":
-                    content = getattr(delta, "content", None)
-                    text = getattr(content, "text", None)
-                    if isinstance(text, str) and text:
+                dtype = getattr(delta, "type", None) if delta is not None else None
+                seen.add(str(dtype or et))
+                if dtype == "thought_summary":
+                    text = _delta_text(delta)
+                    if text:
                         logger.debug("deep_research.thought agent=%s %.200s", agent, text)
                         yield {"kind": "thought", "text": text}
                 elif dtype == "google_search_call":
@@ -214,6 +260,28 @@ class GeminiTextGenerator:
                         reads += 1
                         logger.info("deep_research.read agent=%s urls=%s", agent, urls)
                         yield {"kind": "read", "text": ", ".join(urls)}
+                else:
+                    # The final report's delta type varies by agent/SDK version ("text",
+                    # "output_text", …) and may ride a non-delta event — capture any text.
+                    text = _delta_text(delta) or _event_text(event)
+                    if text:
+                        report_chars += len(text)
+                        yield {"kind": "text", "text": text}
+
+            # Background deep-research can stream only progress, leaving the final report in
+            # the stored interaction. If nothing streamed, retrieve it.
+            if report_chars == 0 and interaction_id:
+                text = self._retrieve_interaction_text(client, interaction_id)
+                if text:
+                    report_chars += len(text)
+                    yield {"kind": "text", "text": text}
+
+            if report_chars == 0:
+                logger.warning(
+                    "deep_research.no_report agent=%s id=%s seen_types=%s searches=%d "
+                    "reads=%d — final report not found in the stream or stored interaction",
+                    agent, interaction_id, sorted(seen), searches, reads,
+                )
             logger.info(
                 "deep_research.done agent=%s report_chars=%d searches=%d reads=%d",
                 agent,
@@ -225,6 +293,33 @@ class GeminiTextGenerator:
             raise
         except Exception as exc:  # SDK errors, timeouts, network
             raise GeminiError(f"Deep Research stream failed for agent {agent!r}: {exc}") from exc
+
+    def _retrieve_interaction_text(self, client: Any, interaction_id: str) -> str | None:
+        """Best-effort: poll the stored interaction for its final report text.
+
+        Deep Research runs in the background; the streamed events are progress and the final
+        report may only be available on the completed interaction. Never raises — on any
+        failure we return None and the caller surfaces a clear 'no report' message.
+        """
+        interactions = getattr(client, "interactions", None)
+        getter = getattr(interactions, "retrieve", None) or getattr(interactions, "get", None)
+        if getter is None:
+            return None
+        for _ in range(10):
+            try:
+                obj = getter(interaction_id)
+            except Exception as exc:  # SDK/network — give up quietly
+                logger.warning("deep_research.retrieve_failed id=%s: %s", interaction_id, exc)
+                return None
+            text = _interaction_output_text(obj)
+            if text:
+                logger.info("deep_research.retrieved id=%s chars=%d", interaction_id, len(text))
+                return text
+            status = str(getattr(obj, "status", "") or "").lower()
+            if status in ("completed", "succeeded", "done", "failed", "error", "cancelled"):
+                return None  # finished, but no text we can read
+            time.sleep(3)  # still running — wait, then re-check
+        return None
 
     def __repr__(self) -> str:
         # Never expose the key.
