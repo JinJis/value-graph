@@ -231,6 +231,36 @@ def test_missing_result_skips_its_ticket() -> None:
     assert u2 is not None and u2.status == "OPEN"  # untouched
 
 
+def test_already_secured_tickets_skip_research() -> None:
+    """Resolved or proposal-bearing tickets have their data secured — they are skipped before
+    the (costly) Deep Research call, leaving only genuinely-OPEN ones to research."""
+    repo = InMemoryTicketRepository()
+    fresh = _open_ticket(repo, metric="m1")
+    resolved = _open_ticket(repo, metric="m2")
+    repo.set_resolution(resolved.id, "UNRESOLVABLE", "not-found")
+    proposed = _open_ticket(repo, metric="m3")
+    repo.set_research_proposal(proposed.id, {"value": "21%", "source_url": "https://x"})
+    selected = [
+        repo.get_ticket(fresh.id),
+        repo.get_ticket(resolved.id),
+        repo.get_ticket(proposed.id),
+    ]
+    payload = _batch({"ref": "T1", "verdict": "not_found"})  # only the one researched ticket
+    events = list(
+        research_tickets_events(
+            _theme(), [t for t in selected if t], None, _router(ResearchFake(payload)), repo
+        )
+    )
+
+    skipped = {e["ticket_id"] for e in events if e["event"] == "skipped"}
+    assert skipped == {resolved.id, proposed.id}
+    # The fresh OPEN ticket was the only one researched.
+    assert sum(1 for e in events if e["event"] == "auto_resolved") == 1
+    assert repo.get_ticket(fresh.id) is not None
+    f = repo.get_ticket(fresh.id)
+    assert f is not None and f.status == "UNRESOLVABLE"
+
+
 def test_found_without_source_is_downgraded() -> None:
     repo = InMemoryTicketRepository()
     ticket = _open_ticket(repo)

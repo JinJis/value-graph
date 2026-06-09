@@ -74,11 +74,15 @@ def stream_research_financials(
         )
     companies = blueprint.companies
     kind = "financials-research"
+    # The "research ALL" run skips companies already on file; an explicit per-company
+    # request re-fetches even if filled.
+    skip_filled = True
     if tickers:
         wanted = {t.strip().upper() for t in tickers.split(",") if t.strip()}
         companies = [c for c in blueprint.companies if c.ticker.upper() in wanted]
         if not companies:
             raise HTTPException(status_code=404, detail="no matching blueprint companies")
+        skip_filled = False
         # A distinct kind per ticker set so per-company runs don't dedupe with each other
         # (or with the "all" run) and each stays independently re-attachable.
         kind = "financials-research:" + ",".join(sorted(c.ticker for c in companies))
@@ -86,5 +90,7 @@ def stream_research_financials(
         theme_id=theme_id,
         kind=kind,
         label="Financials research",
-        factory=lambda: research_financials_events(theme, companies, repo, llm),
+        factory=lambda: research_financials_events(
+            theme, companies, repo, llm, skip_filled=skip_filled
+        ),
     )

@@ -138,8 +138,13 @@ def research_financials_events(
     *,
     tier: Tier = Tier.RESEARCH,
     attempts: int = 2,
+    skip_filled: bool = False,
 ) -> Iterator[Event]:
-    """Deep Research the companies' financials and upsert them, streaming progress."""
+    """Deep Research the companies' financials and upsert them, streaming progress.
+
+    With ``skip_filled`` (the "research ALL" action), companies that already have revenue on
+    file are left untouched — no duplicate Deep Research spend on data already secured. A
+    per-company request never skips: it's an explicit re-fetch."""
     model = router.model_for(tier)
     yield {"event": "model", "tier": tier.value, "model": model}
     yield {
@@ -147,6 +152,29 @@ def research_financials_events(
         "provider": "google-genai",
         "method": "interactions.create (deep-research)",
     }
+
+    targets = list(companies)
+    if skip_filled:
+        def _filled(ticker: str) -> bool:
+            record = financials_repo.get(ticker)
+            return record is not None and record.revenue is not None
+
+        on_file = [c.ticker for c in targets if _filled(c.ticker)]
+        if on_file:
+            done = set(on_file)
+            targets = [c for c in targets if c.ticker not in done]
+            yield {
+                "event": "skipped",
+                "tickers": on_file,
+                "count": len(on_file),
+                "detail": f"{len(on_file)} already have financials on file",
+            }
+    if not targets:
+        logger.info("financials.research theme=%s nothing-to-research (all filled)", theme.id)
+        yield {"event": "done", "filled": 0}
+        return
+
+    companies = targets
     prompt = build_financials_prompt(theme.name, companies)
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
     logger.info("financials.research theme=%s companies=%d", theme.id, len(companies))

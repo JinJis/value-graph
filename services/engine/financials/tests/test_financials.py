@@ -102,6 +102,47 @@ def test_research_financials_fills_store() -> None:
     assert rec is not None and rec.revenue == 53000.0 and rec.cogs == 43000.0
 
 
+def test_research_financials_skips_companies_already_on_file() -> None:
+    """The "research ALL" action (skip_filled) leaves companies that already have revenue
+    untouched — no duplicate Deep Research spend — and only researches the rest."""
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    companies = [
+        BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer"),
+        BlueprintCompany(ticker="INTC", name="Intel", country="US", role="supplier"),
+    ]
+    fin = InMemoryFinancialsRepository()
+    fin.upsert(FinancialsUpsert(company_ticker="INTC", revenue=54000.0))  # already secured
+
+    events = list(
+        research_financials_events(theme, companies, fin, _research_router(), skip_filled=True)
+    )
+    skipped = next(e for e in events if e["event"] == "skipped")
+    assert skipped["tickers"] == ["INTC"] and skipped["count"] == 1
+    # The prompt only asked about the still-missing company.
+    prompt = next(e for e in events if e["event"] == "prompt")["text"]
+    assert "HPQ" in prompt and "INTC" not in prompt
+    intc = fin.get("INTC")
+    assert intc is not None and intc.revenue == 54000.0  # untouched
+
+
+def test_research_financials_all_filled_short_circuits() -> None:
+    """When every company already has financials, skip_filled researches nothing."""
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    companies = [BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer")]
+    fin = InMemoryFinancialsRepository()
+    fin.upsert(FinancialsUpsert(company_ticker="HPQ", revenue=53000.0))
+
+    events = list(
+        research_financials_events(theme, companies, fin, _research_router(), skip_filled=True)
+    )
+    kinds = [e["event"] for e in events]
+    assert "prompt" not in kinds  # no Deep Research call
+    assert not any(e["event"] == "filled" for e in events)
+    assert kinds[-1] == "done"
+
+
 def test_research_financials_endpoint_streams_and_fills() -> None:
     themes = InMemoryThemeRepository()
     theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))

@@ -130,6 +130,21 @@ export default function FinancialsPage() {
         kind.startsWith(prefix) ? kind.slice(prefix.length) : null,
       );
     }
+    if (e.event === "skipped") {
+      const tickers = Array.isArray(e.tickers) ? e.tickers.join(", ") : "";
+      setProg((p) => ({
+        ...p,
+        steps: [
+          ...p.steps,
+          {
+            label: `skipped ${e.count ?? ""} already on file`,
+            detail: tickers,
+            tone: "ok",
+          },
+        ],
+      }));
+      return;
+    }
     if (e.event !== "filled") return;
     const t = String(e.ticker);
     setDrafts((d) => {

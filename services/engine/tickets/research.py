@@ -251,6 +251,35 @@ def _research_batch(
         yield from _apply_resolution(ticket, result, ticket_repo)
 
 
+def _partition_actionable(
+    ticket_list: list[Ticket],
+) -> tuple[list[Ticket], list[tuple[Ticket, str]]]:
+    """Split selected tickets into the ones worth a (costly) Deep Research call and the ones
+    whose data is already secured. A ticket that is resolved (not OPEN) or already carries a
+    research proposal awaiting review needs no fresh research — skip it, don't spend on it."""
+    actionable: list[Ticket] = []
+    skipped: list[tuple[Ticket, str]] = []
+    for ticket in ticket_list:
+        if ticket.status != "OPEN":
+            skipped.append((ticket, f"already resolved ({ticket.status})"))
+        elif ticket.research_proposal:
+            skipped.append((ticket, "already has a research proposal awaiting review"))
+        else:
+            actionable.append(ticket)
+    return actionable, skipped
+
+
+def _skip_events(skipped: list[tuple[Ticket, str]]) -> Iterator[Event]:
+    for ticket, detail in skipped:
+        yield {
+            "event": "skipped",
+            "ticket_id": ticket.id,
+            "target": ticket.target,
+            "metric": ticket.metric,
+            "detail": detail,
+        }
+
+
 def _header_events(tier: Tier, model: str, ticket_list: list[Ticket]) -> Iterator[Event]:
     yield {"event": "model", "tier": tier.value, "model": model}
     yield {
@@ -280,8 +309,13 @@ def research_tickets_events(
     """Research all selected tickets in ONE Deep Research call (shared theme context)."""
     ticket_list = list(tickets)
     yield from _header_events(tier, router.model_for(tier), ticket_list)
+    actionable, skipped = _partition_actionable(ticket_list)
+    yield from _skip_events(skipped)
+    if not actionable:
+        yield {"event": "done"}
+        return
     yield from _research_batch(
-        theme, ticket_list, blueprint, router, ticket_repo, tier=tier, attempts=attempts
+        theme, actionable, blueprint, router, ticket_repo, tier=tier, attempts=attempts
     )
     yield {"event": "done"}
 
@@ -303,9 +337,12 @@ def research_ticket_clusters_events(
     same proven ``_research_batch`` (report capture + cheap-model JSON structuring fallback)."""
     ticket_list = list(tickets)
     yield from _header_events(tier, router.model_for(tier), ticket_list)
-    if not ticket_list:
+    actionable, skipped = _partition_actionable(ticket_list)
+    yield from _skip_events(skipped)
+    if not actionable:
         yield {"event": "done"}
         return
+    ticket_list = actionable
 
     yield {
         "event": "clustering",

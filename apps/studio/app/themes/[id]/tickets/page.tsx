@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { StepFooter } from "../../../../components/WorkflowSteps";
 
@@ -123,6 +123,27 @@ const STATUS_OPTIONS = [
   "DEFERRED",
   "CLOSED",
 ];
+// Render tickets grouped by status in this order — actionable (OPEN) first, secured ones
+// (resolved / submitted / closed) below, so "select all" only grabs what's worth researching.
+const STATUS_GROUP_ORDER = [
+  "OPEN",
+  "SUBMITTED",
+  "DEFERRED",
+  "UNRESOLVABLE",
+  "CLOSED",
+];
+
+const TH: CSSProperties = {
+  textAlign: "left",
+  borderBottom: "1px solid #ccc",
+  padding: 6,
+};
+const TD: CSSProperties = { padding: 6 };
+
+// Only OPEN tickets without a pending proposal still need (costly) Deep Research; everything
+// else already has its data secured. Mirrors the backend skip in tickets/research.py.
+const isActionable = (t: Ticket): boolean =>
+  t.status === "OPEN" && !t.research_proposal;
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 const REASON_CODES = ["not-found", "not-disclosed", "paywalled", "ambiguous"];
 const SORT_OPTIONS = [
@@ -471,6 +492,34 @@ export default function TicketQueuePage() {
       .sort((a, b) => compare(a, b, sortKey));
   }, [tickets, target, metric, status, sortKey]);
 
+  // Group the visible tickets by status so each status gets its own table + its own
+  // "select all" — selecting every OPEN ticket no longer drags in already-done ones.
+  const groups = useMemo(() => {
+    const by = new Map<string, Ticket[]>();
+    for (const t of visible) {
+      const arr = by.get(t.status) ?? [];
+      arr.push(t);
+      by.set(t.status, arr);
+    }
+    const order = [
+      ...STATUS_GROUP_ORDER.filter((s) => by.has(s)),
+      ...[...by.keys()].filter((s) => !STATUS_GROUP_ORDER.includes(s)),
+    ];
+    return order.map((s) => ({ status: s, items: by.get(s) ?? [] }));
+  }, [visible]);
+
+  function toggleGroup(items: Ticket[], on: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const t of items) {
+        if (!isActionable(t)) continue;
+        if (on) next.add(t.id);
+        else next.delete(t.id);
+      }
+      return next;
+    });
+  }
+
   return (
     <section>
       <h2 style={{ marginBottom: 4 }}>Ticket queue</h2>
@@ -519,7 +568,8 @@ export default function TicketQueuePage() {
           live panel
         </label>
         <small style={{ color: "#64748b" }}>
-          Found → review &amp; accept · not found → auto-resolved.
+          Only OPEN tickets are selectable (others already have data). Found →
+          review &amp; accept · not found → auto-resolved.
         </small>
       </div>
 
@@ -606,89 +656,101 @@ export default function TicketQueuePage() {
         </small>
       </p>
 
-      <table
-        style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}
-      >
-        <thead>
-          <tr>
-            <th
+      {groups.map(({ status: gStatus, items }) => {
+        const actionable = items.filter(isActionable);
+        const allOn =
+          actionable.length > 0 &&
+          actionable.every((t) => selectedIds.has(t.id));
+        return (
+          <div key={gStatus} style={{ marginTop: 18 }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>
+              {gStatus}{" "}
+              <small style={{ color: "#64748b", fontWeight: 400 }}>
+                ({items.length}
+                {actionable.length > 0 && actionable.length !== items.length
+                  ? ` · ${actionable.length} selectable`
+                  : ""}
+                )
+              </small>
+            </h3>
+            <table
               style={{
-                textAlign: "left",
-                borderBottom: "1px solid #ccc",
-                padding: 6,
-                width: 32,
+                borderCollapse: "collapse",
+                width: "100%",
+                fontSize: 14,
               }}
             >
-              <input
-                type="checkbox"
-                aria-label="select all"
-                checked={
-                  visible.length > 0 &&
-                  visible.every((t) => selectedIds.has(t.id))
-                }
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setSelectedIds((prev) => {
-                    const next = new Set(prev);
-                    for (const t of visible) {
-                      if (on) next.add(t.id);
-                      else next.delete(t.id);
-                    }
-                    return next;
-                  });
-                }}
-              />
-            </th>
-            {["target", "metric", "status", "reason"].map((h) => (
-              <th
-                key={h}
-                style={{
-                  textAlign: "left",
-                  borderBottom: "1px solid #ccc",
-                  padding: 6,
-                }}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((t) => (
-            <tr
-              key={t.id}
-              onClick={() => setSelected(t)}
-              style={{
-                cursor: "pointer",
-                background: selected?.id === t.id ? "#eef" : undefined,
-              }}
-            >
-              <td style={{ padding: 6 }} onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="checkbox"
-                  aria-label={`select ${t.target}`}
-                  checked={selectedIds.has(t.id)}
-                  onChange={(e) => toggleOne(t.id, e.target.checked)}
-                />
-              </td>
-              <td style={{ padding: 6 }}>{t.target}</td>
-              <td style={{ padding: 6 }}>{t.metric}</td>
-              <td style={{ padding: 6 }}>
-                {t.status}
-                {t.research_proposal ? (
-                  <span
-                    style={{ marginLeft: 6, color: "#15803d", fontSize: 12 }}
-                    title="Deep Research proposal awaiting review"
+              <thead>
+                <tr>
+                  <th style={{ ...TH, width: 32 }}>
+                    {actionable.length > 0 ? (
+                      <input
+                        type="checkbox"
+                        aria-label={`select all ${gStatus}`}
+                        checked={allOn}
+                        onChange={(e) => toggleGroup(items, e.target.checked)}
+                      />
+                    ) : null}
+                  </th>
+                  {["target", "metric", "status", "reason"].map((h) => (
+                    <th key={h} style={TH}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((t) => (
+                  <tr
+                    key={t.id}
+                    onClick={() => setSelected(t)}
+                    style={{
+                      cursor: "pointer",
+                      background: selected?.id === t.id ? "#eef" : undefined,
+                    }}
                   >
-                    ● proposal
-                  </span>
-                ) : null}
-              </td>
-              <td style={{ padding: 6 }}>{t.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                    <td style={TD} onClick={(e) => e.stopPropagation()}>
+                      {isActionable(t) ? (
+                        <input
+                          type="checkbox"
+                          aria-label={`select ${t.target}`}
+                          checked={selectedIds.has(t.id)}
+                          onChange={(e) => toggleOne(t.id, e.target.checked)}
+                        />
+                      ) : (
+                        <span
+                          style={{ color: "#cbd5e1" }}
+                          title="Data already secured — not researchable"
+                        >
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td style={TD}>{t.target}</td>
+                    <td style={TD}>{t.metric}</td>
+                    <td style={TD}>
+                      {t.status}
+                      {t.research_proposal ? (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            color: "#15803d",
+                            fontSize: 12,
+                          }}
+                          title="Deep Research proposal awaiting review"
+                        >
+                          ● proposal
+                        </span>
+                      ) : null}
+                    </td>
+                    <td style={TD}>{t.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
       {visible.length === 0 && <p>No tickets match.</p>}
 
       {selected && (
