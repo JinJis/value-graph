@@ -6,9 +6,11 @@ import { useEffect, useState } from "react";
 import { BuildDiagnostics } from "../../../../components/BuildDiagnostics";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
+  getBuilds,
   getPublishPreview,
   getThemeQuality,
   publishTheme,
+  type BuildSummary,
   type PublishPreview,
   type QualityReport,
 } from "../../../../lib/api";
@@ -76,6 +78,9 @@ function DataQualityMeter({ report }: { report: QualityReport }) {
 
 export default function PublishPage() {
   const { id: themeId } = useParams<{ id: string }>();
+  const [builds, setBuilds] = useState<BuildSummary[]>([]);
+  // null = publish the latest build; a number = publish that specific version from history.
+  const [version, setVersion] = useState<number | null>(null);
   const [preview, setPreview] = useState<PublishPreview | null>(null);
   const [quality, setQuality] = useState<QualityReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,16 +90,28 @@ export default function PublishPage() {
   const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Re-fetch the preview for the selected version (null → latest).
+  async function loadPreview(v: number | null) {
+    try {
+      setPreview(await getPublishPreview(themeId, v ?? undefined));
+      setPreviewError(null);
+    } catch (e) {
+      setPreviewError(String(e));
+    }
+  }
+
   async function load() {
     setLoading(true);
     try {
-      const [p, q] = await Promise.all([
-        getPublishPreview(themeId),
+      const [bs, q] = await Promise.all([
+        getBuilds(themeId),
         getThemeQuality(themeId),
       ]);
-      setPreview(p);
+      setBuilds(bs);
       setQuality(q);
-      setPreviewError(null);
+      // Default to the latest build; keep it `null` so a fresh run is always picked up.
+      setVersion(null);
+      await loadPreview(null);
     } catch (e) {
       setPreviewError(String(e));
     } finally {
@@ -107,6 +124,12 @@ export default function PublishPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeId]);
 
+  function onSelectVersion(v: number | null) {
+    setVersion(v);
+    setMsg(null);
+    void loadPreview(v);
+  }
+
   async function onPublish() {
     if (!actor.trim()) {
       setMsg("Enter your name/email first.");
@@ -115,9 +138,15 @@ export default function PublishPage() {
     setPublishing(true);
     setMsg(null);
     try {
-      const r = await publishTheme(themeId, actor.trim(), overrideReason);
+      const r = await publishTheme(
+        themeId,
+        actor.trim(),
+        overrideReason,
+        version ?? undefined,
+      );
       setMsg(
-        `Published v${r.snapshot_version} — ${r.edges} relationships` +
+        `Published v${r.snapshot_version} from build v${r.source_build_version} — ` +
+          `${r.edges} relationships` +
           (r.overridden ? " (overridden)." : "."),
       );
       setOverrideReason("");
@@ -147,6 +176,39 @@ export default function PublishPage() {
       {quality && <DataQualityMeter report={quality} />}
 
       <BuildDiagnostics themeId={themeId} />
+
+      {builds.length > 0 && (
+        <div style={{ margin: "12px 0" }}>
+          <label style={{ display: "block", fontSize: 13, marginBottom: 4 }}>
+            Build to publish{" "}
+            <small style={{ color: "#64748b" }}>
+              (a newer run no longer hides older builds — pick any from history)
+            </small>
+          </label>
+          <select
+            value={version ?? "latest"}
+            onChange={(e) =>
+              onSelectVersion(
+                e.target.value === "latest" ? null : Number(e.target.value),
+              )
+            }
+            style={{ padding: "4px 6px", maxWidth: 480 }}
+          >
+            <option value="latest">
+              Latest — v{builds[0].version} ({builds[0].publishable_edges}/
+              {builds[0].total_edges} relationships ·{" "}
+              {Math.round(builds[0].completeness * 100)}%)
+            </option>
+            {builds.map((b) => (
+              <option key={b.version} value={b.version}>
+                v{b.version} · {b.created_at.slice(0, 16).replace("T", " ")} ·{" "}
+                {b.publishable_edges}/{b.total_edges} relationships ·{" "}
+                {Math.round(b.completeness * 100)}%
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {loading ? (
         <p>

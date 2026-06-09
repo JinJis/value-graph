@@ -545,6 +545,23 @@ export interface PublishResult {
   overridden: boolean;
 }
 
+export interface BuildSummary {
+  version: number;
+  created_at: string;
+  publishable_edges: number;
+  gap_edges: number;
+  total_edges: number;
+  completeness: number;
+}
+
+// The Staging build history (newest first), so the admin can pick which version to publish —
+// a newer run no longer hides older builds. Empty array when no build yet.
+export async function getBuilds(themeId: string): Promise<BuildSummary[]> {
+  return json(
+    await fetch(url(`/themes/${themeId}/builds`), { cache: "no-store" }),
+  );
+}
+
 // --- Staging graph (trade edges + their sources, for provenance review) ---------------
 
 export interface EdgeSourceRef {
@@ -600,24 +617,29 @@ export async function getStagingGraph(
   return json(response);
 }
 
-// Assemble + gate the latest Staging build WITHOUT publishing — shows completeness and
-// any blocking validation violations. Returns null when there is no build yet (409).
+// Assemble + gate a Staging build WITHOUT publishing — shows completeness and any blocking
+// validation violations. `version` selects a build from history; omit for the latest.
+// Returns null when there is no build yet (409).
 export async function getPublishPreview(
   themeId: string,
+  version?: number,
 ): Promise<PublishPreview | null> {
-  const response = await fetch(url(`/themes/${themeId}/publish/preview`), {
+  const qs = version != null ? `?version=${version}` : "";
+  const response = await fetch(url(`/themes/${themeId}/publish/preview${qs}`), {
     cache: "no-store",
   });
   if (response.status === 409) return null;
   return json(response);
 }
 
-// Publish the latest build to Production (explicit human action). Supply
-// `overrideReason` to publish past validation issues (logged server-side).
+// Publish a build to Production (explicit human action). `version` selects which build from
+// history to publish (omit for the latest). Supply `overrideReason` to publish past
+// validation issues (logged server-side).
 export async function publishTheme(
   themeId: string,
   actor: string,
   overrideReason?: string,
+  version?: number,
 ): Promise<PublishResult> {
   return json(
     await fetch(url(`/themes/${themeId}/publish`), {
@@ -626,6 +648,7 @@ export async function publishTheme(
       body: JSON.stringify({
         actor,
         override_reason: overrideReason?.trim() || null,
+        version: version ?? null,
       }),
     }),
   );

@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from services.engine.db.artifacts import GapEdge
+from services.engine.db.artifacts import GapEdge, ThemeBuild
 from services.engine.db.config import DbSettings
 from services.engine.db.graph import connect
 from services.engine.db.graph_store import GraphStore, Neo4jGraphStore
@@ -75,12 +75,39 @@ class PublishPreview(BaseModel):
     can_publish: bool  # clean gate + meets completeness threshold (no override needed)
 
 
+class BuildSummary(BaseModel):
+    """One Staging build version (what the admin picks from history to publish)."""
+
+    version: int
+    created_at: datetime
+    publishable_edges: int
+    gap_edges: int
+    total_edges: int
+    completeness: float
+
+
 class PublishRequest(BaseModel):
-    """Publish the latest Staging build to Production (explicit human action)."""
+    """Publish a Staging build to Production (explicit human action). ``version`` defaults to
+    the latest build; pass an older version to publish (roll back to) that one."""
 
     actor: str = "admin"  # no auth yet; captured for the audit log
     override_reason: str | None = None  # required to publish past gate/completeness issues
     threshold: float | None = None  # completeness bar; defaults to the engine default
+    version: int | None = None  # which build to publish; None = latest
+
+
+def _build_to_publish(graph: GraphStore, theme_id: str, version: int | None) -> ThemeBuild:
+    """Load the build to publish/preview — a specific version, or the latest."""
+    build = (
+        graph.load_build(theme_id, version)
+        if version is not None
+        else graph.load_latest(theme_id)
+    )
+    if build is None:
+        if version is not None:
+            raise HTTPException(status_code=404, detail=f"build v{version} not found")
+        raise HTTPException(status_code=409, detail="no CVE build to publish; run CVE first")
+    return build
 
 
 class PublishResult(BaseModel):
@@ -95,20 +122,47 @@ class PublishResult(BaseModel):
     overridden: bool
 
 
+@router.get("/themes/{theme_id}/builds", response_model=list[BuildSummary])
+def list_builds(theme_id: str, themes: ThemeRepoDep, graph: GraphStoreDep) -> list[BuildSummary]:
+    """The Staging build history (newest first) so the admin can pick which version to publish —
+    a newer run no longer hides older builds; any prior version can be (re-)published."""
+    if themes.get_theme(theme_id) is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    summaries: list[BuildSummary] = []
+    for version in sorted(graph.list_versions(theme_id), reverse=True):
+        build = graph.load_build(theme_id, version)
+        if build is None:
+            continue
+        publishable = len(build.edges)
+        gaps = len(build.gap_edges)
+        total = publishable + gaps
+        summaries.append(
+            BuildSummary(
+                version=build.version,
+                created_at=build.created_at,
+                publishable_edges=publishable,
+                gap_edges=gaps,
+                total_edges=total,
+                completeness=(publishable / total) if total else 0.0,
+            )
+        )
+    return summaries
+
+
 @router.get("/themes/{theme_id}/publish/preview", response_model=PublishPreview)
 def preview_publish(
     theme_id: str,
     themes: ThemeRepoDep,
     graph: GraphStoreDep,
     threshold: Annotated[float, Query()] = DEFAULT_COMPLETENESS_THRESHOLD,
+    version: Annotated[int | None, Query()] = None,
 ) -> PublishPreview:
-    """Assemble + gate the latest build WITHOUT writing — surfaces completeness and every
-    validation violation so the admin can decide whether to publish (or override)."""
+    """Assemble + gate a build WITHOUT writing — surfaces completeness and every validation
+    violation so the admin can decide whether to publish (or override). ``version`` selects a
+    build from history; omit it to preview the latest."""
     if themes.get_theme(theme_id) is None:
         raise HTTPException(status_code=404, detail="theme not found")
-    build = graph.load_latest(theme_id)
-    if build is None:
-        raise HTTPException(status_code=409, detail="no CVE build to publish; run CVE first")
+    build = _build_to_publish(graph, theme_id, version)
     assembled = assemble(build, threshold=threshold)
     report = gate(assembled, build)
     return PublishPreview(
@@ -128,19 +182,19 @@ def publish_theme(
     graph: GraphStoreDep,
     store: ProductionStoreDep,
 ) -> PublishResult:
-    """Publish the latest Staging build to Production as a new read-only snapshot.
+    """Publish a Staging build to Production as a new read-only snapshot.
 
-    Explicit human action: requires an ``actor``. Validation issues (incomplete graph or
-    an exposed figure missing provenance) block publish unless an ``override_reason`` is
-    supplied, which is logged.
+    Explicit human action: requires an ``actor``. ``req.version`` selects which build from
+    history to publish (omit for the latest), so a newer run never traps the admin on it —
+    any prior version can be re-published. Validation issues (incomplete graph or an exposed
+    figure missing provenance) block publish unless an ``override_reason`` is supplied, which
+    is logged.
     """
     if themes.get_theme(theme_id) is None:
         raise HTTPException(status_code=404, detail="theme not found")
     if not req.actor.strip():
         raise HTTPException(status_code=400, detail="publish requires an actor")
-    build = graph.load_latest(theme_id)
-    if build is None:
-        raise HTTPException(status_code=409, detail="no CVE build to publish; run CVE first")
+    build = _build_to_publish(graph, theme_id, req.version)
 
     threshold = req.threshold if req.threshold is not None else DEFAULT_COMPLETENESS_THRESHOLD
     reason = (req.override_reason or "").strip()
