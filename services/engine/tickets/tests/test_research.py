@@ -107,9 +107,34 @@ def test_structuring_fallback_when_report_has_no_json() -> None:
     statuses = [e["status"] for e in events if e["event"] == "parse"]
     assert "structuring" in statuses and statuses[-1] == "ok"
     assert fake.calls == 2  # one Deep Research run + one cheap structuring call (no re-run)
-
     proposed = next(e for e in events if e["event"] == "proposed")
     assert proposed["value"] == "21% of revenue"
+
+
+class _NoReportFake:
+    """The agent emits only reasoning (thoughts) and never a final report — empty buffer."""
+
+    def generate_text(self, *, model: str, prompt: str) -> str:
+        return ""  # structuring has nothing to work with either
+
+    def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+        yield {"kind": "thought", "text": "thinking… but never concluding"}
+
+
+def test_no_report_leaves_ticket_open_not_marked_not_found() -> None:
+    """An empty report is NOT a 'not found' — the ticket stays OPEN (re-run), never auto-
+    resolved to UNRESOLVABLE. A real 'not found' arrives as a verdict and IS resolved."""
+    repo = InMemoryTicketRepository()
+    ticket = _open_ticket(repo)
+    events = list(
+        research_tickets_events(_theme(), [ticket], None, _router(_NoReportFake()), repo)
+    )
+    assert any(e["event"] == "error" for e in events)
+    assert not any(e["event"] in ("auto_resolved", "proposed") for e in events)
+    again = repo.get_ticket(ticket.id)
+    assert again is not None and again.status == "OPEN"  # untouched, not UNRESOLVABLE
+    detail = next(e["detail"] for e in events if e["event"] == "error")
+    assert "not a" in str(detail).lower()  # message distinguishes it from "not found"
 
 
 def test_found_persists_proposal_and_keeps_open() -> None:

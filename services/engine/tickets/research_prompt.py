@@ -50,6 +50,11 @@ VERDICT — choose exactly ONE per data point:
 - "paywalled"     — the figure exists but only behind a paywall you cannot read.
 - "ambiguous"     — the metric or the company relationship is too unclear to answer.
 
+ALWAYS CONCLUDE: even if you found NOTHING for any data point, you MUST still end with the
+JSON block giving every ref a verdict (use "not_found"/"not_disclosed"/"paywalled"/"ambiguous").
+Never stop without the final JSON — "I couldn't find it" is a valid, required answer, not a
+reason to omit the conclusion.
+
 OUTPUT FORMAT — after your research, end with EXACTLY ONE fenced JSON code block
 (```json … ```) and nothing after it. Return ONE result per data point, ECHOING its "ref"
 (omit none):

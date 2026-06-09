@@ -185,8 +185,14 @@ def _research_batch(
 
         report = buffer.strip()
         if not report:
-            # The agent produced reasoning/tool-calls but no final report text.
-            last_error = "Deep Research returned no report text"
+            # The agent emitted reasoning/tool-calls but NO final report text. This is NOT a
+            # "not found" result (that comes back as a report with verdict not_found) — the
+            # agent simply didn't produce a conclusion (timeout / it trailed off). The tickets
+            # are left OPEN; re-running usually resolves it.
+            last_error = (
+                "Deep Research returned no final report (no conclusion) — this is not a "
+                "'not found'; the tickets stay OPEN, run it again"
+            )
             more = attempt + 1 < attempts
             yield {
                 "event": "parse",
