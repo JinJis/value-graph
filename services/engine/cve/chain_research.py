@@ -15,7 +15,7 @@ import re
 from collections.abc import Generator, Iterable
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from services.engine.blueprint.generate import (
     BlueprintParseError,
@@ -80,6 +80,8 @@ def _resolve_ticker(value: str | None, index: dict[str, str]) -> str | None:
 
 
 class ResearchedTrade(BaseModel):
+    # Numeric tickers (Tokyo/Seoul/Shanghai) may arrive as JSON numbers — coerce to str.
+    model_config = ConfigDict(coerce_numbers_to_str=True)
     supplier: str
     customer: str
     relation: str = QUALITATIVE

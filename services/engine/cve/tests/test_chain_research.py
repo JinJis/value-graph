@@ -149,6 +149,57 @@ def test_chain_research_resolves_names_and_degrades_unsourced() -> None:
     assert values == [21.0, None]  # the sourced one keeps its value; the unsourced is degraded
 
 
+def test_chain_research_handles_numeric_tickers() -> None:
+    """Tokyo/Seoul-style numeric tickers arriving as JSON numbers don't crash parsing and
+    still resolve (the whole batch used to fail on a `str` field before coercion)."""
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="Chips"))
+    blueprint = InMemoryBlueprintRepository().save(
+        Blueprint(
+            theme_id=theme.id,
+            version=1,
+            companies=[
+                BlueprintCompany(ticker="6857", name="Advantest", country="JP", role="ATE"),
+                BlueprintCompany(ticker="6758", name="Sony", country="JP", role="customer"),
+            ],
+        )
+    )
+    chain = json.dumps(
+        {
+            "trades": [
+                {
+                    "supplier": 6857,  # JSON number, not a string
+                    "customer": 6758,
+                    "relation": "supplier_revenue_share",
+                    "value": 15,
+                    "unit": "%",
+                    "source_url": "https://example.com/x",
+                    "quote": "15% of revenue",
+                }
+            ],
+            "financials": [{"ticker": 6857, "revenue": 2400000, "source_url": "https://x"}],
+        }
+    )
+
+    class _G:
+        def generate_text(self, *, model: str, prompt: str) -> str:
+            return ""
+
+        def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+            yield {"kind": "text", "text": chain}
+
+    fin = InMemoryFinancialsRepository()
+    events, claims = _drain(
+        research_chain_events(
+            theme, blueprint, themes, fin, LLMRouter(_G(), DEFAULT_MODELS), today=TODAY
+        )
+    )
+    researched = next(e for e in events if e["event"] == "researched")
+    assert researched["trades_found"] == 1 and len(claims) == 1
+    assert (claims[0].subject, claims[0].object) == ("6857", "6758")  # coerced + matched
+    assert fin.get("6857") is not None  # numeric financials ticker coerced too
+
+
 def test_chain_research_structures_report_without_json() -> None:
     themes = InMemoryThemeRepository()
     theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))

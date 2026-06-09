@@ -6,10 +6,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+# Tickers differ wildly by market — alphabetic (AAPL), numeric (6857 in Tokyo, 005930 in
+# Seoul), with or without an exchange suffix. An LLM may emit a numeric ticker as a JSON
+# number, which would otherwise fail a `str` field and drop the whole record. Coerce numbers
+# to strings so e.g. 6857 parses as "6857". (Identity/matching normalization is separate.)
+_LLM_MODEL_CONFIG = ConfigDict(coerce_numbers_to_str=True)
 
 
 class BlueprintCompany(BaseModel):
+    model_config = _LLM_MODEL_CONFIG
     ticker: str
     name: str
     country: str = Field(description="ISO-2 country code, e.g. KR/US/JP/CN/TW")

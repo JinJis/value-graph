@@ -12,7 +12,7 @@ from collections.abc import Iterable, Iterator
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from services.engine.blueprint.generate import (
     BlueprintParseError,
@@ -35,6 +35,8 @@ Event = dict[str, Any]
 class ResearchedFinancials(BaseModel):
     """One company's financials as returned by Deep Research (with a citation)."""
 
+    # A numeric ticker may arrive as a JSON number — coerce to str so it doesn't drop.
+    model_config = ConfigDict(coerce_numbers_to_str=True)
     ticker: str
     currency: str | None = None  # the company's OWN reporting currency (ISO, e.g. JPY)
     revenue: float | None = None

@@ -9,7 +9,7 @@ because the graph-schema Claim is additionalProperties: false.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from graph_schema import is_valid
 from services.engine.llm.router import LLMRouter, Tier
@@ -61,6 +61,8 @@ _EXTRACT_KEY = registry.register(
 class RawClaim(BaseModel):
     """One claim as returned by the model (before the engine stamps provenance)."""
 
+    # A numeric ticker as subject/object may arrive as a JSON number — coerce to str.
+    model_config = ConfigDict(coerce_numbers_to_str=True)
     relation: str
     subject: str
     object: str
