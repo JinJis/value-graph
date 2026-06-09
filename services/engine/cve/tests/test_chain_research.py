@@ -13,8 +13,9 @@ from services.engine.blueprint.repository import InMemoryBlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.calendar.models import CalendarUpsert
 from services.engine.calendar.repository import InMemoryCalendarRepository
+from services.engine.calendar.router import get_calendar_repository
 from services.engine.cve.chain_research import research_chain_events
-from services.engine.cve.router import get_calendar_repository, get_cve_run_repository
+from services.engine.cve.router import get_cve_run_repository
 from services.engine.cve.run_repository import InMemoryCveRunRepository
 from services.engine.db.graph_store import InMemoryGraphStore
 from services.engine.financials.models import FinancialsUpsert

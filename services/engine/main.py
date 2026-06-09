@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from services.engine.blueprint.router import router as blueprint_router
+from services.engine.calendar.router import router as calendar_router
 from services.engine.cve.router import router as cve_router
 from services.engine.docs_router import router as docs_router
 from services.engine.feed.router import router as feed_router
@@ -158,6 +159,7 @@ app.include_router(blueprint_router)
 app.include_router(tickets_router)
 app.include_router(cve_router)
 app.include_router(financials_router)
+app.include_router(calendar_router)
 app.include_router(sources_router)
 app.include_router(publish_router)
 app.include_router(feed_router)

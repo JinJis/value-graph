@@ -11,10 +11,8 @@ from fastapi.responses import StreamingResponse
 
 from services.engine.blueprint.repository import BlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
-from services.engine.calendar.repository import (
-    CalendarRepository,
-    PostgresCalendarRepository,
-)
+from services.engine.calendar.repository import CalendarRepository
+from services.engine.calendar.router import get_calendar_repository
 from services.engine.cve.diagnostics import BuildDiagnostics, build_diagnostics
 from services.engine.cve.run_repository import CveRunRepository, PostgresCveRunRepository
 from services.engine.cve.run_service import (
@@ -44,10 +42,6 @@ router = APIRouter(tags=["cve"])
 
 def get_cve_run_repository() -> CveRunRepository:
     return PostgresCveRunRepository(DbSettings.from_env())
-
-
-def get_calendar_repository() -> CalendarRepository:
-    return PostgresCalendarRepository(DbSettings.from_env())
 
 
 ThemeRepoDep = Annotated[ThemeRepository, Depends(get_theme_repository)]

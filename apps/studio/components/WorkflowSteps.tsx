@@ -4,7 +4,8 @@ import Link from "next/link";
 
 // The ValueGraph build pipeline, in order. The Studio guides an admin through these
 // steps; each is one page under /themes/[id]. Order matches the engine flow:
-// Theme -> Blueprint -> Tickets -> Financials -> Build (CVE) -> Publish.
+// Theme -> Blueprint -> Tickets -> Financials -> Calendar -> Build (CVE) -> Publish.
+// (Calendar feeds each figure's next_expected_update, read by the CVE score stage.)
 
 export interface StepDef {
   key: string;
@@ -17,6 +18,7 @@ export const STEP_DEFS: StepDef[] = [
   { key: "blueprint", label: "Blueprint", sub: "/blueprint" },
   { key: "tickets", label: "Tickets", sub: "/tickets" },
   { key: "financials", label: "Financials", sub: "/financials" },
+  { key: "calendar", label: "Calendar", sub: "/calendar" },
   { key: "build", label: "Build", sub: "/build" },
   { key: "publish", label: "Publish", sub: "/publish" },
 ];

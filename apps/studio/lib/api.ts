@@ -750,6 +750,61 @@ export const researchFinancialsStream = (
     signal,
   );
 
+// --- Disclosure Calendar (drives each figure's next_expected_update) --------------------
+
+export interface CalendarRow {
+  ticker: string;
+  name: string;
+  fiscal_calendar: string | null;
+  last_filing_date: string | null;
+  cadence_days: number | null;
+  next_filing_estimate: string | null;
+  source: string | null;
+  covered: boolean;
+}
+
+export interface CalendarCoverage {
+  theme_id: string;
+  covered: number;
+  total: number;
+  rows: CalendarRow[];
+}
+
+// The disclosure calendar for a theme's blueprint companies (covered + still-missing). The
+// next_filing_estimate is what fills each edge's required next_expected_update on the next build.
+export async function getCalendar(themeId: string): Promise<CalendarCoverage> {
+  return json(
+    await fetch(url(`/themes/${themeId}/calendar`), { cache: "no-store" }),
+  );
+}
+
+export interface CalendarEntryInput {
+  fiscal_calendar?: string | null;
+  last_filing_date?: string | null;
+  cadence_days?: number | null;
+  next_filing_estimate?: string | null;
+  source?: string | null;
+}
+
+// Set/refresh one company's filing schedule. If next_filing_estimate is omitted but
+// last_filing_date + cadence_days are given, the engine computes the next filing.
+export async function putCalendarEntry(
+  themeId: string,
+  ticker: string,
+  data: CalendarEntryInput,
+): Promise<CalendarRow> {
+  return json(
+    await fetch(
+      url(`/themes/${themeId}/calendar/${encodeURIComponent(ticker)}`),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    ),
+  );
+}
+
 // --- CVE run (M3-ORCH-08) ---
 
 export interface CveRunSummary {

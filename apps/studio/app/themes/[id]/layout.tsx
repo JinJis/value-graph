@@ -13,6 +13,7 @@ import {
 } from "../../../components/WorkflowSteps";
 import {
   getBlueprint,
+  getCalendar,
   getPublishPreview,
   getTheme,
   getThemeQuality,
@@ -39,6 +40,7 @@ interface Signals {
   approved: boolean;
   tickets: number;
   financials: number;
+  calendar: number;
   hasBuild: boolean;
   published: boolean;
 }
@@ -48,6 +50,7 @@ const EMPTY: Signals = {
   approved: false,
   tickets: 0,
   financials: 0,
+  calendar: 0,
   hasBuild: false,
   published: false,
 };
@@ -77,6 +80,9 @@ function buildSteps(themeId: string, s: Signals): WorkflowStep[] {
       : { status: "locked", hint: approvedHint },
     financials: s.approved
       ? { status: s.financials > 0 ? "done" : "available" }
+      : { status: "locked", hint: approvedHint },
+    calendar: s.approved
+      ? { status: s.calendar > 0 ? "done" : "available" }
       : { status: "locked", hint: approvedHint },
     build: s.approved
       ? { status: s.hasBuild ? "done" : "available" }
@@ -140,15 +146,17 @@ export default function ThemeLayout({
         getThemeQuality(id).catch(() => null),
       ]);
       const tickers = bp?.blueprint.companies.map((c) => c.ticker) ?? [];
-      const fin = tickers.length
-        ? await listFinancials(tickers).catch(() => [])
-        : [];
+      const [fin, cal] = await Promise.all([
+        tickers.length ? listFinancials(tickers).catch(() => []) : [],
+        getCalendar(id).catch(() => null),
+      ]);
       if (!alive) return;
       setSig({
         hasBlueprint: !!bp,
         approved,
         tickets: tickets.length,
         financials: fin.length,
+        calendar: cal?.covered ?? 0,
         hasBuild: false,
         published: !!quality,
       });
