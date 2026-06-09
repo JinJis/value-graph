@@ -88,6 +88,67 @@ def _router() -> LLMRouter:
     return LLMRouter(_Gen(), DEFAULT_MODELS)
 
 
+def test_chain_research_resolves_names_and_degrades_unsourced() -> None:
+    """Trades survive a slightly-off ticker (resolved by name) and a missing source (kept as
+    qualitative), so a real relationship still becomes a claim instead of vanishing."""
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    blueprint = _blueprint(theme.id)  # INTC (Intel), HPQ (HP Inc.)
+    chain = json.dumps(
+        {
+            "trades": [
+                {  # company NAMES instead of tickers -> resolved to INTC->HPQ
+                    "supplier": "Intel",
+                    "customer": "HP Inc.",
+                    "relation": "supplier_revenue_share",
+                    "value": 21,
+                    "unit": "%",
+                    "source_url": "https://example.com/intc",
+                    "quote": "21% of revenue from HP",
+                },
+                {  # quantified but NO source -> degraded to qualitative (kept, not dropped)
+                    "supplier": "INTC",
+                    "customer": "HPQ",
+                    "relation": "supplier_revenue_share",
+                    "value": 10,
+                    "unit": "%",
+                    "source_url": "",
+                },
+                {  # genuinely unknown company -> dropped
+                    "supplier": "Foobar",
+                    "customer": "HPQ",
+                    "relation": "qualitative",
+                    "value": None,
+                },
+            ],
+            "financials": [],
+        }
+    )
+
+    class _G:
+        def generate_text(self, *, model: str, prompt: str) -> str:
+            return ""
+
+        def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+            yield {"kind": "text", "text": chain}
+
+    fin = InMemoryFinancialsRepository()
+    events, claims = _drain(
+        research_chain_events(
+            theme, blueprint, themes, fin, LLMRouter(_G(), DEFAULT_MODELS), today=TODAY
+        )
+    )
+    researched = next(e for e in events if e["event"] == "researched")
+    assert researched["trades_found"] == 3
+    assert researched["dropped_unknown_ticker"] == 1
+    assert researched["degraded_no_source"] == 1
+
+    assert isinstance(claims, list) and len(claims) == 2  # name-resolved + degraded
+    assert {(c.subject, c.object) for c in claims} == {("INTC", "HPQ")}  # name -> ticker
+    values = sorted((c.value for c in claims), key=lambda v: (v is None, v))
+    assert values == [21.0, None]  # the sourced one keeps its value; the unsourced is degraded
+
+
 def test_chain_research_structures_report_without_json() -> None:
     themes = InMemoryThemeRepository()
     theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))

@@ -11,6 +11,7 @@ JSON-parsing machinery (same as blueprint generation / ticket research).
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Generator, Iterable
 from typing import Any
 
@@ -48,6 +49,34 @@ def _has_financials(record: FinancialsRecord | None) -> bool:
     """A company is 'covered' once it has revenue on file (the CVE denominator) — enough
     to skip re-researching it in the chain pass; missing cost buckets still get tickets."""
     return record is not None and record.revenue is not None
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _ticker_index(companies: Iterable[BlueprintCompany]) -> dict[str, str]:
+    """Map several normalized keys (exact ticker, ticker-before-exchange-suffix, company name)
+    to the canonical blueprint ticker, so a slightly-off supplier/customer from Deep Research
+    still resolves instead of being dropped."""
+    index: dict[str, str] = {}
+    for c in companies:
+        index[c.ticker.upper()] = c.ticker
+        index[c.ticker.split(".")[0].upper()] = c.ticker  # "6857.T" <- "6857"
+        index[_norm(c.name)] = c.ticker  # "Advantest" <- name
+    return index
+
+
+def _resolve_ticker(value: str | None, index: dict[str, str]) -> str | None:
+    """Resolve a Deep-Research supplier/customer string to a known blueprint ticker."""
+    if not value:
+        return None
+    raw = value.strip()
+    return (
+        index.get(raw.upper())
+        or index.get(raw.split(".")[0].upper())
+        or index.get(_norm(raw))
+    )
 
 
 class ResearchedTrade(BaseModel):
@@ -245,7 +274,7 @@ def research_chain_events(
         yield {"event": "error", "detail": last_error or "chain research failed"}
         return []
 
-    known = {c.ticker for c in blueprint.companies}
+    index = _ticker_index(blueprint.companies)
 
     # One Source per distinct citation URL -> url->id map.
     url_to_source: dict[str, str] = {}
@@ -253,48 +282,67 @@ def research_chain_events(
         record = theme_repo.add_source(theme.id, SourceCreate(type="report", url=url))
         url_to_source[url] = record.id
 
-    # Financials (only known tickers; merge so research never clobbers existing buckets).
+    # Financials (resolve to a known ticker; merge so research never clobbers existing buckets).
     fin_written = 0
     for fin in content.financials:
-        if fin.ticker not in known:
+        ticker = _resolve_ticker(fin.ticker, index)
+        if ticker is None:
             continue
-        financials_repo.upsert(merge_financials(fin, financials_repo.get(fin.ticker)))
+        financials_repo.upsert(merge_financials(fin, financials_repo.get(ticker)))
         fin_written += 1
 
-    # Trades -> CVE claims (a number cannot enter without a Source).
+    # Trades -> CVE claims. Be forgiving so a real relationship still becomes an edge:
+    # resolve slightly-off tickers, and rather than DROPPING a quantified trade with no usable
+    # source, keep the relationship as QUALITATIVE (no number without a Source — the edge then
+    # gets estimated + ticketed, instead of vanishing).
     claims: list[Claim] = []
+    raw_trades = len(content.trades)
+    dropped_unknown = 0
+    degraded_no_source = 0
     for trade in content.trades:
-        if trade.supplier not in known or trade.customer not in known:
+        supplier = _resolve_ticker(trade.supplier, index)
+        customer = _resolve_ticker(trade.customer, index)
+        if supplier is None or customer is None:
+            dropped_unknown += 1
             continue
         url = (trade.source_url or "").strip()
         source_id = url_to_source.get(url)
-        if source_id is None and trade.value is not None:
-            continue  # a quantified trade with no usable source is dropped
+        relation, value = trade.relation, trade.value
+        if source_id is None and value is not None:
+            relation, value = QUALITATIVE, None  # keep the link, drop the unsourced number
+            degraded_no_source += 1
         claims.append(
             Claim(
-                relation=trade.relation,
-                subject=trade.supplier,
-                object=trade.customer,
-                value=trade.value,
-                unit=trade.unit,
+                relation=relation,
+                subject=supplier,
+                object=customer,
+                value=value,
+                unit=trade.unit if value is not None else None,
                 cost_bucket=trade.cost_bucket,
                 as_of=trade.as_of or today,
                 source_id=source_id or "",
                 extracted_by=DEEP_RESEARCH_EXTRACTOR,
-                text_span=trade.quote or f"{trade.supplier}->{trade.customer} {trade.relation}",
+                text_span=trade.quote or f"{supplier}->{customer} {relation}",
             )
         )
 
     logger.info(
-        "chain_research.persisted theme=%s trades=%d financials=%d sources=%d",
+        "chain_research.persisted theme=%s raw_trades=%d kept=%d dropped_unknown=%d "
+        "degraded=%d financials=%d sources=%d",
         theme.id,
+        raw_trades,
         len(claims),
+        dropped_unknown,
+        degraded_no_source,
         fin_written,
         len(url_to_source),
     )
     yield {
         "event": "researched",
         "trades": len(claims),
+        "trades_found": raw_trades,
+        "dropped_unknown_ticker": dropped_unknown,
+        "degraded_no_source": degraded_no_source,
         "financials": fin_written,
         "sources": len(url_to_source),
     }

@@ -37,13 +37,26 @@ export default function BuildPage() {
       case "phase":
         step(e.phase === "research" ? "▼ Deep Research" : "▼ Build (CVE)");
         break;
-      case "researched":
+      case "researched": {
+        const found = Number(e.trades_found ?? e.trades ?? 0);
+        const kept = Number(e.trades ?? 0);
+        const dropped = Number(e.dropped_unknown_ticker ?? 0);
+        const degraded = Number(e.degraded_no_source ?? 0);
+        const drops = [
+          dropped ? `${dropped} unknown ticker` : "",
+          degraded ? `${degraded} no-source → qualitative` : "",
+        ]
+          .filter(Boolean)
+          .join(", ");
         step(
           "researched",
-          `${e.trades} trade(s) · ${e.financials} financials · ${e.sources} source(s)`,
-          "ok",
+          `${kept} usable trade(s) of ${found} found` +
+            (drops ? ` (${drops})` : "") +
+            ` · ${e.financials} financials · ${e.sources} source(s)`,
+          found > 0 && kept === 0 ? "warn" : "ok",
         );
         break;
+      }
       case "financials_missing":
         step(
           "financials missing",
