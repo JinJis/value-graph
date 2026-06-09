@@ -221,6 +221,15 @@ export function BuildDiagnostics({
               tone={missingFin.length === 0 ? "#15803d" : "#b45309"}
             />
             <Stat
+              label="Disclosure Calendar"
+              value={`${diag.calendar_covered}/${diag.blueprint_companies}`}
+              tone={
+                diag.calendar_covered > 0 || diag.blueprint_companies === 0
+                  ? undefined
+                  : "#b45309"
+              }
+            />
+            <Stat
               label="Publishable / total"
               value={`${diag.build.publishable_edges}/${diag.build.total_edges}`}
               tone={diag.build.total_edges > 0 ? undefined : "#b91c1c"}

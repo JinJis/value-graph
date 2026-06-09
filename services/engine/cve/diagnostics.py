@@ -191,6 +191,7 @@ def _findings(
     blueprint_companies: int,
     sources: SourcesInfo,
     financials: FinancialsInfo,
+    calendar_covered: int,
     last_run: RunInfo | None,
     build: BuildInfo,
 ) -> list[Finding]:
@@ -310,6 +311,53 @@ def _findings(
                     )
                 )
 
+    # Why are edges landing as GAPS instead of publishable? A SuppliesEdge MUST carry both
+    # as_of_date AND next_expected_update (graph-schema required fields); missing either
+    # demotes the edge to a drawn gap. The two usual culprits — an empty Disclosure Calendar
+    # (no next_expected_update for ANY edge) and estimated edges (no source claim -> no
+    # as_of_date) — explain a build that has edges yet 0% publishable.
+    if build.total_edges > 0 and build.publishable_edges < build.total_edges:
+        if calendar_covered == 0:
+            out.append(
+                Finding(
+                    # The blocker when nothing is publishable; otherwise a contributing warning.
+                    level="error" if build.publishable_edges == 0 else "warn",
+                    code="calendar_empty",
+                    message="The Disclosure Calendar has 0 entries for this theme's companies, "
+                    "so every edge is missing 'next_expected_update' — a required field — and is "
+                    f"demoted to a drawn gap ({build.gap_edges}/{build.total_edges} edges). This "
+                    "is the main reason the build is "
+                    f"{round(build.completeness * 100)}% publishable.",
+                    action="Add per-company filing dates on the Disclosure Calendar step, then "
+                    "re-run the build (or re-assemble).",
+                )
+            )
+        estimated = last_run.stages.estimated if last_run and last_run.stages else 0
+        if estimated:
+            out.append(
+                Finding(
+                    level="warn",
+                    code="estimated_no_asof",
+                    message=f"{estimated} edge(s) are algorithmic estimates (VSCA-est) with no "
+                    "backing disclosure, so they carry no 'as_of_date' and stay gaps by design — "
+                    "estimates are drawn as ghosts, never published as fact.",
+                    action="Fill the missing disclosures (tickets / 'Research & build') to turn "
+                    "estimates into derived, dated edges.",
+                )
+            )
+        if calendar_covered > 0 and not estimated and build.publishable_edges == 0:
+            out.append(
+                Finding(
+                    level="warn",
+                    code="edges_missing_provenance",
+                    message="Every edge was demoted to a gap even though the Disclosure Calendar "
+                    "has entries — the edges are missing a required figure date (as_of_date or "
+                    "next_expected_update) or another SuppliesEdge field.",
+                    action="Open an edge in the Build/Sources review to see which figure lacks a "
+                    "dated Source, fill it, then re-run.",
+                )
+            )
+
     # Final graph state.
     if build.total_edges == 0:
         out.append(
@@ -376,6 +424,7 @@ def build_diagnostics(
         blueprint_companies=len(companies),
         sources=sources_info,
         financials=financials_info,
+        calendar_covered=len(calendar),
         last_run=last_run,
         build=build,
     )

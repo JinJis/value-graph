@@ -143,6 +143,63 @@ def test_healthy_build_is_ready() -> None:
     assert diag.last_run.stages.scored == 1
 
 
+def test_all_gap_edges_with_empty_calendar_flags_calendar() -> None:
+    """The user's case: edges were derived but ALL landed as gaps (0% publishable) because the
+    Disclosure Calendar is empty, so every edge lacks the required next_expected_update."""
+    from services.engine.db.artifacts import GapEdge
+
+    graph = InMemoryGraphStore()
+    graph.save_build(
+        ThemeBuild(
+            theme_id=THEME,
+            version=4,
+            created_at=datetime.now(UTC),
+            companies=[{"ticker": "INTC", "name": "INTC"}],
+            edges=[],  # nothing publishable
+            gap_edges=[
+                GapEdge(
+                    supplier="INTC",
+                    customer="HPQ",
+                    confidence="estimated",
+                    freshness="gap",
+                    reason="missing next_expected_update",
+                )
+            ],
+        )
+    )
+    runs = InMemoryCveRunRepository()
+    rec = runs.start(THEME, "admin")
+    runs.finish(
+        rec.id,
+        status=DONE,
+        state={
+            "claims": [{}],
+            "documents": [{}],
+            "edges": {"INTC->HPQ": {"reconciled": {}, "scored": {}, "estimated": True}},
+        },
+    )
+    fin = InMemoryFinancialsRepository()
+    for t in ("INTC", "HPQ"):
+        fin.upsert(FinancialsUpsert(company_ticker=t, revenue=100.0, cogs=80.0))
+
+    diag = build_diagnostics(
+        theme_id=THEME,
+        blueprint=_blueprint(),
+        sources=[_source("k1")],
+        financials_repo=fin,
+        calendar_repo=None,  # no calendar -> calendar_covered == 0
+        run_repo=runs,
+        graph_store=graph,
+    )
+    codes = _codes(diag)
+    assert diag.calendar_covered == 0
+    assert diag.build.total_edges == 1 and diag.build.publishable_edges == 0
+    assert "calendar_empty" in codes  # the headline cause is surfaced
+    assert "estimated_no_asof" in codes  # and the estimated-edge angle
+    cal = next(f for f in diag.findings if f.code == "calendar_empty")
+    assert cal.level == "error"  # 0 publishable -> a blocker, not just a warning
+
+
 def test_list_runs_returns_all_for_theme() -> None:
     runs = InMemoryCveRunRepository()
     first = runs.start(THEME, "admin")
