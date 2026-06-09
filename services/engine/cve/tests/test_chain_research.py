@@ -195,9 +195,11 @@ def test_chain_research_handles_numeric_tickers() -> None:
         )
     )
     researched = next(e for e in events if e["event"] == "researched")
-    assert researched["trades_found"] == 1 and len(claims) == 1
-    assert (claims[0].subject, claims[0].object) == ("6857", "6758")  # coerced + matched
-    assert fin.get("6857") is not None  # numeric financials ticker coerced too
+    assert researched["trades_found"] == 1
+    assert isinstance(claims, list) and len(claims) == 1
+    # JP companies canonicalize to SYMBOL.T; the numeric trade resolves to them.
+    assert {(c.subject, c.object) for c in claims} == {("6857.T", "6758.T")}
+    assert fin.get("6857.T") is not None  # numeric financials ticker coerced + canonical
 
 
 def test_chain_research_structures_report_without_json() -> None:

@@ -19,6 +19,7 @@ from services.engine.blueprint.generate import (
     _extract_json,
     parse_with_structuring,
 )
+from services.engine.blueprint.identity import build_ticker_index, resolve_to_known
 from services.engine.blueprint.models import BlueprintCompany
 from services.engine.blueprint.stream import _research_stream
 from services.engine.financials.models import FinancialsUpsert
@@ -53,9 +54,13 @@ class FinancialsResearch(BaseModel):
 
 
 def merge_financials(
-    fin: ResearchedFinancials, existing: FinancialsUpsert | None
+    fin: ResearchedFinancials,
+    existing: FinancialsUpsert | None,
+    *,
+    ticker: str | None = None,
 ) -> FinancialsUpsert:
-    """Fill only the buckets research found; keep any existing values otherwise."""
+    """Fill only the buckets research found; keep any existing values otherwise. ``ticker``
+    (the resolved canonical ticker) overrides the raw one the LLM returned."""
 
     def pick(field: str, value: float | None) -> float | None:
         if value is not None:
@@ -63,7 +68,7 @@ def merge_financials(
         return getattr(existing, field) if existing is not None else None
 
     return FinancialsUpsert(
-        company_ticker=fin.ticker,
+        company_ticker=ticker or fin.ticker,
         currency=fin.currency or (existing.currency if existing is not None else None),
         revenue=pick("revenue", fin.revenue),
         cogs=pick("cogs", fin.cogs),
@@ -182,12 +187,15 @@ def research_financials_events(
         yield {"event": "error", "detail": last_error or "financials research failed"}
         return
 
-    known = {c.ticker for c in companies}
+    index = build_ticker_index(companies)
     filled = 0
     for fin in content.financials:
-        if fin.ticker not in known:
+        ticker = resolve_to_known(fin.ticker, index)  # raw/name -> canonical blueprint ticker
+        if ticker is None:
             continue
-        record = financials_repo.upsert(merge_financials(fin, financials_repo.get(fin.ticker)))
+        record = financials_repo.upsert(
+            merge_financials(fin, financials_repo.get(ticker), ticker=ticker)
+        )
         filled += 1
         yield {
             "event": "filled",

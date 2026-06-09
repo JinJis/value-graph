@@ -48,7 +48,7 @@ def _disc(items: list[tuple[str, str]]) -> str:
                 {
                     "ticker": t,
                     "name": f"Name {t}",
-                    "country": "JP",
+                    "country": "US",
                     "role": "supplier",
                     "source_url": u,
                     "source_publisher": "Pub",

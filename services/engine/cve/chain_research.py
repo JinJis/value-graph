@@ -11,7 +11,6 @@ JSON-parsing machinery (same as blueprint generation / ticket research).
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Generator, Iterable
 from typing import Any
 
@@ -22,6 +21,7 @@ from services.engine.blueprint.generate import (
     _extract_json,
     parse_with_structuring,
 )
+from services.engine.blueprint.identity import build_ticker_index, resolve_to_known
 from services.engine.blueprint.models import BlueprintCompany, BlueprintRecord
 from services.engine.blueprint.stream import _research_stream
 from services.engine.cve.extract import (
@@ -51,32 +51,6 @@ def _has_financials(record: FinancialsRecord | None) -> bool:
     return record is not None and record.revenue is not None
 
 
-def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", s.lower())
-
-
-def _ticker_index(companies: Iterable[BlueprintCompany]) -> dict[str, str]:
-    """Map several normalized keys (exact ticker, ticker-before-exchange-suffix, company name)
-    to the canonical blueprint ticker, so a slightly-off supplier/customer from Deep Research
-    still resolves instead of being dropped."""
-    index: dict[str, str] = {}
-    for c in companies:
-        index[c.ticker.upper()] = c.ticker
-        index[c.ticker.split(".")[0].upper()] = c.ticker  # "6857.T" <- "6857"
-        index[_norm(c.name)] = c.ticker  # "Advantest" <- name
-    return index
-
-
-def _resolve_ticker(value: str | None, index: dict[str, str]) -> str | None:
-    """Resolve a Deep-Research supplier/customer string to a known blueprint ticker."""
-    if not value:
-        return None
-    raw = value.strip()
-    return (
-        index.get(raw.upper())
-        or index.get(raw.split(".")[0].upper())
-        or index.get(_norm(raw))
-    )
 
 
 class ResearchedTrade(BaseModel):
@@ -276,7 +250,7 @@ def research_chain_events(
         yield {"event": "error", "detail": last_error or "chain research failed"}
         return []
 
-    index = _ticker_index(blueprint.companies)
+    index = build_ticker_index(blueprint.companies)
 
     # One Source per distinct citation URL -> url->id map.
     url_to_source: dict[str, str] = {}
@@ -284,13 +258,15 @@ def research_chain_events(
         record = theme_repo.add_source(theme.id, SourceCreate(type="report", url=url))
         url_to_source[url] = record.id
 
-    # Financials (resolve to a known ticker; merge so research never clobbers existing buckets).
+    # Financials (resolve to the canonical ticker; merge so research never clobbers buckets).
     fin_written = 0
     for fin in content.financials:
-        ticker = _resolve_ticker(fin.ticker, index)
+        ticker = resolve_to_known(fin.ticker, index)
         if ticker is None:
             continue
-        financials_repo.upsert(merge_financials(fin, financials_repo.get(ticker)))
+        financials_repo.upsert(
+            merge_financials(fin, financials_repo.get(ticker), ticker=ticker)
+        )
         fin_written += 1
 
     # Trades -> CVE claims. Be forgiving so a real relationship still becomes an edge:
@@ -302,8 +278,8 @@ def research_chain_events(
     dropped_unknown = 0
     degraded_no_source = 0
     for trade in content.trades:
-        supplier = _resolve_ticker(trade.supplier, index)
-        customer = _resolve_ticker(trade.customer, index)
+        supplier = resolve_to_known(trade.supplier, index)
+        customer = resolve_to_known(trade.customer, index)
         if supplier is None or customer is None:
             dropped_unknown += 1
             continue

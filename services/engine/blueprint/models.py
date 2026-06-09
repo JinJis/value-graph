@@ -6,12 +6,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from services.engine.blueprint.identity import canonical_ticker
 
 # Tickers differ wildly by market — alphabetic (AAPL), numeric (6857 in Tokyo, 005930 in
 # Seoul), with or without an exchange suffix. An LLM may emit a numeric ticker as a JSON
 # number, which would otherwise fail a `str` field and drop the whole record. Coerce numbers
-# to strings so e.g. 6857 parses as "6857". (Identity/matching normalization is separate.)
+# to strings so e.g. 6857 parses as "6857", then canonicalize the identity (see below).
 _LLM_MODEL_CONFIG = ConfigDict(coerce_numbers_to_str=True)
 
 
@@ -30,6 +32,14 @@ class BlueprintCompany(BaseModel):
     source_url: str | None = Field(
         default=None, description="provenance URL (set for companies found by discovery)"
     )
+
+    @model_validator(mode="after")
+    def _canonicalize_ticker(self) -> BlueprintCompany:
+        # Canonical identity = SYMBOL[.SUFFIX] from country/exchange (e.g. 6857 -> 6857.T).
+        self.ticker = canonical_ticker(
+            self.ticker, country=self.country, exchange=self.exchange
+        )
+        return self
 
 
 class BlueprintContent(BaseModel):
