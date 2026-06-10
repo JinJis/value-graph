@@ -153,7 +153,7 @@ export default function BuildPage() {
       {prog.done && !prog.error && (
         <p style={{ marginTop: 8 }}>
           ✓ Build ready —{" "}
-          <Link href={`/themes/${themeId}/publish`}>review &amp; publish →</Link>
+          <Link href={`/themes/${themeId}/review`}>review the data map →</Link>
         </p>
       )}
 

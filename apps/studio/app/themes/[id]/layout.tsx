@@ -87,6 +87,9 @@ function buildSteps(themeId: string, s: Signals): WorkflowStep[] {
     build: s.approved
       ? { status: s.hasBuild ? "done" : "available" }
       : { status: "locked", hint: approvedHint },
+    review: s.hasBuild
+      ? { status: "available" }
+      : need(false, "Run Build first"),
     publish: s.hasBuild
       ? { status: s.published ? "done" : "available" }
       : need(false, "Run Build first"),

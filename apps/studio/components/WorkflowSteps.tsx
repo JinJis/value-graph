@@ -20,6 +20,7 @@ export const STEP_DEFS: StepDef[] = [
   { key: "financials", label: "Financials", sub: "/financials" },
   { key: "calendar", label: "Calendar", sub: "/calendar" },
   { key: "build", label: "Build", sub: "/build" },
+  { key: "review", label: "Review", sub: "/review" },
   { key: "publish", label: "Publish", sub: "/publish" },
 ];
 

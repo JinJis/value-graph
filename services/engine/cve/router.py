@@ -27,6 +27,7 @@ from services.engine.financials.repository import FinancialsRepository
 from services.engine.financials.router import get_financials_repository
 from services.engine.llm.router import LLMRouter
 from services.engine.publish.router import get_graph_store
+from services.engine.review.service import ThemeReview, build_theme_review
 from services.engine.sse import task_sse
 from services.engine.storage import Storage
 from services.engine.themes.repository import ThemeRepository
@@ -77,6 +78,32 @@ def get_build_diagnostics(
         financials_repo=financials,
         calendar_repo=calendar,
         run_repo=runs,
+        graph_store=graph,
+    )
+
+
+@router.get("/themes/{theme_id}/review", response_model=ThemeReview)
+def get_theme_review(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    graph: GraphStoreDep,
+    calendar: CalendarRepoDep,
+    financials: FinancialsRepoDep,
+    tickets: TicketRepoDep,
+) -> ThemeReview:
+    """One read-only map of the whole theme for the pre-publish review: per-company data
+    coverage + the supplier→customer relationships the build produced (and where it's empty)."""
+    theme = themes.get_theme(theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    return build_theme_review(
+        theme_id=theme_id,
+        blueprint=blueprints.get_latest(theme_id),
+        sources=themes.list_sources(theme_id),
+        financials_repo=financials,
+        calendar_repo=calendar,
+        tickets_repo=tickets,
         graph_store=graph,
     )
 

@@ -917,6 +917,66 @@ export async function getBuildDiagnostics(
   );
 }
 
+// ---- Build Review: one map of all the theme's data for the pre-publish stage. -------------
+export interface ReviewCompany {
+  ticker: string;
+  name: string;
+  role: string | null;
+  has_financials: boolean;
+  financials_buckets: string[];
+  has_calendar: boolean;
+  next_update: string | null;
+  claims: number;
+  out_edges: number;
+  in_edges: number;
+  gap_edges: number;
+  open_tickets: number;
+}
+
+export interface ReviewRelationship {
+  supplier: string;
+  customer: string;
+  state: "publishable" | "estimated" | "conflict" | "gap";
+  customer_cost_share: number | null;
+  confidence: string | null;
+  freshness: string | null;
+  interval_low: number | null;
+  interval_high: number | null;
+  n_sources: number;
+  as_of: string | null;
+  reason: string | null;
+}
+
+export interface ReviewCounts {
+  companies: number;
+  financials_covered: number;
+  calendar_covered: number;
+  source_documents: number;
+  source_citations: number;
+  claims: number;
+  publishable_edges: number;
+  gap_edges: number;
+  estimated_edges: number;
+  open_tickets: number;
+}
+
+export interface ThemeReview {
+  theme_id: string;
+  has_blueprint: boolean;
+  has_build: boolean;
+  build_version: number | null;
+  completeness: number;
+  counts: ReviewCounts;
+  companies: ReviewCompany[];
+  relationships: ReviewRelationship[];
+}
+
+export async function getThemeReview(themeId: string): Promise<ThemeReview> {
+  return json(
+    await fetch(url(`/themes/${themeId}/review`), { cache: "no-store" }),
+  );
+}
+
 // A progress event from the CVE run stream: start / stage (S1..S7) / persisted / done /
 // error. The run + persistence finish server-side even if the client disconnects.
 export interface CveRunEvent {
