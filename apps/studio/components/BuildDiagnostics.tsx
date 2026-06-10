@@ -102,7 +102,13 @@ function runLabel(r: DiagRunInfo): string {
   const counts = r.stages
     ? ` · ${r.stages.claims} claims · ${r.stages.edges} edges`
     : "";
-  return `${r.trigger} · ${r.status}${counts} — ${when}`;
+  // Distinguish a 'Research & build' (research != null) from a bare 'Run CVE only'.
+  const mode = r.research
+    ? r.research.error
+      ? "Research & build (research failed)"
+      : `Research & build (${r.research.trades_found} trades)`
+    : "Run CVE only";
+  return `${mode} · ${r.status}${counts} — ${when}`;
 }
 
 export function BuildDiagnostics({

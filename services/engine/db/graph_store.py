@@ -134,7 +134,7 @@ class Neo4jGraphStore:
             "UNWIND $edges AS e "
             "MATCH (a:Company {ticker: e.supplier}), (b:Company {ticker: e.customer}) "
             "CREATE (a)-[r:SUPPLIES]->(b) SET r = e, r.theme_id = $tid, r.build_version = $ver",
-            edges=build.edges, tid=tid, ver=ver,
+            edges=[edge_for_neo4j(e) for e in build.edges], tid=tid, ver=ver,
         )
         tx.run(
             "UNWIND $claims AS cl "
@@ -167,7 +167,7 @@ class Neo4jGraphStore:
             return None
 
         edges = [
-            _strip(dict(record["r"]), ("theme_id", "build_version"))
+            edge_from_neo4j(_strip(dict(record["r"]), ("theme_id", "build_version")))
             for record in tx.run(
                 "MATCH (:Company)-[r:SUPPLIES {theme_id: $tid, build_version: $ver}]->(:Company) "
                 "RETURN r ORDER BY r.supplier, r.customer",
@@ -259,3 +259,28 @@ class Neo4jGraphStore:
 
 def _strip(props: dict[str, Any], drop: tuple[str, ...]) -> dict[str, Any]:
     return {k: v for k, v in props.items() if k not in drop}
+
+
+def edge_for_neo4j(edge: dict[str, Any]) -> dict[str, Any]:
+    """Neo4j relationship properties must be primitives or arrays — never a Map. The only
+    nested object on a SuppliesEdge is ``confidence_interval`` ({low, high}); flatten it into
+    two scalar props so ``SET r = e`` doesn't blow up with a CypherTypeError."""
+    out = dict(edge)
+    interval = out.pop("confidence_interval", None)
+    if isinstance(interval, dict):
+        if interval.get("low") is not None:
+            out["confidence_interval_low"] = interval["low"]
+        if interval.get("high") is not None:
+            out["confidence_interval_high"] = interval["high"]
+    return out
+
+
+def edge_from_neo4j(props: dict[str, Any]) -> dict[str, Any]:
+    """Inverse of :func:`edge_for_neo4j` — rebuild the nested ``confidence_interval`` from the
+    flattened scalar props so callers get the original SuppliesEdge shape back."""
+    out = dict(props)
+    low = out.pop("confidence_interval_low", None)
+    high = out.pop("confidence_interval_high", None)
+    if low is not None or high is not None:
+        out["confidence_interval"] = {"low": low, "high": high}
+    return out

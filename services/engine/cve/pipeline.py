@@ -85,11 +85,23 @@ class EdgeResult(BaseModel):
     assessment: EdgeAssessment | None = None
 
 
+class ResearchMeta(BaseModel):
+    """Whether the run included a Deep Research pass, and how it went — so diagnostics can
+    tell 'Run CVE only' (no research at all) apart from 'Research & build' that errored
+    (e.g. a bad GOOGLE_API_KEY) or simply found no trades."""
+
+    ran: bool = False
+    trades_found: int = 0
+    error: str | None = None
+
+
 class CVEState(BaseModel):
     """The full pipeline state — every intermediate, persisted at the end of a run."""
 
     theme_id: str
     trigger: str = "admin"
+    # Set when the run was driven by 'Research & build'; None for a bare 'Run CVE only'.
+    research: ResearchMeta | None = None
     today: str  # ISO date, passed in for deterministic freshness
     documents: list[Document] = Field(default_factory=list)
     # company -> {"revenue": x, "COGS": y, "CAPEX": ...}; enables the complementary side.

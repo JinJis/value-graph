@@ -16,8 +16,9 @@ complementary side become VSCA-est (estimated) edges — drawn with intervals, t
 
 from __future__ import annotations
 
+import io
 import logging
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Iterator, Sequence
 from datetime import date
 from typing import Any
 
@@ -33,6 +34,7 @@ from services.engine.cve.pipeline import (
     CVEDeps,
     CVEState,
     Document,
+    ResearchMeta,
     stream_cve_state,
 )
 from services.engine.cve.resolve import CanonicalCompany, LLMAdjudicator, Resolver
@@ -101,10 +103,42 @@ class CveRunSummary(BaseModel):
     estimated_edges: int
 
 
+def _pdf_text(raw: bytes) -> str:
+    """Extract a PDF's text layer (best effort). Returns "" for a scanned/image-only PDF
+    (no text layer) or an unparsable file — the caller then skips it."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:  # pragma: no cover - dependency is declared, guard for safety
+        logger.warning("cve.ingest pdf skipped: pypdf not installed")
+        return ""
+    try:
+        reader = PdfReader(io.BytesIO(raw))
+        return "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+    except Exception as exc:  # corrupt/encrypted PDF — skip, don't fail the run
+        logger.warning("cve.ingest pdf parse failed: %s", exc)
+        return ""
+
+
+def _source_text(raw: bytes, source: SourceRecord) -> str:
+    """Decode an uploaded file Source to text. PDFs go through the PDF text extractor;
+    everything else is treated as UTF-8 text."""
+    content_type = (source.content_type or "").lower()
+    filename = (source.original_filename or "").lower()
+    is_pdf = (
+        content_type.startswith("application/pdf")
+        or filename.endswith(".pdf")
+        or raw[:5] == b"%PDF-"
+    )
+    if is_pdf:
+        return _pdf_text(raw)
+    return raw.decode("utf-8", "ignore").strip()
+
+
 def _documents(
     sources: list[SourceRecord], storage: Storage, *, fallback_as_of: str
 ) -> list[Document]:
-    """Decode each uploaded file Source into a CVE :class:`Document` (best effort)."""
+    """Decode each uploaded file Source into a CVE :class:`Document` (best effort). Handles
+    UTF-8 text and PDFs; URL-only citations and unreadable/empty files are skipped."""
     docs: list[Document] = []
     for source in sources:
         if not source.storage_key:
@@ -114,8 +148,14 @@ def _documents(
         except Exception as exc:  # missing/unreadable blob — skip, don't fail the run
             logger.warning("cve.ingest skip source=%s: %s", source.id, exc)
             continue
-        text = raw.decode("utf-8", "ignore").strip()
+        text = _source_text(raw, source)
         if not text:
+            logger.warning(
+                "cve.ingest no-text source=%s type=%s file=%s — skipped",
+                source.id,
+                source.content_type,
+                source.original_filename,
+            )
             continue
         as_of = source.as_of_date.isoformat() if source.as_of_date else fallback_as_of
         docs.append(Document(source_id=source.id, text=text, as_of=as_of))
@@ -135,6 +175,7 @@ def run_cve_events_for_theme(
     calendar_repo: CalendarRepository | None = None,
     financials_repo: FinancialsRepository | None = None,
     seed_claims: Sequence[Claim] = (),
+    research: ResearchMeta | None = None,
     theme_name: str = "",
     today: str | None = None,
     trigger: str = "admin",
@@ -193,6 +234,7 @@ def run_cve_events_for_theme(
     initial = CVEState(
         theme_id=theme_id,
         trigger=trigger,
+        research=research,
         today=today,
         documents=documents,
         financials=financials,  # complementary side -> derived (not just estimated) edges
@@ -323,6 +365,23 @@ def _missing_financials(
     return out
 
 
+def _drive_research(
+    gen: Iterator[Event],
+) -> Generator[Event, None, tuple[list[Claim], str | None]]:
+    """Re-yield every event from a research stream and return ``(claims, error)``: the
+    streamed claims (its return value) plus the detail of any ``error`` event it emitted."""
+    error: str | None = None
+    while True:
+        try:
+            event = next(gen)
+        except StopIteration as stop:
+            claims: list[Claim] = stop.value or []
+            return claims, error
+        if event.get("event") == "error":
+            error = str(event.get("detail"))
+        yield event
+
+
 def research_and_build_events(
     *,
     theme: Theme,
@@ -345,9 +404,17 @@ def research_and_build_events(
 
     yield {"event": "phase", "phase": "research"}
     claims: list[Claim] = []
+    research: ResearchMeta | None = None
     if financials_repo is not None:
-        claims = yield from research_chain_events(
-            theme, blueprint, theme_repo, financials_repo, router, today=today
+        # Drive the research stream, re-yielding every event but capturing any error detail
+        # (e.g. a bad GOOGLE_API_KEY) so diagnostics can explain a 0-trade build.
+        claims, research_error = yield from _drive_research(
+            research_chain_events(
+                theme, blueprint, theme_repo, financials_repo, router, today=today
+            )
+        )
+        research = ResearchMeta(
+            ran=True, trades_found=len(claims), error=research_error
         )
         # Missing financials are filled on the Financials step (manual or per-company Deep
         # Research), not via tickets — surface them as guidance instead of opening tickets.
@@ -368,6 +435,7 @@ def research_and_build_events(
         calendar_repo=calendar_repo,
         financials_repo=financials_repo,
         seed_claims=claims,
+        research=research,
         theme_name=theme.name,
         today=today,
         trigger=trigger,

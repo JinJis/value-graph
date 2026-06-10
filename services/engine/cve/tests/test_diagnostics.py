@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from services.engine.blueprint.models import Blueprint, BlueprintCompany, BlueprintRecord
 from services.engine.blueprint.repository import InMemoryBlueprintRepository
@@ -80,25 +81,61 @@ def _source(storage_key: str | None) -> SourceRecord:
     )
 
 
-def test_done_run_with_zero_claims_flags_no_claims() -> None:
+def _zero_claim_diag(state: dict[str, Any], sources: list[SourceRecord] | None = None):  # type: ignore[no-untyped-def]
     runs = InMemoryCveRunRepository()
     rec = runs.start(THEME, "admin")
-    runs.finish(
-        rec.id, status=DONE, state={"claims": [], "documents": [], "edges": {}}
-    )
-    diag = build_diagnostics(
+    runs.finish(rec.id, status=DONE, state=state)
+    return build_diagnostics(
         theme_id=THEME,
         blueprint=_blueprint(),
-        sources=[_source(None)],  # URL-only citation -> a citation, not a document
+        sources=[_source(None)] if sources is None else sources,
         financials_repo=InMemoryFinancialsRepository(),
         calendar_repo=None,
         run_repo=runs,
         graph_store=InMemoryGraphStore(),
     )
-    assert diag.sources.citations == 1 and diag.sources.documents == 0
+
+
+def test_zero_claims_run_cve_only_flags_no_research() -> None:
+    # No research metadata in the state == a bare 'Run CVE only'.
+    diag = _zero_claim_diag({"claims": [], "documents": [], "edges": {}})
     assert diag.last_run is not None and diag.last_run.stages is not None
     assert diag.last_run.stages.claims == 0
-    assert "no_claims" in _codes(diag)
+    assert "no_research" in _codes(diag)
+
+
+def test_zero_claims_research_error_flags_research_failed() -> None:
+    state = {
+        "claims": [],
+        "documents": [],
+        "edges": {},
+        "research": {"ran": True, "trades_found": 0, "error": "GeminiError: 401"},
+    }
+    diag = _zero_claim_diag(state)
+    assert diag.last_run is not None and diag.last_run.research is not None
+    assert diag.last_run.research.error == "GeminiError: 401"
+    assert "research_failed" in _codes(diag)
+
+
+def test_zero_claims_research_ran_but_empty_flags_no_trades_found() -> None:
+    state = {
+        "claims": [],
+        "documents": [],
+        "edges": {},
+        "research": {"ran": True, "trades_found": 0, "error": None},
+    }
+    diag = _zero_claim_diag(state)
+    assert "no_trades_found" in _codes(diag)
+
+
+def test_uploaded_document_not_ingested_is_flagged() -> None:
+    # A file Source exists (storage_key) but the run ingested 0 documents (e.g. a scanned PDF).
+    diag = _zero_claim_diag(
+        {"claims": [], "documents": [], "edges": {}},
+        sources=[_source("blob/key")],
+    )
+    assert diag.sources.documents == 1
+    assert "documents_not_ingested" in _codes(diag)
 
 
 def test_healthy_build_is_ready() -> None:

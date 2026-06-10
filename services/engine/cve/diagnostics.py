@@ -48,12 +48,21 @@ class StageCounts(BaseModel):
     gap_results: int = 0
 
 
+class RunResearch(BaseModel):
+    """Whether the last run included a Deep Research pass, and how it went."""
+
+    ran: bool = False
+    trades_found: int = 0
+    error: str | None = None
+
+
 class RunInfo(BaseModel):
     id: str
     status: str
     trigger: str
     created_at: datetime
     stages: StageCounts | None = None
+    research: RunResearch | None = None
 
 
 class SourcesInfo(BaseModel):
@@ -123,14 +132,28 @@ def _stage_counts(state: dict[str, Any]) -> StageCounts:
     )
 
 
+def _run_research(state: dict[str, Any]) -> RunResearch | None:
+    """Read the persisted research metadata (None for a bare 'Run CVE only')."""
+    meta = state.get("research")
+    if not isinstance(meta, dict):
+        return None
+    return RunResearch(
+        ran=bool(meta.get("ran")),
+        trades_found=int(meta.get("trades_found") or 0),
+        error=meta.get("error"),
+    )
+
+
 def _run_info(record: CveRunRecord) -> RunInfo:
     stages = _stage_counts(record.state) if record.state else None
+    research = _run_research(record.state) if record.state else None
     return RunInfo(
         id=record.id,
         status=record.status,
         trigger=record.trigger,
         created_at=record.created_at,
         stages=stages,
+        research=research,
     )
 
 
@@ -183,6 +206,45 @@ def _build_info(graph_store: GraphStore, theme_id: str, threshold: float) -> Bui
         threshold=threshold,
         meets_threshold=total > 0 and (publishable / total) >= threshold,
     )
+
+
+def _no_claims_findings(research: RunResearch | None) -> list[Finding]:
+    """Why did a finished run produce 0 claims? The answer depends on whether the run even
+    ran Deep Research, and if so whether it errored."""
+    if research is None or not research.ran:
+        return [
+            Finding(
+                level="error",
+                code="no_research",
+                message="The last build was 'Run CVE only' — it did NOT run Deep Research, so "
+                "no supplier→customer trades were gathered (and no quantified disclosures were "
+                "ingested from documents either). Financials/calendar/tickets don't create "
+                "trades; only research or filings do.",
+                action="Click 'Research & build' (Deep Research seeds the trades) instead of "
+                "'Run CVE only'.",
+            )
+        ]
+    if research.error:
+        return [
+            Finding(
+                level="error",
+                code="research_failed",
+                message="'Research & build' ran but Deep Research failed before returning any "
+                f"trades ({research.error}) — most often a missing/invalid GOOGLE_API_KEY or a "
+                "request timeout.",
+                action="Fix GOOGLE_API_KEY (check server logs), then re-run 'Research & build'.",
+            )
+        ]
+    return [
+        Finding(
+            level="error",
+            code="no_trades_found",
+            message="Deep Research ran but found no usable supplier→customer trades for this "
+            "theme, and no documents disclosed any — so no edges can form.",
+            action="Upload filings that disclose trades, refine the blueprint relationships, "
+            "or re-run 'Research & build'.",
+        )
+    ]
 
 
 def _findings(
@@ -276,17 +338,23 @@ def _findings(
                 )
             )
         elif s is not None and last_run.status == DONE:
-            if s.claims == 0:
+            # Uploaded a file but nothing was ingested from it (unreadable bytes, or a
+            # scanned/empty/unparsable PDF with no text layer) — independent of where claims
+            # come from, so surface it whenever it happens.
+            if sources.documents > 0 and s.documents == 0:
                 out.append(
                     Finding(
-                        level="error",
-                        code="no_claims",
-                        message="The last run extracted 0 claims — Deep Research returned no "
-                        "usable trades and no documents were ingested, so no edges can form.",
-                        action="Run 'Research & build' with a valid GOOGLE_API_KEY, or upload "
-                        "filings that disclose supplier→customer trades.",
+                        level="warn",
+                        code="documents_not_ingested",
+                        message=f"{sources.documents} uploaded document(s) but 0 were ingested "
+                        "(S1) — the file couldn't be read as text: an unreadable blob, or a "
+                        "scanned/image-only PDF with no text layer.",
+                        action="Re-upload a text or text-based (searchable) PDF, or paste the "
+                        "relevant disclosure text, then re-run.",
                     )
                 )
+            if s.claims == 0:
+                out.extend(_no_claims_findings(last_run.research))
             elif s.edges == 0:
                 out.append(
                     Finding(

@@ -859,12 +859,19 @@ export interface DiagStageCounts {
   gap_results: number;
 }
 
+export interface DiagRunResearch {
+  ran: boolean;
+  trades_found: number;
+  error: string | null;
+}
+
 export interface DiagRunInfo {
   id: string;
   status: string;
   trigger: string;
   created_at: string;
   stages: DiagStageCounts | null;
+  research: DiagRunResearch | null;
 }
 
 export interface DiagFinding {

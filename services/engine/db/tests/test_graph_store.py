@@ -4,11 +4,42 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from services.engine.db.graph_store import InMemoryGraphStore, claim_key
+from services.engine.db.graph_store import (
+    InMemoryGraphStore,
+    claim_key,
+    edge_for_neo4j,
+    edge_from_neo4j,
+)
 from services.engine.db.persist import persist_cve_run
 from services.engine.db.tests.test_artifacts import _state
 
 CREATED = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def test_edge_interval_flattens_for_neo4j_and_round_trips() -> None:
+    # Neo4j rejects a Map property; confidence_interval must be flattened to scalars on write
+    # and rebuilt on read (else: CypherTypeError on SET r = e).
+    edge = {
+        "supplier": "INTC",
+        "customer": "HPQ",
+        "confidence": "derived",
+        "confidence_interval": {"low": 85.5, "high": 104.5},
+    }
+    flat = edge_for_neo4j(edge)
+    assert "confidence_interval" not in flat  # no nested Map reaches Cypher
+    assert flat["confidence_interval_low"] == 85.5
+    assert flat["confidence_interval_high"] == 104.5
+    assert all(not isinstance(v, dict) for v in flat.values())
+
+    restored = edge_from_neo4j(flat)
+    assert restored == edge  # exact round-trip back to the SuppliesEdge shape
+
+
+def test_edge_without_interval_is_untouched() -> None:
+    edge = {"supplier": "INTC", "customer": "HPQ", "confidence_interval": None}
+    flat = edge_for_neo4j(edge)
+    assert "confidence_interval_low" not in flat
+    assert edge_from_neo4j(flat) == {"supplier": "INTC", "customer": "HPQ"}
 
 
 def test_persist_allocates_and_reconstructs_a_build() -> None:
