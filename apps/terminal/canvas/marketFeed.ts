@@ -34,3 +34,12 @@ export class MockMarketFeed implements MarketFeed {
 }
 
 export const mockMarketFeed = new MockMarketFeed();
+
+// Compact market-cap label, e.g. "$2.4T" / "$53.0B" (the canvas badge + drawer both use it).
+export function formatMarketCap(cap: number | null): string {
+  if (!cap || cap <= 0) return "—";
+  if (cap >= 1e12) return `$${(cap / 1e12).toFixed(2)}T`;
+  if (cap >= 1e9) return `$${(cap / 1e9).toFixed(1)}B`;
+  if (cap >= 1e6) return `$${(cap / 1e6).toFixed(0)}M`;
+  return `$${cap.toFixed(0)}`;
+}

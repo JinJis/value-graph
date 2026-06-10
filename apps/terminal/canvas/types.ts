@@ -5,6 +5,9 @@ export interface GraphCompany {
   ticker: string;
   name: string;
   market_cap?: number | null;
+  // Optional identity hints for the on-canvas logo/monogram (resolved client-side if absent).
+  logo_url?: string | null;
+  domain?: string | null;
   // ...other Company fields are ignored by the macro map.
 }
 

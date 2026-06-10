@@ -12,7 +12,8 @@ import { useMemo, useState } from "react";
 import { confidenceStyle, freshnessColor } from "../canvas/encoding";
 import { useSelection } from "../canvas/controls";
 import { mockMarketFeed } from "../canvas/marketFeed";
-import type { PublishedGraph } from "../canvas/types";
+import type { GraphCompany, PublishedGraph } from "../canvas/types";
+import { CompanyAvatar } from "../components/CompanyAvatar";
 import { EdgeInspector } from "../edge/EdgeInspector";
 import { ProvenanceCard } from "../provenance/ProvenanceCard";
 import type { FigureProvenance } from "../provenance/provenance";
@@ -45,21 +46,41 @@ function Chip({
 // A relationship figure: label + share + chip, expandable to its provenance card +
 // the edge inspector (two ledgers, reconciliation/conflict, supporting claims).
 function FigureRow({
-  label,
+  partner,
   share,
   figure,
   ledgers,
 }: {
-  label: string;
+  partner: GraphCompany;
   share: string;
   figure: FigureProvenance;
   ledgers: EdgeLedgers;
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <li style={{ padding: "3px 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <span>{label}</span>
+    <li style={{ padding: "4px 0" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <span
+          style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}
+        >
+          <CompanyAvatar company={partner} size={22} />
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {partner.name}
+          </span>
+        </span>
         <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ opacity: 0.85 }}>{share}</span>
           <Chip confidence={figure.confidence} freshness={figure.freshness} />
@@ -106,8 +127,22 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
     () => (selected ? buildCompanyView(graph, selected, mockMarketFeed) : null),
     [graph, selected],
   );
+  const companyByTicker = useMemo(() => {
+    const m = new Map<string, GraphCompany>();
+    for (const c of graph.companies) m.set(c.ticker, c);
+    return m;
+  }, [graph]);
 
   if (!selected || !view) return null;
+
+  const partnerOf = (ticker: string): GraphCompany =>
+    companyByTicker.get(ticker) ?? { ticker, name: ticker };
+  const self = partnerOf(selected);
+  const customerCount = view.products.reduce(
+    (n, g) => n + g.customers.length,
+    0,
+  );
+  const supplierCount = view.suppliers.length;
 
   return (
     <aside
@@ -128,9 +163,18 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{view.name}</div>
-          <div style={{ opacity: 0.6 }}>{view.ticker}</div>
+        <div style={{ display: "flex", gap: 10, minWidth: 0 }}>
+          <CompanyAvatar company={self} size={40} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>{view.name}</div>
+            <div style={{ opacity: 0.6 }}>{view.ticker}</div>
+            <div style={{ marginTop: 3, fontSize: 11, color: "#7e8ca6" }}>
+              Supplies{" "}
+              <strong style={{ color: "#9fb4d6" }}>{customerCount}</strong>{" "}
+              {customerCount === 1 ? "company" : "companies"} · Bought from{" "}
+              <strong style={{ color: "#9fb4d6" }}>{supplierCount}</strong>
+            </div>
+          </div>
         </div>
         <button
           type="button"
@@ -142,6 +186,7 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
             border: "none",
             cursor: "pointer",
             fontSize: 16,
+            alignSelf: "flex-start",
           }}
         >
           ✕
@@ -223,7 +268,7 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
               {group.customers.map((c) => (
                 <FigureRow
                   key={c.key}
-                  label={c.customer}
+                  partner={partnerOf(c.customer)}
                   share={
                     c.customerCostShare != null
                       ? `${c.customerCostShare.toFixed(1)}% of cost`
@@ -245,7 +290,7 @@ export function Drawer({ graph }: { graph: PublishedGraph }) {
         {view.suppliers.map((s) => (
           <FigureRow
             key={s.key}
-            label={s.supplier}
+            partner={partnerOf(s.supplier)}
             share={
               s.supplierRevShare != null
                 ? `${s.supplierRevShare.toFixed(1)}% of rev`

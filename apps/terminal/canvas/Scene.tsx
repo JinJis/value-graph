@@ -21,10 +21,15 @@ import { Edges } from "./Edges";
 import { GhostEdges } from "./GhostEdges";
 import { nodeLayout } from "./layout";
 import { Nodes } from "./Nodes";
+import { NodeBadges } from "./NodeBadges";
 import { mockMarketFeed } from "./marketFeed";
 import type { PublishedGraph } from "./types";
 
 const BACKGROUND = "#0a0e16";
+
+// Above this many visible nodes, labelling every one clutters the view — so badges show
+// only for the selected node + its partners (the rest stay sized spheres until selected).
+const BADGE_BUDGET = 70;
 
 export function Scene({
   graph,
@@ -74,6 +79,16 @@ export function Scene({
     [graph, neighbors],
   );
 
+  // Which nodes get an identity badge (logo + name + cap). When something is selected, focus
+  // on it + its partners; otherwise label every visible node, up to a clutter budget.
+  const badgeTickers = useMemo(() => {
+    if (selected) return neighbors ?? new Set([selected]);
+    const visibleTickers = graph.companies
+      .filter((_, i) => nodeVisible[i])
+      .map((c) => c.ticker);
+    return new Set(visibleTickers.length <= BADGE_BUDGET ? visibleTickers : []);
+  }, [graph, selected, neighbors, nodeVisible]);
+
   return (
     <Canvas
       camera={{ position: [0, 0, 34], fov: 50, near: 0.1, far: 200 }}
@@ -108,6 +123,14 @@ export function Scene({
         selected={selected}
         segments={lod.sphereSegments}
         frustumCull={lod.frustumCull}
+      />
+      <NodeBadges
+        companies={graph.companies}
+        positions={positions}
+        feed={mockMarketFeed}
+        badgeTickers={badgeTickers}
+        selected={selected}
+        neighbors={neighbors}
       />
       <OrbitControls
         makeDefault
