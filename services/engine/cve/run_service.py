@@ -261,7 +261,11 @@ def run_cve_events_for_theme(
         return
 
     run_repo.finish(record.id, status=DONE, state=state.model_dump(mode="json"))
-    build = persist_cve_run(state, graph_store)
+    # Carry each company's real name + logo domain from the blueprint into the published node.
+    company_meta = {
+        c.ticker: {"name": c.name, "domain": c.domain} for c in blueprint.companies
+    }
+    build = persist_cve_run(state, graph_store, company_meta=company_meta)
     estimated = sum(1 for e in state.edges.values() if e.estimated)
     logger.info(
         "cve.persisted theme=%s build=%s edges=%d publishable=%d ghost=%d claims=%d",

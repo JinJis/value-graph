@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from graph_schema import is_valid
 from services.engine.cve.extract import Claim
@@ -100,6 +101,19 @@ def test_disclosed_edge_becomes_schema_valid_supplies_edge() -> None:
     assert edge["supplier_rev_share"] == 21
     assert edge["as_of_date"] == "2026-05-20"
     assert edge["next_expected_update"] == "2026-08-15"
+
+
+def test_company_meta_attaches_real_name_and_logo_domain() -> None:
+    meta: dict[str, dict[str, Any]] = {
+        "INTC": {"name": "Intel Corporation", "domain": "intel.com"},
+        "HPQ": {"name": "HP Inc.", "domain": None},  # known name, no domain
+    }
+    build = build_from_cve(_state(), version=1, company_meta=meta, created_at=CREATED)
+    by = {c["ticker"]: c for c in build.companies}
+    assert by["INTC"]["name"] == "Intel Corporation"
+    assert by["INTC"]["domain"] == "intel.com"
+    assert by["HPQ"]["name"] == "HP Inc." and "domain" not in by["HPQ"]
+    assert by["NVDA"]["name"] == "NVDA"  # no meta -> falls back to the bare ticker
 
 
 def test_edge_missing_provenance_is_a_drawn_gap_not_dropped() -> None:

@@ -43,7 +43,8 @@ OUTPUT FORMAT — return ONLY a JSON object (no prose, no markdown fences), exac
       "exchange": "<listing venue or null>",
       "role": "<role in THIS chain>",                // required
       "products": ["<product/service into the chain>"],
-      "required_data_points": ["<metric still needed to quantify its edges>"]
+      "required_data_points": ["<metric still needed to quantify its edges>"],
+      "domain": "<primary website domain, e.g. nvidia.com, or null>"
     }
   ],
   "relationship_types": ["SUPPLIES"],
@@ -53,7 +54,7 @@ OUTPUT FORMAT — return ONLY a JSON object (no prose, no markdown fences), exac
 EXAMPLE (one company; return many):
 {"companies": [{"ticker": "NVDA", "name": "NVIDIA", "country": "US", "exchange": "NASDAQ",
 "role": "GPU / accelerator designer", "products": ["data-center GPUs"],
-"required_data_points": ["revenue by customer", "HBM purchase volume"]}],
+"required_data_points": ["revenue by customer", "HBM purchase volume"], "domain": "nvidia.com"}],
 "relationship_types": ["SUPPLIES"], "notes": null}
 """
 
@@ -120,6 +121,7 @@ OUTPUT FORMAT — after your research, end your reply with EXACTLY ONE fenced JS
       "exchange": "<venue or null>", "role": "<role in chain>",
       "products": ["<product/service>"],
       "required_data_points": ["<metric still to source>"],
+      "domain": "<primary website domain you saw, e.g. nvidia.com, or null>",
       "source_url": "<a real page you actually retrieved>",   // required
       "source_publisher": "<publisher / site name or null>"
     }
@@ -132,7 +134,7 @@ EXAMPLE (one company; return many):
 ```json
 {"companies": [{"ticker": "NVDA", "name": "NVIDIA", "country": "US", "exchange": "NASDAQ",
 "role": "GPU / accelerator designer", "products": ["data-center GPUs"],
-"required_data_points": ["revenue by customer", "HBM purchase volume"],
+"required_data_points": ["revenue by customer", "HBM purchase volume"], "domain": "nvidia.com",
 "source_url": "https://investor.nvidia.com/financial-info/financial-reports/",
 "source_publisher": "NVIDIA IR"}], "relationship_types": ["SUPPLIES"], "notes": null}
 ```

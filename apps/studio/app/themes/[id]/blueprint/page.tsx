@@ -8,6 +8,7 @@ import {
   approveBlueprint,
   cancelTask,
   discoverBlueprintStream,
+  fillBlueprintDomains,
   generateBlueprintStream,
   getBlueprint,
   getTheme,
@@ -36,6 +37,7 @@ interface EditCompany {
   role: string;
   products: string;
   required_data_points: string;
+  domain: string; // website domain -> logo (preserved across edits; filled by backfill)
   source_url: string | null;
 }
 
@@ -47,6 +49,7 @@ const EMPTY: EditCompany = {
   role: "",
   products: "",
   required_data_points: "",
+  domain: "",
   source_url: null,
 };
 
@@ -65,6 +68,7 @@ function toEdit(c: BlueprintCompany): EditCompany {
     role: c.role,
     products: c.products.join(", "),
     required_data_points: c.required_data_points.join(", "),
+    domain: c.domain ?? "",
     source_url: c.source_url,
   };
 }
@@ -78,6 +82,7 @@ function fromEdit(e: EditCompany): BlueprintCompany {
     role: e.role,
     products: split(e.products),
     required_data_points: split(e.required_data_points),
+    domain: e.domain.trim() || null,
     source_url: e.source_url,
   };
 }
@@ -106,6 +111,7 @@ export default function BlueprintReviewPage() {
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
   const [targetCount, setTargetCount] = useState(30); // companies to aim for on Generate
+  const [domainMsg, setDomainMsg] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -167,6 +173,18 @@ export default function BlueprintReviewPage() {
       setVersion(r.blueprint.version);
       setCoverage(r.coverage);
     }, "Save");
+
+  const onFillDomains = () =>
+    run(async () => {
+      setDomainMsg(null);
+      const r = await fillBlueprintDomains(themeId);
+      await load(); // pick up the filled domains
+      setDomainMsg(
+        r.filled === 0
+          ? "All companies already have a domain — nothing to fill."
+          : `Filled ${r.filled} of ${r.total} domains. Re-run Build → Publish so the Terminal picks up the logos.`,
+      );
+    }, "Fill domains");
 
   function onProgEvent(e: BlueprintEvent) {
     if (e.event === "task") {
@@ -404,10 +422,27 @@ export default function BlueprintReviewPage() {
         <button type="button" onClick={onSave} disabled={busy}>
           Save edits
         </button>
+        <button
+          type="button"
+          onClick={onFillDomains}
+          disabled={runBusy || version === null}
+          title={
+            version === null
+              ? "Generate a blueprint first"
+              : "Fill each company's website domain (cheap) so the Terminal shows real logos"
+          }
+        >
+          Fill logos (domains)
+        </button>
         <button type="button" onClick={onApprove} disabled={busy}>
           Approve → ticketing
         </button>
       </div>
+      {domainMsg && (
+        <p style={{ color: "#15803d" }}>
+          <small>{domainMsg}</small>
+        </p>
+      )}
 
       {coverage && (
         <p style={{ color: coverage.meets_threshold ? "green" : "darkorange" }}>

@@ -142,6 +142,7 @@ export interface BlueprintCompany {
   role: string;
   products: string[];
   required_data_points: string[];
+  domain: string | null;
   source_url: string | null;
 }
 
@@ -202,6 +203,23 @@ export async function generateBlueprint(
 ): Promise<BlueprintResponse> {
   return json(
     await fetch(url(`/themes/${themeId}/blueprint`), { method: "POST" }),
+  );
+}
+
+export interface FillDomainsResult {
+  filled: number;
+  total: number;
+  blueprint: BlueprintRecord;
+}
+
+// Backfill company website domains (for accurate Terminal logos) via a cheap LOW-tier call.
+export async function fillBlueprintDomains(
+  themeId: string,
+): Promise<FillDomainsResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/blueprint/fill-domains`), {
+      method: "POST",
+    }),
   );
 }
 

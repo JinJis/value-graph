@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
+from services.engine.blueprint.models import Blueprint, BlueprintCompany
 from services.engine.blueprint.repository import InMemoryBlueprintRepository
 from services.engine.blueprint.router import get_blueprint_repository, get_router
 from services.engine.blueprint.tests.fixtures import FakeGenerator, sample_json
@@ -101,6 +103,52 @@ def test_put_blueprint_saves_new_version(ctx: tuple[TestClient, InMemoryThemeRep
 def test_put_blueprint_missing_theme_404(ctx: tuple[TestClient, InMemoryThemeRepository]) -> None:
     client, _ = ctx
     resp = client.put("/themes/00000000-0000-0000-0000-000000000000/blueprint", json=_EDIT)
+    assert resp.status_code == 404
+
+
+def test_fill_domains_backfills_and_versions() -> None:
+    themes = InMemoryThemeRepository()
+    blueprints = InMemoryBlueprintRepository()
+    theme = themes.create_theme(ThemeCreate(name="X"))
+    blueprints.save(
+        Blueprint(
+            theme_id=theme.id,
+            version=1,
+            companies=[BlueprintCompany(ticker="NVDA", name="NVIDIA", country="US", role="gpu")],
+            relationship_types=["SUPPLIES"],
+        )
+    )
+    domains_json = json.dumps({"domains": [{"ticker": "NVDA", "domain": "nvidia.com"}]})
+    llm = LLMRouter.from_env(env={}, generator=FakeGenerator(domains_json))
+    app.dependency_overrides[get_theme_repository] = lambda: themes
+    app.dependency_overrides[get_blueprint_repository] = lambda: blueprints
+    app.dependency_overrides[get_router] = lambda: llm
+    try:
+        resp = TestClient(app).post(f"/themes/{theme.id}/blueprint/fill-domains")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["filled"] == 1 and body["total"] == 1
+        assert body["blueprint"]["version"] == 2  # saved as a new version
+        assert body["blueprint"]["companies"][0]["domain"] == "nvidia.com"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_fill_domains_without_blueprint_409(
+    ctx: tuple[TestClient, InMemoryThemeRepository],
+) -> None:
+    client, themes = ctx
+    theme = themes.create_theme(ThemeCreate(name="X"))
+    assert client.post(f"/themes/{theme.id}/blueprint/fill-domains").status_code == 409
+
+
+def test_fill_domains_missing_theme_404(
+    ctx: tuple[TestClient, InMemoryThemeRepository],
+) -> None:
+    client, _ = ctx
+    resp = client.post(
+        "/themes/00000000-0000-0000-0000-000000000000/blueprint/fill-domains"
+    )
     assert resp.status_code == 404
 
 

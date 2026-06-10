@@ -29,6 +29,10 @@ class BlueprintCompany(BaseModel):
         default_factory=list,
         description="metrics needed to quantify this company's edges",
     )
+    domain: str | None = Field(
+        default=None,
+        description="the company's primary website domain (e.g. nvidia.com), drives its logo",
+    )
     source_url: str | None = Field(
         default=None, description="provenance URL (set for companies found by discovery)"
     )

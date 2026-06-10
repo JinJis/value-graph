@@ -7,13 +7,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from services.engine.blueprint.coverage import summarize
 from services.engine.blueprint.discover import discover_companies
+from services.engine.blueprint.domains import fill_blueprint_domains
 from services.engine.blueprint.generate import generate_blueprint
 from services.engine.blueprint.models import (
     Blueprint,
     BlueprintContent,
+    BlueprintRecord,
     BlueprintResponse,
     DiscoveryResult,
     RefinementResult,
@@ -219,6 +222,44 @@ def save_theme_blueprint(
         )
     )
     return BlueprintResponse(blueprint=record, coverage=summarize(record))
+
+
+class FillDomainsResult(BaseModel):
+    filled: int
+    total: int
+    blueprint: BlueprintRecord
+
+
+@router.post("/themes/{theme_id}/blueprint/fill-domains", response_model=FillDomainsResult)
+def fill_theme_blueprint_domains(
+    theme_id: str,
+    themes: ThemeRepoDep,
+    blueprints: BlueprintRepoDep,
+    llm: RouterDep,
+) -> FillDomainsResult:
+    """Backfill each company's website domain (for accurate Terminal logos) with a cheap
+    LOW-tier call, saving a new blueprint version. Idempotent: only fills blanks. Re-run the
+    Build + Publish afterwards so the published nodes pick up the logos."""
+    if themes.get_theme(theme_id) is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    base = blueprints.get_latest(theme_id)
+    if base is None:
+        raise HTTPException(status_code=409, detail="no blueprint; generate one first")
+    updated, filled = fill_blueprint_domains(base.companies, llm)
+    if filled == 0:
+        return FillDomainsResult(filled=0, total=len(base.companies), blueprint=base)
+    record = blueprints.save(
+        Blueprint(
+            theme_id=theme_id,
+            version=blueprints.next_version(theme_id),
+            generated_by="domain backfill",
+            companies=updated,
+            relationship_types=base.relationship_types,
+            notes=base.notes,
+            target_count=base.target_count,
+        )
+    )
+    return FillDomainsResult(filled=filled, total=len(base.companies), blueprint=record)
 
 
 @router.post("/themes/{theme_id}/blueprint/approve", response_model=Theme)
