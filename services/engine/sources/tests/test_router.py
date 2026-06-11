@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from services.engine.financials.repository import InMemoryFinancialsRepository
+from services.engine.financials.router import get_financials_repository
 from services.engine.main import app
 from services.engine.storage.local import LocalStorage
 from services.engine.themes.models import Theme, ThemeCreate
@@ -29,6 +31,7 @@ def ctx(tmp_path: Path) -> Iterator[Ctx]:
     app.dependency_overrides[get_theme_repository] = lambda: themes
     app.dependency_overrides[get_ticket_repository] = lambda: tickets
     app.dependency_overrides[get_storage] = lambda: storage
+    app.dependency_overrides[get_financials_repository] = InMemoryFinancialsRepository
     yield TestClient(app), themes, tickets
     app.dependency_overrides.clear()
 
@@ -98,3 +101,54 @@ def test_evidence_missing_ticket_404(ctx: Ctx) -> None:
 def test_list_sources_missing_ticket_404(ctx: Ctx) -> None:
     client, _, _ = ctx
     assert client.get("/tickets/00000000-0000-0000-0000-000000000000/sources").status_code == 404
+
+
+def test_bulk_accept_proposals(ctx: Ctx) -> None:
+    client, themes, tickets = ctx
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+
+    def _open(target: str, metric: str) -> Ticket:
+        t = tickets.create_open_ticket(theme.id, TicketCreate(target=target, metric=metric))
+        assert t is not None
+        return t
+
+    has_proposal = _open("NVDA", "revenue")
+    tickets.set_research_proposal(
+        has_proposal.id,
+        {
+            "value": "21%",
+            "source_url": "https://dart.fss.or.kr/x",
+            "source_publisher": "DART",
+            "as_of_date": "2026-03-31",
+        },
+    )
+    no_url = _open("TSM", "cogs")  # proposal without a usable source -> skipped
+    tickets.set_research_proposal(no_url.id, {"value": "x", "source_url": ""})
+    no_proposal = _open("AVGO", "revenue")  # never researched -> skipped
+
+    resp = client.post(
+        f"/themes/{theme.id}/tickets/proposals/accept",
+        json={"ticket_ids": [has_proposal.id, no_url.id, no_proposal.id, "bogus"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"accepted": 1, "skipped": 3}
+
+    accepted = tickets.get_ticket(has_proposal.id)
+    assert accepted is not None
+    assert accepted.status == "SUBMITTED" and accepted.research_proposal is None
+    sources = client.get(f"/tickets/{has_proposal.id}/sources").json()
+    assert len(sources) == 1 and sources[0]["url"] == "https://dart.fss.or.kr/x"
+
+    # The skipped tickets are untouched.
+    for t in (no_url, no_proposal):
+        still = tickets.get_ticket(t.id)
+        assert still is not None and still.status == "OPEN"
+
+
+def test_bulk_accept_missing_theme_404(ctx: Ctx) -> None:
+    client, _, _ = ctx
+    resp = client.post(
+        "/themes/00000000-0000-0000-0000-000000000000/tickets/proposals/accept",
+        json={"ticket_ids": []},
+    )
+    assert resp.status_code == 404

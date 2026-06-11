@@ -7,6 +7,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from graph_schema import SourceType
 from services.engine.financials.repository import (
@@ -23,7 +24,7 @@ from services.engine.themes.router import get_storage
 from services.engine.tickets.models import Ticket
 from services.engine.tickets.repository import TicketRepository
 from services.engine.tickets.router import get_ticket_repository
-from services.engine.tickets.state import validate_transition
+from services.engine.tickets.state import can_transition, validate_transition
 
 router = APIRouter(tags=["sources"])
 
@@ -118,6 +119,86 @@ async def upload_ticket_evidence(
     # proposal — the cited source is now real evidence on the ticket.
     tickets.set_research_proposal(ticket_id, None)
     return to_out(record)
+
+
+def _parse_date(value: object) -> date | None:
+    if isinstance(value, str) and value.strip():
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _accept_proposal(
+    ticket: Ticket,
+    themes: ThemeRepository,
+    tickets: TicketRepository,
+    financials: FinancialsRepository,
+    *,
+    actor: str = "admin",
+) -> bool:
+    """Accept a ticket's Deep Research proposal: attach its cited URL as a Source, mark the
+    ticket SUBMITTED, fill financials if applicable, and clear the proposal. Returns False
+    (a no-op) when the proposal lacks a usable source URL or the transition isn't allowed —
+    so a batch can skip those without failing the whole request."""
+    proposal = ticket.research_proposal or {}
+    source_url = str(proposal.get("source_url") or "").strip()
+    if not source_url or not can_transition(ticket.status, "SUBMITTED"):
+        return False
+    themes.add_source(
+        ticket.theme_id,
+        SourceCreate(
+            type="report",
+            url=source_url,
+            publisher=proposal.get("source_publisher"),
+            as_of_date=_parse_date(proposal.get("as_of_date")),
+        ),
+        ticket_id=ticket.id,
+    )
+    tickets.set_status(ticket.id, "SUBMITTED")
+    tickets.record_event(ticket.id, ticket.status, "SUBMITTED", actor, None)
+    _write_back_financials(ticket, financials)
+    tickets.set_research_proposal(ticket.id, None)  # accepted -> proposal cleared
+    return True
+
+
+class AcceptProposalsRequest(BaseModel):
+    ticket_ids: list[str]
+
+
+class AcceptProposalsResult(BaseModel):
+    accepted: int
+    skipped: int
+
+
+@router.post(
+    "/themes/{theme_id}/tickets/proposals/accept", response_model=AcceptProposalsResult
+)
+def accept_ticket_proposals(
+    theme_id: str,
+    req: AcceptProposalsRequest,
+    themes: ThemeRepoDep,
+    tickets: TicketRepoDep,
+    financials: FinancialsRepoDep,
+) -> AcceptProposalsResult:
+    """Accept many Deep Research proposals at once — each ticket's cited answer becomes
+    evidence (-> SUBMITTED). Tickets without a usable proposal (or not in this theme) are
+    skipped, not errored."""
+    if themes.get_theme(theme_id) is None:
+        raise HTTPException(status_code=404, detail="theme not found")
+    accepted = 0
+    skipped = 0
+    for ticket_id in req.ticket_ids:
+        ticket = tickets.get_ticket(ticket_id)
+        if ticket is None or ticket.theme_id != theme_id:
+            skipped += 1
+            continue
+        if _accept_proposal(ticket, themes, tickets, financials):
+            accepted += 1
+        else:
+            skipped += 1
+    return AcceptProposalsResult(accepted=accepted, skipped=skipped)
 
 
 @router.get("/tickets/{ticket_id}/sources", response_model=list[SourceOut])

@@ -479,6 +479,26 @@ export async function dismissTicketProposal(ticketId: string): Promise<Ticket> {
   );
 }
 
+export interface AcceptProposalsResult {
+  accepted: number;
+  skipped: number;
+}
+
+// Accept many Deep Research proposals at once — each cited answer becomes evidence
+// (-> SUBMITTED). Tickets without a usable proposal are skipped, not errored.
+export async function acceptTicketProposals(
+  themeId: string,
+  ticketIds: string[],
+): Promise<AcceptProposalsResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/tickets/proposals/accept`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_ids: ticketIds }),
+    }),
+  );
+}
+
 export async function uploadTicketEvidence(
   ticketId: string,
   opts: {

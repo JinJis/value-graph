@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { StepFooter } from "../../../../components/WorkflowSteps";
 
 import {
+  acceptTicketProposals,
   cancelTask,
   dismissTicketProposal,
   generateTickets,
@@ -115,6 +116,153 @@ function ProposalCard({
   );
 }
 
+// A dedicated space for the Deep Research answers awaiting review: pick the ones to accept
+// and attach them as evidence in one click (or reject in bulk).
+function ProposalsPanel({
+  proposals,
+  selected,
+  busy,
+  message,
+  onToggle,
+  onToggleAll,
+  onAccept,
+  onReject,
+}: {
+  proposals: Ticket[];
+  selected: Set<string>;
+  busy: boolean;
+  message: string | null;
+  onToggle: (id: string, on: boolean) => void;
+  onToggleAll: (on: boolean) => void;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const allOn =
+    proposals.length > 0 && proposals.every((p) => selected.has(p.id));
+  const cell: CSSProperties = { padding: "6px 8px", verticalAlign: "top" };
+  return (
+    <section
+      style={{
+        border: "1px solid #16a34a",
+        background: "#f0fdf4",
+        borderRadius: 8,
+        padding: 12,
+        margin: "0.75rem 0",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+        }}
+      >
+        <strong style={{ color: "#15803d" }}>
+          Research proposals ({proposals.length})
+        </strong>
+        <button
+          type="button"
+          onClick={onAccept}
+          disabled={busy || selected.size === 0}
+        >
+          {busy ? "Working…" : `Accept selected (${selected.size})`}
+        </button>
+        <button
+          type="button"
+          onClick={onReject}
+          disabled={busy || selected.size === 0}
+        >
+          Reject selected
+        </button>
+        {message && <small style={{ color: "#15803d" }}>{message}</small>}
+      </div>
+      <table
+        style={{
+          borderCollapse: "collapse",
+          width: "100%",
+          fontSize: 13,
+          marginTop: 8,
+        }}
+      >
+        <thead>
+          <tr>
+            <th style={{ ...cell, width: 32 }}>
+              <input
+                type="checkbox"
+                aria-label="select all proposals"
+                checked={allOn}
+                onChange={(e) => onToggleAll(e.target.checked)}
+              />
+            </th>
+            <th style={{ ...cell, textAlign: "left" }}>Ticket</th>
+            <th style={{ ...cell, textAlign: "left" }}>Found</th>
+            <th style={{ ...cell, textAlign: "left" }}>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {proposals.map((t) => {
+            const p = t.research_proposal;
+            const usable = !!p?.source_url;
+            return (
+              <tr key={t.id} style={{ borderTop: "1px solid #bbf7d0" }}>
+                <td style={cell}>
+                  <input
+                    type="checkbox"
+                    aria-label={`select ${t.target}`}
+                    checked={selected.has(t.id)}
+                    disabled={!usable}
+                    onChange={(e) => onToggle(t.id, e.target.checked)}
+                  />
+                </td>
+                <td style={cell}>
+                  <strong>{t.target}</strong>
+                  <div style={{ color: "#64748b" }}>{t.metric}</div>
+                </td>
+                <td style={cell}>
+                  {p ? (
+                    <>
+                      <strong>{String(p.value ?? "—")}</strong>
+                      {p.unit ? ` ${p.unit}` : ""}
+                      {p.confidence ? (
+                        <span style={{ color: "#64748b" }}>
+                          {" "}
+                          · {p.confidence}
+                        </span>
+                      ) : null}
+                      {p.as_of_date ? (
+                        <div style={{ color: "#64748b" }}>
+                          as of {p.as_of_date}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td style={cell}>
+                  {p?.source_url ? (
+                    <a href={p.source_url} target="_blank" rel="noreferrer">
+                      {p.source_publisher ?? "source"}
+                    </a>
+                  ) : (
+                    <span
+                      style={{ color: "#b91c1c" }}
+                      title="No cited source — can't be accepted"
+                    >
+                      no source
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 const STATUS_OPTIONS = [
   "all",
   "OPEN",
@@ -194,6 +342,11 @@ export default function TicketQueuePage() {
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
   const [batchCount, setBatchCount] = useState(0);
   const [outcomes, setOutcomes] = useState<TicketOutcome[]>([]);
+
+  // Proposal review: a separate space to bulk-accept/reject the Deep Research answers.
+  const [proposalIds, setProposalIds] = useState<Set<string>>(new Set());
+  const [proposalBusy, setProposalBusy] = useState(false);
+  const [proposalMsg, setProposalMsg] = useState<string | null>(null);
 
   // Evidence upload (for the selected ticket).
   const [evSources, setEvSources] = useState<Source[]>([]);
@@ -481,6 +634,65 @@ export default function TicketQueuePage() {
     }
   }
 
+  // Tickets carrying a Deep Research answer awaiting review — the bulk-accept space.
+  const proposals = useMemo(
+    () => tickets.filter((t) => t.research_proposal),
+    [tickets],
+  );
+
+  function toggleProposal(id: string, on: boolean) {
+    setProposalIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function refreshAfterProposalAction() {
+    const fresh = await listTickets(themeId);
+    setTickets(fresh);
+    setSelected((s) => (s ? (fresh.find((x) => x.id === s.id) ?? null) : s));
+    setProposalIds(new Set());
+  }
+
+  async function onAcceptProposals() {
+    if (proposalIds.size === 0) return;
+    setProposalBusy(true);
+    setProposalMsg(null);
+    try {
+      const r = await acceptTicketProposals(themeId, Array.from(proposalIds));
+      await refreshAfterProposalAction();
+      setProposalMsg(
+        `Accepted ${r.accepted}` +
+          (r.skipped ? ` · skipped ${r.skipped} (no usable source)` : ""),
+      );
+      setError(null);
+    } catch (e) {
+      setError(`Accept failed: ${String(e)}`);
+    } finally {
+      setProposalBusy(false);
+    }
+  }
+
+  async function onRejectProposals() {
+    if (proposalIds.size === 0) return;
+    setProposalBusy(true);
+    setProposalMsg(null);
+    try {
+      await Promise.all(
+        Array.from(proposalIds).map((id) => dismissTicketProposal(id)),
+      );
+      await refreshAfterProposalAction();
+      setProposalMsg("Rejected the selected proposal(s)");
+      setError(null);
+    } catch (e) {
+      setError(`Reject failed: ${String(e)}`);
+    } finally {
+      setProposalBusy(false);
+    }
+  }
+
   const visible = useMemo(() => {
     const t = target.trim().toLowerCase();
     const m = metric.trim().toLowerCase();
@@ -603,6 +815,21 @@ export default function TicketQueuePage() {
             </ul>
           )}
         </div>
+      )}
+
+      {proposals.length > 0 && (
+        <ProposalsPanel
+          proposals={proposals}
+          selected={proposalIds}
+          busy={proposalBusy}
+          message={proposalMsg}
+          onToggle={toggleProposal}
+          onToggleAll={(on) =>
+            setProposalIds(on ? new Set(proposals.map((p) => p.id)) : new Set())
+          }
+          onAccept={onAcceptProposals}
+          onReject={onRejectProposals}
+        />
       )}
 
       {error && <p style={{ color: "crimson" }}>{error}</p>}
