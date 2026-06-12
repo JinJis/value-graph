@@ -98,8 +98,62 @@ def test_research_financials_fills_store() -> None:
 
     assert "prompt" in kinds and any(e["event"] == "filled" for e in events)
     assert kinds[-1] == "done"
+    # A single company is one batch -> no batch framing (back-compat with the old single call).
+    assert "batch_start" not in kinds
     rec = fin.get("HPQ")
     assert rec is not None and rec.revenue == 53000.0 and rec.cogs == 43000.0
+
+
+_FIN_PAYLOAD_MULTI = json.dumps(
+    {
+        "financials": [
+            {"ticker": "HPQ", "currency": "USD", "revenue": 53000, "cogs": 43000,
+             "as_of": "2025-10-31", "source_url": "https://example.com/hpq"},
+            {"ticker": "INTC", "currency": "USD", "revenue": 54000, "cogs": 40000,
+             "as_of": "2025-12-31", "source_url": "https://example.com/intc"},
+        ]
+    }
+)
+
+
+class _MultiResearchGen:
+    """Every Deep Research call returns both companies' figures; each batch's resolver keeps
+    only the company that batch asked about."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_text(self, *, model: str, prompt: str) -> str:
+        return ""
+
+    def deep_research_stream(self, *, agent: str, prompt: str) -> Iterator[dict[str, str]]:
+        self.calls += 1
+        yield {"kind": "text", "text": _FIN_PAYLOAD_MULTI}
+
+
+def test_research_financials_runs_sequential_batches() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    companies = [
+        BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer"),
+        BlueprintCompany(ticker="INTC", name="Intel", country="US", role="supplier"),
+    ]
+    fin = InMemoryFinancialsRepository()
+    gen = _MultiResearchGen()
+    events = list(
+        research_financials_events(
+            theme, companies, fin, LLMRouter(gen, DEFAULT_MODELS), batch_size=1
+        )
+    )
+
+    # batch_size=1 over two companies -> two sequential Deep Research calls.
+    assert gen.calls == 2
+    starts = [e for e in events if e["event"] == "batch_start"]
+    assert [s["index"] for s in starts] == [1, 2] and starts[0]["total"] == 2
+    filled = {e["ticker"] for e in events if e["event"] == "filled"}
+    assert filled == {"HPQ", "INTC"}
+    assert events[-1] == {"event": "done", "filled": 2}
+    assert fin.get("HPQ") and fin.get("INTC")  # both batches upserted their own company
 
 
 def test_research_financials_skips_companies_already_on_file() -> None:

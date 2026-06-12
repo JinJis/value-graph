@@ -158,6 +158,34 @@ export default function FinancialsPage() {
       }));
       return;
     }
+    if (e.event === "batches") {
+      setProg((p) => ({
+        ...p,
+        steps: [
+          ...p.steps,
+          {
+            label: `researching in ${e.count} sequential batch(es)`,
+            detail: `${e.companies} compan${e.companies === 1 ? "y" : "ies"}`,
+          },
+        ],
+      }));
+      return;
+    }
+    if (e.event === "batch_start") {
+      const tickers = Array.isArray(e.tickers) ? e.tickers.join(", ") : "";
+      setResearchingTicker(tickers || null);
+      setProg((p) => ({
+        ...p,
+        steps: [
+          ...p.steps,
+          {
+            label: `▼ batch ${e.index}/${e.total}`,
+            detail: `${e.size} compan${e.size === 1 ? "y" : "ies"} · ${tickers}`,
+          },
+        ],
+      }));
+      return;
+    }
     if (e.event !== "filled") return;
     const t = String(e.ticker);
     setDrafts((d) => {
@@ -314,7 +342,8 @@ export default function FinancialsPage() {
         </button>{" "}
         <small style={{ color: "#64748b" }}>
           Finds revenue + cost buckets per company (with citations) and fills
-          the table; review and Save.
+          the table; review and Save. Companies are researched in{" "}
+          <strong>sequential batches</strong> for depth + reliability.
         </small>
         <div ref={panelRef}>
           <BlueprintProgress

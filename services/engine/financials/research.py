@@ -8,7 +8,7 @@ share one shape (the CVE pass imports them from here).
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from datetime import date
 from typing import Any
 
@@ -132,59 +132,34 @@ _FINANCIALS_KEY = registry.register(
 )
 
 
+# How many companies to research per Deep Research call. The "research ALL" run processes
+# companies in SEQUENTIAL batches of this size — far more reliable + deeper per company than
+# one mega-call over every stock (which tends to time out or go shallow). A single per-company
+# request is just a batch of one.
+FINANCIALS_BATCH_SIZE = 5
+
+
 def build_financials_prompt(theme_name: str, companies: Iterable[BlueprintCompany]) -> str:
     listed = ", ".join(f"{c.ticker} ({c.name})" for c in companies)
     return f"{registry.get(_FINANCIALS_KEY)}\nTHEME: {theme_name}\nCOMPANIES: {listed}"
 
 
-def research_financials_events(
+def _research_financials_batch(
     theme: Theme,
     companies: list[BlueprintCompany],
     financials_repo: FinancialsRepository,
     router: LLMRouter,
     *,
-    tier: Tier = Tier.RESEARCH,
-    attempts: int = 2,
-    skip_filled: bool = False,
-) -> Iterator[Event]:
-    """Deep Research the companies' financials and upsert them, streaming progress.
+    tier: Tier,
+    attempts: int,
+) -> Generator[Event, None, int]:
+    """One Deep Research call over ``companies``; upsert results and return the count filled.
 
-    With ``skip_filled`` (the "research ALL" action), companies that already have revenue on
-    file are left untouched — no duplicate Deep Research spend on data already secured. A
-    per-company request never skips: it's an explicit re-fetch."""
-    model = router.model_for(tier)
-    yield {"event": "model", "tier": tier.value, "model": model}
-    yield {
-        "event": "endpoint",
-        "provider": "google-genai",
-        "method": "interactions.create (deep-research)",
-    }
-
-    targets = list(companies)
-    if skip_filled:
-        def _filled(ticker: str) -> bool:
-            record = financials_repo.get(ticker)
-            return record is not None and record.revenue is not None
-
-        on_file = [c.ticker for c in targets if _filled(c.ticker)]
-        if on_file:
-            done = set(on_file)
-            targets = [c for c in targets if c.ticker not in done]
-            yield {
-                "event": "skipped",
-                "tickers": on_file,
-                "count": len(on_file),
-                "detail": f"{len(on_file)} already have financials on file",
-            }
-    if not targets:
-        logger.info("financials.research theme=%s nothing-to-research (all filled)", theme.id)
-        yield {"event": "done", "filled": 0}
-        return
-
-    companies = targets
+    Yields prompt/llm_start/chunk/parse + a ``filled`` per company. A stream or parse failure
+    yields an ``error`` and returns 0 — the caller's batch loop continues to the next batch
+    rather than aborting the whole run."""
     prompt = build_financials_prompt(theme.name, companies)
     yield {"event": "prompt", "text": prompt, "chars": len(prompt)}
-    logger.info("financials.research theme=%s companies=%d", theme.id, len(companies))
 
     content: FinancialsResearch | None = None
     last_error: str | None = None
@@ -199,7 +174,7 @@ def research_financials_events(
                 yield ev
         except Exception as exc:  # GeminiError, timeout, network
             yield {"event": "error", "detail": f"{type(exc).__name__}: {exc}"}
-            return
+            return 0
         try:
             content = yield from parse_with_structuring(
                 buffer,
@@ -220,7 +195,7 @@ def research_financials_events(
 
     if content is None:
         yield {"event": "error", "detail": last_error or "financials research failed"}
-        return
+        return 0
 
     index = build_ticker_index(companies)
     filled = 0
@@ -244,5 +219,84 @@ def research_financials_events(
             "as_of_date": record.as_of_date.isoformat() if record.as_of_date else None,
             "source": record.source,
         }
-    logger.info("financials.research.done theme=%s filled=%d", theme.id, filled)
-    yield {"event": "done", "filled": filled}
+    return filled
+
+
+def research_financials_events(
+    theme: Theme,
+    companies: list[BlueprintCompany],
+    financials_repo: FinancialsRepository,
+    router: LLMRouter,
+    *,
+    tier: Tier = Tier.RESEARCH,
+    attempts: int = 2,
+    skip_filled: bool = False,
+    batch_size: int = FINANCIALS_BATCH_SIZE,
+) -> Iterator[Event]:
+    """Deep Research the companies' financials and upsert them, streaming progress.
+
+    Companies are researched in SEQUENTIAL batches of ``batch_size`` (one Deep Research call
+    each), so a large theme doesn't ride on one fragile mega-call. With ``skip_filled`` (the
+    "research ALL" action), companies that already have revenue on file are left untouched —
+    no duplicate spend. A per-company request never skips: it's an explicit re-fetch."""
+    yield {"event": "model", "tier": tier.value, "model": router.model_for(tier)}
+    yield {
+        "event": "endpoint",
+        "provider": "google-genai",
+        "method": "interactions.create (deep-research)",
+    }
+
+    targets = list(companies)
+    if skip_filled:
+
+        def _filled(ticker: str) -> bool:
+            record = financials_repo.get(ticker)
+            return record is not None and record.revenue is not None
+
+        on_file = [c.ticker for c in targets if _filled(c.ticker)]
+        if on_file:
+            done = set(on_file)
+            targets = [c for c in targets if c.ticker not in done]
+            yield {
+                "event": "skipped",
+                "tickers": on_file,
+                "count": len(on_file),
+                "detail": f"{len(on_file)} already have financials on file",
+            }
+    if not targets:
+        logger.info("financials.research theme=%s nothing-to-research (all filled)", theme.id)
+        yield {"event": "done", "filled": 0}
+        return
+
+    size = max(1, batch_size)
+    batches = [targets[i : i + size] for i in range(0, len(targets), size)]
+    multi = len(batches) > 1
+    logger.info(
+        "financials.research theme=%s companies=%d batches=%d",
+        theme.id,
+        len(targets),
+        len(batches),
+    )
+    if multi:
+        yield {"event": "batches", "count": len(batches), "companies": len(targets)}
+
+    total_filled = 0
+    for index, batch in enumerate(batches):
+        if multi:
+            yield {
+                "event": "batch_start",
+                "index": index + 1,
+                "total": len(batches),
+                "size": len(batch),
+                "tickers": [c.ticker for c in batch],
+            }
+        total_filled += yield from _research_financials_batch(
+            theme, batch, financials_repo, router, tier=tier, attempts=attempts
+        )
+    logger.info(
+        "financials.research.done theme=%s batches=%d filled=%d",
+        theme.id,
+        len(batches),
+        total_filled,
+    )
+    yield {"event": "done", "filled": total_filled}
