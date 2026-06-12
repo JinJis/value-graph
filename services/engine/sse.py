@@ -16,7 +16,7 @@ from services.engine.tasks import Event, tasks
 
 
 def task_sse(
-    *, theme_id: str, kind: str, label: str, factory: Callable[[], Iterator[Event]]
+    *, theme_id: str, kind: str, label: str, factory: Callable[..., Iterator[Event]]
 ) -> StreamingResponse:
     """Register a long run as a re-attachable task and stream it. The run survives the
     client leaving (it's discoverable via ``GET /tasks`` and resumable via the task

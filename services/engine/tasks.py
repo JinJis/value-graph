@@ -13,6 +13,7 @@ persist in their stores regardless; this only governs the live view.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import queue
 import threading
@@ -61,13 +62,20 @@ class _Task:
         self.events: list[Event] = []
         self._subscribers: set[queue.Queue[Event | None]] = set()
         self._lock = threading.Lock()
-        self._cancel = threading.Event()  # set by an admin "stop"; worker checks between events
+        self._cancel = threading.Event()  # hard "stop"; worker closes the gen between events
+        self._stop_soon = threading.Event()  # graceful "stop after current unit (e.g. batch)"
 
     def cancel(self) -> None:
         self._cancel.set()
 
     def is_cancelled(self) -> bool:
         return self._cancel.is_set()
+
+    def stop_soon(self) -> None:
+        self._stop_soon.set()
+
+    def is_stopping(self) -> bool:
+        return self._stop_soon.is_set()
 
     def info(self) -> TaskInfo:
         with self._lock:
@@ -120,6 +128,27 @@ class _Task:
                 self._subscribers.discard(sub)
 
 
+class CancelSignal:
+    """Handed to a task factory so the generator can stop GRACEFULLY at a safe boundary (e.g.
+    between batches) when an admin requests a soft stop — distinct from the hard cancel the
+    worker enforces by closing the generator between events. Read ``.stopping`` to decide."""
+
+    def __init__(self, task: _Task) -> None:
+        self._task = task
+
+    @property
+    def stopping(self) -> bool:
+        return self._task.is_stopping() or self._task.is_cancelled()
+
+
+def _factory_wants_signal(factory: Callable[..., Iterator[Event]]) -> bool:
+    """True if the factory accepts the CancelSignal (a 1-arg factory); legacy ones take none."""
+    try:
+        return len(inspect.signature(factory).parameters) >= 1
+    except (TypeError, ValueError):  # pragma: no cover - builtins without a signature
+        return False
+
+
 class TaskManager:
     def __init__(self) -> None:
         self._tasks: dict[str, _Task] = {}
@@ -134,6 +163,7 @@ class TaskManager:
                 and t.kind == kind
                 and t.status == RUNNING
                 and not t.is_cancelled()  # a cancelling task isn't reusable — start fresh
+                and not t.is_stopping()  # nor one winding down via a soft stop
             ),
             None,
         )
@@ -152,7 +182,7 @@ class TaskManager:
         theme_id: str,
         kind: str,
         label: str,
-        factory: Callable[[], Iterator[Event]],
+        factory: Callable[..., Iterator[Event]],
     ) -> str:
         """Start (or reuse) a run for ``(theme_id, kind)`` and return its task id.
 
@@ -170,7 +200,8 @@ class TaskManager:
 
         def worker() -> None:
             logger.info("task.start kind=%s theme=%s id=%s", kind, theme_id, task.id)
-            gen = factory()
+            # Hand a soft-stop signal to factories that want one (others ignore it).
+            gen = factory(CancelSignal(task)) if _factory_wants_signal(factory) else factory()
             try:
                 for event in gen:
                     if task.is_cancelled():
@@ -208,15 +239,22 @@ class TaskManager:
         task = self._tasks.get(task_id)
         return task.info() if task is not None else None
 
-    def cancel(self, task_id: str) -> TaskInfo | None:
-        """Request a running task stop. The worker halts at the next event boundary, closing
-        the underlying Gemini stream. Returns the task info, or None if unknown."""
+    def cancel(self, task_id: str, *, soft: bool = False) -> TaskInfo | None:
+        """Request a running task stop. A HARD cancel (default) closes the underlying Gemini
+        stream at the next event boundary. A SOFT stop (``soft=True``) only sets a flag the
+        generator checks at a safe boundary (e.g. after the current batch), so in-flight work
+        isn't wasted — generators that don't check it simply run to completion. Returns the
+        task info, or None if unknown."""
         task = self._tasks.get(task_id)
         if task is None:
             return None
         if task.status == RUNNING:
-            task.cancel()
-            logger.info("task.cancel_requested kind=%s id=%s", task.kind, task_id)
+            if soft:
+                task.stop_soon()
+                logger.info("task.soft_stop_requested kind=%s id=%s", task.kind, task_id)
+            else:
+                task.cancel()
+                logger.info("task.cancel_requested kind=%s id=%s", task.kind, task_id)
         return task.info()
 
     def list(self, theme_id: str | None = None) -> list[TaskInfo]:

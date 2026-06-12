@@ -8,7 +8,7 @@ share one shape (the CVE pass imports them from here).
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from datetime import date
 from typing import Any
 
@@ -232,11 +232,14 @@ def research_financials_events(
     attempts: int = 2,
     skip_filled: bool = False,
     batch_size: int = FINANCIALS_BATCH_SIZE,
+    should_stop: Callable[[], bool] | None = None,
 ) -> Iterator[Event]:
     """Deep Research the companies' financials and upsert them, streaming progress.
 
     Companies are researched in SEQUENTIAL batches of ``batch_size`` (one Deep Research call
-    each), so a large theme doesn't ride on one fragile mega-call. With ``skip_filled`` (the
+    each), so a large theme doesn't ride on one fragile mega-call. ``should_stop`` is polled
+    BETWEEN batches: when it returns True the run stops gracefully after the current batch
+    (its results are kept) instead of wasting the in-flight call. With ``skip_filled`` (the
     "research ALL" action), companies that already have revenue on file are left untouched —
     no duplicate spend. A per-company request never skips: it's an explicit re-fetch."""
     yield {"event": "model", "tier": tier.value, "model": router.model_for(tier)}
@@ -282,6 +285,23 @@ def research_financials_events(
 
     total_filled = 0
     for index, batch in enumerate(batches):
+        # Poll for a graceful stop BEFORE starting the next batch — the current batch always
+        # finishes (and saves), so an expensive in-flight call is never thrown away.
+        if should_stop is not None and should_stop():
+            logger.info(
+                "financials.research stopped theme=%s after=%d/%d batches",
+                theme.id,
+                index,
+                len(batches),
+            )
+            yield {
+                "event": "stopped",
+                "detail": f"stopped after {index} of {len(batches)} batch(es)",
+                "completed": index,
+                "total": len(batches),
+                "filled": total_filled,
+            }
+            break
         if multi:
             yield {
                 "event": "batch_start",

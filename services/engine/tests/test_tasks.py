@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from fastapi.testclient import TestClient
 
 from services.engine.main import app
-from services.engine.tasks import Event, TaskManager
+from services.engine.tasks import CancelSignal, Event, TaskManager
 from services.engine.tasks import tasks as task_singleton
 
 
@@ -130,6 +130,30 @@ def test_cancel_stops_the_worker_and_emits_cancelled() -> None:
 
 def test_cancel_unknown_task_returns_none() -> None:
     assert TaskManager().cancel("nope") is None
+
+
+def test_soft_stop_lets_a_signal_aware_factory_finish_gracefully() -> None:
+    tm = TaskManager()
+    seen: list[bool] = []
+
+    def factory(sig: CancelSignal) -> Iterator[Event]:
+        # A 1-arg factory receives the CancelSignal; it polls .stopping at a safe boundary.
+        yield {"event": "chunk", "text": "batch-1"}
+        while not sig.stopping:
+            time.sleep(0.01)
+        seen.append(True)
+        yield {"event": "stopped"}  # graceful end, not a hard cancel
+        yield {"event": "done"}
+
+    tid = tm.start(theme_id="t", kind="k", label="K", factory=factory)
+    _wait(lambda: (i := tm.get(tid)) is not None and i.event_count >= 1)
+    info = tm.cancel(tid, soft=True)  # request a graceful stop
+    assert info is not None
+    _wait(lambda: (i := tm.get(tid)) is not None and i.status == "done")
+    kinds = _kinds(_drain(tm.subscribe(tid)))
+    assert seen == [True]  # the factory observed the soft-stop signal
+    assert "stopped" in kinds and "done" in kinds
+    assert "cancelled" not in kinds  # soft stop is graceful, not a hard cancel
 
 
 def test_cancelled_kind_is_not_reused() -> None:

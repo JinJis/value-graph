@@ -28,10 +28,12 @@ def stream_task(task_id: str) -> StreamingResponse:
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=TaskInfo)
-def cancel_task(task_id: str) -> TaskInfo:
-    """Stop a running LLM/Deep-Research task. The worker halts at the next event boundary and
-    the stream emits a ``cancelled`` event. Idempotent for already-finished tasks."""
-    info = tasks.cancel(task_id)
+def cancel_task(task_id: str, soft: Annotated[bool, Query()] = False) -> TaskInfo:
+    """Stop a running LLM/Deep-Research task. A hard cancel (default) halts at the next event
+    boundary and the stream emits a ``cancelled`` event. With ``soft=true`` the task stops
+    GRACEFULLY at its next safe boundary (e.g. after the current batch) so in-flight work
+    isn't wasted. Idempotent for already-finished tasks."""
+    info = tasks.cancel(task_id, soft=soft)
     if info is None:
         raise HTTPException(status_code=404, detail="task not found")
     return info

@@ -187,6 +187,20 @@ export default function FinancialsPage() {
       }));
       return;
     }
+    if (e.event === "stopped") {
+      setProg((p) => ({
+        ...p,
+        steps: [
+          ...p.steps,
+          {
+            label: `stopped after ${e.completed}/${e.total} batch(es)`,
+            detail: "remaining batches skipped — completed ones are saved",
+            tone: "warn",
+          },
+        ],
+      }));
+      return;
+    }
     if (e.event !== "filled") return;
     const t = String(e.ticker);
     setDrafts((d) => {
@@ -380,6 +394,16 @@ export default function FinancialsPage() {
               idle: "Financials research",
             }}
           />
+          {prog.running && prog.taskId && (
+            <button
+              type="button"
+              onClick={() => void cancelTask(prog.taskId as string, true)}
+              title="Let the current batch finish (keep its results), then stop the rest"
+              style={{ marginTop: 6, fontSize: 12 }}
+            >
+              Stop after current batch
+            </button>
+          )}
         </div>
       </div>
 

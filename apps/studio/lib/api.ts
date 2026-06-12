@@ -705,12 +705,20 @@ export interface TaskInfo {
   event_count: number;
 }
 
-// Stop a running LLM/Deep-Research task; the worker halts at the next event boundary.
-export async function cancelTask(taskId: string): Promise<TaskInfo> {
+// Stop a running LLM/Deep-Research task. Hard cancel (default) halts at the next event
+// boundary; `soft` asks it to stop gracefully at its next safe boundary (e.g. after the
+// current batch) so in-flight work isn't wasted.
+export async function cancelTask(
+  taskId: string,
+  soft = false,
+): Promise<TaskInfo> {
   return json(
-    await fetch(url(`/tasks/${encodeURIComponent(taskId)}/cancel`), {
-      method: "POST",
-    }),
+    await fetch(
+      url(
+        `/tasks/${encodeURIComponent(taskId)}/cancel${soft ? "?soft=true" : ""}`,
+      ),
+      { method: "POST" },
+    ),
   );
 }
 

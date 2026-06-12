@@ -95,7 +95,14 @@ def stream_research_financials(
         theme_id=theme_id,
         kind=kind,
         label="Financials research",
-        factory=lambda: research_financials_events(
-            theme, companies, repo, llm, skip_filled=skip_filled, batch_size=batch_size
+        # The CancelSignal lets the run stop GRACEFULLY between batches (soft stop).
+        factory=lambda sig: research_financials_events(
+            theme,
+            companies,
+            repo,
+            llm,
+            skip_filled=skip_filled,
+            batch_size=batch_size,
+            should_stop=lambda: sig.stopping,
         ),
     )

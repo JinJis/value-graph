@@ -197,6 +197,41 @@ def test_research_financials_all_filled_short_circuits() -> None:
     assert kinds[-1] == "done"
 
 
+def test_research_financials_stops_gracefully_between_batches() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    companies = [
+        BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer"),
+        BlueprintCompany(ticker="INTC", name="Intel", country="US", role="supplier"),
+    ]
+    fin = InMemoryFinancialsRepository()
+    # should_stop is polled BEFORE each batch: False before batch 1, True before batch 2.
+    calls = {"n": 0}
+
+    def should_stop() -> bool:
+        calls["n"] += 1
+        return calls["n"] >= 2
+
+    events = list(
+        research_financials_events(
+            theme,
+            companies,
+            fin,
+            LLMRouter(_MultiResearchGen(), DEFAULT_MODELS),
+            batch_size=1,
+            should_stop=should_stop,
+        )
+    )
+
+    starts = [e for e in events if e["event"] == "batch_start"]
+    assert len(starts) == 1  # only the first batch ran
+    stopped = next(e for e in events if e["event"] == "stopped")
+    assert stopped["completed"] == 1 and stopped["total"] == 2
+    assert events[-1] == {"event": "done", "filled": 1}
+    assert fin.get("HPQ") is not None  # the completed batch's result is kept
+    assert fin.get("INTC") is None  # the skipped batch never ran
+
+
 def test_research_financials_endpoint_streams_and_fills() -> None:
     themes = InMemoryThemeRepository()
     theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
