@@ -773,20 +773,24 @@ export async function putFinancials(
 // Deep Research the blueprint companies' financials and fill the store, over SSE.
 // Events: model/prompt/chunk/parse, then `filled` per company, then `done`.
 // `tickers` (optional) restricts research to those companies (e.g. one row); omit for all.
+// `batchSize` (optional) sets how many companies per sequential Deep Research call.
 export const researchFinancialsStream = (
   themeId: string,
   onEvent: (event: CveRunEvent) => void,
   tickers?: string[],
+  batchSize?: number,
   signal?: AbortSignal,
-): Promise<void> =>
-  postEventStream<CveRunEvent>(
-    `/themes/${themeId}/financials/research/stream` +
-      (tickers && tickers.length
-        ? `?tickers=${encodeURIComponent(tickers.join(","))}`
-        : ""),
+): Promise<void> => {
+  const params = new URLSearchParams();
+  if (tickers && tickers.length) params.set("tickers", tickers.join(","));
+  if (batchSize) params.set("batch_size", String(batchSize));
+  const q = params.toString();
+  return postEventStream<CveRunEvent>(
+    `/themes/${themeId}/financials/research/stream${q ? `?${q}` : ""}`,
     onEvent,
     signal,
   );
+};
 
 // --- Disclosure Calendar (drives each figure's next_expected_update) --------------------
 

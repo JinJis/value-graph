@@ -119,6 +119,7 @@ export default function FinancialsPage() {
   const [researchingTicker, setResearchingTicker] = useState<string | null>(
     null,
   );
+  const [batchSize, setBatchSize] = useState(5); // companies per sequential Deep Research call
   const [prog, setProg] = useState<Prog>(EMPTY_PROG);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -225,7 +226,12 @@ export default function FinancialsPage() {
     if (tickers?.length === 1) setResearchingTicker(tickers[0]);
     setProg({ ...EMPTY_PROG, running: true });
     try {
-      await researchFinancialsStream(themeId, onResearchEvent, tickers);
+      await researchFinancialsStream(
+        themeId,
+        onResearchEvent,
+        tickers,
+        batchSize,
+      );
       await load();
     } catch (e) {
       setProg((p) => ({ ...p, running: false, error: String(e) }));
@@ -340,10 +346,26 @@ export default function FinancialsPage() {
             ? "Researching all…"
             : "Auto-fill ALL with Deep Research"}
         </button>{" "}
+        <label style={{ fontSize: 13, color: "#475569" }}>
+          batch size{" "}
+          <select
+            value={batchSize}
+            onChange={(e) => setBatchSize(Number(e.target.value))}
+            disabled={busy}
+            title="Companies per sequential Deep Research call — smaller = deeper/more reliable, larger = fewer calls"
+          >
+            {[1, 2, 3, 5, 8, 10].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>{" "}
         <small style={{ color: "#64748b" }}>
           Finds revenue + cost buckets per company (with citations) and fills
           the table; review and Save. Companies are researched in{" "}
-          <strong>sequential batches</strong> for depth + reliability.
+          <strong>sequential batches</strong> of the chosen size — smaller is
+          deeper/more reliable, larger means fewer calls.
         </small>
         <div ref={panelRef}>
           <BlueprintProgress

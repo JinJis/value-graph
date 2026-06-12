@@ -269,6 +269,52 @@ def test_research_financials_endpoint_filters_by_tickers() -> None:
     assert fin.get("HPQ") is not None and fin.get("INTC") is None  # only HPQ filled
 
 
+def test_research_financials_endpoint_honors_batch_size() -> None:
+    themes = InMemoryThemeRepository()
+    theme = themes.create_theme(ThemeCreate(name="AI Data Centers"))
+    blueprints = InMemoryBlueprintRepository()
+    blueprints.save(
+        Blueprint(
+            theme_id=theme.id,
+            version=1,
+            companies=[
+                BlueprintCompany(ticker="HPQ", name="HP Inc.", country="US", role="customer"),
+                BlueprintCompany(ticker="INTC", name="Intel", country="US", role="supplier"),
+            ],
+        )
+    )
+    fin = InMemoryFinancialsRepository()
+    app.dependency_overrides[get_theme_repository] = lambda: themes
+    app.dependency_overrides[get_blueprint_repository] = lambda: blueprints
+    app.dependency_overrides[get_financials_repository] = lambda: fin
+    app.dependency_overrides[get_router] = lambda: LLMRouter(
+        _MultiResearchGen(), DEFAULT_MODELS
+    )
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            f"/themes/{theme.id}/financials/research/stream?batch_size=1"
+        )
+        assert resp.status_code == 200, resp.text
+        frames = [
+            json.loads(line[5:].strip())
+            for line in resp.text.splitlines()
+            if line.startswith("data:")
+        ]
+        starts = [f for f in frames if f["event"] == "batch_start"]
+        assert [s["index"] for s in starts] == [1, 2] and starts[0]["total"] == 2
+        assert frames[-1] == {"event": "done", "filled": 2}
+
+        # Out-of-range batch size is rejected by the query validator.
+        bad = client.post(
+            f"/themes/{theme.id}/financials/research/stream?batch_size=0"
+        )
+        assert bad.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+    assert fin.get("HPQ") is not None and fin.get("INTC") is not None
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     repo = InMemoryFinancialsRepository()  # one instance shared across requests

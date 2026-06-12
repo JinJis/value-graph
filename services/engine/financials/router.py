@@ -15,7 +15,10 @@ from services.engine.financials.repository import (
     FinancialsRepository,
     PostgresFinancialsRepository,
 )
-from services.engine.financials.research import research_financials_events
+from services.engine.financials.research import (
+    FINANCIALS_BATCH_SIZE,
+    research_financials_events,
+)
 from services.engine.llm.router import LLMRouter
 from services.engine.sse import task_sse
 from services.engine.themes.repository import ThemeRepository
@@ -60,10 +63,12 @@ def stream_research_financials(
     repo: FinancialsRepoDep,
     llm: RouterDep,
     tickers: Annotated[str | None, Query()] = None,
+    batch_size: Annotated[int, Query(ge=1, le=20)] = FINANCIALS_BATCH_SIZE,
 ) -> StreamingResponse:
     """Deep Research blueprint companies' financials (revenue + cost buckets) and fill the
     store, as a live SSE stream. Pass ``tickers`` (comma-separated) to research only those
-    companies (e.g. one row) instead of all. Detached: finishes even if the tab closes."""
+    companies (e.g. one row) instead of all. ``batch_size`` sets how many companies each
+    sequential Deep Research call covers. Detached: finishes even if the tab closes."""
     theme = themes.get_theme(theme_id)
     if theme is None:
         raise HTTPException(status_code=404, detail="theme not found")
@@ -91,6 +96,6 @@ def stream_research_financials(
         kind=kind,
         label="Financials research",
         factory=lambda: research_financials_events(
-            theme, companies, repo, llm, skip_filled=skip_filled
+            theme, companies, repo, llm, skip_filled=skip_filled, batch_size=batch_size
         ),
     )
