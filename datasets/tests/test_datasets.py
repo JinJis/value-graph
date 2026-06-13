@@ -620,3 +620,59 @@ def test_institutional_requires_exactly_one_arg():
 def test_more_scaffold_501s():
     for path in ("/index-funds?ticker=SPY", "/kpi/metrics", "/financials/as-reported?ticker=AAPL&period=annual"):
         assert client.get(path).status_code == 501
+
+
+# --- bulk backfill --------------------------------------------------------
+def test_all_facts_from_companyfacts_multi_period():
+    from app.providers.us.sec_edgar import all_facts_from_companyfacts
+
+    gaap = {"facts": {"us-gaap": {
+        "Revenues": {"units": {"USD": [
+            {"start": "2020-01-01", "end": "2020-12-31", "val": 100, "form": "10-K", "fy": 2020, "fp": "FY", "accn": "a"},
+            {"start": "2021-01-01", "end": "2021-12-31", "val": 110, "form": "10-K", "fy": 2021, "fp": "FY", "accn": "b"},
+            {"start": "2021-07-01", "end": "2021-09-30", "val": 30, "form": "10-Q", "fy": 2021, "fp": "Q3", "accn": "c"},
+        ]}},
+        "Assets": {"units": {"USD": [{"end": "2021-12-31", "val": 500, "form": "10-K", "fy": 2021}]}},
+    }}}
+    rows = all_facts_from_companyfacts(gaap, "0000000001")
+    periods = {(r["statement"], r["period"], r["report_period"]) for r in rows}
+    assert ("income", "annual", "2020-12-31") in periods
+    assert ("income", "annual", "2021-12-31") in periods
+    assert ("income", "quarterly", "2021-09-30") in periods
+    assert ("balance", "annual", "2021-12-31") in periods
+
+
+async def test_bulk_zip_loads(monkeypatch, tmp_path):
+    import json as _json
+    import zipfile as _zip
+
+    from sqlalchemy import delete, func, select
+
+    from app.store import bulk
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import FinancialFact
+
+    async def fake_index():
+        return {"ZBULK": {"cik_str": 9000001, "ticker": "ZBULK", "title": "Z"}}
+
+    monkeypatch.setattr(bulk, "_ticker_index", fake_index)
+    facts = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+        {"start": "2022-01-01", "end": "2022-12-31", "val": 500, "form": "10-K", "fy": 2022, "fp": "FY", "accn": "x"},
+    ]}}}}}
+    zp = tmp_path / "cf.zip"
+    with _zip.ZipFile(zp, "w") as zf:
+        zf.writestr("CIK0009000001.json", _json.dumps(facts))
+    init_db()
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.ticker == "ZBULK"))
+        db.commit()
+    try:
+        res = await bulk.bulk_load_us(zip_path=str(zp))
+        assert res.get("ZBULK", 0) > 0
+        with SessionLocal() as db:
+            n = db.scalar(select(func.count()).select_from(FinancialFact).where(FinancialFact.ticker == "ZBULK"))
+        assert n and n > 0
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(FinancialFact).where(FinancialFact.ticker == "ZBULK"))
+            db.commit()

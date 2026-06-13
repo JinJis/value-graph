@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     scheduler_interval_seconds: int = 3600
     # Universe to refresh, e.g. "US:AAPL,MSFT,NVDA;KR:005930,000660"
     scheduler_universe: str = ""
+    # When true, periodic runs do a deep/full-history backfill instead of the
+    # latest few periods.
+    scheduler_deep: bool = False
 
     @property
     def accepted_api_keys(self) -> set[str]:

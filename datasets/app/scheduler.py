@@ -39,6 +39,7 @@ class Scheduler:
         self.enabled = settings.scheduler_enabled
         self.interval = settings.scheduler_interval_seconds
         self.universe = parse_universe(settings.scheduler_universe)
+        self.deep = settings.scheduler_deep
         self.run_count = 0
         self.last_run_at: str | None = None
         self.last_status = "idle"  # idle | running | ok | error
@@ -76,8 +77,16 @@ class Scheduler:
         self.running, self.last_status = True, "running"
         try:
             summary: dict = {}
-            for market, tickers in self.universe:
-                summary[market.value] = await ingest_universe(market, tickers)
+            if self.deep:
+                from app.store.bulk import bulk_load_kr, bulk_load_us
+
+                for market, tickers in self.universe:
+                    summary[market.value] = await (
+                        bulk_load_us(tickers) if market is Market.US else bulk_load_kr(tickers)
+                    )
+            else:
+                for market, tickers in self.universe:
+                    summary[market.value] = await ingest_universe(market, tickers)
             self.last_summary, self.last_status, self.last_error = summary, "ok", None
         except Exception as exc:
             self.last_status, self.last_error = "error", str(exc)
@@ -102,6 +111,7 @@ class Scheduler:
     def status(self) -> dict:
         return {
             "enabled": self.enabled,
+            "deep": self.deep,
             "running": self.running,
             "interval_seconds": self.interval,
             "universe": [{"market": m.value, "tickers": t} for m, t in self.universe],

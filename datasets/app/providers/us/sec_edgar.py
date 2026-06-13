@@ -756,3 +756,39 @@ class SecEdgar13FProvider:
             "Ticker-mode 13F (which filers hold a security) requires a reverse CUSIP/holdings "
             "index that this build does not maintain yet. Use ?filer_cik=... for a filer's holdings."
         )
+
+
+# --- bulk: all historical periods from a raw companyfacts dict -------------
+_ALL_SPECS = [
+    ("income", INCOME_MAP, INCOME_MAP["revenue"] + INCOME_MAP["net_income"], False),
+    ("balance", BALANCE_MAP, ["Assets"], True),
+    ("cashflow", CASHFLOW_MAP, ["NetCashProvidedByUsedInOperatingActivities"], False),
+]
+
+
+def all_facts_from_companyfacts(facts: dict, cik10: str) -> list[dict]:
+    """Flatten a companyfacts payload into every (statement, period, report_period,
+    line_item) row available — the deep-history feed for the bulk loader. Reuses
+    the same XBRL assembler as the live endpoints (no `limit` cap)."""
+    gaap = facts.get("facts", {}).get("us-gaap", {})
+    big = 10**7
+    out: list[dict] = []
+    for statement, field_map, spine, instant in _ALL_SPECS:
+        for period in ("annual", "quarterly"):
+            for r in _assemble(gaap, field_map, spine, period, big, instant=instant, cik10=cik10):
+                rp = r.get("report_period")
+                if not rp:
+                    continue
+                for line_item, value in r.items():
+                    if line_item in ("report_period", "fiscal_period", "accession_number", "filing_url"):
+                        continue
+                    if value is None or not isinstance(value, (int, float)):
+                        continue
+                    out.append(
+                        {
+                            "statement": statement, "line_item": line_item, "value": float(value),
+                            "period": period, "report_period": rp, "fiscal_period": r.get("fiscal_period"),
+                            "accession_number": r.get("accession_number") or "",
+                        }
+                    )
+    return out

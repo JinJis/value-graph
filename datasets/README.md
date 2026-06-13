@@ -72,10 +72,16 @@ uv run uvicorn app.main:app --reload              # dev server at :8000 (/docs)
 uv run pytest -q                                  # unit tests
 BASE=http://127.0.0.1:8000 bash scripts/smoke.sh  # curl smoke test (keyless + keyed)
 
-# --- ingest the store (for screener / line-items / history) ---------------
+# --- ingest the store (latest few periods) --------------------------------
 uv run python -m scripts.ingest US AAPL MSFT NVDA
 uv run python -m scripts.ingest KR 005930 000660 035720
-uv run python -m scripts.ingest US --period quarterly --limit 8 AAPL
+
+# --- bulk / deep-history backfill -----------------------------------------
+uv run python -m scripts.bulk_load US AAPL MSFT          # full companyfacts history per ticker (e.g. AAPL 2007→now)
+uv run python -m scripts.bulk_load KR 005930 --limit 15  # DART deep, annual + quarterly
+# full US universe (download the ~1GB zip once, then stream it):
+curl -o /tmp/companyfacts.zip https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip
+uv run python -m scripts.bulk_load US --zip /tmp/companyfacts.zip --limit 500
 
 # --- ops (also runnable from /docs under "Admin / Ops") -------------------
 curl http://127.0.0.1:8000/admin/selftest          # live pass/fail of every endpoint
@@ -144,8 +150,13 @@ local **ingestion store** instead of fetching per-ticker upstream — that's wha
 filtering and deep history possible. The store is **point-in-time** (restatements kept, not
 overwritten). SQLite by default; set `DATABASE_URL=postgresql://…` for production.
 
+**Deep history** comes from the bulk loader: per ticker it loads *every* annual + quarterly period
+from companyfacts (AAPL → back to 2007), and `--zip` streams the full SEC dump for the whole universe.
+Set `SCHEDULER_DEEP=true` to make periodic runs do deep backfill. See the cheat-sheet for `scripts.bulk_load`.
+
 ```bash
-uv run python -m scripts.ingest US AAPL MSFT NVDA        # populate (prod: bulk companyfacts.zip / DART batch)
+uv run python -m scripts.ingest US AAPL MSFT NVDA        # latest few periods
+uv run python -m scripts.bulk_load US AAPL MSFT NVDA     # deep/full history
 
 curl -X POST "http://127.0.0.1:8000/financials/search/screener?market=US" -H "Content-Type: application/json" \
   -d '{"limit":10,"filters":[{"field":"revenue","operator":"gt","value":100000000000},
