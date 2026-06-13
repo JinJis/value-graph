@@ -676,3 +676,48 @@ async def test_bulk_zip_loads(monkeypatch, tmp_path):
         with SessionLocal() as db:
             db.execute(delete(FinancialFact).where(FinancialFact.ticker == "ZBULK"))
             db.commit()
+
+
+# --- connector catalog (P0) -----------------------------------------------
+def test_catalog_manifests_valid():
+    from app.connectors.catalog import get_catalog
+
+    cons = get_catalog()
+    assert cons, "catalog is empty"
+    ids = [c.id for c in cons]
+    assert len(ids) == len(set(ids)), "duplicate connector ids"
+    for c in cons:
+        assert c.id and c.name and c.domain and c.markets and c.resources
+        assert c.license is not None and isinstance(c.license.redistribution, bool)
+        for r in c.resources:
+            assert r.name and r.path.startswith("/")
+            assert r.provenance and r.provenance.source  # trust envelope present
+
+
+def test_catalog_resource_paths_are_real_routes():
+    from fastapi.routing import APIRoute
+
+    from app.connectors.catalog import all_resource_paths
+    from app.main import app
+
+    real = {(m, r.path) for r in app.routes if isinstance(r, APIRoute) for m in r.methods}
+    for method, path in all_resource_paths():
+        assert (method, path) in real, f"manifest references a non-existent route: {method} {path}"
+
+
+def test_catalog_endpoints():
+    body = client.get("/catalog").json()
+    assert body["count"] > 0 and len(body["connectors"]) == body["count"]
+    cid = body["connectors"][0]["id"]
+    one = client.get(f"/catalog/{cid}")
+    assert one.status_code == 200 and one.json()["id"] == cid
+    assert client.get("/catalog/does-not-exist").status_code == 404
+
+
+def test_catalog_restricted_license_flagged():
+    # Yahoo + news must be marked non-redistributable (governance signal).
+    from app.connectors.catalog import get_connector
+
+    assert get_connector("yahoo").license.redistribution is False
+    assert get_connector("google_news").license.redistribution is False
+    assert get_connector("sec_edgar").license.redistribution is True

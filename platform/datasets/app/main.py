@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
 from app.routers import (
     admin,
+    catalog,
     company,
     earnings,
     filings,
@@ -68,7 +69,7 @@ register_error_handlers(app)
 
 for module in (
     company, prices, financials, filings, macro, metrics,
-    news, earnings, insider, institutional, search, admin, scaffold,
+    news, earnings, insider, institutional, search, catalog, admin, scaffold,
 ):
     app.include_router(module.router)
 
