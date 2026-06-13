@@ -320,3 +320,303 @@ def test_us_company_facts_with_mocked_sec():
     assert facts["name"] == "Apple Inc."
     assert facts["cik"] == "0000320193"
     assert facts["exchange"] == "Nasdaq"
+
+
+# ==========================================================================
+# Expanded coverage: helpers, providers, store, ops, and app-level integration
+# ==========================================================================
+
+# --- errors ---------------------------------------------------------------
+def test_error_helper_status_codes():
+    from app.errors import bad_request, not_found, not_implemented, service_unavailable, unauthorized
+
+    assert bad_request("x").status_code == 400
+    assert unauthorized().status_code == 401
+    assert not_found("x").status_code == 404
+    assert not_implemented("x").status_code == 501
+    assert service_unavailable("x").status_code == 503
+
+
+# --- cache ----------------------------------------------------------------
+async def test_ttl_cache_caches():
+    from app.cache import TTLCache
+
+    c = TTLCache(60)
+    calls = []
+
+    async def factory():
+        calls.append(1)
+        return 42
+
+    assert await c.get_or_set("k", factory) == 42
+    assert await c.get_or_set("k", factory) == 42
+    assert len(calls) == 1  # second call served from cache
+
+
+# --- symbols --------------------------------------------------------------
+def test_kr_market_suffix():
+    from app.symbols import kr_market_suffix
+
+    assert kr_market_suffix("005930", "KOSPI") == "005930.KS"
+    assert kr_market_suffix("035720", "KOSDAQ") == "035720.KQ"
+
+
+def test_build_ref_with_cik_only():
+    r = build_ref(Market.US, cik="320193")
+    assert r.cik == "320193" and r.ticker == ""
+
+
+# --- US XBRL helpers ------------------------------------------------------
+def test_filing_url_and_fiscal_label():
+    from app.providers.us.sec_edgar import _filing_url, _fiscal_label
+
+    assert _filing_url("0000320193", "0000320193-25-000079").endswith("/000032019325000079/")
+    assert _filing_url("1", None) is None
+    assert _fiscal_label({"fy": 2025, "fp": "FY"}) == "2025-FY"
+    assert _fiscal_label({}) is None
+
+
+def test_days_between():
+    from app.providers.us.sec_edgar import _days_between
+
+    assert _days_between("2025-06-30", "2024-06-30") == 365
+    assert _days_between("bad", "x") == 10**6
+
+
+def test_latest_instant_rows():
+    from app.providers.us.sec_edgar import BALANCE_MAP, _latest_instant_rows
+
+    gaap = {"Assets": {"units": {"USD": [
+        {"end": "2025-12-31", "val": 1000, "form": "10-Q", "fy": 2025},
+        {"end": "2024-12-31", "val": 900, "form": "10-K", "fy": 2024},
+    ]}}}
+    rows = _latest_instant_rows(gaap, BALANCE_MAP, ["Assets"], 1)
+    assert rows[0]["report_period"] == "2025-12-31" and rows[0]["total_assets"] == 1000
+
+
+def test_parse_13f_no_namespace_and_putcall():
+    from app.providers.us.sec_edgar import _parse_13f
+
+    xml = (
+        "<informationTable><infoTable><nameOfIssuer>X CORP</nameOfIssuer>"
+        "<cusip>000000000</cusip><value>5</value>"
+        "<shrsOrPrnAmt><sshPrnamt>2</sshPrnamt></shrsOrPrnAmt><putCall>Put</putCall></infoTable>"
+        "</informationTable>"
+    )
+    rows = _parse_13f(xml, None, None, "13F-HR", "A")
+    assert len(rows) == 1 and rows[0].name_of_issuer == "X CORP"
+    assert rows[0].value_usd == 5 and rows[0].shares == 2 and rows[0].put_call is not None
+
+
+# --- KR DART helpers ------------------------------------------------------
+def test_kr_extract_balance_and_cashflow():
+    from app.providers.kr.opendart import BALANCE_MAP as KB, CASHFLOW_MAP as KC, _extract
+
+    b = [{"sj_div": "BS", "account_id": "ifrs-full_Assets", "thstrm_amount": "1,000"}]
+    assert _extract(b, KB, {"BS"})["total_assets"] == 1000.0
+    c = [{"sj_div": "CF", "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities", "thstrm_amount": "50"}]
+    assert _extract(c, KC, {"CF"})["net_cash_flow_from_operations"] == 50.0
+
+
+def test_kr_periods_annual_and_quarterly():
+    from app.providers.kr.opendart import _periods
+
+    annual = _periods("annual", 3)
+    assert all(code == "11011" for _, code, _ in annual) and annual[0][2].endswith("-12-31")
+    quarterly = _periods("quarterly", 2)
+    assert any(code in ("11013", "11012", "11014") for _, code, _ in quarterly)
+
+
+# --- yahoo / stooq / news / fred / ecos provider helpers ------------------
+def test_yahoo_symbols_intervals_at():
+    from app.providers.us.yahoo import _INTERVALS, _at, _symbols
+    from app.symbols import SecurityRef
+
+    assert _symbols(SecurityRef(Market.US, "AAPL")) == ["AAPL"]
+    assert _symbols(SecurityRef(Market.KR, "005930")) == ["005930.KS", "005930.KQ"]
+    assert _INTERVALS["day"] == "1d" and _INTERVALS["year"] == "1mo"
+    assert _at([1, 2, 3], 1) == 2 and _at([1], 5) is None and _at(None, 0) is None
+
+
+def test_stooq_parse_and_price():
+    from app.providers.us.stooq import _parse_csv, _to_price
+
+    rows = _parse_csv("Date,Open,High,Low,Close,Volume\n2024-01-02,1,2,0.5,1.5,100\n")
+    assert len(rows) == 1
+    p = _to_price(rows[0])
+    assert p.close == 1.5 and p.volume == 100 and p.time == "2024-01-02"
+    assert _parse_csv("<html>blocked</html>") == []
+
+
+def test_news_to_date():
+    from app.providers.news import _to_date
+
+    assert _to_date("Mon, 09 Jun 2026 12:00:00 GMT") == "2026-06-09"
+    assert _to_date(None) is None and _to_date("garbage") is None
+
+
+async def test_news_query_for_us():
+    from app.providers.news import _query_for
+
+    assert await _query_for(Market.US, "AAPL") == "AAPL stock"
+    assert await _query_for(Market.US, None) == "stock market"
+
+
+def test_fred_series_and_rate():
+    import pytest
+
+    from app.errors import APIError
+    from app.providers.us.fred import _series, _to_rate
+
+    assert _series("FED")[1] == "DFEDTARU"
+    with pytest.raises(APIError):
+        _series("NOPE")
+    assert _to_rate("FED", "Fed", {"value": "5.5", "date": "2025-01-01"}).rate == 5.5
+    assert _to_rate("FED", "Fed", {"value": ".", "date": "x"}) is None
+
+
+def test_ecos_helpers():
+    from datetime import date as _date
+
+    from app.providers.kr.ecos import _bank, _fmt, _to_iso
+
+    assert _to_iso("20250101", "D") == "2025-01-01"
+    assert _to_iso("202501", "M") == "2025-01-01"
+    assert _fmt(_date(2025, 1, 1), "D") == "20250101"
+    assert _bank("BOK")[1] == "722Y001"
+
+
+# --- report_period filter operators ---------------------------------------
+def test_report_period_filter_gt_lt():
+    from datetime import date as _date
+
+    from app.filters import ReportPeriodFilters
+
+    rows = [type("R", (), {"report_period": _date(2022, 1, 1)})(), type("R", (), {"report_period": _date(2024, 1, 1)})()]
+    gt = ReportPeriodFilters(None, None, None, _date(2023, 1, 1), None)
+    assert [r.report_period.year for r in gt.apply(rows, 10)] == [2024]
+    lt = ReportPeriodFilters(None, None, None, None, _date(2023, 1, 1))
+    assert [r.report_period.year for r in lt.apply(rows, 10)] == [2022]
+
+
+# --- screener operators + restatement -------------------------------------
+def test_screener_operators():
+    from app.store.screener import _OPS
+
+    assert _OPS["gte"](5, 5) and _OPS["lt"](3, 5) and _OPS["lte"](5, 5)
+    assert _OPS["gt"](6, 5) and _OPS["eq"](2, 2) and not _OPS["eq"](1, 2)
+
+
+def test_screener_restatement_latest_filing_wins():
+    from datetime import date as _date
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import FinancialFact
+    from app.store.screener import run_line_items
+
+    init_db()
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.market == "ZR"))
+        for accn, fdate, val in [("orig", _date(2025, 2, 1), 100.0), ("restated", _date(2025, 8, 1), 120.0)]:
+            db.add(FinancialFact(
+                market="ZR", ticker="ZR1", statement="income", line_item="revenue", value=val,
+                currency="USD", period="annual", report_period=_date(2024, 12, 31),
+                filing_date=fdate, accession_number=accn, source="t",
+            ))
+        db.commit()
+    try:
+        li = run_line_items(["ZR1"], ["revenue"], "annual", 1)
+        assert li and li[0]["revenue"] == 120.0  # later filing wins (restatement)
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(FinancialFact).where(FinancialFact.market == "ZR"))
+            db.commit()
+
+
+# --- scheduler ------------------------------------------------------------
+def test_parse_universe_edges():
+    from app.scheduler import parse_universe
+
+    assert parse_universe("") == []
+    assert parse_universe("garbage") == []
+    assert parse_universe("US:") == []
+    u = parse_universe("us:aapl")
+    assert u[0][0] is Market.US and u[0][1] == ["aapl"]
+
+
+async def test_scheduler_run_once_ingests(monkeypatch):
+    from app import scheduler as sched_mod
+    from app.scheduler import Scheduler
+
+    async def fake_ingest(market, tickers, *a, **k):
+        return {t: 3 for t in tickers}
+
+    monkeypatch.setattr(sched_mod, "ingest_universe", fake_ingest)
+    s = Scheduler()
+    s.universe = [(Market.US, ["AAPL"])]
+    s.enabled = True
+    await s._run_once()
+    assert s.last_status == "ok" and s.run_count == 1
+    assert s.last_summary == {"US": {"AAPL": 3}}
+
+
+# --- selftest classifier --------------------------------------------------
+def test_selftest_classifier_cases():
+    from app.selftest import _classify
+
+    assert _classify(200, "{}")[0] == "pass"
+    assert _classify(402, "Active subscription required")[0] == "fail"
+    assert _classify(503, "bot-verification challenge")[0] == "skipped"
+    assert _classify(400, "OPENDART_API_KEY is not configured.")[0] == "skipped"
+    assert _classify(500, "boom")[0] == "fail"
+
+
+# --- app-level integration (no upstream network) --------------------------
+def test_admin_scheduler_endpoint():
+    body = client.get("/admin/scheduler").json()
+    assert "enabled" in body and "run_count" in body
+
+
+def test_admin_store_stats_endpoint():
+    body = client.get("/admin/store/stats").json()
+    assert "total_facts" in body and "by_market" in body
+
+
+def test_bad_period_returns_400():
+    r = client.get("/financials/income-statements?ticker=AAPL&market=US&period=monthly")
+    assert r.status_code == 400 and r.json()["error"] == "Bad Request"
+
+
+def test_missing_identifier_returns_400():
+    r = client.get("/financials/income-statements?market=US&period=annual")
+    assert r.status_code == 400
+
+
+def test_invalid_market_enum_returns_400():
+    r = client.get("/company/facts?ticker=AAPL&market=ZZ")
+    assert r.status_code == 400
+
+
+def test_invalid_interval_returns_400():
+    r = client.get("/prices?ticker=AAPL&market=US&interval=hour&start_date=2024-01-01&end_date=2024-01-02")
+    assert r.status_code == 400
+
+
+def test_screener_no_match_returns_empty():
+    r = client.post(
+        "/financials/search/screener?market=US",
+        json={"limit": 5, "filters": [{"field": "revenue", "operator": "gt", "value": 1e18}]},
+    )
+    assert r.status_code == 200 and r.json()["search_results"] == []
+
+
+def test_institutional_requires_exactly_one_arg():
+    r = client.get("/institutional-holdings")  # neither filer_cik nor ticker
+    assert r.status_code == 400
+
+
+def test_more_scaffold_501s():
+    for path in ("/index-funds?ticker=SPY", "/kpi/metrics", "/financials/as-reported?ticker=AAPL&period=annual"):
+        assert client.get(path).status_code == 501
