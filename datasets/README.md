@@ -51,6 +51,36 @@ uv run datamodel-codegen --input openapi.json --input-file-type openapi \
 filings need only a `SEC_EDGAR_USER_AGENT` contact string (no signup). The KR equivalents and all
 macro need the free keys below.
 
+## Docker
+
+The image bundles all dependencies (uv, FastAPI, pandas/pykrx). Keys are passed at **runtime** via
+`--env-file` / compose `env_file` — never baked into the image.
+
+```bash
+cd datasets
+cp .env.example .env          # fill in your free keys
+
+# --- docker compose (recommended) ---
+docker compose up --build     # builds + runs, reads ./.env, serves on :8000
+docker compose down
+
+# --- or plain docker ---
+docker build -t valuegraph-datasets:latest .
+docker run -d --name valuegraph-datasets --env-file .env -p 8000:8000 valuegraph-datasets:latest
+
+# verify
+curl http://127.0.0.1:8000/health
+curl "http://127.0.0.1:8000/prices?ticker=AAPL&market=US&interval=day&start_date=2024-01-02&end_date=2024-01-05"
+curl "http://127.0.0.1:8000/financials/income-statements?ticker=005930&market=KR&period=annual&limit=1"
+
+# logs / stop
+docker logs -f valuegraph-datasets
+docker rm -f valuegraph-datasets
+```
+
+> Override a single key without editing `.env`: add `-e FRED_API_KEY=...` to `docker run`, or an
+> `environment:` entry in `docker-compose.yml`. FRED is IP-gated from some datacenters (see Disclaimers).
+
 ## API keys (all free)
 
 | Env var | Used for | Get it at |
