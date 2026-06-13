@@ -15,8 +15,9 @@ platform/
   datasets/        # ✅ DATA PLANE — US+KR financial data API (the foundation; built & tested)
                    #    connectors (SEC/DART/Yahoo/FRED/ECOS/news) · point-in-time ingestion store
                    #    · bulk/deep backfill · scheduler · self-test · catalog manifests (P0, in progress)
+  control-plane/   # ✅ CONTROL PLANE — tenants · scoped API keys · connector activation/entitlements
+                   #    · metering · audit · rate-limit · gateway in front of the data plane (P1)
   # planned, built on top of datasets/:
-  # control-plane/ # tenants · scoped API keys · source activation/entitlements · metering · governance
   # mcp/           # MCP server — tenant-scoped tools auto-derived from connector manifests
   # rag/           # document ingestion + Gemini embeddings + pgvector retrieval (provenance-first)
   # agent-engine/  # build & run agents (SDK + natural language) over activated sources
@@ -36,9 +37,18 @@ platform/
 
 ## Roadmap
 
-`datasets/` is live (see `datasets/README.md`). Next: **P0** connector manifests + catalog (in
-`datasets/`) → **P1** control plane → **P2** MCP server → **P3** RAG → **P4** Agent Engine, with the
-**value-chain agent** as the flagship template.
+`datasets/` (data plane) and **P0** catalog are live; **P1** control plane (`control-plane/`) is built —
+tenancy, catalog-driven entitlements, metering, audit, rate-limit, and a gateway in front of the data
+plane. Next: **P2** MCP server → **P3** RAG → **P4** Agent Engine, with the **value-chain agent** as the
+flagship template.
+
+Run the two together:
+```bash
+# data plane
+(cd datasets && uv run uvicorn app.main:app --port 8000) &
+# control plane in front of it
+(cd control-plane && DATASETS_URL=http://127.0.0.1:8000 uv run uvicorn controlplane.main:app --port 8001) &
+```
 
 ## Run the data plane
 
