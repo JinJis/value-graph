@@ -145,6 +145,13 @@ def _extract(rows: list[dict], field_map: dict[str, str], sj_divs: set[str]) -> 
     return out
 
 
+_REPRT_LABEL = {"11011": "FY", "11013": "Q1", "11012": "H1", "11014": "Q3"}
+
+
+def _fiscal_period(year: int, code: str) -> str:
+    return f"{year}-{_REPRT_LABEL.get(code, '')}"
+
+
 def _periods(period: str, limit: int) -> list[tuple[int, str, str]]:
     """Return (bsns_year, reprt_code, report_period_date) newest first."""
     this_year = date.today().year
@@ -197,7 +204,19 @@ class OpenDartProvider:
                 rows = data.get("list") or []
             fields = _extract(rows, field_map, sj_divs)
             if fields:
-                out.append(model(ticker=ref.ticker, report_period=rp, period=period, currency="KRW", **fields))
+                rcept_no = rows[0].get("rcept_no") if rows else None
+                out.append(
+                    model(
+                        ticker=ref.ticker,
+                        report_period=rp,
+                        fiscal_period=_fiscal_period(year, code),
+                        period=period,
+                        currency="KRW",
+                        accession_number=rcept_no,
+                        filing_url=f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}" if rcept_no else None,
+                        **fields,
+                    )
+                )
             if len(out) >= limit:
                 break
         if not out:

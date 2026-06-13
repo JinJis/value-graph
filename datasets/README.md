@@ -32,6 +32,10 @@ Prices default to the keyless **Yahoo Finance** chart API for both markets (dela
 `pykrx` (KRX/Naver) is available as `PRICES_PROVIDER_KR=pykrx`, and `stooq` as `PRICES_PROVIDER_US=stooq`,
 but both reach KRX/stooq directly and may be blocked from some server environments.
 
+Financial statements support `period=annual|quarterly|ttm` (US TTM = last FY + latest YTD − prior-year
+YTD for flows, latest instant for the balance sheet) and the `report_period[_gte|_lte|_gt|_lt]` filters.
+Price `interval` accepts `day|week|month|year` (`year` is served as monthly bars by Yahoo).
+
 ## Quick start
 
 ```bash

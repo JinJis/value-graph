@@ -82,9 +82,10 @@ INCOME_MAP: dict[str, list[str]] = {
     ],
     "cost_of_revenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"],
     "gross_profit": ["GrossProfit"],
-    "operating_expense": ["OperatingExpenses", "CostsAndExpenses"],
+    "operating_expense": ["OperatingExpenses", "CostsAndExpenses", "OperatingCostsAndExpenses"],
     "selling_general_and_administrative_expenses": [
-        "SellingGeneralAndAdministrativeExpense"
+        "SellingGeneralAndAdministrativeExpense",
+        "GeneralAndAdministrativeExpense",
     ],
     "research_and_development": ["ResearchAndDevelopmentExpense"],
     "operating_income": ["OperatingIncomeLoss"],
@@ -115,11 +116,11 @@ BALANCE_MAP: dict[str, list[str]] = {
     "outstanding_shares": ["CommonStockSharesOutstanding"],
     "total_liabilities": ["Liabilities"],
     "current_liabilities": ["LiabilitiesCurrent"],
-    "current_debt": ["LongTermDebtCurrent", "DebtCurrent"],
+    "current_debt": ["LongTermDebtCurrent", "DebtCurrent", "CommercialPaper"],
     "trade_and_non_trade_payables": ["AccountsPayableCurrent"],
     "deferred_revenue": ["ContractWithCustomerLiabilityCurrent", "DeferredRevenueCurrent"],
     "non_current_liabilities": ["LiabilitiesNoncurrent"],
-    "non_current_debt": ["LongTermDebtNoncurrent"],
+    "non_current_debt": ["LongTermDebtNoncurrent", "LongTermDebt"],
     "tax_liabilities": ["TaxesPayableCurrent"],
     "shareholders_equity": [
         "StockholdersEquity",
@@ -134,10 +135,15 @@ CASHFLOW_MAP: dict[str, list[str]] = {
         "DepreciationDepletionAndAmortization",
         "DepreciationAmortizationAndAccretionNet",
         "DepreciationAndAmortization",
+        "DepreciationAmortizationAndOther",
+        "Depreciation",
     ],
-    "share_based_compensation": ["ShareBasedCompensation"],
+    "share_based_compensation": ["ShareBasedCompensation", "ShareBasedCompensationExpense"],
     "net_cash_flow_from_operations": ["NetCashProvidedByUsedInOperatingActivities"],
-    "capital_expenditure": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+    "capital_expenditure": [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
+    ],
     "business_acquisitions_and_disposals": ["PaymentsToAcquireBusinessesNetOfCashAcquired"],
     "net_cash_flow_from_investing": ["NetCashProvidedByUsedInInvestingActivities"],
     "issuance_or_repayment_of_debt_securities": ["ProceedsFromIssuanceOfLongTermDebt"],
@@ -236,6 +242,73 @@ def _assemble(
     return results
 
 
+def _days_between(end_a: str, end_b: str) -> int:
+    try:
+        return abs((datetime.fromisoformat(end_a) - datetime.fromisoformat(end_b)).days)
+    except ValueError:
+        return 10**6
+
+
+def _ttm_value(gaap: dict, concepts: list[str]) -> tuple[float | None, str | None]:
+    """Trailing-twelve-months for a flow concept = last FY + latest YTD interim −
+    prior-year YTD interim. Degrades to the last FY value (and its end) when no
+    newer interim is available. Returns (value, report_period_end)."""
+    obs = [r for c in concepts for r in _observations(gaap, c) if r.get("start") and r.get("end")]
+    annual = [r for r in obs if r.get("form") in _ANNUAL_FORMS and 300 <= (_duration_days(r) or 0) <= 400]
+    if not annual:
+        return None, None
+    fy = max(annual, key=lambda r: (r["end"], r.get("fy", 0)))
+    fy_end, fy_val = fy["end"], fy.get("val")
+    interim = [r for r in obs if r.get("form") in _QUARTER_FORMS and 60 <= (_duration_days(r) or 0) <= 300 and r["end"] > fy_end]
+    if not interim or fy_val is None:
+        return fy_val, fy_end
+    cur = max(interim, key=lambda r: r["end"])
+    cur_dd = _duration_days(cur) or 0
+    prior = [
+        r for r in obs
+        if r.get("form") in _QUARTER_FORMS
+        and abs((_duration_days(r) or 0) - cur_dd) <= 10
+        and abs(_days_between(r["end"], cur["end"]) - 365) <= 25
+    ]
+    if not prior or cur.get("val") is None:
+        return fy_val, cur["end"]
+    p = min(prior, key=lambda r: abs(_days_between(r["end"], cur["end"]) - 365))
+    if p.get("val") is None:
+        return fy_val, cur["end"]
+    return fy_val + cur["val"] - p["val"], cur["end"]
+
+
+def _ttm_rows(gaap: dict, field_map: dict[str, list[str]], spine: list[str]) -> list[dict]:
+    _, report_end = _ttm_value(gaap, spine)
+    if report_end is None:
+        return []
+    rec: dict = {"report_period": report_end, "fiscal_period": "TTM"}
+    for field, concepts in field_map.items():
+        val, _ = _ttm_value(gaap, concepts)
+        if val is not None:
+            rec[field] = val
+    return [rec]
+
+
+def _latest_instant_rows(gaap: dict, field_map: dict[str, list[str]], spine: list[str], limit: int) -> list[dict]:
+    """Balance-sheet TTM: the most recent instant values regardless of form."""
+    ends = sorted(
+        {r["end"] for c in spine for r in _observations(gaap, c) if r.get("end") and not r.get("start")},
+        reverse=True,
+    )[:limit]
+    rows: list[dict] = []
+    for end in ends:
+        rec: dict = {"report_period": end, "fiscal_period": "TTM"}
+        for field, concepts in field_map.items():
+            for concept in concepts:
+                cands = [r for r in _observations(gaap, concept) if r.get("end") == end and not r.get("start")]
+                if cands:
+                    rec[field] = max(cands, key=lambda r: (r.get("fy", 0), r.get("accn", ""))).get("val")
+                    break
+        rows.append(rec)
+    return rows
+
+
 def _value_at(gaap: dict, concept: str, end: str, period: str, instant: bool) -> float | None:
     candidates = [
         row
@@ -298,7 +371,11 @@ class SecEdgarProvider:
         cik10 = await _resolve_cik(ref)
         facts = await _company_facts_raw(cik10)
         gaap = facts.get("facts", {}).get("us-gaap", {})
-        rows = _assemble(gaap, INCOME_MAP, INCOME_MAP["revenue"] + INCOME_MAP["net_income"], period, limit, instant=False, cik10=cik10)
+        spine = INCOME_MAP["revenue"] + INCOME_MAP["net_income"]
+        if period == "ttm":
+            rows = _ttm_rows(gaap, INCOME_MAP, spine)
+        else:
+            rows = _assemble(gaap, INCOME_MAP, spine, period, limit, instant=False, cik10=cik10)
         return [
             IncomeStatement(ticker=ref.ticker, period=period, currency="USD", **r)
             for r in rows
@@ -308,7 +385,10 @@ class SecEdgarProvider:
         cik10 = await _resolve_cik(ref)
         facts = await _company_facts_raw(cik10)
         gaap = facts.get("facts", {}).get("us-gaap", {})
-        rows = _assemble(gaap, BALANCE_MAP, ["Assets"], period, limit, instant=True, cik10=cik10)
+        if period == "ttm":
+            rows = _latest_instant_rows(gaap, BALANCE_MAP, ["Assets"], limit)
+        else:
+            rows = _assemble(gaap, BALANCE_MAP, ["Assets"], period, limit, instant=True, cik10=cik10)
         out = []
         for r in rows:
             cur, noncur = r.get("current_debt"), r.get("non_current_debt")
@@ -321,9 +401,11 @@ class SecEdgarProvider:
         cik10 = await _resolve_cik(ref)
         facts = await _company_facts_raw(cik10)
         gaap = facts.get("facts", {}).get("us-gaap", {})
-        rows = _assemble(
-            gaap, CASHFLOW_MAP, ["NetCashProvidedByUsedInOperatingActivities"], period, limit, instant=False, cik10=cik10
-        )
+        spine = ["NetCashProvidedByUsedInOperatingActivities"]
+        if period == "ttm":
+            rows = _ttm_rows(gaap, CASHFLOW_MAP, spine)
+        else:
+            rows = _assemble(gaap, CASHFLOW_MAP, spine, period, limit, instant=False, cik10=cik10)
         out = []
         for r in rows:
             ops, capex = r.get("net_cash_flow_from_operations"), r.get("capital_expenditure")

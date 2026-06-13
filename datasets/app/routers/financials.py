@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.deps import ApiKeyDep, MarketParam
+from app.filters import ReportPeriodFilters
 from app.models.generated import (
     BalanceSheetResponse,
     CashFlowStatementResponse,
@@ -37,12 +38,13 @@ async def get_income_statements(
     ticker: str | None = Query(None),
     cik: str | None = Query(None),
     limit: int = Query(4, ge=1),
+    filters: ReportPeriodFilters = Depends(),
     market: MarketParam = Market.US,
 ) -> IncomeStatementResponse:
     _check_period(period)
     ref = build_ref(market, ticker, cik)
-    rows = await get_financials_provider(market).income_statements(ref, period, limit)
-    return IncomeStatementResponse(income_statements=rows)
+    rows = await get_financials_provider(market).income_statements(ref, period, filters.fetch_limit(limit))
+    return IncomeStatementResponse(income_statements=filters.apply(rows, limit))
 
 
 @router.get(
@@ -55,12 +57,13 @@ async def get_balance_sheets(
     ticker: str | None = Query(None),
     cik: str | None = Query(None),
     limit: int = Query(4, ge=1),
+    filters: ReportPeriodFilters = Depends(),
     market: MarketParam = Market.US,
 ) -> BalanceSheetResponse:
     _check_period(period)
     ref = build_ref(market, ticker, cik)
-    rows = await get_financials_provider(market).balance_sheets(ref, period, limit)
-    return BalanceSheetResponse(balance_sheets=rows)
+    rows = await get_financials_provider(market).balance_sheets(ref, period, filters.fetch_limit(limit))
+    return BalanceSheetResponse(balance_sheets=filters.apply(rows, limit))
 
 
 @router.get(
@@ -73,12 +76,13 @@ async def get_cash_flow_statements(
     ticker: str | None = Query(None),
     cik: str | None = Query(None),
     limit: int = Query(4, ge=1),
+    filters: ReportPeriodFilters = Depends(),
     market: MarketParam = Market.US,
 ) -> CashFlowStatementResponse:
     _check_period(period)
     ref = build_ref(market, ticker, cik)
-    rows = await get_financials_provider(market).cash_flow_statements(ref, period, limit)
-    return CashFlowStatementResponse(cash_flow_statements=rows)
+    rows = await get_financials_provider(market).cash_flow_statements(ref, period, filters.fetch_limit(limit))
+    return CashFlowStatementResponse(cash_flow_statements=filters.apply(rows, limit))
 
 
 @router.get("/financials", response_model=FinancialsResponse, dependencies=[ApiKeyDep])
@@ -87,15 +91,17 @@ async def get_all_financial_statements(
     ticker: str | None = Query(None),
     cik: str | None = Query(None),
     limit: int = Query(4, ge=1),
+    filters: ReportPeriodFilters = Depends(),
     market: MarketParam = Market.US,
 ) -> FinancialsResponse:
     _check_period(period)
     ref = build_ref(market, ticker, cik)
     provider = get_financials_provider(market)
+    fetch = filters.fetch_limit(limit)
     return FinancialsResponse(
         financials=Financials(
-            income_statements=await provider.income_statements(ref, period, limit),
-            balance_sheets=await provider.balance_sheets(ref, period, limit),
-            cash_flow_statements=await provider.cash_flow_statements(ref, period, limit),
+            income_statements=filters.apply(await provider.income_statements(ref, period, fetch), limit),
+            balance_sheets=filters.apply(await provider.balance_sheets(ref, period, fetch), limit),
+            cash_flow_statements=filters.apply(await provider.cash_flow_statements(ref, period, fetch), limit),
         )
     )

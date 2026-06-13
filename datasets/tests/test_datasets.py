@@ -13,8 +13,11 @@ import respx
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.providers.kr.opendart import INCOME_MAP as KR_INCOME, _amount, _extract
-from app.providers.us.sec_edgar import INCOME_MAP as US_INCOME, _assemble
+from datetime import date
+
+from app.filters import ReportPeriodFilters
+from app.providers.kr.opendart import INCOME_MAP as KR_INCOME, _amount, _extract, _fiscal_period
+from app.providers.us.sec_edgar import INCOME_MAP as US_INCOME, _assemble, _ttm_value
 from app.symbols import Market, build_ref, normalize_ticker
 
 client = TestClient(app)
@@ -96,6 +99,54 @@ def test_kr_extract_income_by_account_id():
     assert out["revenue"] == 300000.0
     assert out["net_income"] == 50000.0
     assert "total_assets" not in out  # BS row ignored for income map
+
+
+def test_kr_fiscal_period_labels():
+    assert _fiscal_period(2025, "11011") == "2025-FY"
+    assert _fiscal_period(2025, "11013") == "2025-Q1"
+    assert _fiscal_period(2025, "11014") == "2025-Q3"
+
+
+# --- US TTM ----------------------------------------------------------------
+def test_ttm_value_formula():
+    # ttm = last FY (1000) + latest YTD (600) - prior-year YTD (500) = 1100
+    gaap = {
+        "Revenues": {
+            "units": {"USD": [
+                {"start": "2024-01-01", "end": "2024-12-31", "val": 1000, "form": "10-K", "fy": 2024, "fp": "FY"},
+                {"start": "2025-01-01", "end": "2025-06-30", "val": 600, "form": "10-Q", "fy": 2025, "fp": "Q2"},
+                {"start": "2024-01-01", "end": "2024-06-30", "val": 500, "form": "10-Q", "fy": 2024, "fp": "Q2"},
+            ]}
+        }
+    }
+    val, end = _ttm_value(gaap, ["Revenues"])
+    assert val == 1100
+    assert end == "2025-06-30"
+
+
+def test_ttm_falls_back_to_annual_without_interim():
+    gaap = {"Revenues": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 1000, "form": "10-K", "fy": 2024, "fp": "FY"},
+    ]}}}
+    val, end = _ttm_value(gaap, ["Revenues"])
+    assert val == 1000 and end == "2024-12-31"
+
+
+# --- report_period filter --------------------------------------------------
+def test_report_period_filter_bounds():
+    f = ReportPeriodFilters(None, date(2023, 1, 1), date(2023, 12, 31), None, None)
+    rows = [
+        type("R", (), {"report_period": date(2024, 9, 30)})(),
+        type("R", (), {"report_period": date(2023, 9, 30)})(),
+    ]
+    out = f.apply(rows, 10)
+    assert len(out) == 1 and out[0].report_period == date(2023, 9, 30)
+
+
+def test_report_period_inactive_is_passthrough():
+    f = ReportPeriodFilters(None, None, None, None, None)
+    assert not f.active
+    assert f.fetch_limit(4) == 4
 
 
 # --- app-level (no upstream) ----------------------------------------------
