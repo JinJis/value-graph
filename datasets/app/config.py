@@ -1,0 +1,56 @@
+"""Application settings, loaded from environment / .env (pydantic-settings).
+
+All upstream API keys live here and are read server-side only. Nothing in this
+module is ever returned to a client.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # --- this service's own auth -------------------------------------------
+    auth_disabled: bool = False
+    # Comma-separated list of client keys accepted via the X-API-KEY header.
+    datasets_api_keys: str = ""
+
+    # --- US upstream credentials -------------------------------------------
+    # SEC requires a descriptive User-Agent ("Sample Company name@example.com").
+    sec_edgar_user_agent: str = "ValueGraph Datasets contact@example.com"
+    fred_api_key: str = ""
+    polygon_api_key: str = ""
+    tiingo_api_key: str = ""
+    fmp_api_key: str = ""
+
+    # --- KR upstream credentials -------------------------------------------
+    opendart_api_key: str = ""
+    ecos_api_key: str = ""
+    krx_api_key: str = ""
+    kis_app_key: str = ""
+    kis_app_secret: str = ""
+
+    # --- per-domain provider selection (override the free defaults) --------
+    prices_provider_us: str = "yahoo"  # yahoo | stooq | polygon | tiingo | fmp
+    prices_provider_kr: str = "yahoo"  # yahoo | pykrx | krx | kis
+
+    # --- infra -------------------------------------------------------------
+    redis_url: str = ""
+    cache_ttl_seconds: int = 900
+    http_timeout_seconds: float = 30.0
+
+    @property
+    def accepted_api_keys(self) -> set[str]:
+        return {k.strip() for k in self.datasets_api_keys.split(",") if k.strip()}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
