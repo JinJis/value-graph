@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import respx
 from fastapi.testclient import TestClient
 
 from studioapi import provision
+from studioapi.agents import agent_to_spec, seed_templates
 from studioapi.chat import _title, stream_and_persist
 from studioapi.config import settings
 from studioapi.db import init_db
 from studioapi.main import app
-from studioapi.models import User
+from studioapi.models import Agent, User
 
 client = TestClient(app)
 SVC = "dev-service-token"
@@ -19,6 +22,7 @@ SVC = "dev-service-token"
 
 def setup_module(_module):
     init_db()
+    seed_templates()
 
 
 def _cfg(monkeypatch):
@@ -173,3 +177,107 @@ def test_conversations_scoped_to_user(monkeypatch):
     # ...a different user sees none of them
     other_titles = {c["title"] for c in client.get("/conversations", headers=_hdr("other@u.com")).json()["conversations"]}
     assert not ({"alpha", "beta"} & other_titles)
+
+
+# --- F1: agents -----------------------------------------------------------
+def test_agent_to_spec_maps_fields():
+    a = Agent(name="X", model="gemini", system_prompt="Be terse.", data_sources='["yahoo","rag"]')
+    spec = agent_to_spec(a)
+    assert spec == {"system": "Be terse.", "allowed_tools": ["yahoo", "rag"], "backend": "gemini"}
+
+
+@respx.mock
+def test_agents_list_includes_templates(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    agents = client.get("/agents", headers=_hdr("ab@u.com")).json()["agents"]
+    ids = {a["id"] for a in agents}
+    assert {"tpl_research", "tpl_filings", "tpl_market", "tpl_macro"} <= ids
+    tpl = next(a for a in agents if a["id"] == "tpl_research")
+    assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"]
+
+
+@respx.mock
+def test_agent_create_get_update_delete(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "builder@u.com"
+    created = client.post("/agents", headers=_hdr(email), json={
+        "name": "My Filings Bot", "description": "filings only", "model": "stub",
+        "system_prompt": "Cite filings.", "data_sources": ["sec_edgar", "rag"],
+    }).json()
+    aid = created["id"]
+    assert created["editable"] and created["data_sources"] == ["sec_edgar", "rag"]
+    # it appears in the list alongside templates
+    assert aid in {a["id"] for a in client.get("/agents", headers=_hdr(email)).json()["agents"]}
+    # update
+    upd = client.patch(f"/agents/{aid}", headers=_hdr(email), json={"data_sources": ["sec_edgar"], "model": "gemini"})
+    assert upd.json()["data_sources"] == ["sec_edgar"] and upd.json()["model"] == "gemini"
+    # delete
+    assert client.delete(f"/agents/{aid}", headers=_hdr(email)).status_code == 200
+    assert client.get(f"/agents/{aid}", headers=_hdr(email)).status_code == 404
+
+
+@respx.mock
+def test_agent_invalid_model_rejected(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    r = client.post("/agents", headers=_hdr("v@u.com"), json={"name": "bad", "model": "gpt-9"})
+    assert r.status_code == 422
+
+
+@respx.mock
+def test_template_not_editable_or_deletable(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    h = _hdr("t@u.com")
+    assert client.patch("/agents/tpl_research", headers=h, json={"name": "hijack"}).status_code == 404
+    assert client.delete("/agents/tpl_research", headers=h).status_code == 404
+    # but it can be read (to clone)
+    assert client.get("/agents/tpl_research", headers=h).status_code == 200
+
+
+@respx.mock
+def test_agents_are_user_scoped(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    a = client.post("/agents", headers=_hdr("alice@u.com"), json={"name": "Alice bot"}).json()
+    # bob cannot see or fetch alice's private agent
+    bob_ids = {x["id"] for x in client.get("/agents", headers=_hdr("bob@u.com")).json()["agents"]}
+    assert a["id"] not in bob_ids
+    assert client.get(f"/agents/{a['id']}", headers=_hdr("bob@u.com")).status_code == 404
+
+
+@respx.mock
+def test_connectors_proxy(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    respx.get("http://cp.test/catalog").mock(return_value=httpx.Response(200, json={"connectors": [
+        {"id": "yahoo", "name": "Yahoo Finance", "description": "prices"},
+        {"id": "sec_edgar", "name": "SEC EDGAR", "description": "filings"},
+    ]}))
+    cons = client.get("/connectors", headers=_hdr("c@u.com")).json()["connectors"]
+    assert {c["id"] for c in cons} == {"yahoo", "sec_edgar"}
+
+
+@respx.mock
+def test_chat_with_agent_sends_spec_and_records_agent(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    captured = {}
+
+    def _capture(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b'data: {"type":"token","text":"ok"}\n\ndata: {"type":"done","citations":[],"refused":false}\n\n')
+
+    respx.post("http://ae.test/agent/chat").mock(side_effect=_capture)
+
+    email = "agentchat@u.com"
+    r = client.post("/chat/stream", headers=_hdr(email),
+                    json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_filings"})
+    assert r.status_code == 200
+    spec = captured["body"]["spec"]
+    assert spec["backend"] == "stub" and "sec_edgar" in spec["allowed_tools"]
+    # the conversation remembers which agent drove it
+    conv = client.get("/conversations", headers=_hdr(email)).json()["conversations"][0]
+    assert conv["agent_id"] == "tpl_filings"

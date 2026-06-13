@@ -9,8 +9,11 @@ class AgentSpec(BaseModel):
     """Declarative ('SDK') agent definition a tenant can save and reuse."""
 
     system: str | None = None
-    allowed_tools: list[str] | None = None  # restrict to a subset of activated tools
+    # restrict to a subset of activated tools. Entries may be full tool names
+    # (``yahoo__prices``) or connector ids (``yahoo`` → all of its tools).
+    allowed_tools: list[str] | None = None
     max_steps: int | None = None
+    backend: str | None = None  # planner override: 'stub' | 'gemini' (default = server setting)
 
 
 class RunRequest(BaseModel):

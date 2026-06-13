@@ -11,6 +11,7 @@ from typing import AsyncIterator
 
 import httpx
 
+from studioapi.agents import agent_to_spec, load_agent
 from studioapi.config import settings
 from studioapi.db import SessionLocal
 from studioapi.models import Conversation, Message, User
@@ -23,13 +24,25 @@ def _title(messages: list[dict]) -> str:
     return "New chat"
 
 
-async def stream_and_persist(user: User, conversation_id: str | None, messages: list[dict]) -> AsyncIterator[str]:
+async def stream_and_persist(
+    user: User, conversation_id: str | None, messages: list[dict], agent_id: str | None = None,
+) -> AsyncIterator[str]:
+    # resolve the agent (the user's own, or a provided template) -> AgentSpec
+    spec: dict | None = None
+    with SessionLocal() as db:
+        if agent_id:
+            agent = load_agent(db, agent_id, user.email)
+            if agent is not None:
+                spec = agent_to_spec(agent)
+            else:
+                agent_id = None  # unknown/forbidden agent -> default behaviour
+
     # ensure conversation + persist the latest user message
     with SessionLocal() as db:
         if conversation_id and db.get(Conversation, conversation_id):
             conv_id = conversation_id
         else:
-            conv = Conversation(user_email=user.email, title=_title(messages))
+            conv = Conversation(user_email=user.email, title=_title(messages), agent_id=agent_id)
             db.add(conv)
             db.commit()
             conv_id = conv.id
@@ -37,12 +50,16 @@ async def stream_and_persist(user: User, conversation_id: str | None, messages: 
         db.add(Message(conversation_id=conv_id, role=last.get("role", "user"), content=last.get("content", "")))
         db.commit()
 
+    payload: dict = {"messages": messages}
+    if spec is not None:
+        payload["spec"] = spec
+
     text_parts: list[str] = []
     citations: list[dict] = []
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream(
             "POST", f"{settings.agent_engine_url}/agent/chat",
-            json={"messages": messages}, headers={"X-API-KEY": user.api_key},
+            json=payload, headers={"X-API-KEY": user.api_key},
         ) as resp:
             async for line in resp.aiter_lines():
                 yield line + "\n"  # re-emit SSE framing (blank lines separate events)

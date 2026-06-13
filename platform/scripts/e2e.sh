@@ -20,6 +20,9 @@ A=(-H "X-Admin-Token: dev-admin-token"); J=(-H "Content-Type: application/json")
 PRICE_Q="ticker=AAPL&market=US&interval=day&start_date=2024-01-02&end_date=2024-01-05"
 
 echo "== bring up stack (build) =="
+# Start from a clean slate: drop volumes so SQLite schemas match the current models
+# (create_all does not ALTER existing tables when columns are added).
+docker compose down -v >/dev/null 2>&1 || true
 docker compose up --build -d || { echo "compose up failed"; exit 1; }
 for _ in $(seq 1 40); do
   st=$(docker inspect --format '{{.State.Health.Status}}' valuegraph-platform-control-plane-1 2>/dev/null || echo none)
@@ -99,8 +102,24 @@ has "studio chat persists a conversation" "$SC" 'conversation'
 CV=$(curl -s -H "X-Service-Token: dev-service-token" -H "X-User-Email: e2e@user.com" $SA/conversations)
 has "studio lists the saved conversation" "$CV" '"id"'
 
+echo "== F1: agent builder (templates + custom agent restricts data sources) =="
+SH=(-H "X-Service-Token: dev-service-token" -H "X-User-Email: e2e@user.com")
+AGENTS=$(curl -s "${SH[@]}" $SA/agents)
+has "studio seeds provided templates" "$AGENTS" 'tpl_research'
+CONS=$(curl -s "${SH[@]}" $SA/connectors)
+has "studio exposes connectors for the builder" "$CONS" 'sec_edgar'
+# create an agent restricted to SEC filings only (no yahoo prices)
+AID=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/agents \
+  -d '{"name":"Filings only","model":"stub","data_sources":["sec_edgar"]}' | jget '["id"]')
+[ -n "$AID" ] && ok "custom agent created ($AID)" || fail "custom agent creation"
+# a price question routed through this agent must NOT reach yahoo (restricted out)
+SCA=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/chat/stream \
+  -d "{\"messages\":[{\"role\":\"user\",\"content\":\"AAPL price?\"}],\"agent_id\":\"$AID\"}")
+has "agent-scoped chat uses the allowed SEC source" "$SCA" 'sec_edgar__'
+printf '%s' "$SCA" | grep -q 'yahoo__prices' && fail "restricted agent leaked yahoo__prices" || ok "restricted agent blocked yahoo__prices"
+
 echo "== teardown =="
-docker compose down >/dev/null 2>&1
+docker compose down -v >/dev/null 2>&1
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "✅ E2E PASSED"; else echo "❌ E2E FAILED ($FAILS assertions)"; fi

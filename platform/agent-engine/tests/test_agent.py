@@ -219,6 +219,53 @@ def test_chat_chunks_reconstruct_text():
     assert _chunks("") == [""]  # empty stays a single chunk, never crashes
 
 
+# --- F1: agent spec (connector filter / backend / system) -----------------
+def test_filter_tools_by_connector_or_tool_name():
+    tools = {"yahoo__prices": {}, "sec_edgar__company_facts": {}, "sec_edgar__filings": {}, "rag__search": {}}
+    # connector id selects all of its tools
+    assert set(A.filter_tools(tools, ["sec_edgar"])) == {"sec_edgar__company_facts", "sec_edgar__filings"}
+    # full tool name selects exactly one; entries can mix granularity
+    assert set(A.filter_tools(tools, ["yahoo__prices", "rag"])) == {"yahoo__prices", "rag__search"}
+    # empty/None = no restriction
+    assert A.filter_tools(tools, None) == tools
+    assert A.filter_tools(tools, []) == tools
+
+
+@respx.mock
+async def test_run_with_data_source_subset_restricts_to_connector(monkeypatch):
+    from agentengine.models import AgentSpec
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/company/facts").mock(
+        return_value=httpx.Response(200, json={"company_facts": {"ticker": "AAPL"}}, headers={"x-connector": "sec_edgar"})
+    )
+    # a price question, but the agent's data sources are SEC only -> never calls yahoo
+    res = await A.run_agent("AAPL price?", "vgk_x", AgentSpec(allowed_tools=["sec_edgar"]))
+    assert res.steps and res.steps[0].tool.startswith("sec_edgar__")
+    assert all(not s.tool.startswith("yahoo__") for s in res.steps)
+
+
+def test_get_planner_backend_override_is_isolated():
+    from agentengine.planner import GeminiPlanner, StubPlanner, get_planner
+
+    assert isinstance(get_planner("stub"), StubPlanner)
+    assert isinstance(get_planner(None), StubPlanner)  # falls back to settings (stub in tests)
+    # an unknown backend is rejected loudly
+    import pytest
+
+    with pytest.raises(ValueError):
+        get_planner("does-not-exist")
+
+
+async def test_stub_planner_accepts_system_arg():
+    # the system prompt is threaded through; the stub ignores it but must not error
+    from agentengine.planner import StubPlanner
+
+    d = await StubPlanner().plan("AAPL price?", {"yahoo__prices": {"name": "yahoo__prices", "params": []}}, [], "Be concise.")
+    assert d.tool == "yahoo__prices"
+
+
 def test_chat_endpoint_sse(monkeypatch):
     import respx as _respx
 

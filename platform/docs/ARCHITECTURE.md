@@ -153,6 +153,23 @@ A Claude-style chat product over the platform.
 - Verified: web builds; `scripts/e2e.sh` drives a real chat turn through studio-api → agent-engine →
   gateway → datasets, returning a tool event + Yahoo Finance citation + a persisted conversation.
 
+### 4.8 Agent builder — `studio-api` + `web`  ✅ (F1)
+Users configure agents and run chats through them.
+- **`AgentSpec`** (agent-engine) now carries `system`, `allowed_tools`, `max_steps`, and a per-agent
+  `backend` (`stub|gemini`). `get_planner(backend)` resolves the planner per agent; `filter_tools` accepts
+  **connector ids** (`yahoo` → all its tools) as well as full tool names, so "data sources = connectors"
+  maps cleanly to the activation subset. The system prompt is threaded into the planner.
+- **`studio-api`**: `agents` CRUD (`/agents`, `/agents/{id}`) + 4 seeded **provided templates** (종합 리서치 /
+  공시·실적 / 시황·가격 / 거시경제, `user_email = NULL`, read-only → clone to edit); `GET /connectors`
+  proxies the catalog for the data-source picker. `/chat/stream` accepts `agent_id` → loads the agent →
+  `agent_to_spec` → sends `spec` to `agent-engine`; the conversation stores its `agent_id`. Agents are
+  per-user scoped; templates are shared.
+- **`web`**: an agent picker (templates + my agents) in the chat header and a builder modal
+  (name / model / system prompt / data-source checkboxes). BFF routes `/api/agents`, `/api/agents/[id]`,
+  `/api/connectors` (service token + user email → studio-api). The chat sends `agent_id`.
+- Verified: e2e creates an agent restricted to `sec_edgar` and asks a price question — the answer uses an
+  SEC tool and **never** reaches `yahoo`, proving the data-source restriction is enforced end-to-end.
+
 ### 4.5 Keystone — the Connector Manifest
 A machine-readable descriptor per connector (`platform/datasets/app/connectors/`). One artifact drives:
 REST docs · **MCP tool generation** · RAG source registration · entitlements (activation) · metering
@@ -187,14 +204,14 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
 | Service | Tests | Notes |
 |---|---|---|
 | datasets (data plane) | 63 | mapping, XBRL/DART parsers, TTM, screener, scheduler, catalog integrity, rag connector |
-| control-plane | 8 | auth, entitlement resolver, rate-limit, gateway 401/403/200+metering/429, **rag routing by service** |
-| mcp | 6 | tool generation (incl. `rag__search`), call success, unentitled 403, POST body, import |
-| rag | 9 | chunking, hash embedder, ingest→search+provenance, market filter, reranker, factory, endpoints |
-| agent-engine | 10 | guardrails, tool-use+citations, forecast refusal, rag routing, allowed_tools, run/compile, **chat stream** |
-| studio-api | 4 | service-token guard, user→tenant provisioning, chat SSE proxy + conversation persistence |
-| web | build | Next.js typechecks + builds (Auth.js, chat UI, BFF) |
-| **unit total** | **100** | (+ web build) |
-| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → **studio-api chat** |
+| control-plane | 12 | auth+key isolation, entitlement resolver, rate-limit, gateway 401/403/200+metering/429, rag routing, audit log |
+| mcp | 9 | tool generation (incl. `rag__search`), call success, unentitled 403, GET params/POST body, key-header omission, import |
+| rag | 14 | chunking, hash embedder, ingest→search+provenance, market/ticker filter, top_k, relevance ranking, reranker, factory |
+| agent-engine | 21 | guardrails, tool-use+citations, forecast refusal, rag routing, **connector-level filter**, **per-agent backend**, **system passthrough**, chat stream |
+| studio-api | 19 | service-token guard, provisioning resilience, conversation scoping/continuity, **agents CRUD + templates**, **connectors proxy**, **chat-with-agent spec** |
+| web | build | Next.js typechecks + builds (Auth.js, chat UI, **agent picker/builder**, BFF) |
+| **unit total** | **138** | (+ web build) |
+| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → studio-api chat → **agent builder restricting a chat to a data-source subset** |
 
 ---
 

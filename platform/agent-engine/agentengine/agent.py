@@ -36,24 +36,34 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
     return [Citation(tool=tool["name"], source=src, url=u) for u in urls]
 
 
+def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
+    """Restrict ``tools`` to ``allowed`` — entries match a full tool name
+    (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
+    if not allowed:
+        return tools
+    sel = set(allowed)
+    return {name: t for name, t in tools.items() if name in sel or name.split("__")[0] in sel}
+
+
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:
     refusal = guardrails.check(task)
     if refusal:
         return RunResult(answer=refusal, refused=True, usage={"steps": 0})
 
     max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
+    system = spec.system if spec else None
     client = PlatformClient(api_key)
     tools = await client.fetch_tools()
     if spec and spec.allowed_tools:
-        tools = {k: v for k, v in tools.items() if k in spec.allowed_tools}
+        tools = filter_tools(tools, spec.allowed_tools)
 
-    planner = get_planner()
+    planner = get_planner(spec.backend if spec else None)
     history: list = []
     steps: list[Step] = []
     citations: list[Citation] = []
     answer = ""
     for _ in range(max_steps):
-        decision = await planner.plan(task, tools, history)
+        decision = await planner.plan(task, tools, history, system)
         if decision.final is not None:
             answer = decision.final
             break
@@ -66,7 +76,7 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         citations.extend(_citations(tool, result))
         history.append((decision, result))
     if not answer:
-        final = await planner.plan(task, tools, history)
+        final = await planner.plan(task, tools, history, system)
         answer = final.final or "Reached the step limit without a final answer."
 
     return RunResult(answer=answer, steps=steps, citations=citations, usage={"steps": len(steps)})

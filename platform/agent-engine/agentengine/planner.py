@@ -75,7 +75,7 @@ def _summarize(task: str, history: list) -> str:
 
 
 class StubPlanner:
-    async def plan(self, task: str, tools: dict, history: list) -> Decision:
+    async def plan(self, task: str, tools: dict, history: list, system: str | None = None) -> Decision:
         if history:  # already observed a tool result -> finalize
             return Decision(final=_summarize(task, history))
         name = _pick_tool(task, tools)
@@ -94,7 +94,7 @@ class GeminiPlanner:
         self._client = genai.Client()
         self.model = model
 
-    async def plan(self, task: str, tools: dict, history: list) -> Decision:
+    async def plan(self, task: str, tools: dict, history: list, system: str | None = None) -> Decision:
         import asyncio
 
         from google.genai import types
@@ -111,12 +111,13 @@ class GeminiPlanner:
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=_schema(t))
             for t in tools.values()
         ]
+        base = (
+            "You are a financial-data agent. Use the tools to fetch sourced facts. "
+            "Never predict prices or give buy/sell advice; this is not investment advice."
+        )
         config = types.GenerateContentConfig(
             tools=[types.Tool(function_declarations=decls)],
-            system_instruction=(
-                "You are a financial-data agent. Use the tools to fetch sourced facts. "
-                "Never predict prices or give buy/sell advice; this is not investment advice."
-            ),
+            system_instruction=f"{base}\n\n{system.strip()}" if system and system.strip() else base,
         )
         resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=task, config=config)
         calls = getattr(resp, "function_calls", None)
@@ -139,9 +140,14 @@ def _schema(tool: dict) -> dict:
 
 
 @cache
-def get_planner():
-    if settings.llm_backend == "stub":
+def _build_planner(backend: str, model: str):
+    if backend == "stub":
         return StubPlanner()
-    if settings.llm_backend == "gemini":
-        return GeminiPlanner(settings.model)
-    raise ValueError(f"Unknown AGENT_LLM_BACKEND '{settings.llm_backend}'.")
+    if backend == "gemini":
+        return GeminiPlanner(model)
+    raise ValueError(f"Unknown agent backend '{backend}'.")
+
+
+def get_planner(backend: str | None = None):
+    """Return the planner for ``backend`` (per-agent override), else the server default."""
+    return _build_planner(backend or settings.llm_backend, settings.model)

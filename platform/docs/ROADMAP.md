@@ -3,8 +3,8 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 126 unit** — datasets 63 · control-plane 12 · mcp 9 · rag 14 ·
-> agent-engine 17 · studio-api 11 — plus the web build and the full-stack `scripts/e2e.sh`.
+> **Test totals (current): 138 unit** — datasets 63 · control-plane 12 · mcp 9 · rag 14 ·
+> agent-engine 21 · studio-api 19 — plus the web build and the full-stack `scripts/e2e.sh`.
 > (The per-milestone counts below are historical, as of when each phase landed.)
 
 ---
@@ -49,9 +49,18 @@ with sources. **Value-chain flagship was dropped.**
 - ✅ `web` (Next.js + Auth.js Google, dev-login fallback): streaming chat with a tools & sources panel
 - ✅ In unified compose (web under `ui` profile); e2e covers the full chat chain
 
-### Product layer — next phases  ⬜ (F1–F3)
-- ⬜ **F1 Agent builder:** create/configure agents (model `stub|gemini`, selected data sources =
-  activation subset, system prompt); pick from provided agents. (studio-api `agents` table is ready.)
+### Product layer — agent builder  ✅ (F1)
+Users create/configure agents and pick from provided templates; a chat runs through the chosen agent.
+- ✅ `agent-engine`: `AgentSpec` gains a per-agent `backend` (`stub|gemini`) + system-prompt passthrough;
+  tool filtering accepts connector ids (`yahoo` → all its tools) as well as full tool names
+- ✅ `studio-api`: `agents` CRUD + 4 seeded provided templates (종합 리서치 / 공시·실적 / 시황·가격 / 거시경제);
+  `GET /connectors` (data-source picker); `/chat/stream` takes `agent_id` → builds the `AgentSpec`;
+  the conversation records which agent drove it; agents are per-user scoped, templates are read-only (clone to edit)
+- ✅ `web`: agent picker (templates + my agents) + builder modal (name/model/system prompt/data-source
+  checkboxes); BFF routes `/api/agents`, `/api/agents/[id]`, `/api/connectors`; chat sends `agent_id`
+- ✅ e2e: a custom agent restricted to `sec_edgar` answers a price question **without** reaching `yahoo`
+
+### Product layer — next phases  ⬜ (F2–F3)
 - ⬜ **F2 Prompts + community:** personal prompt library + seeded community catalog with import. (`prompts`)
 - ⬜ **F3 Messengers:** Telegram/Slack connect → inbound webhook runs an agent → reply. (`integrations`)
 

@@ -10,6 +10,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from studioapi.agents import connectors_router
+from studioapi.agents import router as agents_router
+from studioapi.agents import seed_templates
 from studioapi.chat import stream_and_persist
 from studioapi.db import SessionLocal, init_db
 from studioapi.deps import current_user, require_service
@@ -19,6 +22,7 @@ from studioapi.models import Conversation, Message, User
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    seed_templates()
     yield
 
 
@@ -28,6 +32,7 @@ app = FastAPI(title="Studio API", version="0.1.0", lifespan=lifespan)
 class ChatIn(BaseModel):
     messages: list[dict]
     conversation_id: str | None = None
+    agent_id: str | None = None
 
 
 @app.get("/health", tags=["Meta"])
@@ -46,7 +51,7 @@ async def list_conversations(user: User = Depends(current_user)) -> dict:
         rows = db.execute(
             select(Conversation).where(Conversation.user_email == user.email).order_by(Conversation.created_at.desc())
         ).scalars().all()
-        return {"conversations": [{"id": c.id, "title": c.title} for c in rows]}
+        return {"conversations": [{"id": c.id, "title": c.title, "agent_id": c.agent_id} for c in rows]}
 
 
 @app.get("/conversations/{conversation_id}/messages", tags=["Conversations"], dependencies=[Depends(require_service)])
@@ -64,5 +69,10 @@ async def conversation_messages(conversation_id: str, user: User = Depends(curre
 @app.post("/chat/stream", tags=["Chat"], dependencies=[Depends(require_service)])
 async def chat_stream(body: ChatIn, user: User = Depends(current_user)) -> StreamingResponse:
     return StreamingResponse(
-        stream_and_persist(user, body.conversation_id, body.messages), media_type="text/event-stream"
+        stream_and_persist(user, body.conversation_id, body.messages, body.agent_id),
+        media_type="text/event-stream",
     )
+
+
+app.include_router(agents_router)
+app.include_router(connectors_router)

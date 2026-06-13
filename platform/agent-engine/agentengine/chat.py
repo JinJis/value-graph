@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import AsyncIterator
 
 from agentengine import guardrails
-from agentengine.agent import _citations
+from agentengine.agent import _citations, filter_tools
 from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.models import AgentSpec
@@ -56,15 +56,16 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "done", "citations": [], "refused": False}
         return
     if spec and spec.allowed_tools:
-        tools = {k: v for k, v in tools.items() if k in spec.allowed_tools}
+        tools = filter_tools(tools, spec.allowed_tools)
 
-    planner = get_planner()
+    system = spec.system if spec else None
+    planner = get_planner(spec.backend if spec else None)
     max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
     history: list = []
     citations: list[dict] = []
     answered = False
     for _ in range(max_steps):
-        decision = await planner.plan(task, tools, history)
+        decision = await planner.plan(task, tools, history, system)
         if decision.final is not None:
             for ch in _chunks(decision.final):
                 yield {"type": "token", "text": ch}
@@ -84,7 +85,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             yield {"type": "citation", **cit}
         history.append((decision, result))
     if not answered:
-        final = await planner.plan(task, tools, history)
+        final = await planner.plan(task, tools, history, system)
         for ch in _chunks(final.final or "Reached the step limit."):
             yield {"type": "token", "text": ch}
 

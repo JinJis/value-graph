@@ -34,6 +34,7 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("cnv"))
     user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
     title: Mapped[str] = mapped_column(String(200), default="New chat")
+    agent_id: Mapped[str | None] = mapped_column(String(48), nullable=True)  # which agent drove this chat
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -47,15 +48,21 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# --- seams for F1–F3 (defined now; not exposed in v1 UI) ------------------
+# --- F1: configurable agents ----------------------------------------------
 class Agent(Base):
+    """A configurable agent. ``user_email is None`` marks a provided template
+    (a starting point any user can pick or clone). ``data_sources`` is a JSON
+    list of connector ids (or full tool names) the agent may use."""
+
     __tablename__ = "agents"
     id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("agt"))
-    user_email: Mapped[str] = mapped_column(index=True)
+    user_email: Mapped[str | None] = mapped_column(index=True, nullable=True)  # null = provided template
     name: Mapped[str] = mapped_column(String(120))
-    model: Mapped[str] = mapped_column(String(64), default="stub")
+    description: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    model: Mapped[str] = mapped_column(String(64), default="stub")  # stub | gemini
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    allowed_tools: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    data_sources: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of connector ids
+    is_template: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

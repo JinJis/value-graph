@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
 
 type Citation = { tool?: string; source?: string; url?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: { name: string }[]; citations?: Citation[] };
@@ -18,6 +19,30 @@ export default function Chat({ name }: { name: string }) {
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // agents
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [agentId, setAgentId] = useState<string>(""); // "" = default agent
+  const [builder, setBuilder] = useState<{ open: boolean; base: Agent | null }>({ open: false, base: null });
+
+  async function loadAgents() {
+    try {
+      const r = await fetch("/api/agents");
+      if (r.ok) setAgents((await r.json()).agents ?? []);
+    } catch {}
+  }
+  useEffect(() => {
+    loadAgents();
+    (async () => {
+      try {
+        const r = await fetch("/api/connectors");
+        if (r.ok) setConnectors((await r.json()).connectors ?? []);
+      } catch {}
+    })();
+  }, []);
+
+  const selected = agents.find((a) => a.id === agentId) || null;
+
   async function send(text: string) {
     if (!text.trim() || busy) return;
     const history: Msg[] = [...messages, { role: "user", content: text }];
@@ -28,7 +53,10 @@ export default function Chat({ name }: { name: string }) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({
+          messages: history.map((m) => ({ role: m.role, content: m.content })),
+          agent_id: agentId || null,
+        }),
       });
       if (!res.body) throw new Error("no stream");
       const reader = res.body.getReader();
@@ -69,10 +97,36 @@ export default function Chat({ name }: { name: string }) {
     }
   }
 
+  function onSaved(saved: Agent, deletedId?: string) {
+    setBuilder({ open: false, base: null });
+    loadAgents();
+    if (deletedId && agentId === deletedId) setAgentId("");
+    else if (!deletedId) setAgentId(saved.id);
+  }
+
   return (
     <div className="app">
       <header className="top">
         <div className="brand">ValueGraph</div>
+        <div className="agentbar">
+          <select className="agentpick" value={agentId} onChange={(e) => setAgentId(e.target.value)} title="에이전트 선택">
+            <option value="">기본 에이전트</option>
+            {agents.some((a) => a.is_template) && (
+              <optgroup label="제공 템플릿">
+                {agents.filter((a) => a.is_template).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </optgroup>
+            )}
+            {agents.some((a) => !a.is_template) && (
+              <optgroup label="내 에이전트">
+                {agents.filter((a) => !a.is_template).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </optgroup>
+            )}
+          </select>
+          <button className="btn ghost sm" onClick={() => setBuilder({ open: true, base: selected })}
+            title={selected ? "선택한 에이전트 편집/복제" : "새 에이전트 만들기"}>
+            {selected ? (selected.editable ? "편집" : "복제") : "＋ 에이전트"}
+          </button>
+        </div>
         <div className="who">{name} · <a href="/api/auth/signout">로그아웃</a></div>
       </header>
 
@@ -81,6 +135,7 @@ export default function Chat({ name }: { name: string }) {
           <div className="empty">
             <h2>무엇이든 물어보세요</h2>
             <p>보유 종목, 뉴스, 시황, 경제 — 에이전트가 우리 데이터로 답하고 출처를 보여줍니다.</p>
+            {selected && <p className="agenthint">에이전트: <b>{selected.name}</b>{selected.description ? ` · ${selected.description}` : ""}</p>}
             <div className="examples">
               {EXAMPLES.map((e) => (
                 <button key={e} className="chip" onClick={() => send(e)}>{e}</button>
@@ -115,6 +170,15 @@ export default function Chat({ name }: { name: string }) {
         </form>
         <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
       </footer>
+
+      {builder.open && (
+        <AgentBuilder
+          base={builder.base}
+          connectors={connectors}
+          onClose={() => setBuilder({ open: false, base: null })}
+          onSaved={onSaved}
+        />
+      )}
     </div>
   );
 }
