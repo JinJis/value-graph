@@ -11,9 +11,11 @@ from __future__ import annotations
 from datetime import date
 
 from app.config import settings
-from app.errors import bad_request, not_found
-from app.http import fetch_json
+from app.errors import bad_request, not_found, upstream_error
+from app.http import get_client
 from app.models.generated import InterestRate
+
+_UA = {"User-Agent": "Mozilla/5.0 (compatible; ValueGraphDatasets/0.1)"}
 
 # bank code -> (display name, FRED series id)
 _BANKS: dict[str, tuple[str, str]] = {
@@ -43,8 +45,38 @@ async def _observations(series_id: str, start: date | None, end: date | None) ->
         params["observation_start"] = start.isoformat()
     if end:
         params["observation_end"] = end.isoformat()
-    data = await fetch_json("fred", "https://api.stlouisfred.org/fred/series/observations", params=params)
-    return data.get("observations", [])  # type: ignore[union-attr]
+    data = await _fred_json("https://api.stlouisfred.org/fred/series/observations", params)
+    return data.get("observations", [])
+
+
+async def _fred_json(url: str, params: dict) -> dict:
+    """GET JSON from the FRED API.
+
+    From some datacenter IPs, ``api.stlouisfred.org`` serves a JavaScript
+    bot-verification challenge (a ``window.location.replace`` page / JS
+    proof-of-work) instead of JSON. That can't be solved by a plain HTTP client,
+    so we detect it and surface an honest error rather than a parse failure.
+    FRED returns JSON directly from a normal/residential IP with the same key."""
+    import httpx
+
+    client = get_client()
+    try:
+        resp = await client.get(url, params=params, headers=_UA)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise upstream_error("fred", str(exc))
+    body = resp.text.lstrip()
+    if "window.location.replace" in body or body[:1] not in ("{", "["):
+        raise upstream_error(
+            "fred",
+            "FRED served a bot-verification challenge instead of JSON (this server's IP is "
+            "being gated by api.stlouisfred.org). The request and API key are otherwise valid; "
+            "FRED responds normally from a non-datacenter IP.",
+        )
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise upstream_error("fred", str(exc))
 
 
 def _to_rate(bank: str, name: str, row: dict) -> InterestRate | None:
