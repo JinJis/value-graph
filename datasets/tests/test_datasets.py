@@ -209,6 +209,36 @@ def test_kr_date_normalization():
     assert _kr_date("") is None
 
 
+# --- scheduler + selftest classifier --------------------------------------
+def test_parse_universe():
+    from app.scheduler import parse_universe
+
+    u = parse_universe("US:AAPL,MSFT;KR:005930")
+    assert u[0][0].value == "US" and u[0][1] == ["AAPL", "MSFT"]
+    assert u[1][0].value == "KR" and u[1][1] == ["005930"]
+
+
+def test_scheduler_controls():
+    from app.scheduler import Scheduler
+
+    s = Scheduler()
+    s.pause()
+    assert s.enabled is False
+    s.resume()
+    assert s.enabled is True
+    s.trigger()
+    assert s._force is True
+
+
+def test_selftest_classifier():
+    from app.selftest import _classify
+
+    assert _classify(200, "{}")[0] == "pass"
+    assert _classify(503, "FRED served a bot-verification challenge")[0] == "skipped"
+    assert _classify(400, "OPENDART_API_KEY is not configured.")[0] == "skipped"
+    assert _classify(404, "not found")[0] == "fail"
+
+
 # --- app-level (no upstream) ----------------------------------------------
 def test_health():
     assert client.get("/health").json() == {"status": "ok"}

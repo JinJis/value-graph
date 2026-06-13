@@ -6,10 +6,13 @@ market with the ``market`` query parameter (US default, KR for KOSPI/KOSDAQ).
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
 from app.routers import (
+    admin,
     company,
     earnings,
     filings,
@@ -23,11 +26,23 @@ from app.routers import (
     scaffold,
     search,
 )
+from app.scheduler import scheduler
 from app.store.db import init_db
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    await scheduler.start()
+    try:
+        yield
+    finally:
+        await scheduler.stop()
 
 app = FastAPI(
     title="ValueGraph Datasets API (US + Korea)",
     version="0.1.0",
+    lifespan=lifespan,
     description=(
         "Financial datasets API modeled on financialdatasets.ai and extended to "
         "the Korean equity market (KOSPI/KOSDAQ). Use the `market` query parameter "
@@ -53,14 +68,9 @@ register_error_handlers(app)
 
 for module in (
     company, prices, financials, filings, macro, metrics,
-    news, earnings, insider, institutional, search, scaffold,
+    news, earnings, insider, institutional, search, admin, scaffold,
 ):
     app.include_router(module.router)
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    init_db()
 
 
 @app.get("/", tags=["Meta"], summary="Service metadata")

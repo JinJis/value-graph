@@ -8,10 +8,40 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.store.db import SessionLocal
-from app.store.models import FinancialFact
+from app.store.models import Company, FinancialFact
+
+
+def store_stats() -> dict:
+    """Counts for monitoring how much has been ingested."""
+    with SessionLocal() as db:
+        facts = db.scalar(select(func.count()).select_from(FinancialFact)) or 0
+        companies = db.scalar(select(func.count()).select_from(Company)) or 0
+        per_market = db.execute(
+            select(
+                FinancialFact.market,
+                func.count(func.distinct(FinancialFact.ticker)),
+                func.count(),
+                func.min(FinancialFact.report_period),
+                func.max(FinancialFact.report_period),
+            ).group_by(FinancialFact.market)
+        ).all()
+    return {
+        "total_facts": facts,
+        "total_companies": companies,
+        "by_market": [
+            {
+                "market": m,
+                "tickers": tickers,
+                "facts": n,
+                "earliest_report_period": str(lo) if lo else None,
+                "latest_report_period": str(hi) if hi else None,
+            }
+            for (m, tickers, n, lo, hi) in per_market
+        ],
+    }
 
 _OPS = {
     "gt": lambda a, b: a > b,

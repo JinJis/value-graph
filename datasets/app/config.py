@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 900
     http_timeout_seconds: float = 30.0
 
+    # --- periodic ingestion scheduler -------------------------------------
+    scheduler_enabled: bool = False
+    scheduler_interval_seconds: int = 3600
+    # Universe to refresh, e.g. "US:AAPL,MSFT,NVDA;KR:005930,000660"
+    scheduler_universe: str = ""
+
     @property
     def accepted_api_keys(self) -> set[str]:
         return {k.strip() for k in self.datasets_api_keys.split(",") if k.strip()}
