@@ -79,6 +79,15 @@ echo "$MCP_OUT" | sed 's/^/    /'
 has "MCP exposes yahoo__prices + rag__search" "$MCP_OUT" 'TOOLS True True'
 has "MCP yahoo call -> 200 via yahoo" "$MCP_OUT" 'CALL 200 yahoo'
 
+echo "== Agent Engine (stub planner) =="
+AG=http://127.0.0.1:8003
+for _ in $(seq 1 20); do [ "$(curl -s -o /dev/null -w '%{http_code}' $AG/health)" = 200 ] && break; sleep 2; done
+RF=$(curl -s "${J[@]}" -X POST $AG/agent/run -H "X-API-KEY: $KEY" -d '{"task":"should I buy AAPL?"}')
+has "agent refuses forecast/advice" "$RF" '"refused":true'
+AR=$(curl -s "${J[@]}" -X POST $AG/agent/run -H "X-API-KEY: $KEY" -d '{"task":"What is AAPL price?"}')
+has "agent used yahoo__prices tool" "$AR" 'yahoo__prices'
+has "agent answer cites Yahoo Finance" "$AR" 'Yahoo Finance'
+
 echo "== teardown =="
 docker compose down >/dev/null 2>&1
 

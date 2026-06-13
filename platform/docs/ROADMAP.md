@@ -28,13 +28,13 @@
 
 ## Next ⬜
 
-### P4 — Agent Engine  ⬜ (next major)
-Build & run agents over a tenant's activated connectors + MCP + RAG.
-- ⬜ LLM router (Gemini) — single shared router (mine `services/engine/llm/router.py` for the pattern)
-- ⬜ Agent runtime (LangGraph): tools = activated connectors (via gateway/MCP) + RAG `search`
-- ⬜ Two builder modes: declarative SDK against the connector contract; **natural-language → agent spec** compiler
-- ⬜ Per-tenant sandbox, metering, budgets; guardrails ("not investment advice", **no forecasting**)
-- ⬜ Provenance propagated into agent outputs (citations)
+### P4 — Agent Engine  ✅ (`platform/agent-engine/`)
+Runs agents over a tenant's activated connectors + RAG via the gateway.
+- ✅ Tool-calling loop: tools resolved from the gateway catalog; calls routed through the gateway (entitled + metered)
+- ✅ Pluggable planner: `stub` (deterministic, dev/CI) | `gemini` (function calling)
+- ✅ Two builder modes: declarative `AgentSpec`; NL `/agent/compile`
+- ✅ Guardrails ("not investment advice", **no forecasting**); provenance citations in outputs
+- ⬜ Follow-ups: full LangGraph graph; per-tenant budgets; Gemini planner live-tested with a key
 
 ### Value-Chain flagship  ⬜ (separate service `platform/value-chain/`)
 Rebuilt platform-native; a user-cloneable agent template (see the value-chain DESIGN draft).

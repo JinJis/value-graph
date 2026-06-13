@@ -62,6 +62,25 @@ services:
       retries: 3
       start_period: 10s
 
+  agent-engine:
+    build: ./agent-engine
+    image: valuegraph-agent-engine:latest
+    env_file: [.env]
+    environment:
+      AGENT_GATEWAY_URL: "http://control-plane:8001"
+    ports:
+      - "8003:8003"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8003/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   datasets_data: {}
   controlplane_data: {}

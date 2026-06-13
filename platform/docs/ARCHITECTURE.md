@@ -124,6 +124,20 @@ Provenance-first retrieval: **chunk → embed → vector store → retrieve → 
 - **9 tests** on the dependency-free default. Verified live: real `oss-cpu` fastembed semantic search,
   and `/rag/search` through the gateway + MCP in the e2e run.
 
+### 4.6 Agent Engine — `platform/agent-engine/`  ✅ (P4)
+Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
+
+- **Loop:** guardrail → plan → call tool (through the gateway with the tenant key) → observe → finalize.
+  Tools are resolved from the gateway catalog; every call is entitled + metered + audited by the control
+  plane. Each tool result's provenance is collected into **citations** → sourced answers.
+- **Guardrails:** refuses forecasts / price targets / buy-sell advice at the boundary ("not investment
+  advice"; no prediction — matches the PRD's out-of-scope).
+- **Pluggable planner (`AGENT_LLM_BACKEND`):** `stub` (deterministic keyword routing, dev/CI, no key) ·
+  `gemini` (real function-calling LLM; extra `gemini`, needs `GOOGLE_API_KEY` / Vertex).
+- **Builder modes:** declarative `AgentSpec` (system + allowed_tools + max_steps) and NL `/agent/compile`.
+- **Endpoints:** `POST /agent/run` (X-API-KEY), `POST /agent/compile`, `GET /agent/info`.
+- **7 tests.** Verified live (e2e): refuses advice; uses `yahoo__prices` via the gateway; cites Yahoo Finance.
+
 ### 4.5 Keystone — the Connector Manifest
 A machine-readable descriptor per connector (`platform/datasets/app/connectors/`). One artifact drives:
 REST docs · **MCP tool generation** · RAG source registration · entitlements (activation) · metering
@@ -161,8 +175,9 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
 | control-plane | 8 | auth, entitlement resolver, rate-limit, gateway 401/403/200+metering/429, **rag routing by service** |
 | mcp | 6 | tool generation (incl. `rag__search`), call success, unentitled 403, POST body, import |
 | rag | 9 | chunking, hash embedder, ingest→search+provenance, market filter, reranker, factory, endpoints |
-| **unit total** | **86** | |
-| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP |
+| agent-engine | 7 | guardrails, tool-use+citations, forecast refusal, rag routing, allowed_tools, endpoint, info/compile |
+| **unit total** | **93** | |
+| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → **agent** |
 
 ---
 

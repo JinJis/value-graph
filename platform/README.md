@@ -20,9 +20,9 @@ builders develop against a defined interface or via natural language.
 | Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 8 |
 | MCP server (tools from catalog) | `mcp/` | ✅ P2 | 6 |
 | RAG (pluggable CPU-OSS / GCP / GPU; routed via gateway + MCP) | `rag/` | ✅ P3 | 9 |
-| **End-to-end** (full stack via compose) | `scripts/e2e.sh` | ✅ | — |
-| Agent Engine | `agent-engine/` | ⬜ P4 | — |
+| Agent Engine (tools + RAG via gateway, guardrails, citations) | `agent-engine/` | ✅ P4 | 7 |
 | Value-chain flagship | `value-chain/` | ⬜ | — |
+| **End-to-end** (full stack via compose) | `scripts/e2e.sh` | ✅ | — |
 
 ## Layout
 
@@ -37,8 +37,9 @@ platform/
                    #    the gateway with the tenant key (entitlement + metering enforced) (P2)
   rag/             # ✅ RAG SERVICE — provenance-first chunk→embed→store→retrieve→rerank, with
                    #    pluggable backends (CPU-OSS / GCP-Vertex / GPU) selected by .env (P3)
-  # planned, built on top of datasets/:
-  # agent-engine/  # build & run agents (SDK + natural language) over activated sources
+  agent-engine/    # ✅ AGENT ENGINE — run agents over activated connectors + RAG via the gateway;
+                   #    guardrails (no advice/forecasting) + provenance citations; stub|gemini planner (P4)
+  # planned:
   # value-chain/   # flagship: a user-cloneable supplier→customer value-chain agent
 ```
 
@@ -88,8 +89,9 @@ cd datasets      && uv sync --extra dev && uv run pytest -q   # data plane (:800
 cd control-plane && uv sync --extra dev && uv run pytest -q   # gateway (:8001/:8010)
 cd mcp           && uv sync --extra dev && uv run pytest -q   # MCP server (stdio)
 cd rag           && uv sync --extra dev && uv run pytest -q   # RAG (:8002); flip backend in .env
+cd agent-engine  && uv sync --extra dev && uv run pytest -q   # Agent Engine (:8003); stub|gemini planner
 bash scripts/e2e.sh                                           # full-stack e2e via docker compose
 ```
 
-All **86 unit tests** pass; `scripts/e2e.sh` exercises the whole chain (catalog → tenant → entitlement
-→ data plane + RAG via gateway → metering → MCP) on the composed stack. See each service's `README.md`.
+All **93 unit tests** pass; `scripts/e2e.sh` exercises the whole chain (catalog → tenant → entitlement
+→ data plane + RAG via gateway → metering → MCP → **agent**) on the composed stack. See each service's `README.md`.
