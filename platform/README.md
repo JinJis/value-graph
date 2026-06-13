@@ -17,11 +17,11 @@ builders develop against a defined interface or via natural language.
 |---|---|---|---|
 | Data plane (US+KR financial API) | `datasets/` | ✅ | 63 |
 | Connector catalog/manifests (P0) | `datasets/app/connectors/` | ✅ | — |
-| Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 8 |
-| MCP server (tools from catalog) | `mcp/` | ✅ P2 | 6 |
-| RAG (pluggable CPU-OSS / GCP / GPU; routed via gateway + MCP) | `rag/` | ✅ P3 | 9 |
-| Agent Engine (tools + RAG via gateway, guardrails, citations, streaming chat) | `agent-engine/` | ✅ P4 | 10 |
-| Studio API (user→tenant provisioning, conversations, chat BFF) | `studio-api/` | ✅ | 4 |
+| Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 12 |
+| MCP server (tools from catalog) | `mcp/` | ✅ P2 | 9 |
+| RAG (pluggable CPU-OSS / GCP / GPU; routed via gateway + MCP) | `rag/` | ✅ P3 | 14 |
+| Agent Engine (tools + RAG via gateway, guardrails, citations, streaming chat) | `agent-engine/` | ✅ P4 | 17 |
+| Studio API (user→tenant provisioning, conversations, chat BFF) | `studio-api/` | ✅ | 11 |
 | Web — Claude-style chat UI (Next.js + Auth.js Google) | `web/` | ✅ | build |
 | **End-to-end** (full stack via compose, incl. chat) | `scripts/e2e.sh` | ✅ | — |
 
@@ -97,7 +97,7 @@ cd web           && npm install && npm run build              # Web UI (:3000)
 bash scripts/e2e.sh                                           # full-stack e2e via docker compose
 ```
 
-All **100 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises the whole chain (catalog
+All **126 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises the whole chain (catalog
 → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → **studio-api chat**).
 
 ## The product (chat UI)

@@ -43,6 +43,29 @@ def test_guardrail_refuses_forecast_and_advice():
     assert guardrails.check("what was AAPL revenue last year?") is None
 
 
+def test_guardrail_covers_price_targets_and_directional_bets():
+    for bad in ["what's the price target for NVDA", "forecast TSLA earnings",
+                "will AAPL go up next week", "is MSFT worth buying"]:
+        assert guardrails.check(bad) is not None, bad
+    for ok in ["삼성전자 최근 실적", "show me AAPL filings", "what is the Fed funds rate"]:
+        assert guardrails.check(ok) is None, ok
+
+
+def test_citations_extract_urls_from_nested_result():
+    tool = {"name": "sec_edgar__filings", "source": "SEC EDGAR"}
+    result = {"data": {"filings": [{"filing_url": "https://sec.gov/a"}, {"filing_url": "https://sec.gov/b"}]}}
+    cites = A._citations(tool, result)
+    urls = {c.url for c in cites}
+    assert urls == {"https://sec.gov/a", "https://sec.gov/b"}
+    assert all(c.source == "SEC EDGAR" for c in cites)
+
+
+def test_citations_fallback_to_source_when_no_url():
+    tool = {"name": "yahoo__prices", "source": "Yahoo Finance"}
+    cites = A._citations(tool, {"data": {"ticker": "AAPL", "prices": []}})
+    assert len(cites) == 1 and cites[0].url is None and cites[0].source == "Yahoo Finance"
+
+
 # --- agent loop -----------------------------------------------------------
 @respx.mock
 async def test_run_uses_tool_and_cites(monkeypatch):
@@ -139,6 +162,61 @@ async def test_chat_stream_guardrail_refuses(monkeypatch):
     assert all(e["type"] != "tool" for e in events)
     assert events[-1]["type"] == "done" and events[-1]["refused"] is True
     assert any(e["type"] == "token" for e in events)
+
+
+@respx.mock
+async def test_chat_stream_platform_unavailable(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    respx.get("http://gw.test/catalog").mock(return_value=httpx.Response(503))
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price?"}], "vgk_x")]
+    assert all(e["type"] != "tool" for e in events)  # no tool could be called
+    assert any(e["type"] == "token" for e in events)  # but the user still gets a message
+    assert events[-1] == {"type": "done", "citations": [], "refused": False}
+
+
+@respx.mock
+async def test_chat_stream_uses_last_user_turn(monkeypatch):
+    # multi-turn: the planner should route on the LATEST user message, not the first
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": []}, headers={"x-connector": "yahoo"})
+    )
+    messages = [
+        {"role": "user", "content": "tell me about Apple filings"},
+        {"role": "assistant", "content": "..."},
+        {"role": "user", "content": "what is AAPL price?"},
+    ]
+    events = [e async for e in stream_chat(messages, "vgk_x")]
+    tool_ev = next(e for e in events if e["type"] == "tool")
+    assert tool_ev["name"] == "yahoo__prices"  # routed on the price question, not filings
+
+
+@respx.mock
+async def test_chat_stream_respects_allowed_tools(monkeypatch):
+    from agentengine.chat import stream_chat
+    from agentengine.models import AgentSpec
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/company/facts").mock(
+        return_value=httpx.Response(200, json={"company_facts": {}}, headers={"x-connector": "sec_edgar"})
+    )
+    spec = AgentSpec(allowed_tools=["sec_edgar__company_facts"])
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price?"}], "vgk_x", spec)]
+    tool_ev = next(e for e in events if e["type"] == "tool")
+    assert tool_ev["name"] == "sec_edgar__company_facts"  # price tool filtered out
+
+
+def test_chat_chunks_reconstruct_text():
+    from agentengine.chat import _chunks
+
+    assert "".join(_chunks("the quick brown fox jumps over the lazy dog", size=3)) == "the quick brown fox jumps over the lazy dog"
+    assert _chunks("") == [""]  # empty stays a single chunk, never crashes
 
 
 def test_chat_endpoint_sse(monkeypatch):

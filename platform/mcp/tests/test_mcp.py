@@ -71,6 +71,35 @@ async def test_call_tool_unentitled(monkeypatch):
     assert res["status"] == 403
 
 
+@respx.mock
+async def test_get_call_sends_args_as_query_params(monkeypatch):
+    monkeypatch.setattr(T.settings, "gateway_url", "http://gw.test")
+    monkeypatch.setattr(T.settings, "api_key", "vgk_q")
+    route = respx.route(method="GET", url__regex=_GW).mock(return_value=httpx.Response(200, json={}))
+    tool = tool_index(build_tools(CATALOG))["yahoo__prices"]
+    await call_tool(tool, {"ticker": "AAPL", "interval": "day", "market": "US"})
+    url = str(route.calls.last.request.url)
+    assert "ticker=AAPL" in url and "interval=day" in url
+    assert route.calls.last.request.headers.get("x-api-key") == "vgk_q"
+
+
+@respx.mock
+async def test_call_without_api_key_omits_header(monkeypatch):
+    monkeypatch.setattr(T.settings, "gateway_url", "http://gw.test")
+    monkeypatch.setattr(T.settings, "api_key", "")
+    route = respx.route(method="GET", url__regex=_GW).mock(return_value=httpx.Response(200, json={}))
+    tool = tool_index(build_tools(CATALOG))["yahoo__prices"]
+    await call_tool(tool, {"ticker": "AAPL"})
+    assert "x-api-key" not in route.calls.last.request.headers
+
+
+def test_tools_carry_provenance_in_description():
+    idx = tool_index(build_tools(CATALOG))
+    # every generated tool surfaces its source so an MCP client sees provenance up front
+    assert "SEC EDGAR" in idx["sec_edgar__company_facts"]["description"]
+    assert "Yahoo Finance" in idx["yahoo__prices"]["description"]
+
+
 def test_server_module_imports():
     import mcpserver.server as srv
 

@@ -106,3 +106,44 @@ def test_embedder_factory_unknown_raises(monkeypatch):
 def test_info_endpoint_reflects_backends():
     j = client.get("/rag/info").json()
     assert j["embedding_backend"] == "hash" and j["vector_store"] == "memory" and j["reranker_backend"] == "none"
+
+
+async def test_search_on_empty_store_returns_nothing():
+    _reset()
+    assert await search("anything at all", top_k=5) == []
+
+
+async def test_search_respects_top_k():
+    _reset()
+    await ingest_docs([
+        IngestDoc(text=f"Document number {i} about semiconductor chips and suppliers.", source="SEC EDGAR", ticker=f"T{i}")
+        for i in range(6)
+    ])
+    hits = await search("semiconductor chips suppliers", top_k=2)
+    assert len(hits) == 2
+
+
+async def test_search_ranks_relevant_above_unrelated():
+    _reset()
+    await ingest_docs([
+        IngestDoc(text="Apple relies on TSMC to fabricate its custom silicon chips.", source="SEC EDGAR", ticker="AAPL"),
+        IngestDoc(text="The cafeteria menu featured pasta and salad on Tuesday.", source="Misc", ticker="ZZZ"),
+    ])
+    hits = await search("TSMC silicon chips supplier", top_k=2)
+    assert hits[0].provenance["ticker"] == "AAPL"  # relevant doc ranks first
+
+
+async def test_search_filter_by_ticker():
+    _reset()
+    await ingest_docs([
+        IngestDoc(text="Apple chips and suppliers.", ticker="AAPL", market="US", source="SEC EDGAR"),
+        IngestDoc(text="Apple-like fruit and orchard suppliers.", ticker="FARM", market="US", source="Misc"),
+    ])
+    hits = await search("apple suppliers", top_k=5, filters={"ticker": "AAPL"})
+    assert hits and all(h.provenance.get("ticker") == "AAPL" for h in hits)
+
+
+def test_long_text_chunks_into_multiple_pieces():
+    text = ". ".join(f"Sentence {i} about supply chains and disclosures" for i in range(40))
+    chunks = chunk_text(text, size=80, overlap=10)
+    assert len(chunks) > 1 and all(chunks)

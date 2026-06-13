@@ -2,6 +2,10 @@
 
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
+>
+> **Test totals (current): 126 unit** — datasets 63 · control-plane 12 · mcp 9 · rag 14 ·
+> agent-engine 17 · studio-api 11 — plus the web build and the full-stack `scripts/e2e.sh`.
+> (The per-milestone counts below are historical, as of when each phase landed.)
 
 ---
 
