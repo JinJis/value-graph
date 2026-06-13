@@ -1,0 +1,77 @@
+"""MCP server tests: tool generation from the catalog + tool execution via gateway."""
+
+from __future__ import annotations
+
+import httpx
+import respx
+
+from mcpserver import tools as T
+from mcpserver.tools import build_tools, call_tool, tool_index
+
+CATALOG = [
+    {
+        "id": "yahoo",
+        "license": {"id": "restricted-byo", "redistribution": False},
+        "resources": [
+            {
+                "name": "prices", "description": "EOD prices", "method": "GET", "path": "/prices",
+                "markets": ["US", "KR"],
+                "params": [
+                    {"name": "ticker", "required": True, "description": "symbol"},
+                    {"name": "interval", "required": True, "enum": ["day", "week"]},
+                    {"name": "market", "enum": ["US", "KR"]},
+                ],
+                "provenance": {"source": "Yahoo Finance"},
+            }
+        ],
+    },
+    {
+        "id": "sec_edgar",
+        "license": {"id": "us-public-domain", "redistribution": True},
+        "resources": [
+            {"name": "company_facts", "description": "facts", "method": "GET", "path": "/company/facts",
+             "markets": ["US"], "params": [{"name": "ticker"}], "provenance": {"source": "SEC EDGAR"}}
+        ],
+    },
+]
+_GW = r"http://gw\.test/prices"
+
+
+def test_build_tools_schema_and_license():
+    idx = tool_index(build_tools(CATALOG))
+    assert "yahoo__prices" in idx and "sec_edgar__company_facts" in idx
+    schema = idx["yahoo__prices"]["inputSchema"]
+    assert schema["properties"]["interval"]["enum"] == ["day", "week"]
+    assert set(schema["required"]) == {"ticker", "interval"}
+    assert "NO-REDISTRIBUTE" in idx["yahoo__prices"]["description"]
+    assert "NO-REDISTRIBUTE" not in idx["sec_edgar__company_facts"]["description"]
+    assert "Yahoo Finance" in idx["yahoo__prices"]["description"]
+
+
+@respx.mock
+async def test_call_tool_success(monkeypatch):
+    monkeypatch.setattr(T.settings, "gateway_url", "http://gw.test")
+    monkeypatch.setattr(T.settings, "api_key", "vgk_demo")
+    respx.route(method="GET", url__regex=_GW).mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": []}, headers={"x-connector": "yahoo"})
+    )
+    tool = tool_index(build_tools(CATALOG))["yahoo__prices"]
+    res = await call_tool(tool, {"ticker": "AAPL", "interval": "day", "market": "US"})
+    assert res["status"] == 200 and res["data"]["ticker"] == "AAPL" and res["connector"] == "yahoo"
+
+
+@respx.mock
+async def test_call_tool_unentitled(monkeypatch):
+    monkeypatch.setattr(T.settings, "gateway_url", "http://gw.test")
+    respx.route(method="GET", url__regex=_GW).mock(
+        return_value=httpx.Response(403, json={"error": "Error", "message": "Not entitled"})
+    )
+    tool = tool_index(build_tools(CATALOG))["yahoo__prices"]
+    res = await call_tool(tool, {"ticker": "AAPL"})
+    assert res["status"] == 403
+
+
+def test_server_module_imports():
+    import mcpserver.server as srv
+
+    assert srv.server is not None

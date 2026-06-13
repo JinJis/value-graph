@@ -17,8 +17,9 @@ platform/
                    #    · bulk/deep backfill · scheduler · self-test · catalog manifests (P0, in progress)
   control-plane/   # ✅ CONTROL PLANE — tenants · scoped API keys · connector activation/entitlements
                    #    · metering · audit · rate-limit · gateway in front of the data plane (P1)
+  mcp/             # ✅ MCP SERVER — tenant-scoped tools auto-derived from the catalog, routed through
+                   #    the gateway with the tenant key (entitlement + metering enforced) (P2)
   # planned, built on top of datasets/:
-  # mcp/           # MCP server — tenant-scoped tools auto-derived from connector manifests
   # rag/           # document ingestion + Gemini embeddings + pgvector retrieval (provenance-first)
   # agent-engine/  # build & run agents (SDK + natural language) over activated sources
   # value-chain/   # flagship: a user-cloneable supplier→customer value-chain agent
@@ -37,10 +38,10 @@ platform/
 
 ## Roadmap
 
-`datasets/` (data plane) and **P0** catalog are live; **P1** control plane (`control-plane/`) is built —
-tenancy, catalog-driven entitlements, metering, audit, rate-limit, and a gateway in front of the data
-plane. Next: **P2** MCP server → **P3** RAG → **P4** Agent Engine, with the **value-chain agent** as the
-flagship template.
+`datasets/` (data plane) + **P0** catalog, **P1** control plane (`control-plane/`), and **P2** MCP server
+(`mcp/`) are built — tenancy, catalog-driven entitlements, metering, audit, rate-limit, a gateway, and
+MCP tools auto-derived from the catalog and routed through the gateway. Next: **P3** RAG → **P4** Agent
+Engine, with the **value-chain agent** as the flagship template.
 
 ## Run the whole stack (one command)
 

@@ -11,6 +11,9 @@ dependencies = [
     "pydantic-settings>=2.3",
 ]
 
+[project.scripts]
+valuegraph-mcp = "mcpserver.server:run"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21"]
 
