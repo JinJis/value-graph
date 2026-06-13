@@ -1,0 +1,46 @@
+"""Provision a platform tenant/project/key for a Google-authenticated user.
+
+On first login we create a tenant → project → API key via the control-plane admin
+API and auto-activate the default connectors, then cache it on the User row. The
+key is held server-side and never exposed to the browser.
+"""
+
+from __future__ import annotations
+
+import httpx
+
+from studioapi.config import DEFAULT_CONNECTORS, settings
+from studioapi.db import SessionLocal
+from studioapi.models import User
+
+
+async def _admin(method: str, path: str, json: dict | None = None) -> dict:
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
+        resp = await client.request(
+            method, f"{settings.control_plane_url}{path}", json=json,
+            headers={"X-Admin-Token": settings.admin_token},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def ensure_user(email: str) -> User:
+    with SessionLocal() as db:
+        existing = db.get(User, email)
+        if existing:
+            return existing
+
+    tenant = await _admin("POST", "/admin/tenants", {"name": email})
+    project = await _admin("POST", f"/admin/tenants/{tenant['id']}/projects", {"name": "default"})
+    key = await _admin("POST", f"/admin/projects/{project['id']}/keys", {"name": "web"})
+    for connector_id in DEFAULT_CONNECTORS:
+        try:
+            await _admin("POST", f"/admin/projects/{project['id']}/activations", {"connector_id": connector_id})
+        except httpx.HTTPError:
+            pass  # connector may not exist; default agent still works with the rest
+
+    user = User(email=email, tenant_id=tenant["id"], project_id=project["id"], api_key=key["api_key"])
+    with SessionLocal() as db:
+        db.merge(user)
+        db.commit()
+    return user

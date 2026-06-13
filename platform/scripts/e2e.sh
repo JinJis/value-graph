@@ -88,6 +88,17 @@ AR=$(curl -s "${J[@]}" -X POST $AG/agent/run -H "X-API-KEY: $KEY" -d '{"task":"W
 has "agent used yahoo__prices tool" "$AR" 'yahoo__prices'
 has "agent answer cites Yahoo Finance" "$AR" 'Yahoo Finance'
 
+echo "== studio-api chat (full product backend chain) =="
+SA=http://127.0.0.1:8004
+for _ in $(seq 1 20); do [ "$(curl -s -o /dev/null -w '%{http_code}' $SA/health)" = 200 ] && break; sleep 2; done
+SC=$(curl -s "${J[@]}" -X POST $SA/chat/stream -H "X-Service-Token: dev-service-token" -H "X-User-Email: e2e@user.com" \
+  -d '{"messages":[{"role":"user","content":"What is AAPL price?"}]}')
+has "studio chat streams a tool event" "$SC" 'yahoo__prices'
+has "studio chat answer cites Yahoo Finance" "$SC" 'Yahoo Finance'
+has "studio chat persists a conversation" "$SC" 'conversation'
+CV=$(curl -s -H "X-Service-Token: dev-service-token" -H "X-User-Email: e2e@user.com" $SA/conversations)
+has "studio lists the saved conversation" "$CV" '"id"'
+
 echo "== teardown =="
 docker compose down >/dev/null 2>&1
 

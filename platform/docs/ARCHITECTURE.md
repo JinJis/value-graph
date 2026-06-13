@@ -138,6 +138,21 @@ Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
 - **Endpoints:** `POST /agent/run` (X-API-KEY), `POST /agent/compile`, `GET /agent/info`.
 - **7 tests.** Verified live (e2e): refuses advice; uses `yahoo__prices` via the gateway; cites Yahoo Finance.
 
+### 4.7 Product layer — `platform/studio-api/` + `platform/web/`  ✅ (F0)
+A Claude-style chat product over the platform.
+- **`agent-engine`** gained `POST /agent/chat` (SSE): multi-turn, streams `token`/`tool`/`tool_result`/
+  `citation`/`done`. Planner-agnostic (stub + gemini); tool calls still go through the metered gateway.
+- **`studio-api`** (`studioapi`): maps a Google-authenticated user → a platform tenant (provisioned via
+  the control-plane admin API, with default connector activations), owns `conversations`/`messages`, and
+  `POST /chat/stream` proxies the agent-engine SSE while persisting the turn. The tenant key is held
+  **server-side**; the browser only has an Auth.js session. `agents`/`prompts`/`integrations` tables are
+  seams for F1–F3.
+- **`web`** (Next.js + Auth.js Google, dev-login fallback): streaming chat UI with an expandable **tools
+  & sources** panel (citations + links). Its `/api/chat` route is the BFF (service token + user email →
+  studio-api). Guardrails refuse advice/forecasting.
+- Verified: web builds; `scripts/e2e.sh` drives a real chat turn through studio-api → agent-engine →
+  gateway → datasets, returning a tool event + Yahoo Finance citation + a persisted conversation.
+
 ### 4.5 Keystone — the Connector Manifest
 A machine-readable descriptor per connector (`platform/datasets/app/connectors/`). One artifact drives:
 REST docs · **MCP tool generation** · RAG source registration · entitlements (activation) · metering
@@ -175,9 +190,11 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
 | control-plane | 8 | auth, entitlement resolver, rate-limit, gateway 401/403/200+metering/429, **rag routing by service** |
 | mcp | 6 | tool generation (incl. `rag__search`), call success, unentitled 403, POST body, import |
 | rag | 9 | chunking, hash embedder, ingest→search+provenance, market filter, reranker, factory, endpoints |
-| agent-engine | 7 | guardrails, tool-use+citations, forecast refusal, rag routing, allowed_tools, endpoint, info/compile |
-| **unit total** | **93** | |
-| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → **agent** |
+| agent-engine | 10 | guardrails, tool-use+citations, forecast refusal, rag routing, allowed_tools, run/compile, **chat stream** |
+| studio-api | 4 | service-token guard, user→tenant provisioning, chat SSE proxy + conversation persistence |
+| web | build | Next.js typechecks + builds (Auth.js, chat UI, BFF) |
+| **unit total** | **100** | (+ web build) |
+| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → **studio-api chat** |
 
 ---
 

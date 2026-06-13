@@ -81,6 +81,48 @@ services:
       retries: 3
       start_period: 10s
 
+  studio-api:
+    build: ./studio-api
+    image: valuegraph-studio-api:latest
+    env_file: [.env]
+    environment:
+      CONTROL_PLANE_URL: "http://control-plane:8001"
+      AGENT_ENGINE_URL: "http://agent-engine:8003"
+      DATABASE_URL: "sqlite:////data/studio.db"
+    volumes:
+      - studio_data:/data
+    ports:
+      - "8004:8004"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      agent-engine:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8004/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # The web UI is under the `ui` profile — `docker compose --profile ui up` to include it
+  # (kept out of the default/e2e bring-up so the backend stack stays fast).
+  web:
+    build: ./web
+    image: valuegraph-web:latest
+    profiles: ["ui"]
+    env_file: [.env]
+    environment:
+      STUDIO_API_URL: "http://studio-api:8004"
+    ports:
+      - "3000:3000"
+    depends_on:
+      studio-api:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   datasets_data: {}
   controlplane_data: {}
+  studio_data: {}

@@ -107,3 +107,49 @@ def test_info_and_compile():
     assert client.get("/agent/info").json()["llm_backend"] == "stub"
     spec = client.post("/agent/compile", json={"description": "Summarize a ticker's filings"}).json()
     assert spec["system"] == "Summarize a ticker's filings"
+
+
+# --- streaming chat -------------------------------------------------------
+@respx.mock
+async def test_chat_stream_uses_tool_and_cites(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 185.6}]}, headers={"x-connector": "yahoo"})
+    )
+    events = [e async for e in stream_chat([{"role": "user", "content": "What is AAPL price?"}], "vgk_x")]
+    types = [e["type"] for e in events]
+    assert "tool" in types and "tool_result" in types and "citation" in types
+    assert any(e["type"] == "token" for e in events)
+    assert events[-1]["type"] == "done" and events[-1]["refused"] is False
+    tool_ev = next(e for e in events if e["type"] == "tool")
+    assert tool_ev["name"] == "yahoo__prices"
+    cite = next(e for e in events if e["type"] == "citation")
+    assert cite["source"] == "Yahoo Finance"
+
+
+@respx.mock
+async def test_chat_stream_guardrail_refuses(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    events = [e async for e in stream_chat([{"role": "user", "content": "should I buy AAPL?"}], "vgk_x")]
+    assert all(e["type"] != "tool" for e in events)
+    assert events[-1]["type"] == "done" and events[-1]["refused"] is True
+    assert any(e["type"] == "token" for e in events)
+
+
+def test_chat_endpoint_sse(monkeypatch):
+    import respx as _respx
+
+    with _respx.mock:
+        _gw(monkeypatch)
+        _catalog()
+        _respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+            return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": []}, headers={"x-connector": "yahoo"})
+        )
+        r = client.post("/agent/chat", json={"messages": [{"role": "user", "content": "AAPL price?"}]}, headers={"X-API-KEY": "vgk_x"})
+        assert r.status_code == 200 and "text/event-stream" in r.headers["content-type"]
+        assert '"type": "tool"' in r.text and '"type": "done"' in r.text

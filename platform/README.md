@@ -20,9 +20,10 @@ builders develop against a defined interface or via natural language.
 | Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 8 |
 | MCP server (tools from catalog) | `mcp/` | ✅ P2 | 6 |
 | RAG (pluggable CPU-OSS / GCP / GPU; routed via gateway + MCP) | `rag/` | ✅ P3 | 9 |
-| Agent Engine (tools + RAG via gateway, guardrails, citations) | `agent-engine/` | ✅ P4 | 7 |
-| Value-chain flagship | `value-chain/` | ⬜ | — |
-| **End-to-end** (full stack via compose) | `scripts/e2e.sh` | ✅ | — |
+| Agent Engine (tools + RAG via gateway, guardrails, citations, streaming chat) | `agent-engine/` | ✅ P4 | 10 |
+| Studio API (user→tenant provisioning, conversations, chat BFF) | `studio-api/` | ✅ | 4 |
+| Web — Claude-style chat UI (Next.js + Auth.js Google) | `web/` | ✅ | build |
+| **End-to-end** (full stack via compose, incl. chat) | `scripts/e2e.sh` | ✅ | — |
 
 ## Layout
 
@@ -37,10 +38,11 @@ platform/
                    #    the gateway with the tenant key (entitlement + metering enforced) (P2)
   rag/             # ✅ RAG SERVICE — provenance-first chunk→embed→store→retrieve→rerank, with
                    #    pluggable backends (CPU-OSS / GCP-Vertex / GPU) selected by .env (P3)
-  agent-engine/    # ✅ AGENT ENGINE — run agents over activated connectors + RAG via the gateway;
+  agent-engine/    # ✅ AGENT ENGINE — run/stream agents over activated connectors + RAG via the gateway;
                    #    guardrails (no advice/forecasting) + provenance citations; stub|gemini planner (P4)
-  # planned:
-  # value-chain/   # flagship: a user-cloneable supplier→customer value-chain agent
+  studio-api/      # ✅ STUDIO API — Google user→tenant provisioning, conversations, chat BFF (holds the key)
+  web/             # ✅ WEB — Claude-style chat UI (Next.js + Auth.js); tools & sources panel
+  # next phases: agent builder (model/data-sources/prompt) · prompt library + community · Telegram/Slack
 ```
 
 ## Principles
@@ -90,8 +92,22 @@ cd control-plane && uv sync --extra dev && uv run pytest -q   # gateway (:8001/:
 cd mcp           && uv sync --extra dev && uv run pytest -q   # MCP server (stdio)
 cd rag           && uv sync --extra dev && uv run pytest -q   # RAG (:8002); flip backend in .env
 cd agent-engine  && uv sync --extra dev && uv run pytest -q   # Agent Engine (:8003); stub|gemini planner
+cd studio-api    && uv sync --extra dev && uv run pytest -q   # Studio API / chat BFF (:8004)
+cd web           && npm install && npm run build              # Web UI (:3000)
 bash scripts/e2e.sh                                           # full-stack e2e via docker compose
 ```
 
-All **93 unit tests** pass; `scripts/e2e.sh` exercises the whole chain (catalog → tenant → entitlement
-→ data plane + RAG via gateway → metering → MCP → **agent**) on the composed stack. See each service's `README.md`.
+All **100 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises the whole chain (catalog
+→ tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → **studio-api chat**).
+
+## The product (chat UI)
+
+```bash
+cd platform
+cp .env.example .env                       # AUTH_DEV_LOGIN=true for local login without Google
+docker compose --profile ui up --build     # backend + web on :3000
+# open http://localhost:3000 — ask "삼성전자 최근 실적"; the agent answers with sources.
+```
+The browser never holds a platform key: web BFF (Auth.js session) → studio-api (holds the tenant key) →
+agent-engine → tools via the metered gateway. Guardrails refuse advice/forecasting. For real token
+streaming set `AGENT_LLM_BACKEND=gemini` + `GOOGLE_API_KEY`.

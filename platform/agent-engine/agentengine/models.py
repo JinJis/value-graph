@@ -18,6 +18,16 @@ class RunRequest(BaseModel):
     spec: AgentSpec | None = None
 
 
+class Message(BaseModel):
+    role: str  # user | assistant | system
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[Message]
+    spec: AgentSpec | None = None
+
+
 class CompileRequest(BaseModel):
     description: str
 

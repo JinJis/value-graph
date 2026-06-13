@@ -36,13 +36,20 @@ Runs agents over a tenant's activated connectors + RAG via the gateway.
 - ✅ Guardrails ("not investment advice", **no forecasting**); provenance citations in outputs
 - ⬜ Follow-ups: full LangGraph graph; per-tenant budgets; Gemini planner live-tested with a key
 
-### Value-Chain flagship  ⬜ (separate service `platform/value-chain/`)
-Rebuilt platform-native; a user-cloneable agent template (see the value-chain DESIGN draft).
-- ⬜ VC0 scaffold: theme model, build/read-graph API, `DatasetsClient`; nodes from company facts + prices
-- ⬜ VC1 sourced edges: segments + filing text via RAG → supplier→customer edges w/ source + verbatim span
-- ⬜ VC2 quantify + reconcile (two-ledger, confidence+interval, conflict-flag, 10%/conservation bounds)
-- ⬜ VC3 platform-native (MCP/RAG) + expose as a cloneable Agent-Engine template
-- ⬜ VC4 (optional) minimal viz; disclosure-calendar refresh
+### Product layer — chat UI  ✅ (F0)
+A Claude-style web app where users freely ask about holdings/news/markets/economy and the agent answers
+with sources. **Value-chain flagship was dropped.**
+- ✅ `agent-engine` streaming multi-turn chat (`POST /agent/chat` SSE)
+- ✅ `studio-api`: Google user→tenant provisioning + default activations (via control-plane admin),
+  conversations, chat BFF that holds the tenant key server-side
+- ✅ `web` (Next.js + Auth.js Google, dev-login fallback): streaming chat with a tools & sources panel
+- ✅ In unified compose (web under `ui` profile); e2e covers the full chat chain
+
+### Product layer — next phases  ⬜ (F1–F3)
+- ⬜ **F1 Agent builder:** create/configure agents (model `stub|gemini`, selected data sources =
+  activation subset, system prompt); pick from provided agents. (studio-api `agents` table is ready.)
+- ⬜ **F2 Prompts + community:** personal prompt library + seeded community catalog with import. (`prompts`)
+- ⬜ **F3 Messengers:** Telegram/Slack connect → inbound webhook runs an agent → reply. (`integrations`)
 
 ### Platform hardening
 - ✅ Wire **RAG into the gateway + MCP** as a `search` tool — `rag` connector (`service: rag`) in the

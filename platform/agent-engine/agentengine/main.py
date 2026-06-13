@@ -6,13 +6,16 @@ call through the gateway, so entitlement + metering apply to agent activity too.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 from fastapi import FastAPI, Header
+from fastapi.responses import StreamingResponse
 
 from agentengine.agent import run_agent
+from agentengine.chat import stream_chat
 from agentengine.config import settings
-from agentengine.models import AgentSpec, CompileRequest, RunRequest
+from agentengine.models import AgentSpec, ChatRequest, CompileRequest, RunRequest
 
 app = FastAPI(
     title="Platform Agent Engine", version="0.1.0",
@@ -34,6 +37,17 @@ async def info() -> dict:
 async def run(body: RunRequest, x_api_key: Annotated[str | None, Header(alias="X-API-KEY")] = None) -> dict:
     result = await run_agent(body.task, x_api_key, body.spec)
     return result.model_dump()
+
+
+@app.post("/agent/chat", tags=["Agent"], summary="Streaming multi-turn chat (SSE)")
+async def chat(body: ChatRequest, x_api_key: Annotated[str | None, Header(alias="X-API-KEY")] = None) -> StreamingResponse:
+    messages = [m.model_dump() for m in body.messages]
+
+    async def gen():
+        async for event in stream_chat(messages, x_api_key, body.spec):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.post("/agent/compile", tags=["Agent"], summary="Natural-language → reusable AgentSpec")
