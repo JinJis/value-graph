@@ -16,6 +16,12 @@ router = APIRouter(tags=["Institutional Holdings"])
 @router.get(
     "/institutional-holdings",
     response_model=InstitutionalHoldingsResponse,
+    summary="Get 13F institutional holdings (⚠️ filer_cik mode only)",
+    description=(
+        "**Partially implemented.** `?filer_cik=` returns a filer's latest 13F holdings (US, "
+        "real data). `?ticker=` (which filers hold a security) returns **HTTP 501** — it needs a "
+        "reverse CUSIP/holdings index not yet built. KR is not supported (501)."
+    ),
     dependencies=[ApiKeyDep],
 )
 async def get_institutional_holdings(

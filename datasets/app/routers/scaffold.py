@@ -13,7 +13,7 @@ import re
 
 from fastapi import APIRouter
 
-from app.errors import not_implemented
+from app.errors import NOT_IMPLEMENTED_TAG, not_implemented
 
 router = APIRouter()
 
@@ -62,13 +62,23 @@ def _slugged(path: str, method: str):
     return handler
 
 
+def _register(path: str, tag: str, method: str) -> None:
+    router.add_api_route(
+        path,
+        _slugged(path, method),
+        methods=[method],
+        tags=[NOT_IMPLEMENTED_TAG],
+        summary=f"🚧 NOT IMPLEMENTED — {method} {path}",
+        description=(
+            f"**Not implemented yet** (spec group: _{tag}_). This endpoint is part of the "
+            "published API surface but is not yet backed by real data — it returns **HTTP 501**. "
+            "Everything not under this tag is implemented and returns real data."
+        ),
+        status_code=501,
+    )
+
+
 for _path, _tag in _UNBUILT_GET:
-    router.add_api_route(
-        _path, _slugged(_path, "GET"), methods=["GET"], tags=[_tag],
-        summary=f"(not implemented) GET {_path}", status_code=501,
-    )
+    _register(_path, _tag, "GET")
 for _path, _tag in _UNBUILT_POST:
-    router.add_api_route(
-        _path, _slugged(_path, "POST"), methods=["POST"], tags=[_tag],
-        summary=f"(not implemented) POST {_path}", status_code=501,
-    )
+    _register(_path, _tag, "POST")

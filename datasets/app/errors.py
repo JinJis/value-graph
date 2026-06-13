@@ -12,6 +12,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+# Shared OpenAPI tag that groups every not-yet-implemented endpoint in /docs so
+# they are visually obvious (they all return HTTP 501).
+NOT_IMPLEMENTED_TAG = "🚧 Not Implemented (501)"
+
 
 class APIError(Exception):
     def __init__(self, status_code: int, error: str, message: str) -> None:

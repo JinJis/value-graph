@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
-from app.errors import not_implemented
+from app.errors import NOT_IMPLEMENTED_TAG, not_implemented
 from app.models.generated import FinancialMetricSnapshotResponse
 from app.providers.registry import get_metrics_provider
 from app.symbols import Market, build_ref
@@ -33,7 +33,17 @@ async def get_financial_metrics_snapshot(
     return FinancialMetricSnapshotResponse(snapshot=snap)
 
 
-@router.get("/financial-metrics", dependencies=[ApiKeyDep])
+@router.get(
+    "/financial-metrics",
+    tags=[NOT_IMPLEMENTED_TAG],
+    summary="🚧 NOT IMPLEMENTED — GET /financial-metrics (historical)",
+    description=(
+        "**Not implemented yet** — historical metrics require ratio derivation across periods. "
+        "Returns **HTTP 501**. Use `/financial-metrics/snapshot` for the latest values (implemented)."
+    ),
+    status_code=501,
+    dependencies=[ApiKeyDep],
+)
 async def get_financial_metrics(
     period: str = Query(..., description="annual | quarterly | ttm"),
     ticker: str | None = Query(None),

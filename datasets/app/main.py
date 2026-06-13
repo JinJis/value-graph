@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.errors import register_error_handlers
+from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
 from app.routers import (
     company,
     earnings,
@@ -29,8 +29,22 @@ app = FastAPI(
     description=(
         "Financial datasets API modeled on financialdatasets.ai and extended to "
         "the Korean equity market (KOSPI/KOSDAQ). Use the `market` query parameter "
-        "(`US` default, `KR`). **Not investment advice.**"
+        "(`US` default, `KR`). **Not investment advice.**\n\n"
+        "**Implementation status:** endpoints grouped under the "
+        f"**{NOT_IMPLEMENTED_TAG}** tag (at the bottom) are not yet backed by real "
+        "data and return HTTP 501. Everything in the other groups is implemented and "
+        "returns real data (some endpoints need an upstream API key — see the README)."
     ),
+    openapi_tags=[
+        {
+            "name": NOT_IMPLEMENTED_TAG,
+            "description": (
+                "These endpoints are part of the published financialdatasets.ai surface "
+                "but are **not implemented yet** — every one returns **HTTP 501**. "
+                "Use this section to see at a glance what is not testable yet."
+            ),
+        }
+    ],
 )
 
 register_error_handlers(app)
