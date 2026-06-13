@@ -8,13 +8,28 @@ The goal: a **multi-tenant platform for investment agents** — a data-source la
 to their needs, exposed as a **REST API, an MCP server, a RAG server, and an Agent Engine**, where
 builders develop against a defined interface or via natural language.
 
+📖 **Docs:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) (detailed design + progress) ·
+[`docs/ROADMAP.md`](./docs/ROADMAP.md) (task tracker / what's next).
+
+## Status
+
+| Component | Path | Status | Tests |
+|---|---|---|---|
+| Data plane (US+KR financial API) | `datasets/` | ✅ | 62 |
+| Connector catalog/manifests (P0) | `datasets/app/connectors/` | ✅ | — |
+| Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 6 |
+| MCP server (tools from catalog) | `mcp/` | ✅ P2 | 4 |
+| RAG (pluggable CPU-OSS / GCP / GPU) | `rag/` | ✅ P3 | 6 |
+| Agent Engine | `agent-engine/` | ⬜ P4 | — |
+| Value-chain flagship | `value-chain/` | ⬜ | — |
+
 ## Layout
 
 ```
 platform/
   datasets/        # ✅ DATA PLANE — US+KR financial data API (the foundation; built & tested)
                    #    connectors (SEC/DART/Yahoo/FRED/ECOS/news) · point-in-time ingestion store
-                   #    · bulk/deep backfill · scheduler · self-test · catalog manifests (P0, in progress)
+                   #    · bulk/deep backfill · scheduler · self-test · catalog manifests (P0)
   control-plane/   # ✅ CONTROL PLANE — tenants · scoped API keys · connector activation/entitlements
                    #    · metering · audit · rate-limit · gateway in front of the data plane (P1)
   mcp/             # ✅ MCP SERVER — tenant-scoped tools auto-derived from the catalog, routed through
@@ -39,11 +54,8 @@ platform/
 
 ## Roadmap
 
-`datasets/` (data plane) + **P0** catalog, **P1** control plane (`control-plane/`), **P2** MCP server
-(`mcp/`), and **P3** RAG (`rag/`) are built — tenancy, catalog-driven entitlements, metering, audit,
-rate-limit, a gateway, MCP tools auto-derived from the catalog, and provenance-first retrieval with
-CPU-OSS / GCP / GPU backends switchable by `.env`. Next: **P4** Agent Engine, with the **value-chain
-agent** as the flagship template.
+P0–P3 are built (see the status table above). **Next: P4 Agent Engine**, then the **value-chain**
+flagship. Full task tracker in [`docs/ROADMAP.md`](./docs/ROADMAP.md).
 
 ## Run the whole stack (one command)
 
@@ -66,11 +78,15 @@ curl -H "X-API-KEY: vgk_..." "http://127.0.0.1:8010/company/facts?ticker=AAPL&ma
 
 Local (no docker): run each with `uv run uvicorn ...`; both still read the shared `../.env`.
 
-## Run the data plane
+## Run / test each service
+
+Each service is a `uv` project with its own README and tests:
 
 ```bash
-cd datasets
-uv sync --extra dev
-uv run uvicorn app.main:app --reload     # /docs
-uv run pytest -q
+cd datasets      && uv sync --extra dev && uv run pytest -q   # data plane (:8000, /docs)
+cd control-plane && uv sync --extra dev && uv run pytest -q   # gateway (:8001/:8010)
+cd mcp           && uv sync --extra dev && uv run pytest -q   # MCP server (stdio)
+cd rag           && uv sync --extra dev && uv run pytest -q   # RAG (:8002); flip backend in .env
 ```
+
+All 78 tests pass. See each service's `README.md` for run/config details.
