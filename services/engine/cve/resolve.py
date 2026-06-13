@@ -19,8 +19,19 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.tickets.models import TicketCreate
 from services.engine.tickets.repository import TicketRepository
+
+_ADJUDICATE_KEY = registry.register(
+    "cve.resolve_adjudicate",
+    "CVE S2 — entity-resolution adjudication",
+    "Pick which candidate ticker a mention refers to, or NONE (LOW tier).",
+    "ROLE: You are an entity-resolution adjudicator.\n"
+    "CRITERIA: Choose the single best-matching ticker from the candidates below. If none "
+    "clearly matches, or it is genuinely ambiguous, answer NONE — do NOT guess.\n"
+    "OUTPUT: reply with ONLY the chosen ticker (exactly as written), or NONE.",
+)
 
 # Tuning (fixtures are calibrated to these).
 HIGH_THRESHOLD = 0.72  # resolve outright via similarity
@@ -95,12 +106,12 @@ class Adjudicator(Protocol):
 
 def build_adjudicate_prompt(mention: str, candidates: list[tuple[str, str]]) -> str:
     lines = [
-        f'Which company does the mention "{mention}" refer to? '
-        "Choose ONE ticker from the candidates, or reply NONE if unsure.",
-        "Candidates:",
+        registry.get(_ADJUDICATE_KEY),
+        "",
+        f'Which company does the mention "{mention}" refer to?',
+        "CANDIDATES:",
     ]
     lines += [f"- {ticker}: {name}" for ticker, name in candidates]
-    lines.append("Reply with ONLY the ticker (or NONE).")
     return "\n".join(lines)
 
 
@@ -216,12 +227,25 @@ def resolve_mentions(
             and theme_id is not None
         ):
             candidates = [c.model_dump() for c in resolution.candidates]
+            near = ", ".join(
+                f"{c.ticker} (~{c.score:.2f})" for c in resolution.candidates[:3]
+            )
+            hint = (
+                f" Closest candidates: {near}. Confirm which (if any) is correct."
+                if near
+                else " No close candidate was found in the blueprint."
+            )
             ticket_repo.create_open_ticket(
                 theme_id,
                 TicketCreate(
                     target=mention,
                     metric="entity-resolution",
-                    reason=resolution.reason or "unresolved mention",
+                    reason=(
+                        f"Could not match the mention '{mention}' to a known company "
+                        f"({resolution.reason or 'unresolved'}).{hint} Identify the correct "
+                        "listed entity — exchange ticker + legal name — so its claims and edges "
+                        "attach to the right node instead of being dropped."
+                    ),
                     current_estimate={"candidates": candidates},
                 ),
             )

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from services.engine.cve.reconcile import Interval
 from services.engine.llm.router import LLMRouter, Tier
+from services.engine.prompts import registry
 from services.engine.tickets.models import TicketCreate
 from services.engine.tickets.repository import TicketRepository
 
@@ -19,13 +20,35 @@ from services.engine.tickets.repository import TicketRepository
 MIN_REL_WIDTH = 0.5
 
 _INSTRUCTIONS = """\
-A supplier->customer relationship is SUSPECTED but its size is not disclosed. Estimate
-the requested metric using peer analogy, production capacity, or industry priors.
+ROLE: You are a supply-chain estimator producing an explicitly UNCERTAIN figure.
+GOAL: A supplier->customer relationship is SUSPECTED but its size is NOT disclosed anywhere.
+Estimate the requested metric so the graph can draw the edge as an honest estimate.
 
-Return ONLY JSON: {"value": number, "low": number, "high": number,
-"method": "peer"|"capacity"|"prior", "rationale": "<short>"}. This is an ESTIMATE —
-give an honestly WIDE [low, high] range. Do not pretend precision.
+METHOD (pick the one you used):
+- "peer": analogy to comparable disclosed relationships.
+- "capacity": production/shipment capacity or known volumes.
+- "prior": industry base rates / structural priors.
+
+CRITERIA:
+- This is an ESTIMATE, never a fact: give an honestly WIDE [low, high] range that reflects
+  real uncertainty — do NOT pretend precision. `low` <= `value` <= `high`, all non-negative.
+- Base it on the supplier, customer, product/role, and any peer references provided.
+
+OUTPUT FORMAT — return ONLY this JSON object (no prose, no fences):
+{"value": number, "low": number, "high": number,
+"method": "peer"|"capacity"|"prior", "rationale": "<one short sentence>"}
+
+EXAMPLE:
+{"value": 8, "low": 4, "high": 14, "method": "peer",
+"rationale": "comparable foundry customers disclose 5-15% cost share"}
 """
+
+_ESTIMATE_KEY = registry.register(
+    "cve.estimate",
+    "CVE S5 — VSCA estimate",
+    "Estimate a suspected-but-undisclosed trade with a wide interval (DEEP tier).",
+    _INSTRUCTIONS,
+)
 
 
 class RawEstimate(BaseModel):
@@ -51,7 +74,7 @@ def build_estimate_prompt(
     supplier: str, customer: str, product: str | None, metric: str, peers: list[str] | None
 ) -> str:
     lines = [
-        _INSTRUCTIONS,
+        registry.get(_ESTIMATE_KEY),
         "",
         f"SUPPLIER: {supplier}",
         f"CUSTOMER: {customer}",
@@ -121,11 +144,20 @@ def estimate_edge(
             TicketCreate(
                 target=f"{supplier}->{customer}",
                 metric=f"estimate:{metric}",
-                reason=f"estimated ({raw.method}); needs sourced evidence",
+                reason=(
+                    f"{supplier}->{customer} '{metric}' is currently an algorithmic estimate "
+                    f"(method: {raw.method}): {estimate.point:.1f} (range "
+                    f"{estimate.interval.low:.1f}-{estimate.interval.high:.1f}). Replace it with "
+                    f"sourced evidence — a primary disclosure of {supplier}'s revenue share from "
+                    f"{customer}, or {customer}'s cost-bucket share to {supplier}, in a recent "
+                    "10-K / annual report / earnings call / exchange filing — to upgrade it from "
+                    "estimated to derived/verified."
+                ),
                 current_estimate={
                     "point": estimate.point,
                     "interval": estimate.interval.model_dump(),
                     "method": estimate.method,
+                    "rationale": estimate.rationale,
                 },
             ),
         )

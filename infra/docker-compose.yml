@@ -70,13 +70,18 @@ services:
       dockerfile: services/engine/Dockerfile
     container_name: valuegraph-engine
     restart: unless-stopped
+    # Load the repo-root .env (GOOGLE_API_KEY, optional MODEL_* overrides, …) directly
+    # into the container, so it works regardless of where `docker compose` looks for
+    # interpolation. The explicit `environment:` below wins for the datastore URLs.
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-valuegraph}:${POSTGRES_PASSWORD:-valuegraph}@postgres:5432/${POSTGRES_DB:-valuegraph}"
       NEO4J_URI: "bolt://neo4j:7687"
       NEO4J_USER: "neo4j"
       NEO4J_PASSWORD: "${NEO4J_PASSWORD:-valuegraph}"
       REDIS_URL: "redis://redis:6379/0"
-      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
     ports:
       - "${ENGINE_PORT:-8000}:8000"
     depends_on:
@@ -100,8 +105,15 @@ services:
       dockerfile: apps/studio/Dockerfile
     container_name: valuegraph-studio
     restart: unless-stopped
+    # The /engine proxy Route Handler reads this at RUNTIME (resolved over the compose
+    # network; no engine port exposed to the browser). Streams SSE, unlike a rewrite.
+    environment:
+      ENGINE_INTERNAL_URL: "http://engine:8000"
     ports:
       - "${STUDIO_PORT:-3001}:3001"
+    depends_on:
+      engine:
+        condition: service_healthy
     healthcheck:
       test:
         ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -114,10 +126,15 @@ services:
     build:
       context: ..
       dockerfile: apps/terminal/Dockerfile
+      args:
+        ENGINE_INTERNAL_URL: "http://engine:8000"
     container_name: valuegraph-terminal
     restart: unless-stopped
     ports:
       - "${TERMINAL_PORT:-3000}:3000"
+    depends_on:
+      engine:
+        condition: service_healthy
     healthcheck:
       test:
         ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

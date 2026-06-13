@@ -24,14 +24,15 @@ customer-side ``customer_cost_share`` (the worked CVE example's output side).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import date
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from services.engine.cve.derive import assign_cost_bucket, derive_trade
+from services.engine.cve.cost_bucket import CostBucketClassifier, RuleCostBucketClassifier
+from services.engine.cve.derive import derive_trade
 from services.engine.cve.estimate import estimate_edge
 from services.engine.cve.extract import (
     ABSOLUTE,
@@ -84,16 +85,29 @@ class EdgeResult(BaseModel):
     assessment: EdgeAssessment | None = None
 
 
+class ResearchMeta(BaseModel):
+    """Whether the run included a Deep Research pass, and how it went — so diagnostics can
+    tell 'Run CVE only' (no research at all) apart from 'Research & build' that errored
+    (e.g. a bad GOOGLE_API_KEY) or simply found no trades."""
+
+    ran: bool = False
+    trades_found: int = 0
+    error: str | None = None
+
+
 class CVEState(BaseModel):
     """The full pipeline state — every intermediate, persisted at the end of a run."""
 
     theme_id: str
     trigger: str = "admin"
+    # Set when the run was driven by 'Research & build'; None for a bare 'Run CVE only'.
+    research: ResearchMeta | None = None
     today: str  # ISO date, passed in for deterministic freshness
     documents: list[Document] = Field(default_factory=list)
     # company -> {"revenue": x, "COGS": y, "CAPEX": ...}; enables the complementary side.
     financials: dict[str, dict[str, float]] = Field(default_factory=dict)
     calendar: dict[str, str] = Field(default_factory=dict)  # company -> next_expected_update ISO
+    products: dict[str, list[str]] = Field(default_factory=dict)  # ticker -> products (cost typing)
     claims: list[Claim] = Field(default_factory=list)
     resolutions: list[Resolution] = Field(default_factory=list)
     edges: dict[str, EdgeResult] = Field(default_factory=dict)
@@ -123,10 +137,13 @@ class CVEDeps:
         router: LLMRouter,
         resolver: Resolver,
         ticket_repo: TicketRepository,
+        cost_bucket_classifier: CostBucketClassifier | None = None,
     ) -> None:
         self.router = router
         self.resolver = resolver
         self.ticket_repo = ticket_repo
+        # Theme-aware cost-bucket typing; defaults to the offline keyword rules.
+        self.cost_bucket_classifier = cost_bucket_classifier or RuleCostBucketClassifier()
 
 
 # --------------------------------------------------------------------------- helpers
@@ -142,7 +159,13 @@ def _bucket_value(funds: dict[str, float], bucket: str | None) -> float | None:
     return funds.get(bucket)
 
 
-def _claim_to_estimate(claim: Claim, financials: dict[str, dict[str, float]]) -> Estimate | None:
+def _claim_to_estimate(
+    claim: Claim,
+    financials: dict[str, dict[str, float]],
+    *,
+    classifier: CostBucketClassifier,
+    products: dict[str, list[str]],
+) -> Estimate | None:
     """Convert one disclosure into a customer_cost_share estimate (the edge metric).
 
     Returns None when the complementary side can't be derived (missing financials)
@@ -153,7 +176,10 @@ def _claim_to_estimate(claim: Claim, financials: dict[str, dict[str, float]]) ->
     if claim.relation == CUSTOMER_SHARE:  # already the metric
         return Estimate(value=claim.value, source_id=claim.source_id)
 
-    bucket = claim.cost_bucket or assign_cost_bucket(None) or DEFAULT_COST_BUCKET
+    # Cost bucket: the LLM-set bucket on the claim wins; else classify the supplier's
+    # product (theme-aware classifier); else the universal default.
+    product = ", ".join(products.get(claim.subject, [])) or None
+    bucket = claim.cost_bucket or classifier.classify(product) or DEFAULT_COST_BUCKET
     bucket_value = _bucket_value(financials.get(claim.object, {}), bucket)
 
     if claim.relation == SUPPLIER_SHARE:
@@ -186,8 +212,13 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def s1_extract(state: CVEState, *, router: LLMRouter) -> dict[str, Any]:
-    """S1: extract span-anchored claims from every ingested document."""
-    claims: list[Claim] = []
+    """S1: extract span-anchored claims from every ingested document.
+
+    Pre-seeded claims (e.g. structured trades from the chain-research pass) are kept and
+    merged with anything extracted from documents — so a run can be seeded with claims
+    that did not come from uploaded text.
+    """
+    claims: list[Claim] = list(state.claims)
     for doc in state.documents:
         claims.extend(
             extract_claims(doc.text, source_id=doc.source_id, as_of=doc.as_of, router=router)
@@ -221,7 +252,7 @@ def s2_resolve(
     return {"resolutions": resolutions, "claims": resolved_claims}
 
 
-def s3_derive(state: CVEState) -> dict[str, Any]:
+def s3_derive(state: CVEState, *, classifier: CostBucketClassifier) -> dict[str, Any]:
     """S3: group claims into edges; derive the customer-side metric for each disclosure."""
     edges: dict[str, EdgeResult] = {}
     for claim in state.claims:
@@ -232,7 +263,9 @@ def s3_derive(state: CVEState) -> dict[str, Any]:
             edges[key] = edge
         if edge.as_of is None or claim.as_of > edge.as_of:
             edge.as_of = claim.as_of
-        estimate = _claim_to_estimate(claim, state.financials)
+        estimate = _claim_to_estimate(
+            claim, state.financials, classifier=classifier, products=state.products
+        )
         if estimate is not None:
             edge.estimates.append(estimate)
     return {"edges": edges}
@@ -342,7 +375,7 @@ def build_cve_graph(deps: CVEDeps) -> Any:
         "S2_resolve",
         lambda s: s2_resolve(s, resolver=deps.resolver, ticket_repo=deps.ticket_repo),
     )
-    graph.add_node("S3_derive", s3_derive)
+    graph.add_node("S3_derive", lambda s: s3_derive(s, classifier=deps.cost_bucket_classifier))
     graph.add_node("S4_reconcile", lambda s: s4_reconcile(s, ticket_repo=deps.ticket_repo))
     graph.add_node(
         "S5_estimate",
@@ -361,6 +394,51 @@ def build_cve_graph(deps: CVEDeps) -> Any:
     graph.add_edge("S7_gaps", END)
 
     return graph.compile()
+
+
+# --------------------------------------------------------------------------- streaming
+
+# The S1-S7 stages in order, mirroring the LangGraph edge chain in build_cve_graph.
+# Streaming runs them sequentially so progress can be observed stage by stage; the
+# accumulated state after S7 is identical to the compiled graph's result.
+STAGE_ORDER = (
+    "S1_extract",
+    "S2_resolve",
+    "S3_derive",
+    "S4_reconcile",
+    "S5_estimate",
+    "S6_score",
+    "S7_gaps",
+)
+
+
+def stream_cve_state(initial: CVEState, deps: CVEDeps) -> Iterator[tuple[str, CVEState]]:
+    """Run S1-S7 sequentially, yielding ``(stage_name, state)`` after each stage.
+
+    Same stage functions and order as :func:`build_cve_graph`; threading the state
+    with ``model_copy(update=...)`` reproduces LangGraph's merge so the final state
+    matches :func:`run_cve`. Lets callers stream live progress through a long run.
+    """
+    router, resolver, ticket_repo = deps.router, deps.resolver, deps.ticket_repo
+    state = initial
+    state = state.model_copy(update=s1_extract(state, router=router))
+    yield "S1_extract", state
+    state = state.model_copy(
+        update=s2_resolve(state, resolver=resolver, ticket_repo=ticket_repo)
+    )
+    yield "S2_resolve", state
+    state = state.model_copy(update=s3_derive(state, classifier=deps.cost_bucket_classifier))
+    yield "S3_derive", state
+    state = state.model_copy(update=s4_reconcile(state, ticket_repo=ticket_repo))
+    yield "S4_reconcile", state
+    state = state.model_copy(
+        update=s5_estimate(state, router=router, ticket_repo=ticket_repo)
+    )
+    yield "S5_estimate", state
+    state = state.model_copy(update=s6_score(state))
+    yield "S6_score", state
+    state = state.model_copy(update=s7_gaps(state, ticket_repo=ticket_repo))
+    yield "S7_gaps", state
 
 
 # --------------------------------------------------------------------------- entry point

@@ -3,10 +3,13 @@
 
 import type { PublishedGraph, ThemeSummary } from "./types";
 
-const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:8000";
+// Calls go to this app's OWN origin under "/engine", which Next.js rewrites server-side
+// to the engine (see next.config.mjs) — works behind any tunnel/proxy with no CORS.
+export function engineUrl(): string {
+  return process.env.NEXT_PUBLIC_ENGINE_URL ?? "/engine";
+}
 
-const url = (path: string): string => `${ENGINE_URL}${path}`;
+const url = (path: string): string => `${engineUrl()}${path}`;
 
 export async function listThemes(): Promise<ThemeSummary[]> {
   const res = await fetch(url("/themes"), { cache: "no-store" });

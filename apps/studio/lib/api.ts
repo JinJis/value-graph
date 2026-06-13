@@ -1,6 +1,10 @@
-// Minimal client for the ValueGraph Engine API (CORS-enabled). Base URL from env.
-const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:8000";
+// Minimal client for the ValueGraph Engine API.
+// Calls go to this app's OWN origin under "/engine", which Next.js rewrites server-side
+// to the engine (see next.config.mjs). The browser never needs the engine's port, so it
+// works behind any tunnel/proxy with no CORS. NEXT_PUBLIC_ENGINE_URL overrides if needed.
+function engineUrl(): string {
+  return process.env.NEXT_PUBLIC_ENGINE_URL ?? "/engine";
+}
 
 export interface Theme {
   id: string;
@@ -50,11 +54,31 @@ export interface QualityReport {
   quality: DataQuality;
 }
 
-const url = (path: string): string => `${ENGINE_URL}${path}`;
+const url = (path: string): string => `${engineUrl()}${path}`;
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    // Surface the engine's real cause: FastAPI returns {"detail": "..."} (our
+    // catch-all puts the exception type + message there). Fall back to raw text,
+    // then to the status line, so the UI never just says "500".
+    let detail = "";
+    try {
+      const body = await response.clone().json();
+      detail =
+        typeof body?.detail === "string"
+          ? body.detail
+          : body?.detail
+            ? JSON.stringify(body.detail)
+            : "";
+    } catch {
+      try {
+        detail = (await response.text()).slice(0, 500);
+      } catch {
+        detail = "";
+      }
+    }
+    const head = `${response.status} ${response.statusText}`.trim();
+    throw new Error(detail ? `${head} — ${detail}` : head);
   }
   return response.json() as Promise<T>;
 }
@@ -118,6 +142,7 @@ export interface BlueprintCompany {
   role: string;
   products: string[];
   required_data_points: string[];
+  domain: string | null;
   source_url: string | null;
 }
 
@@ -136,6 +161,7 @@ export interface Coverage {
   company_count: number;
   focus_countries: string[];
   meets_threshold: boolean;
+  target: number; // the company-count bar this was judged against
 }
 
 export interface BlueprintResponse {
@@ -180,6 +206,144 @@ export async function generateBlueprint(
   );
 }
 
+export interface FillDomainsResult {
+  filled: number;
+  total: number;
+  blueprint: BlueprintRecord;
+}
+
+// Backfill company website domains (for accurate Terminal logos) via a cheap LOW-tier call.
+export async function fillBlueprintDomains(
+  themeId: string,
+): Promise<FillDomainsResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/blueprint/fill-domains`), {
+      method: "POST",
+    }),
+  );
+}
+
+// A single progress event from the streaming blueprint endpoint. `event` names the
+// step (model / endpoint / prompt / llm_start / thought / research / chunk / parse /
+// sources / validate / saved / error / done); other fields depend on the step (see
+// engine blueprint/stream.py). thought/research come from the Deep Research agent.
+export interface BlueprintEvent {
+  event: string;
+  [key: string]: unknown;
+}
+
+// POST `path` and parse the Server-Sent Events response, invoking `onEvent` per frame.
+// Uses a streaming fetch (not EventSource, which can't POST) and frames the SSE bytes
+// manually. An optional JSON `body` is sent for endpoints that need a payload (e.g. the
+// list of ticket ids to research). Shared by the blueprint and ticket-research streams.
+// Read an SSE response body, invoking `onEvent` per `data:` frame. Frames are separated
+// by a blank line. Shared by the POST start-streams and the GET task re-attach stream.
+async function readEventStream<E>(
+  response: Response,
+  onEvent: (event: E) => void,
+): Promise<void> {
+  if (!response.ok || !response.body) {
+    await json(response); // reuse the detail-extracting error path
+    return;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        try {
+          onEvent(JSON.parse(payload) as E);
+        } catch {
+          /* ignore malformed frame */
+        }
+      }
+    }
+  }
+}
+
+// POST `path` (optional JSON `body`) and stream its SSE events.
+async function postEventStream<E = BlueprintEvent>(
+  path: string,
+  onEvent: (event: E) => void,
+  signal?: AbortSignal,
+  body?: unknown,
+): Promise<void> {
+  const response = await fetch(url(path), {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
+  });
+  await readEventStream(response, onEvent);
+}
+
+// GET `path` and stream its SSE events (used to re-attach to a running task).
+async function getEventStream<E>(
+  path: string,
+  onEvent: (event: E) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(url(path), {
+    method: "GET",
+    headers: { Accept: "text/event-stream" },
+    cache: "no-store",
+    signal,
+  });
+  await readEventStream(response, onEvent);
+}
+
+// Generate the blueprint over SSE, invoking `onEvent` per step (model, prompt,
+// streamed output, saved result).
+// `count` = how many companies to aim for (the admin's slider choice).
+export const generateBlueprintStream = (
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  count?: number,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream(
+    `/themes/${themeId}/blueprint/stream${count ? `?count=${count}` : ""}`,
+    onEvent,
+    signal,
+  );
+
+// Iteratively refine the latest blueprint over SSE (2-3 DEEP rounds).
+export const refineBlueprintStream = (
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream(
+    `/themes/${themeId}/blueprint/refine/stream`,
+    onEvent,
+    signal,
+  );
+
+// RESEARCH discovery pass over SSE — broadens constituents and attributes Sources.
+export const discoverBlueprintStream = (
+  themeId: string,
+  onEvent: (event: BlueprintEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream(
+    `/themes/${themeId}/blueprint/discover/stream`,
+    onEvent,
+    signal,
+  );
+
 export async function approveBlueprint(themeId: string): Promise<Theme> {
   return json(
     await fetch(url(`/themes/${themeId}/blueprint/approve`), {
@@ -199,8 +363,33 @@ export interface Ticket {
   status: string;
   reason_code: string | null;
   current_estimate: Record<string, unknown> | null;
+  // A Deep Research answer awaiting admin review (value + cited source URL), or null.
+  research_proposal: ResearchProposal | null;
   created_at: string;
   updated_at: string;
+}
+
+// What Deep Research found for a ticket, persisted for the admin to accept or reject.
+export interface ResearchProposal {
+  value?: string | number | null;
+  unit?: string | null;
+  as_of_date?: string | null;
+  confidence?: string | null;
+  source_url?: string | null;
+  source_publisher?: string | null;
+  notes?: string | null;
+  by?: string | null;
+}
+
+// A single progress event from the ticket Deep Research stream. The whole batch is one
+// run. `event` names the step (model / endpoint / batch_start / prompt / llm_start /
+// thought / research / chunk / parse / proposed / auto_resolved / skipped / error / done);
+// other fields depend on the step (see engine tickets/research.py). The per-ticket result
+// events (proposed / auto_resolved / skipped) carry `ticket_id`; batch_start lists them all.
+export interface TicketResearchEvent {
+  event: string;
+  ticket_id?: string;
+  [key: string]: unknown;
 }
 
 export interface GenerateResult {
@@ -266,6 +455,50 @@ export async function resolveTicket(
   );
 }
 
+// Resolve the selected tickets with the Deep Research agent over SSE (run sequentially).
+// Each ticket either gets a reviewable proposal (status stays OPEN) or auto-resolves.
+export const researchTicketsStream = (
+  themeId: string,
+  ticketIds: string[],
+  onEvent: (event: TicketResearchEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<TicketResearchEvent>(
+    `/themes/${themeId}/tickets/research/stream`,
+    onEvent,
+    signal,
+    { ticket_ids: ticketIds },
+  );
+
+// Reject a Deep Research proposal — clears it, leaving the ticket's status unchanged.
+export async function dismissTicketProposal(ticketId: string): Promise<Ticket> {
+  return json(
+    await fetch(url(`/tickets/${ticketId}/research/dismiss`), {
+      method: "POST",
+    }),
+  );
+}
+
+export interface AcceptProposalsResult {
+  accepted: number;
+  skipped: number;
+}
+
+// Accept many Deep Research proposals at once — each cited answer becomes evidence
+// (-> SUBMITTED). Tickets without a usable proposal are skipped, not errored.
+export async function acceptTicketProposals(
+  themeId: string,
+  ticketIds: string[],
+): Promise<AcceptProposalsResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/tickets/proposals/accept`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_ids: ticketIds }),
+    }),
+  );
+}
+
 export async function uploadTicketEvidence(
   ticketId: string,
   opts: {
@@ -304,6 +537,527 @@ export async function getThemeQuality(
   return json(response);
 }
 
+// --- Publish (M4-PUB-04) ---
+
+export interface GateViolation {
+  edge: string;
+  field: string;
+  detail: string;
+}
+
+export interface GateReport {
+  theme_id: string;
+  version: number;
+  checked_edges: number;
+  violations: GateViolation[];
+  clean: boolean;
+  passed: boolean;
+}
+
+export interface CompletenessReport {
+  publishable_edges: number;
+  gap_edges: number;
+  total_edges: number;
+  completeness: number;
+  threshold: number;
+  meets_threshold: boolean;
+}
+
+export interface PublishPreview {
+  theme_id: string;
+  build_version: number;
+  completeness: CompletenessReport;
+  gate: GateReport;
+  can_publish: boolean;
+}
+
+export interface PublishResult {
+  theme_id: string;
+  snapshot_version: number;
+  source_build_version: number;
+  completeness: number;
+  published_by: string;
+  published_at: string;
+  edges: number;
+  ghost_edges: number;
+  overridden: boolean;
+}
+
+export interface BuildSummary {
+  version: number;
+  created_at: string;
+  publishable_edges: number;
+  gap_edges: number;
+  total_edges: number;
+  completeness: number;
+}
+
+// The Staging build history (newest first), so the admin can pick which version to publish —
+// a newer run no longer hides older builds. Empty array when no build yet.
+export async function getBuilds(themeId: string): Promise<BuildSummary[]> {
+  return json(
+    await fetch(url(`/themes/${themeId}/builds`), { cache: "no-store" }),
+  );
+}
+
+// --- Staging graph (trade edges + their sources, for provenance review) ---------------
+
+export interface EdgeSourceRef {
+  source_id: string;
+  url: string | null;
+  type: string | null;
+  content_type: string | null;
+  has_content: boolean;
+  as_of_date: string | null;
+}
+
+export interface EdgeClaimDetail {
+  relation: string;
+  value?: number | null;
+  unit?: string | null;
+  cost_bucket?: string | null;
+  text_span: string;
+  source_id: string;
+  as_of?: string | null;
+}
+
+export interface EdgeDetail {
+  reconciliation: unknown;
+  claims: EdgeClaimDetail[];
+}
+
+export interface StagingGraph {
+  theme_id: string;
+  snapshot_version: number;
+  completeness: number;
+  companies: { ticker: string; name?: string }[];
+  edges: Record<string, unknown>[];
+  ghost_edges: {
+    supplier: string;
+    customer: string;
+    confidence: string;
+    freshness: string;
+    reason: string;
+  }[];
+  edge_sources: Record<string, EdgeSourceRef[]>;
+  edge_details: Record<string, EdgeDetail>;
+}
+
+// The latest Staging build's graph (publishable edges + their sources + supporting claims),
+// so Studio can review trade-edge provenance before publishing. null when no build yet (404).
+export async function getStagingGraph(
+  themeId: string,
+): Promise<StagingGraph | null> {
+  const response = await fetch(url(`/themes/${themeId}/staging/graph`), {
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  return json(response);
+}
+
+// Assemble + gate a Staging build WITHOUT publishing — shows completeness and any blocking
+// validation violations. `version` selects a build from history; omit for the latest.
+// Returns null when there is no build yet (409).
+export async function getPublishPreview(
+  themeId: string,
+  version?: number,
+): Promise<PublishPreview | null> {
+  const qs = version != null ? `?version=${version}` : "";
+  const response = await fetch(url(`/themes/${themeId}/publish/preview${qs}`), {
+    cache: "no-store",
+  });
+  if (response.status === 409) return null;
+  return json(response);
+}
+
+// Publish a build to Production (explicit human action). `version` selects which build from
+// history to publish (omit for the latest). Supply `overrideReason` to publish past
+// validation issues (logged server-side).
+export async function publishTheme(
+  themeId: string,
+  actor: string,
+  overrideReason?: string,
+  version?: number,
+): Promise<PublishResult> {
+  return json(
+    await fetch(url(`/themes/${themeId}/publish`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor,
+        override_reason: overrideReason?.trim() || null,
+        version: version ?? null,
+      }),
+    }),
+  );
+}
+
+// --- Tasks (re-attachable long runs) ---
+
+export interface TaskInfo {
+  id: string;
+  theme_id: string;
+  kind: string; // blueprint-generate | tickets-research | financials-research | cve-* | …
+  label: string;
+  status: "running" | "done" | "error" | "cancelled";
+  created_at: string;
+  updated_at: string;
+  event_count: number;
+}
+
+// Stop a running LLM/Deep-Research task. Hard cancel (default) halts at the next event
+// boundary; `soft` asks it to stop gracefully at its next safe boundary (e.g. after the
+// current batch) so in-flight work isn't wasted.
+export async function cancelTask(
+  taskId: string,
+  soft = false,
+): Promise<TaskInfo> {
+  return json(
+    await fetch(
+      url(
+        `/tasks/${encodeURIComponent(taskId)}/cancel${soft ? "?soft=true" : ""}`,
+      ),
+      { method: "POST" },
+    ),
+  );
+}
+
+// Running + recent runs for a theme (what the activity indicator shows).
+export async function listTasks(themeId: string): Promise<TaskInfo[]> {
+  return json(
+    await fetch(url(`/tasks?theme_id=${encodeURIComponent(themeId)}`), {
+      cache: "no-store",
+    }),
+  );
+}
+
+// Re-attach to a running (or finished) task: replays what you missed, then tails live.
+export const attachTaskStream = (
+  taskId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  getEventStream<CveRunEvent>(`/tasks/${taskId}/stream`, onEvent, signal);
+
+// --- Financials (complementary side of the CVE math) ---
+
+export interface Financials {
+  id?: string;
+  company_ticker: string;
+  revenue: number | null;
+  cogs: number | null;
+  capex: number | null;
+  rnd: number | null;
+  sga: number | null;
+  currency: string | null;
+  as_of_date: string | null;
+  source: string | null;
+  updated_at?: string;
+}
+
+export async function listFinancials(
+  tickers?: string[],
+): Promise<Financials[]> {
+  const q =
+    tickers && tickers.length
+      ? `?tickers=${encodeURIComponent(tickers.join(","))}`
+      : "";
+  return json(await fetch(url(`/financials${q}`), { cache: "no-store" }));
+}
+
+export async function putFinancials(
+  ticker: string,
+  data: Partial<Omit<Financials, "company_ticker">>,
+): Promise<Financials> {
+  return json(
+    await fetch(url(`/financials/${encodeURIComponent(ticker)}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company_ticker: ticker, ...data }),
+    }),
+  );
+}
+
+// Deep Research the blueprint companies' financials and fill the store, over SSE.
+// Events: model/prompt/chunk/parse, then `filled` per company, then `done`.
+// `tickers` (optional) restricts research to those companies (e.g. one row); omit for all.
+// `batchSize` (optional) sets how many companies per sequential Deep Research call.
+export const researchFinancialsStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  tickers?: string[],
+  batchSize?: number,
+  signal?: AbortSignal,
+): Promise<void> => {
+  const params = new URLSearchParams();
+  if (tickers && tickers.length) params.set("tickers", tickers.join(","));
+  if (batchSize) params.set("batch_size", String(batchSize));
+  const q = params.toString();
+  return postEventStream<CveRunEvent>(
+    `/themes/${themeId}/financials/research/stream${q ? `?${q}` : ""}`,
+    onEvent,
+    signal,
+  );
+};
+
+// --- Disclosure Calendar (drives each figure's next_expected_update) --------------------
+
+export interface CalendarRow {
+  ticker: string;
+  name: string;
+  fiscal_calendar: string | null;
+  last_filing_date: string | null;
+  cadence_days: number | null;
+  next_filing_estimate: string | null;
+  source: string | null;
+  covered: boolean;
+}
+
+export interface CalendarCoverage {
+  theme_id: string;
+  covered: number;
+  total: number;
+  rows: CalendarRow[];
+}
+
+// The disclosure calendar for a theme's blueprint companies (covered + still-missing). The
+// next_filing_estimate is what fills each edge's required next_expected_update on the next build.
+export async function getCalendar(themeId: string): Promise<CalendarCoverage> {
+  return json(
+    await fetch(url(`/themes/${themeId}/calendar`), { cache: "no-store" }),
+  );
+}
+
+export interface CalendarEntryInput {
+  fiscal_calendar?: string | null;
+  last_filing_date?: string | null;
+  cadence_days?: number | null;
+  next_filing_estimate?: string | null;
+  source?: string | null;
+}
+
+// Set/refresh one company's filing schedule. If next_filing_estimate is omitted but
+// last_filing_date + cadence_days are given, the engine computes the next filing.
+export async function putCalendarEntry(
+  themeId: string,
+  ticker: string,
+  data: CalendarEntryInput,
+): Promise<CalendarRow> {
+  return json(
+    await fetch(
+      url(`/themes/${themeId}/calendar/${encodeURIComponent(ticker)}`),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    ),
+  );
+}
+
+// Deep Research the blueprint companies' filing history, infer each cadence, and fill the
+// calendar's next_filing_estimate, over SSE. Events: model/prompt/chunk/parse, then `filled`
+// per company (cadence_days + next_filing_estimate), `skipped`, then `done`.
+// `tickers` (optional) restricts research to those companies (e.g. one row); omit for all.
+export const researchCalendarStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  tickers?: string[],
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/calendar/research/stream` +
+      (tickers && tickers.length
+        ? `?tickers=${encodeURIComponent(tickers.join(","))}`
+        : ""),
+    onEvent,
+    signal,
+  );
+
+// --- CVE run (M3-ORCH-08) ---
+
+export interface CveRunSummary {
+  run_id: string | null;
+  status: string;
+  build_version: number;
+  documents_ingested: number;
+  claims: number;
+  edges: number;
+  publishable_edges: number;
+  ghost_edges: number;
+  estimated_edges: number;
+}
+
+// Run the CVE pipeline over the theme's sources + tickets and persist a Staging build
+// (the artifact Publish consumes). Can take a while (LLM extraction per document).
+export async function runThemeCve(themeId: string): Promise<CveRunSummary> {
+  return json(
+    await fetch(url(`/themes/${themeId}/cve/run`), { method: "POST" }),
+  );
+}
+
+// --- Build diagnostics (why is the graph empty / what's missing) -----------------------
+
+export interface DiagStageCounts {
+  documents: number;
+  claims: number;
+  resolutions: number;
+  edges: number;
+  reconciled: number;
+  estimated: number;
+  scored: number;
+  gap_results: number;
+}
+
+export interface DiagRunResearch {
+  ran: boolean;
+  trades_found: number;
+  error: string | null;
+}
+
+export interface DiagRunInfo {
+  id: string;
+  status: string;
+  trigger: string;
+  created_at: string;
+  stages: DiagStageCounts | null;
+  research: DiagRunResearch | null;
+}
+
+export interface DiagFinding {
+  level: "error" | "warn" | "ok";
+  code: string;
+  message: string;
+  action: string | null;
+}
+
+export interface BuildDiagnostics {
+  theme_id: string;
+  has_blueprint: boolean;
+  blueprint_companies: number;
+  sources: { total: number; documents: number; citations: number };
+  financials: {
+    required: string[];
+    covered: number;
+    total: number;
+    missing: { ticker: string; name: string; missing: string[] }[];
+  };
+  calendar_covered: number;
+  last_run: DiagRunInfo | null;
+  runs: DiagRunInfo[];
+  build: {
+    version: number | null;
+    publishable_edges: number;
+    gap_edges: number;
+    total_edges: number;
+    completeness: number;
+    threshold: number;
+    meets_threshold: boolean;
+  };
+  findings: DiagFinding[];
+}
+
+export async function getBuildDiagnostics(
+  themeId: string,
+): Promise<BuildDiagnostics> {
+  return json(
+    await fetch(url(`/themes/${themeId}/build/diagnostics`), {
+      cache: "no-store",
+    }),
+  );
+}
+
+// ---- Build Review: one map of all the theme's data for the pre-publish stage. -------------
+export interface ReviewCompany {
+  ticker: string;
+  name: string;
+  role: string | null;
+  has_financials: boolean;
+  financials_buckets: string[];
+  has_calendar: boolean;
+  next_update: string | null;
+  claims: number;
+  out_edges: number;
+  in_edges: number;
+  gap_edges: number;
+  open_tickets: number;
+}
+
+export interface ReviewRelationship {
+  supplier: string;
+  customer: string;
+  state: "publishable" | "estimated" | "conflict" | "gap";
+  customer_cost_share: number | null;
+  confidence: string | null;
+  freshness: string | null;
+  interval_low: number | null;
+  interval_high: number | null;
+  n_sources: number;
+  as_of: string | null;
+  reason: string | null;
+}
+
+export interface ReviewCounts {
+  companies: number;
+  financials_covered: number;
+  calendar_covered: number;
+  source_documents: number;
+  source_citations: number;
+  claims: number;
+  publishable_edges: number;
+  gap_edges: number;
+  estimated_edges: number;
+  open_tickets: number;
+}
+
+export interface ThemeReview {
+  theme_id: string;
+  has_blueprint: boolean;
+  has_build: boolean;
+  build_version: number | null;
+  completeness: number;
+  counts: ReviewCounts;
+  companies: ReviewCompany[];
+  relationships: ReviewRelationship[];
+}
+
+export async function getThemeReview(themeId: string): Promise<ThemeReview> {
+  return json(
+    await fetch(url(`/themes/${themeId}/review`), { cache: "no-store" }),
+  );
+}
+
+// A progress event from the CVE run stream: start / stage (S1..S7) / persisted / done /
+// error. The run + persistence finish server-side even if the client disconnects.
+export interface CveRunEvent {
+  event: string;
+  [key: string]: unknown;
+}
+
+// Run CVE over SSE, invoking `onEvent` per stage. Mirrors the blueprint streams.
+export const runThemeCveStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/cve/run/stream`,
+    onEvent,
+    signal,
+  );
+
+// Research the chain (trades + financials) via Deep Research, then build, over SSE.
+export const researchAndBuildStream = (
+  themeId: string,
+  onEvent: (event: CveRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> =>
+  postEventStream<CveRunEvent>(
+    `/themes/${themeId}/cve/research/stream`,
+    onEvent,
+    signal,
+  );
+
 // --- Jobs (M7-SCHED-04) ---
 
 export interface CveJob {
@@ -330,5 +1084,39 @@ export async function listJobs(
   const qs = params.toString();
   return json(
     await fetch(url(`/jobs${qs ? `?${qs}` : ""}`), { cache: "no-store" }),
+  );
+}
+
+// --- Editable prompts -------------------------------------------------------------------
+
+export interface Prompt {
+  key: string;
+  title: string;
+  description: string;
+  default: string;
+  override: string | null;
+  effective: string;
+  is_overridden: boolean;
+}
+
+export async function listPrompts(): Promise<Prompt[]> {
+  return json(await fetch(url("/prompts"), { cache: "no-store" }));
+}
+
+export async function setPrompt(key: string, text: string): Promise<Prompt> {
+  return json(
+    await fetch(url(`/prompts/${encodeURIComponent(key)}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }),
+  );
+}
+
+export async function resetPrompt(key: string): Promise<Prompt> {
+  return json(
+    await fetch(url(`/prompts/${encodeURIComponent(key)}`), {
+      method: "DELETE",
+    }),
   );
 }

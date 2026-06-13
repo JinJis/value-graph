@@ -28,6 +28,10 @@ class Ticket(BaseModel):
     status: str
     reason_code: str | None
     current_estimate: dict[str, Any] | None
+    # A Deep Research answer awaiting the admin's review (value + cited source URL),
+    # or None. Set while the ticket is OPEN; cleared on accept (evidence upload) or
+    # reject. See services/engine/tickets/research.py.
+    research_proposal: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

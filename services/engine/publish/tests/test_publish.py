@@ -62,9 +62,10 @@ def test_publish_requires_passing_gate_no_auto_publish() -> None:
 
 def test_publish_rejects_withheld_graph_and_empty_actor() -> None:
     store = InMemoryProductionStore()
-    build = _build()
-    withheld = assemble(build, threshold=0.99)  # below threshold
-    report = gate(withheld, build)
+    # Best-effort assembles below threshold; only a truly empty build is withheld.
+    empty = build_from_cve(_state().model_copy(update={"edges": {}, "claims": []}), version=1)
+    withheld = assemble(empty, threshold=0.5)
+    report = gate(withheld, empty)
 
     with pytest.raises(PublishBlocked):
         publish(withheld, report, store, actor="admin@vg")

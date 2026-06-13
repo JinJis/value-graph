@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from services.engine.main import app
 from services.engine.storage.local import LocalStorage
+from services.engine.themes.models import SourceCreate, ThemeCreate
 from services.engine.themes.repository import InMemoryThemeRepository
 from services.engine.themes.router import get_repository, get_storage
 
@@ -70,6 +71,26 @@ def test_upload_source_stored_and_reopenable(client: TestClient) -> None:
     assert content.status_code == 200
     assert content.content == b"%PDF-1.7 fake content"
     assert content.headers["content-type"].startswith("application/pdf")
+
+
+def test_citation_source_content_redirects_to_url(tmp_path: Path) -> None:
+    """A discovered/citation source (url, no uploaded file) redirects to the URL
+    instead of 404ing on missing stored content."""
+    repo = InMemoryThemeRepository()
+    storage = LocalStorage(tmp_path)
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_storage] = lambda: storage
+    try:
+        theme = repo.create_theme(ThemeCreate(name="T"))
+        src = repo.add_source(
+            theme.id, SourceCreate(type="report", url="https://example.com/article")
+        )
+        client = TestClient(app, follow_redirects=False)
+        resp = client.get(f"/sources/{src.id}/content")
+        assert resp.status_code == 307
+        assert resp.headers["location"] == "https://example.com/article"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_upload_to_missing_theme_404(client: TestClient) -> None:

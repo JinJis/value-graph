@@ -6,10 +6,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from services.engine.blueprint.identity import canonical_ticker
+
+# Tickers differ wildly by market — alphabetic (AAPL), numeric (6857 in Tokyo, 005930 in
+# Seoul), with or without an exchange suffix. An LLM may emit a numeric ticker as a JSON
+# number, which would otherwise fail a `str` field and drop the whole record. Coerce numbers
+# to strings so e.g. 6857 parses as "6857", then canonicalize the identity (see below).
+_LLM_MODEL_CONFIG = ConfigDict(coerce_numbers_to_str=True)
 
 
 class BlueprintCompany(BaseModel):
+    model_config = _LLM_MODEL_CONFIG
     ticker: str
     name: str
     country: str = Field(description="ISO-2 country code, e.g. KR/US/JP/CN/TW")
@@ -20,9 +29,21 @@ class BlueprintCompany(BaseModel):
         default_factory=list,
         description="metrics needed to quantify this company's edges",
     )
+    domain: str | None = Field(
+        default=None,
+        description="the company's primary website domain (e.g. nvidia.com), drives its logo",
+    )
     source_url: str | None = Field(
         default=None, description="provenance URL (set for companies found by discovery)"
     )
+
+    @model_validator(mode="after")
+    def _canonicalize_ticker(self) -> BlueprintCompany:
+        # Canonical identity = SYMBOL[.SUFFIX] from country/exchange (e.g. 6857 -> 6857.T).
+        self.ticker = canonical_ticker(
+            self.ticker, country=self.country, exchange=self.exchange
+        )
+        return self
 
 
 class BlueprintContent(BaseModel):
@@ -50,6 +71,8 @@ class Blueprint(BlueprintContent):
     theme_id: str
     version: int
     generated_by: str | None = None
+    # The admin-chosen target size at generation; drives the coverage bar. None = default.
+    target_count: int | None = None
 
 
 class BlueprintRecord(Blueprint):
@@ -64,6 +87,7 @@ class CoverageSummary(BaseModel):
     company_count: int
     focus_countries: list[str]
     meets_threshold: bool
+    target: int  # the company-count bar this was judged against
 
 
 class BlueprintResponse(BaseModel):
@@ -75,6 +99,25 @@ class RefinementResult(BaseModel):
     rounds: list[RoundMeta]
     final: BlueprintRecord
     coverage: CoverageSummary
+
+
+class ResearchCompany(BlueprintCompany):
+    """A company surfaced by the research-grounded initial generation.
+
+    Like a discovered company it may carry a citation (``source_url`` +
+    ``source_publisher``), but the field stays OPTIONAL here: the first pass draws
+    the whole chain, and a company we couldn't yet cite is kept (drawn as a gap)
+    rather than dropped — the citation is filled later by research/CVE."""
+
+    source_publisher: str | None = None
+
+
+class ResearchBlueprintContent(BaseModel):
+    """The research-grounded generation output: cited companies + structure."""
+
+    companies: list[ResearchCompany]
+    relationship_types: list[str] = Field(default_factory=list)
+    notes: str | None = None
 
 
 class DiscoveredCompany(BlueprintCompany):

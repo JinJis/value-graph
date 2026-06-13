@@ -92,13 +92,17 @@ def gate(
     is logged (audited).
     """
     if not assembled.assembled:
-        # A withheld graph never reaches the gate clean.
+        # Best-effort assembly only withholds a truly empty build (no figure, no gap to draw).
         return GateReport(
             theme_id=assembled.theme_id,
             version=assembled.version,
             checked_edges=0,
             violations=[
-                Violation(edge="-", field="assembly", detail="graph not assembled (incomplete)")
+                Violation(
+                    edge="-",
+                    field="assembly",
+                    detail="empty build — no relationships to publish (run the build first)",
+                )
             ],
             clean=False,
             passed=False,

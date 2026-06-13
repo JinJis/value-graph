@@ -192,6 +192,7 @@ def build_from_cve(
     *,
     version: int,
     sources: list[dict[str, Any]] | None = None,
+    company_meta: dict[str, dict[str, Any]] | None = None,
     created_at: datetime | None = None,
 ) -> ThemeBuild:
     """Assemble a versioned :class:`ThemeBuild` from a finished CVE run state.
@@ -199,6 +200,10 @@ def build_from_cve(
     ``sources`` (optional) are full Source records (each a graph-schema ``Source``
     plus an ``id``); when omitted, provenance nodes are built as bare ``{id}``
     references (the authoritative record stays in Postgres).
+
+    ``company_meta`` (optional) maps a ticker to its blueprint identity
+    (``{"name", "domain"}``) so the published node carries a real name + logo domain
+    instead of the bare ticker.
     """
     claims = [c.model_dump(mode="json") for c in state.claims]
     valid_claims = [c for c in claims if not validate("Claim", c)]
@@ -229,7 +234,13 @@ def build_from_cve(
                 edge, _edge_claims(edge, valid_claims)
             )
 
-    companies = [{"ticker": t, "name": t} for t in sorted(tickers)]
+    companies: list[dict[str, Any]] = []
+    for t in sorted(tickers):
+        meta = (company_meta or {}).get(t) or {}
+        company: dict[str, Any] = {"ticker": t, "name": meta.get("name") or t}
+        if meta.get("domain"):
+            company["domain"] = meta["domain"]
+        companies.append(company)
 
     source_nodes: dict[str, dict[str, Any]] = {}
     for record in sources or []:

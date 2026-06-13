@@ -10,6 +10,8 @@ from services.engine.db.artifacts import GapEdge
 from services.engine.main import app
 from services.engine.publish.publish import ProductionSnapshot
 from services.engine.publish.router import get_production_store
+from services.engine.themes.repository import InMemoryThemeRepository
+from services.engine.themes.router import get_repository as get_theme_repository
 
 
 def _snapshot() -> ProductionSnapshot:
@@ -54,6 +56,7 @@ class _Store:
 
 def test_graph_endpoint_serves_published_snapshot() -> None:
     app.dependency_overrides[get_production_store] = lambda: _Store()
+    app.dependency_overrides[get_theme_repository] = lambda: InMemoryThemeRepository()
     try:
         client = TestClient(app)
         ok = client.get("/themes/theme-1/graph")
@@ -63,8 +66,10 @@ def test_graph_endpoint_serves_published_snapshot() -> None:
         assert {c["ticker"] for c in body["companies"]} == {"INTC", "HPQ"}
         assert body["edges"][0]["supplier"] == "INTC"
         assert body["ghost_edges"][0]["customer"] == "NVDA"
-        # Per-figure source links travel to the Terminal (PROV-02).
-        assert body["edge_sources"]["INTC->HPQ"][0]["url"] == "https://sec.gov/x"
+        # Per-figure source links travel to the Terminal (PROV-02); an unknown source id
+        # still yields a ref (has_content=False -> deep-link only).
+        ref = body["edge_sources"]["INTC->HPQ"][0]
+        assert ref["url"] == "https://sec.gov/x" and ref["has_content"] is False
         # No admin-only provenance leaks to the user-facing graph.
         assert "published_by" not in body
 

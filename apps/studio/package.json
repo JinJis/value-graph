@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@valuegraph/graph-schema": "workspace:*",
+    "@valuegraph/ui": "workspace:*",
     "next": "^15.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

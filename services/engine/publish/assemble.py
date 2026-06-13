@@ -1,16 +1,18 @@
 """[M4-ASM-02] Graph assembly — turn a persisted ThemeBuild into a publishable graph.
 
-Once a theme build's completeness clears a configurable threshold (or an admin
-explicitly overrides, which is logged), assemble the publishable supply-chain
-graph: nodes + only the edges that meet the SuppliesEdge schema rules, plus the
-gap edges carried as drawn "ghost" edges (they expose no figure, so they don't
-violate the validation gate — gaps are drawn, never hidden).
+**Best-effort assembly.** We always surface the graph we have: nodes + the edges that meet
+the SuppliesEdge schema rules (admitted as fully-provenanced figures), plus every gap edge
+carried as a drawn "ghost" edge (they expose no figure, so they don't violate the validation
+gate). Completeness is REPORTED for transparency but never withholds the graph — "gaps are
+drawn, not hidden" (CLAUDE.md §2). Refusing to publish because one figure is missing would
+hide the whole chain; instead we publish what's verified now and let the admin fill the gaps
+later (re-run + re-publish a new version). The only thing that blocks publish is an *admitted*
+figure missing provenance — the validation gate (M4-GATE-03), not low completeness.
 
 Completeness here = quantified relationships / all discovered relationships
-(publishable edges / (publishable + gap edges)). Blueprint-coverage refinements
-can plug into this metric later. The validation gate (every exposed figure carries
-source + as_of + next_update + confidence + interval) is M4-GATE-03; publish to
-Production is M4-PUB-04.
+(publishable edges / (publishable + gap edges)) — a quality signal shown to the admin and the
+Terminal, not a gate. A truly empty build (no publishable AND no gap edges) has nothing to
+show, so it stays unassembled. Publish to Production is M4-PUB-04.
 """
 
 from __future__ import annotations
@@ -81,40 +83,40 @@ def assemble(
     threshold: float = DEFAULT_COMPLETENESS_THRESHOLD,
     override: OverrideLog | None = None,
 ) -> AssembledGraph:
-    """Assemble ``build`` into a publishable graph if complete enough (or overridden).
+    """Best-effort assembly: always surface the graph we have.
 
-    Only schema-valid SuppliesEdges are admitted; gap edges become drawn ghost edges.
-    When completeness is below ``threshold`` and no ``override`` is given, the graph
-    is withheld (``assembled=False``) with a report explaining why.
+    Only schema-valid SuppliesEdges are admitted (fully-provenanced figures); every gap edge
+    becomes a drawn ghost edge. Completeness is reported but never withholds the graph — only a
+    truly empty build (no publishable AND no gap edges) stays unassembled. ``override``, when an
+    admin publishes below the recommended completeness threshold, is recorded for the audit log.
     """
     # Re-validate at the publish boundary: only edges meeting schema rules are admitted.
     edges = [e for e in build.edges if is_valid("SuppliesEdge", e)]
     report = _completeness(len(edges), len(build.gap_edges), threshold)
 
-    if report.meets_threshold:
-        admitted = True
-    elif override is not None:
-        admitted = True
-        logger.warning(
-            "assembly override: theme=%s version=%s actor=%s reason=%r "
-            "completeness=%.2f threshold=%.2f",
-            build.theme_id,
-            build.version,
-            override.actor,
-            override.reason,
-            report.completeness,
-            threshold,
-        )
-    else:
-        admitted = False
-
-    if not admitted:
-        # Withhold the graph; surface the report so the admin can improve or override.
+    if report.total_edges == 0:
+        # Nothing — no quantified relationship and no gap to draw. Can't publish an empty graph.
         return AssembledGraph(
             theme_id=build.theme_id,
             version=build.version,
             assembled=False,
             completeness=report,
+        )
+
+    if not report.meets_threshold:
+        # Best-effort: still assemble, but note the low-completeness publish (and any override).
+        logger.info(
+            "best-effort assembly below threshold: theme=%s version=%s completeness=%.2f "
+            "threshold=%.2f publishable=%d gaps=%d%s",
+            build.theme_id,
+            build.version,
+            report.completeness,
+            threshold,
+            report.publishable_edges,
+            report.gap_edges,
+            f" override_actor={override.actor!r} reason={override.reason!r}"
+            if override is not None
+            else "",
         )
 
     admitted_tickers = {t for e in edges for t in (e["supplier"], e["customer"])}

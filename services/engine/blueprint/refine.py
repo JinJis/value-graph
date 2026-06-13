@@ -65,6 +65,7 @@ def refine_blueprint(
             companies=merged.companies,
             relationship_types=union_list(current.relationship_types, content.relationship_types),
             notes=content.notes or current.notes,
+            target_count=base.target_count,
         )
         current = repo.save(new_blueprint, round_meta=meta)
         companies = merged.companies

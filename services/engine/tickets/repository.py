@@ -31,6 +31,10 @@ class TicketRepository(Protocol):
         current_estimate: dict[str, Any] | None = None,
     ) -> Ticket | None: ...
 
+    def set_research_proposal(
+        self, ticket_id: str, proposal: dict[str, Any] | None
+    ) -> Ticket | None: ...
+
     def list_unresolvable(self, theme_id: str, target: str | None = None) -> list[Ticket]: ...
 
     def record_event(
@@ -110,6 +114,18 @@ class InMemoryTicketRepository:
         self._tickets[ticket_id] = updated
         return updated
 
+    def set_research_proposal(
+        self, ticket_id: str, proposal: dict[str, Any] | None
+    ) -> Ticket | None:
+        ticket = self._tickets.get(ticket_id)
+        if ticket is None:
+            return None
+        updated = ticket.model_copy(
+            update={"research_proposal": proposal, "updated_at": datetime.now(UTC)}
+        )
+        self._tickets[ticket_id] = updated
+        return updated
+
     def list_unresolvable(self, theme_id: str, target: str | None = None) -> list[Ticket]:
         items = [
             t
@@ -149,7 +165,7 @@ class InMemoryTicketRepository:
 
 _COLS = (
     "id, theme_id, target, metric, reason, status, reason_code, "
-    "current_estimate, created_at, updated_at"
+    "current_estimate, research_proposal, created_at, updated_at"
 )
 
 
@@ -163,6 +179,7 @@ def _row_to_ticket(row: dict[str, Any]) -> Ticket:
         status=row["status"],
         reason_code=row["reason_code"],
         current_estimate=row["current_estimate"],
+        research_proposal=row.get("research_proposal"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -247,6 +264,19 @@ class PostgresTicketRepository:
                 "UPDATE tickets SET status = %s, reason_code = %s, current_estimate = %s, "
                 f"updated_at = now() WHERE id = %s RETURNING {_COLS}",
                 (status, reason_code, estimate, ticket_id),
+            )
+            row = cur.fetchone()
+            return _row_to_ticket(row) if row is not None else None
+
+    def set_research_proposal(
+        self, ticket_id: str, proposal: dict[str, Any] | None
+    ) -> Ticket | None:
+        payload = Jsonb(proposal) if proposal is not None else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tickets SET research_proposal = %s, updated_at = now() "
+                f"WHERE id = %s RETURNING {_COLS}",
+                (payload, ticket_id),
             )
             row = cur.fetchone()
             return _row_to_ticket(row) if row is not None else None

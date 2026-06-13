@@ -154,6 +154,11 @@ MARKET_DATA_API_KEY=     # licensed price/market-cap feed
 MODEL_DEEP=gemini-3.1-pro-preview
 MODEL_MEDIUM=gemini-3.5-flash
 MODEL_LOW=gemini-3.1-flash-lite
+MODEL_RESEARCH=deep-research-preview-04-2026   # Deep Research agent (Interactions API)
+DEEP_RESEARCH_TIMEOUT_SECONDS=3600             # Deep Research request timeout (separate from
+                                               # GEMINI_TIMEOUT_SECONDS, which is fast calls only)
+DEEP_RESEARCH_RETRIEVE_SECONDS=300             # how long to poll the stored interaction for the
+                                               # final report after the progress stream closes
 ```
 
 ---

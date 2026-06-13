@@ -1,89 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { StepFooter } from "../../../components/WorkflowSteps";
 import {
-  getTheme,
-  getThemeQuality,
   listSources,
   sourceContentUrl,
   uploadSource,
-  type QualityReport,
   type Source,
-  type Theme,
 } from "../../../lib/api";
 
 const SOURCE_TYPES = ["filing", "IR", "report", "news", "interview"];
 
-// verified / derived / estimated / gap — confidence-tier colours (CLAUDE.md §5).
-const TIERS = [
-  { key: "verified", label: "Verified", color: "#1b8a3a" },
-  { key: "derived", label: "Derived", color: "#2f6fb0" },
-  { key: "estimated", label: "Estimated", color: "#c98a00" },
-  { key: "gap", label: "Gap", color: "#b03030" },
-] as const;
-
-function DataQualityMeter({ report }: { report: QualityReport }) {
-  const q = report.quality;
-  return (
-    <div style={{ margin: "1rem 0" }}>
-      <h2 style={{ marginBottom: 4 }}>Data quality</h2>
-      <p style={{ margin: "0 0 8px" }}>
-        <small>
-          Published v{report.snapshot_version} · {report.total} relationships
-        </small>
-      </p>
-      <div
-        style={{
-          display: "flex",
-          height: 18,
-          borderRadius: 4,
-          overflow: "hidden",
-          border: "1px solid #ddd",
-        }}
-      >
-        {TIERS.map((t) => {
-          const pct = q[t.key];
-          return pct > 0 ? (
-            <div
-              key={t.key}
-              title={`${t.label}: ${pct}%`}
-              style={{ width: `${pct}%`, background: t.color }}
-            />
-          ) : null;
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
-        {TIERS.map((t) => (
-          <small
-            key={t.key}
-            style={{ display: "flex", alignItems: "center", gap: 4 }}
-          >
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                background: t.color,
-                display: "inline-block",
-                borderRadius: 2,
-              }}
-            />
-            {t.label} {q[t.key]}%
-          </small>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default function ThemeDetailPage() {
-  const params = useParams<{ id: string }>();
-  const themeId = params.id;
-
-  const [theme, setTheme] = useState<Theme | null>(null);
-  const [quality, setQuality] = useState<QualityReport | null>(null);
+export default function ThemePage() {
+  const { id: themeId } = useParams<{ id: string }>();
   const [sources, setSources] = useState<Source[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [type, setType] = useState("report");
@@ -93,17 +24,10 @@ export default function ThemeDetailPage() {
 
   async function refresh() {
     try {
-      const [t, s, q] = await Promise.all([
-        getTheme(themeId),
-        listSources(themeId),
-        getThemeQuality(themeId),
-      ]);
-      setTheme(t);
-      setSources(s);
-      setQuality(q);
+      setSources(await listSources(themeId));
       setError(null);
     } catch (e) {
-      setError(`Could not load theme: ${String(e)}`);
+      setError(`Could not load sources: ${String(e)}`);
     }
   }
 
@@ -129,41 +53,20 @@ export default function ThemeDetailPage() {
   }
 
   return (
-    <main
-      style={{ maxWidth: 720, margin: "2rem auto", fontFamily: "system-ui" }}
-    >
-      <p>
-        <Link href="/themes">← All themes</Link>
-      </p>
-      <h1>{theme ? theme.name : "Loading…"}</h1>
-      {theme && (
-        <p>
-          <small>
-            {theme.status} · v{theme.version}
-            {theme.seed_tickers.length > 0 &&
-              ` · seeds: ${theme.seed_tickers.join(", ")}`}
-          </small>
-        </p>
-      )}
-
-      <p>
-        <Link href={`/themes/${themeId}/blueprint`}>→ Review blueprint</Link>
-        {" · "}
-        <Link href={`/themes/${themeId}/tickets`}>→ Ticket queue</Link>
+    <section>
+      <h2 style={{ marginBottom: 4 }}>Theme &amp; context</h2>
+      <p style={{ color: "#475569", marginTop: 0 }}>
+        <small>
+          Optionally add source documents (filings, IR decks, reports) for this
+          theme, then move on to the blueprint. Sources here — and citations
+          found later during research — all feed the graph’s provenance.
+        </small>
       </p>
 
-      {quality ? (
-        <DataQualityMeter report={quality} />
-      ) : (
-        <p>
-          <small>Data quality appears here once the theme is published.</small>
-        </p>
-      )}
-
-      <h2>Additional context</h2>
+      <h3>Add context</h3>
       <form
         onSubmit={onUpload}
-        style={{ display: "grid", gap: 8, margin: "1rem 0" }}
+        style={{ display: "grid", gap: 8, maxWidth: 520 }}
       >
         <input
           type="file"
@@ -188,13 +91,23 @@ export default function ThemeDetailPage() {
 
       {error && <p style={{ color: "crimson" }}>{error}</p>}
 
+      <h3>Sources ({sources.length})</h3>
       {sources.length === 0 ? (
-        <p>No sources uploaded yet.</p>
+        <p>
+          <small>
+            No sources yet (optional — you can generate a blueprint without
+            them).
+          </small>
+        </p>
       ) : (
         <ul>
           {sources.map((s) => (
             <li key={s.id}>
-              <a href={sourceContentUrl(s)} target="_blank" rel="noreferrer">
+              <a
+                href={s.url ?? sourceContentUrl(s)}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {s.original_filename ?? s.url ?? s.id}
               </a>{" "}
               <small>
@@ -205,6 +118,8 @@ export default function ThemeDetailPage() {
           ))}
         </ul>
       )}
-    </main>
+
+      <StepFooter themeId={themeId} currentKey="theme" />
+    </section>
   );
 }

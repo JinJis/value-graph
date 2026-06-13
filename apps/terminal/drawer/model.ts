@@ -3,7 +3,7 @@
 // it. Live price/market cap is sourced separately (real-time, not from filings).
 
 import { edgeKey } from "../canvas/controls";
-import type { MarketFeed } from "../canvas/marketFeed";
+import { formatMarketCap, type MarketFeed } from "../canvas/marketFeed";
 import type {
   EdgeDetail,
   GraphCompany,
@@ -167,10 +167,5 @@ export function buildCompanyView(
   };
 }
 
-export function formatMarketCap(cap: number | null): string {
-  if (!cap || cap <= 0) return "—";
-  if (cap >= 1e12) return `$${(cap / 1e12).toFixed(2)}T`;
-  if (cap >= 1e9) return `$${(cap / 1e9).toFixed(1)}B`;
-  if (cap >= 1e6) return `$${(cap / 1e6).toFixed(0)}M`;
-  return `$${cap.toFixed(0)}`;
-}
+// Re-exported from the canvas layer so existing drawer imports keep working.
+export { formatMarketCap };

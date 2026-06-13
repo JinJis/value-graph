@@ -1,0 +1,314 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+import { Markdown } from "./Markdown";
+
+// Live view of a streamed LLM run (fed by the SSE stream). Shows, top to bottom: which
+// Gemini model is routed and where the call goes, the step timeline, the exact prompt
+// sent, and the model's output as it streams in. Pass `markdown` to render the output as
+// Markdown (e.g. a Deep Research report) instead of raw monospace text.
+
+export interface ProgStep {
+  label: string;
+  detail?: string;
+  tone?: "ok" | "warn" | "err";
+}
+
+export interface Prog {
+  model?: { tier: string; model: string };
+  endpoint?: { provider: string; method: string };
+  prompt?: string;
+  output: string;
+  steps: ProgStep[];
+  error?: string;
+  done: boolean;
+  running: boolean;
+  taskId?: string; // the in-flight task (for Stop), from the leading `task` event
+}
+
+const TONE: Record<string, string> = {
+  ok: "#15803d",
+  warn: "#b45309",
+  err: "#b91c1c",
+};
+
+type AnyEvent = { event: string; [key: string]: unknown };
+
+const truncate = (t: string, n = 160): string =>
+  t.length > n ? `${t.slice(0, n)}…` : t;
+
+// Fold one streamed event into the live Prog. Handles every GENERIC step a Gemini/Deep
+// Research run emits (routing, prompt, attempts, 💭 thoughts, search/read tool calls,
+// streamed output, parse, errors) so every panel shows the same live progress as the
+// blueprint flow. Domain events (filled / stage / proposed / …) return `prev` unchanged —
+// the page layers those on top. `task` (re)starts a fresh run.
+export function applyProgEvent(prev: Prog, e: AnyEvent): Prog {
+  const withStep = (
+    label: string,
+    detail?: string,
+    tone?: "ok" | "warn" | "err",
+  ): Prog => ({ ...prev, steps: [...prev.steps, { label, detail, tone }] });
+
+  switch (e.event) {
+    case "task":
+      return {
+        output: "",
+        steps: [],
+        done: false,
+        running: true,
+        taskId: e.task_id ? String(e.task_id) : undefined,
+      };
+    case "cancelled":
+      return {
+        ...withStep("Stopped by admin", undefined, "warn"),
+        running: false,
+        done: true,
+      };
+    case "model":
+      return {
+        ...withStep(`Routed to ${e.tier} model ${e.model}`, undefined, "ok"),
+        model: { tier: String(e.tier), model: String(e.model) },
+      };
+    case "endpoint":
+      return {
+        ...prev,
+        endpoint: { provider: String(e.provider), method: String(e.method) },
+      };
+    case "prompt":
+      return {
+        ...withStep(
+          `Built prompt (${String(e.text ?? "").length.toLocaleString()} chars)`,
+        ),
+        prompt: String(e.text ?? ""),
+      };
+    case "llm_start":
+      return {
+        ...withStep(`Calling Gemini (attempt ${e.attempt}/${e.attempts})`),
+        output: "",
+      };
+    case "thought":
+      return withStep(`💭 ${truncate(String(e.text ?? ""))}`);
+    case "research":
+      return withStep(String(e.action), truncate(String(e.detail ?? "")));
+    case "chunk":
+      return { ...prev, output: prev.output + String(e.text ?? "") };
+    case "parse":
+      return withStep(
+        `Parse: ${e.status}`,
+        e.detail ? truncate(String(e.detail)) : undefined,
+        e.status === "ok" ? "ok" : e.status === "failed" ? "err" : "warn",
+      );
+    case "error":
+      return { ...prev, error: String(e.detail ?? "error"), running: false };
+    case "done":
+      return { ...prev, running: false, done: true };
+    default:
+      return prev; // domain-specific event — handled by the page
+  }
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        borderRadius: 6,
+        background: "#0f172a",
+        color: "#e2e8f0",
+        fontSize: 12,
+        fontFamily: "ui-monospace, monospace",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// Per-state header text, so each panel reads for its task (generate / research / CVE).
+export interface ProgLabels {
+  running?: string;
+  done?: string;
+  idle?: string;
+}
+
+const DEFAULT_LABELS: Required<ProgLabels> = {
+  running: "Generating…",
+  done: "Done",
+  idle: "Generation",
+};
+
+export function BlueprintProgress({
+  prog,
+  markdown = false,
+  labels,
+  onStop,
+}: {
+  prog: Prog;
+  markdown?: boolean;
+  labels?: ProgLabels;
+  // Stop the running task; shown when a run is live and we know its task id.
+  onStop?: (taskId: string) => void | Promise<void>;
+}) {
+  const text = { ...DEFAULT_LABELS, ...labels };
+  const outRef = useRef<HTMLDivElement>(null);
+  const [stopping, setStopping] = useState(false);
+
+  // Reset the stop button once the run is no longer live.
+  useEffect(() => {
+    if (!prog.running) setStopping(false);
+  }, [prog.running]);
+
+  // Keep the streaming output scrolled to the newest tokens.
+  useEffect(() => {
+    if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+  }, [prog.output]);
+
+  const hasAny =
+    prog.running ||
+    prog.done ||
+    prog.error ||
+    prog.steps.length > 0 ||
+    !!prog.model;
+  if (!hasAny) return null;
+
+  return (
+    <section
+      style={{
+        border: "1px solid #cbd5e1",
+        borderRadius: 8,
+        padding: "12px 16px",
+        margin: "1rem 0",
+        background: "#f8fafc",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <strong style={{ fontSize: 14 }}>
+          {prog.running ? text.running : prog.done ? text.done : text.idle}
+        </strong>
+        {prog.model && (
+          <Badge>
+            {prog.model.tier} · {prog.model.model}
+          </Badge>
+        )}
+        {prog.endpoint && (
+          <Badge>
+            {prog.endpoint.provider}.{prog.endpoint.method}
+          </Badge>
+        )}
+        {prog.running && prog.output.length > 0 && (
+          <span style={{ fontSize: 12, color: "#64748b" }}>
+            streaming {prog.output.length.toLocaleString()} chars…
+          </span>
+        )}
+        {onStop && prog.running && prog.taskId && (
+          <button
+            type="button"
+            onClick={() => {
+              setStopping(true);
+              void onStop(prog.taskId as string);
+            }}
+            disabled={stopping}
+            style={{
+              marginLeft: "auto",
+              fontSize: 12,
+              color: "#b91c1c",
+              borderColor: "#fca5a5",
+            }}
+          >
+            {stopping ? "Stopping…" : "■ Stop"}
+          </button>
+        )}
+      </div>
+
+      {prog.error && (
+        <p style={{ color: TONE.err, marginTop: 8, fontSize: 13 }}>
+          ✗ {prog.error}
+        </p>
+      )}
+
+      {prog.steps.length > 0 && (
+        <ol style={{ margin: "8px 0", paddingLeft: 18, fontSize: 13 }}>
+          {prog.steps.map((s, i) => (
+            <li key={i} style={{ color: s.tone ? TONE[s.tone] : "#334155" }}>
+              {s.label}
+              {s.detail && (
+                <span style={{ color: "#64748b" }}> — {s.detail}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {prog.prompt && (
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ cursor: "pointer", fontSize: 13 }}>
+            Prompt sent ({prog.prompt.length.toLocaleString()} chars)
+          </summary>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              fontSize: 12,
+              background: "#0f172a",
+              color: "#e2e8f0",
+              padding: 12,
+              borderRadius: 6,
+              maxHeight: 280,
+              overflow: "auto",
+            }}
+          >
+            {prog.prompt}
+          </pre>
+        </details>
+      )}
+
+      {prog.output && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>
+            {markdown ? "Research report" : "Model output"}
+          </div>
+          <div
+            ref={outRef}
+            style={{
+              maxHeight: 320,
+              overflow: "auto",
+              borderRadius: 6,
+              padding: 12,
+              ...(markdown
+                ? {
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    color: "#0f172a",
+                  }
+                : { background: "#0b1020" }),
+            }}
+          >
+            {markdown ? (
+              <Markdown source={prog.output} />
+            ) : (
+              <pre
+                style={{
+                  whiteSpace: "pre-wrap",
+                  fontSize: 12,
+                  color: "#7dd3fc",
+                  margin: 0,
+                  fontFamily: "ui-monospace, monospace",
+                }}
+              >
+                {prog.output}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

@@ -1,19 +1,33 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { StepFooter } from "../../../../components/WorkflowSteps";
 import {
   approveBlueprint,
-  generateBlueprint,
+  cancelTask,
+  discoverBlueprintStream,
+  fillBlueprintDomains,
+  generateBlueprintStream,
   getBlueprint,
   getTheme,
+  refineBlueprintStream,
   saveBlueprint,
   type BlueprintCompany,
+  type BlueprintEvent,
   type Coverage,
   type Theme,
 } from "../../../../lib/api";
+import { BlueprintProgress, type Prog } from "../../../../components/Progress";
+import { useResumableRun } from "../../../../components/useResumableRun";
+
+const EMPTY_PROG: Prog = {
+  output: "",
+  steps: [],
+  done: false,
+  running: false,
+};
 
 interface EditCompany {
   ticker: string;
@@ -23,6 +37,7 @@ interface EditCompany {
   role: string;
   products: string;
   required_data_points: string;
+  domain: string; // website domain -> logo (preserved across edits; filled by backfill)
   source_url: string | null;
 }
 
@@ -34,6 +49,7 @@ const EMPTY: EditCompany = {
   role: "",
   products: "",
   required_data_points: "",
+  domain: "",
   source_url: null,
 };
 
@@ -52,6 +68,7 @@ function toEdit(c: BlueprintCompany): EditCompany {
     role: c.role,
     products: c.products.join(", "),
     required_data_points: c.required_data_points.join(", "),
+    domain: c.domain ?? "",
     source_url: c.source_url,
   };
 }
@@ -65,6 +82,7 @@ function fromEdit(e: EditCompany): BlueprintCompany {
     role: e.role,
     products: split(e.products),
     required_data_points: split(e.required_data_points),
+    domain: e.domain.trim() || null,
     source_url: e.source_url,
   };
 }
@@ -91,6 +109,9 @@ export default function BlueprintReviewPage() {
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState<Prog>(EMPTY_PROG);
+  const [targetCount, setTargetCount] = useState(30); // companies to aim for on Generate
+  const [domainMsg, setDomainMsg] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -102,6 +123,8 @@ export default function BlueprintReviewPage() {
         setNotes(bp.blueprint.notes ?? "");
         setVersion(bp.blueprint.version);
         setCoverage(bp.coverage);
+        // Restore the slider to the size this blueprint was generated for.
+        setTargetCount(bp.coverage.target);
       }
       setError(null);
     } catch (e) {
@@ -151,52 +174,292 @@ export default function BlueprintReviewPage() {
       setCoverage(r.coverage);
     }, "Save");
 
-  const onGenerate = () =>
+  const onFillDomains = () =>
     run(async () => {
-      await generateBlueprint(themeId);
+      setDomainMsg(null);
+      const r = await fillBlueprintDomains(themeId);
+      await load(); // pick up the filled domains
+      setDomainMsg(
+        r.filled === 0
+          ? "All companies already have a domain — nothing to fill."
+          : `Filled ${r.filled} of ${r.total} domains. Re-run Build → Publish so the Terminal picks up the logos.`,
+      );
+    }, "Fill domains");
+
+  function onProgEvent(e: BlueprintEvent) {
+    if (e.event === "task") {
+      // Stream (re)attached — start a fresh live panel before replay.
+      setProg({
+        ...EMPTY_PROG,
+        running: true,
+        taskId: e.task_id ? String(e.task_id) : undefined,
+      });
+      return;
+    }
+    setProg((p) => {
+      const next: Prog = { ...p };
+      switch (e.event) {
+        case "model":
+          next.model = { tier: String(e.tier), model: String(e.model) };
+          next.steps = [
+            ...p.steps,
+            { label: `Routed to ${e.tier} model ${e.model}`, tone: "ok" },
+          ];
+          break;
+        case "endpoint":
+          next.endpoint = {
+            provider: String(e.provider),
+            method: String(e.method),
+          };
+          break;
+        case "prompt":
+          next.prompt = String(e.text);
+          next.steps = [
+            ...p.steps,
+            { label: `Built prompt (${e.chars} chars)` },
+          ];
+          break;
+        case "llm_start":
+          next.output = "";
+          next.steps = [
+            ...p.steps,
+            { label: `Calling Gemini (attempt ${e.attempt}/${e.attempts})` },
+          ];
+          break;
+        case "chunk":
+          next.output = p.output + String(e.text);
+          break;
+        case "thought":
+          next.steps = [
+            ...p.steps,
+            { label: `💭 ${String(e.text).slice(0, 200)}` },
+          ];
+          break;
+        case "research":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `${e.action === "read" ? "📄 Reading" : "🔎 Searching"}`,
+              detail: String(e.detail).slice(0, 200),
+            },
+          ];
+          break;
+        case "parse":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `Parse: ${e.status}`,
+              detail: e.detail ? String(e.detail).slice(0, 160) : undefined,
+              tone:
+                e.status === "ok"
+                  ? "ok"
+                  : e.status === "retry"
+                    ? "warn"
+                    : "err",
+            },
+          ];
+          break;
+        case "round":
+          next.steps = [...p.steps, { label: `Round ${e.round}/${e.cap}` }];
+          break;
+        case "merged":
+          next.steps = [
+            ...p.steps,
+            {
+              label: `Merged: +${e.added} new, ~${e.updated} updated (Δ${e.delta})`,
+              detail: e.converged ? "converged" : undefined,
+              tone: "ok",
+            },
+          ];
+          break;
+        case "sources":
+          next.steps = [
+            ...p.steps,
+            { label: `Created ${e.created} source(s)`, tone: "ok" },
+          ];
+          break;
+        case "note":
+          next.steps = [...p.steps, { label: String(e.text), tone: "warn" }];
+          break;
+        case "validate":
+          next.steps = [
+            ...p.steps,
+            {
+              label:
+                e.discovered !== undefined
+                  ? `Discovered ${e.discovered} → +${e.added} new (${e.companies} total)`
+                  : `Validated ${e.companies} companies`,
+              tone: "ok",
+            },
+          ];
+          break;
+        case "saved":
+          next.steps = [
+            ...p.steps,
+            { label: `Saved blueprint v${e.version}`, tone: "ok" },
+          ];
+          break;
+        case "error":
+          next.error = String(e.detail);
+          next.running = false;
+          break;
+        case "done":
+          next.done = true;
+          next.running = false;
+          break;
+        case "cancelled":
+          next.steps = [
+            ...p.steps,
+            { label: "Stopped by admin", tone: "warn" },
+          ];
+          next.running = false;
+          next.done = true;
+          break;
+      }
+      return next;
+    });
+  }
+
+  function streamRun(
+    stream: (id: string, cb: (e: BlueprintEvent) => void) => Promise<void>,
+    label: string,
+  ) {
+    return run(async () => {
+      setProg({ ...EMPTY_PROG, running: true });
+      await stream(themeId, onProgEvent);
+      setProg((p) => ({ ...p, running: false }));
       await load();
-    }, "Generate (needs GOOGLE_API_KEY)");
+    }, label);
+  }
+
+  const onGenerate = () =>
+    streamRun(
+      (id, cb) => generateBlueprintStream(id, cb, targetCount),
+      "Generate (Deep Research)",
+    );
+  const onRefine = () => streamRun(refineBlueprintStream, "Refine (DEEP)");
+  const onDiscover = () =>
+    streamRun(discoverBlueprintStream, "Discover (RESEARCH)");
 
   const onApprove = () =>
     run(async () => setTheme(await approveBlueprint(themeId)), "Approve");
 
+  // Resume a blueprint run already in flight for this theme (generate/refine/discover).
+  const { resuming } = useResumableRun(
+    themeId,
+    ["blueprint-generate", "blueprint-refine", "blueprint-discover"],
+    onProgEvent,
+  );
+  const runBusy = busy || resuming;
+
   return (
-    <main
-      style={{ maxWidth: 1100, margin: "2rem auto", fontFamily: "system-ui" }}
-    >
-      <p>
-        <Link href={`/themes/${themeId}`}>← Theme</Link>
-      </p>
-      <h1>Blueprint review</h1>
-      <p>
+    <section>
+      <h2 style={{ marginBottom: 4 }}>Blueprint</h2>
+      <p style={{ color: "#475569", marginTop: 0 }}>
         <small>
-          {theme ? `${theme.name} · status: ${theme.status}` : "Loading…"}
-          {version !== null && ` · blueprint v${version}`}
+          {version !== null ? `Blueprint v${version}` : "No blueprint yet"}
+          {theme?.status === "approved" ? " · approved ✓" : ""}
         </small>
       </p>
 
-      <div style={{ display: "flex", gap: 8, margin: "1rem 0" }}>
-        <button type="button" onClick={onGenerate} disabled={busy}>
-          Generate (DEEP)
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          margin: "1rem 0 0.5rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <label
+          htmlFor="target-count"
+          style={{ fontSize: 13, color: "#475569" }}
+        >
+          Target companies
+        </label>
+        <input
+          id="target-count"
+          type="range"
+          min={10}
+          max={60}
+          step={5}
+          value={targetCount}
+          disabled={runBusy}
+          onChange={(e) => setTargetCount(Number(e.target.value))}
+          style={{ width: 220 }}
+        />
+        <strong style={{ fontSize: 14, minWidth: 24 }}>{targetCount}</strong>
+        <small style={{ color: "#64748b" }}>
+          how many listed companies Generate should aim for
+        </small>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, margin: "0 0 1rem" }}>
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={runBusy}
+          title="First-pass generation via the Gemini Deep Research agent (web-cited)"
+        >
+          Generate (Deep Research)
+        </button>
+        <button
+          type="button"
+          onClick={onRefine}
+          disabled={runBusy || version === null}
+          title={version === null ? "Generate a blueprint first" : undefined}
+        >
+          Refine (DEEP)
+        </button>
+        <button
+          type="button"
+          onClick={onDiscover}
+          disabled={runBusy || version === null}
+          title={version === null ? "Generate a blueprint first" : undefined}
+        >
+          Discover (RESEARCH)
         </button>
         <button type="button" onClick={onSave} disabled={busy}>
           Save edits
+        </button>
+        <button
+          type="button"
+          onClick={onFillDomains}
+          disabled={runBusy || version === null}
+          title={
+            version === null
+              ? "Generate a blueprint first"
+              : "Fill each company's website domain (cheap) so the Terminal shows real logos"
+          }
+        >
+          Fill logos (domains)
         </button>
         <button type="button" onClick={onApprove} disabled={busy}>
           Approve → ticketing
         </button>
       </div>
+      {domainMsg && (
+        <p style={{ color: "#15803d" }}>
+          <small>{domainMsg}</small>
+        </p>
+      )}
 
       {coverage && (
         <p style={{ color: coverage.meets_threshold ? "green" : "darkorange" }}>
           Coverage: {coverage.company_count} companies · focus countries{" "}
           {coverage.focus_countries.join(", ") || "—"} ·{" "}
           {coverage.meets_threshold
-            ? "meets bar"
-            : "below bar (≥30, ≥4 countries)"}
+            ? `meets bar (≥${coverage.target}, ≥4 countries)`
+            : `below bar (≥${coverage.target}, ≥4 countries)`}
         </p>
       )}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
+
+      <BlueprintProgress
+        prog={prog}
+        markdown
+        onStop={(id) => void cancelTask(id)}
+      />
 
       <p>
         <label>
@@ -277,6 +540,7 @@ export default function BlueprintReviewPage() {
           />
         </label>
       </p>
-    </main>
+      <StepFooter themeId={themeId} currentKey="blueprint" />
+    </section>
   );
 }
