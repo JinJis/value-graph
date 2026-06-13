@@ -231,6 +231,39 @@ def test_missing_param_maps_to_400_envelope():
     assert set(r.json().keys()) == {"error", "message"}
 
 
+# --- screener over the store ----------------------------------------------
+def test_screener_over_store():
+    from datetime import date as _date
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import FinancialFact
+    from app.store.screener import run_line_items, run_screener
+
+    init_db()
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.market == "ZZ"))
+        for tk, val in [("ZTESTA", 100.0), ("ZTESTB", 10.0)]:
+            db.add(
+                FinancialFact(
+                    market="ZZ", ticker=tk, statement="income", line_item="revenue", value=val,
+                    currency="USD", period="annual", report_period=_date(2025, 1, 1),
+                    accession_number="t", source="test",
+                )
+            )
+        db.commit()
+    try:
+        res = run_screener([{"field": "revenue", "operator": "gt", "value": 50}], 10, "annual", "ZZ")
+        assert {r["ticker"] for r in res} == {"ZTESTA"}
+        li = run_line_items(["ZTESTA"], ["revenue"], "annual", 1)
+        assert li and li[0]["revenue"] == 100.0
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(FinancialFact).where(FinancialFact.market == "ZZ"))
+            db.commit()
+
+
 # --- one provider path with mocked upstream -------------------------------
 @respx.mock
 def test_us_company_facts_with_mocked_sec():

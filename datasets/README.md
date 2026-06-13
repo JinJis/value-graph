@@ -30,8 +30,9 @@ the rest of the spec surface is scaffolded (visible in `/docs`, returns `501 Not
 | `/insider-trades` | SEC Form 4 | OpenDART elestock (임원·주요주주) | ✅ |
 | `/institutional-holdings?filer_cik=` | SEC 13F info table | — | ✅ |
 | `/institutional-holdings?ticker=` (who holds X) | needs reverse CUSIP index | — | 🚧 `501` |
+| `/financials/search/screener` · `/line-items` | ingestion store | ingestion store | ✅ |
 | `/financial-metrics` (historical) | — | — | 🚧 `501` |
-| index-funds, KPIs, segments, as-reported, screener, 13F discovery | — | — | 🚧 scaffolded (`501`) |
+| index-funds, KPIs, segments, as-reported, 13F discovery | — | — | 🚧 scaffolded (`501`) |
 
 > Earnings consensus/surprise fields are intentionally null (no free estimates feed — we never fabricate them).
 
@@ -107,6 +108,31 @@ Paid adapters (`POLYGON_API_KEY`, `TIINGO_API_KEY`, `FMP_API_KEY`, `KIS_APP_KEY`
 optional and selected per-domain via `*_PROVIDER_US` / `*_PROVIDER_KR` overrides.
 
 Set `AUTH_DISABLED=true` for local development to skip `X-API-KEY` checks.
+
+## Ingestion store (screener / line-items / history)
+
+Cross-sectional endpoints (`/financials/search/screener`, `/financials/search/line-items`) query a
+local **ingestion store** rather than fetching per-ticker upstream — that's what makes universe-wide
+filtering and deep history possible. The store is **point-in-time** (restatements kept, not
+overwritten). SQLite by default; set `DATABASE_URL=postgresql://…` for production.
+
+```bash
+# populate the store (per-ticker path; production uses bulk SEC companyfacts.zip / DART batch)
+uv run python -m scripts.ingest US AAPL MSFT NVDA
+uv run python -m scripts.ingest KR 005930 000660 035720
+
+# screen the ingested universe
+curl -X POST "http://127.0.0.1:8000/financials/search/screener?market=US" -H "Content-Type: application/json" \
+  -d '{"limit":10,"filters":[{"field":"revenue","operator":"gt","value":100000000000}]}'
+
+# pull specific line items across tickers, latest 3 annual periods
+curl -X POST "http://127.0.0.1:8000/financials/search/line-items" -H "Content-Type: application/json" \
+  -d '{"line_items":["revenue","net_income"],"tickers":["AAPL","005930"],"period":"annual","limit":3}'
+```
+
+> **History depth (free sources):** US prices ~1980s, EDGAR filings 1994+, XBRL fundamentals ~2009+,
+> 13F ~2013+; KR fundamentals (DART) ~2015+, prices ~2000+. Deeper fundamentals need legacy-filing
+> parsing or a licensed dataset — gaps are surfaced honestly, never fabricated.
 
 ## Disclaimers
 

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     prices_provider_kr: str = "yahoo"  # yahoo | pykrx | krx | kis
 
     # --- infra -------------------------------------------------------------
+    # Ingestion store. SQLite by default (zero-setup, dev); set a postgresql://
+    # URL in production. Used by the screener / line-items search.
+    database_url: str = "sqlite:///./datasets.db"
     redis_url: str = ""
     cache_ttl_seconds: int = 900
     http_timeout_seconds: float = 30.0

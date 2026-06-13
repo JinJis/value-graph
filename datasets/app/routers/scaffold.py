@@ -45,10 +45,7 @@ _UNBUILT_GET: list[tuple[str, str]] = [
     ("/kpi/guidance", "KPIs"),
     ("/kpi/non-gaap", "KPIs"),
 ]
-_UNBUILT_POST: list[tuple[str, str]] = [
-    ("/financials/search/screener", "Financial Statements"),
-    ("/financials/search/line-items", "Financial Statements"),
-]
+_UNBUILT_POST: list[tuple[str, str]] = []
 
 
 def _slugged(path: str, method: str):

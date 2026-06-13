@@ -21,7 +21,9 @@ from app.routers import (
     news,
     prices,
     scaffold,
+    search,
 )
+from app.store.db import init_db
 
 app = FastAPI(
     title="ValueGraph Datasets API (US + Korea)",
@@ -51,9 +53,14 @@ register_error_handlers(app)
 
 for module in (
     company, prices, financials, filings, macro, metrics,
-    news, earnings, insider, institutional, scaffold,
+    news, earnings, insider, institutional, search, scaffold,
 ):
     app.include_router(module.router)
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    init_db()
 
 
 @app.get("/", tags=["Meta"], summary="Service metadata")
