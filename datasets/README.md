@@ -25,8 +25,15 @@ the rest of the spec surface is scaffolded (visible in `/docs`, returns `501 Not
 | `/filings` (+ `/types`) | SEC submissions | OpenDART | ✅ |
 | `/macro/interest-rates`, `/snapshot`, `/banks` | FRED | BOK ECOS | ✅ |
 | `/financial-metrics/snapshot` | derived (SEC XBRL + price) | derived (OpenDART + price) | ✅ |
+| `/news` | Google News RSS | Google News RSS (by company name) | ✅ |
+| `/earnings` | SEC XBRL actuals | OpenDART actuals | ✅ |
+| `/insider-trades` | SEC Form 4 | OpenDART elestock (임원·주요주주) | ✅ |
+| `/institutional-holdings?filer_cik=` | SEC 13F info table | — | ✅ |
+| `/institutional-holdings?ticker=` (who holds X) | needs reverse CUSIP index | — | 🚧 `501` |
 | `/financial-metrics` (historical) | — | — | 🚧 `501` |
-| insider-trades, institutional-holdings, index-funds, earnings, news, KPIs, segments, as-reported, screener | — | — | 🚧 scaffolded (`501`) |
+| index-funds, KPIs, segments, as-reported, screener, 13F discovery | — | — | 🚧 scaffolded (`501`) |
+
+> Earnings consensus/surprise fields are intentionally null (no free estimates feed — we never fabricate them).
 
 Prices default to the keyless **Yahoo Finance** chart API for both markets (delayed/EOD).
 `pykrx` (KRX/Naver) is available as `PRICES_PROVIDER_KR=pykrx`, and `stooq` as `PRICES_PROVIDER_US=stooq`,

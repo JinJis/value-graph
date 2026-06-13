@@ -16,8 +16,20 @@ from app.main import app
 from datetime import date
 
 from app.filters import ReportPeriodFilters
-from app.providers.kr.opendart import INCOME_MAP as KR_INCOME, _amount, _extract, _fiscal_period
-from app.providers.us.sec_edgar import INCOME_MAP as US_INCOME, _assemble, _ttm_value
+from app.providers.kr.opendart import (
+    INCOME_MAP as KR_INCOME,
+    _amount,
+    _extract,
+    _fiscal_period,
+    _kr_date,
+)
+from app.providers.us.sec_edgar import (
+    INCOME_MAP as US_INCOME,
+    _assemble,
+    _parse_13f,
+    _parse_form4,
+    _ttm_value,
+)
 from app.symbols import Market, build_ref, normalize_ticker
 
 client = TestClient(app)
@@ -149,6 +161,54 @@ def test_report_period_inactive_is_passthrough():
     assert f.fetch_limit(4) == 4
 
 
+# --- insider / 13F parsers + KR date --------------------------------------
+def test_parse_form4():
+    xml = """<ownershipDocument>
+      <issuer><issuerName>Apple Inc.</issuerName></issuer>
+      <reportingOwner>
+        <reportingOwnerId><rptOwnerName>DOE JANE</rptOwnerName></reportingOwnerId>
+        <reportingOwnerRelationship><isDirector>1</isDirector><officerTitle>CEO</officerTitle></reportingOwnerRelationship>
+      </reportingOwner>
+      <nonDerivativeTable><nonDerivativeTransaction>
+        <securityTitle><value>Common Stock</value></securityTitle>
+        <transactionDate><value>2026-05-27</value></transactionDate>
+        <transactionCoding><transactionCode>S</transactionCode></transactionCoding>
+        <transactionAmounts>
+          <transactionShares><value>1000</value></transactionShares>
+          <transactionPricePerShare><value>200</value></transactionPricePerShare>
+          <transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode>
+        </transactionAmounts>
+        <postTransactionAmounts><sharesOwnedFollowingTransaction><value>5000</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+      </nonDerivativeTransaction></nonDerivativeTable>
+    </ownershipDocument>"""
+    issuer, owner, title, is_dir, txns = _parse_form4(xml, "AAPL")
+    assert issuer == "Apple Inc." and owner == "DOE JANE" and title == "CEO" and is_dir is True
+    assert len(txns) == 1
+    assert txns[0]["shares"] == -1000  # disposal -> negative
+    assert txns[0]["price"] == 200 and txns[0]["owned_after"] == 5000
+
+
+def test_parse_13f_with_namespace():
+    xml = """<informationTable xmlns="http://www.sec.gov/edgar/document/thirteenf/informationtable">
+      <infoTable>
+        <nameOfIssuer>APPLE INC</nameOfIssuer><titleOfClass>COM</titleOfClass>
+        <cusip>037833100</cusip><value>1000</value>
+        <shrsOrPrnAmt><sshPrnamt>50</sshPrnamt><sshPrnamtType>SH</sshPrnamtType></shrsOrPrnAmt>
+      </infoTable>
+    </informationTable>"""
+    rows = _parse_13f(xml, "2026-03-31", "2026-05-15", "13F-HR", "ACCN")
+    assert len(rows) == 1
+    assert rows[0].name_of_issuer == "APPLE INC" and rows[0].cusip == "037833100"
+    assert rows[0].shares == 50 and rows[0].value_usd == 1000
+
+
+def test_kr_date_normalization():
+    assert _kr_date("20240607") == "2024-06-07"
+    assert _kr_date("2024-06-07") == "2024-06-07"
+    assert _kr_date("2024.06.07") == "2024-06-07"
+    assert _kr_date("") is None
+
+
 # --- app-level (no upstream) ----------------------------------------------
 def test_health():
     assert client.get("/health").json() == {"status": "ok"}
@@ -160,7 +220,7 @@ def test_macro_banks_static():
 
 
 def test_scaffold_returns_501():
-    r = client.get("/news")
+    r = client.get("/index-funds?ticker=SPY")
     assert r.status_code == 501
     assert r.json()["error"] == "Not Implemented"
 

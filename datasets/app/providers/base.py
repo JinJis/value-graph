@@ -18,14 +18,18 @@ from app.models.generated import (
     BalanceSheet,
     CashFlowStatement,
     CompanyFacts,
+    EarningsRecord,
     Filing,
     FinancialMetricSnapshot,
     IncomeStatement,
+    InsiderTrade,
+    InstitutionalHolding,
     InterestRate,
+    News,
     Price,
     PriceSnapshot,
 )
-from app.symbols import SecurityRef
+from app.symbols import Market, SecurityRef
 
 
 @runtime_checkable
@@ -74,3 +78,24 @@ class MacroProvider(Protocol):
 @runtime_checkable
 class MetricsProvider(Protocol):
     async def metrics_snapshot(self, ref: SecurityRef) -> FinancialMetricSnapshot: ...
+
+
+@runtime_checkable
+class NewsProvider(Protocol):
+    async def news(self, market: Market, ticker: str | None, limit: int) -> list[News]: ...
+
+
+@runtime_checkable
+class EarningsProvider(Protocol):
+    async def earnings(self, ref: SecurityRef, limit: int) -> list[EarningsRecord]: ...
+
+
+@runtime_checkable
+class InsiderProvider(Protocol):
+    async def insider_trades(self, ref: SecurityRef, limit: int) -> list[InsiderTrade]: ...
+
+
+@runtime_checkable
+class InstitutionalProvider(Protocol):
+    async def by_filer(self, filer_cik: str, limit: int) -> list[InstitutionalHolding]: ...
+    async def by_ticker(self, ref: SecurityRef, limit: int) -> list[InstitutionalHolding]: ...

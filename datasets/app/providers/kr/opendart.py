@@ -24,9 +24,12 @@ from app.models.generated import (
     BalanceSheet,
     CashFlowStatement,
     CompanyFacts,
+    EarningsRecord,
+    EarningsTimeDimension,
     Filing,
     FinancialMetricSnapshot,
     IncomeStatement,
+    InsiderTrade,
 )
 from app.symbols import SecurityRef
 
@@ -42,6 +45,16 @@ def _key() -> str:
     if not settings.opendart_api_key:
         raise bad_request("OPENDART_API_KEY is not configured.")
     return settings.opendart_api_key
+
+
+def _kr_date(raw: str | None) -> str | None:
+    """Normalize a DART date (8-digit or separator-laden) to YYYY-MM-DD."""
+    if not raw:
+        return None
+    digits = "".join(ch for ch in str(raw) if ch.isdigit())
+    if len(digits) < 8:
+        return None
+    return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
 
 
 def _amount(raw: str | None) -> float | None:
@@ -314,3 +327,83 @@ class OpenDartMetricsProvider:
         if snap.market_cap and equity:
             snap.price_to_book_ratio = round(snap.market_cap / equity, 4)
         return snap
+
+
+class OpenDartEarningsProvider:
+    """KR earnings actuals from DART quarterly statements.
+
+    KR reports have no SEC form type; ``source_type`` uses the closest analog
+    (분기/반기 → 10-Q, 사업보고서 → 10-K). Consensus/surprise fields are null."""
+
+    async def earnings(self, ref: SecurityRef, limit: int) -> list[EarningsRecord]:
+        provider = OpenDartProvider()
+        incomes = await provider.income_statements(ref, "quarterly", limit)
+        out: list[EarningsRecord] = []
+        for s in incomes:
+            accn = s.accession_number
+            fdate = (
+                f"{accn[:4]}-{accn[4:6]}-{accn[6:8]}" if accn and len(accn) >= 8 else str(s.report_period)
+            )
+            source = "10-K" if (s.fiscal_period or "").endswith("FY") else "10-Q"
+            dim = EarningsTimeDimension(
+                revenue=s.revenue,
+                earnings_per_share=s.earnings_per_share,
+                gross_profit=s.gross_profit,
+                operating_income=s.operating_income,
+                net_income=s.net_income,
+            )
+            out.append(
+                EarningsRecord(
+                    ticker=ref.ticker,
+                    report_period=s.report_period,
+                    fiscal_period=s.fiscal_period,
+                    currency="KRW",
+                    source_type=source,
+                    filing_date=fdate,
+                    filing_url=s.filing_url,
+                    accession_number=accn or "",
+                    quarterly=dim,
+                )
+            )
+        if not out:
+            raise not_found(f"No OpenDART earnings for '{ref.ticker}'.")
+        return out
+
+
+class OpenDartInsiderProvider:
+    """KR insider activity from DART 임원·주요주주 특정증권등 소유상황보고 (elestock)."""
+
+    async def insider_trades(self, ref: SecurityRef, limit: int) -> list[InsiderTrade]:
+        corp = await _corp_code(ref)
+        this_year = date.today().year
+        data = await _dart_json(
+            "elestock.json",
+            {"corp_code": corp, "bgn_de": f"{this_year - 2}0101", "end_de": f"{this_year}1231"},
+        )
+        out: list[InsiderTrade] = []
+        for row in data.get("list") or []:
+            fdate = _kr_date(row.get("rcept_dt"))
+            change = _amount(row.get("sp_stock_lmp_irds_cnt"))  # 소유 증감수
+            after = _amount(row.get("sp_stock_lmp_cnt"))  # 특정증권등 소유수
+            txn_type = None
+            if change is not None:
+                txn_type = "취득" if change > 0 else "처분" if change < 0 else "변동없음"
+            out.append(
+                InsiderTrade(
+                    ticker=ref.ticker,
+                    issuer=row.get("corp_name"),
+                    name=row.get("repror"),
+                    title=row.get("isu_exctv_ofcps"),
+                    is_board_director=(row.get("isu_exctv_rgist_at") == "등기임원"),
+                    transaction_date=fdate,
+                    transaction_shares=change,
+                    shares_owned_after_transaction=after,
+                    transaction_type=txn_type,
+                    filing_date=fdate,
+                )
+            )
+            if len(out) >= limit:
+                break
+        if not out:
+            raise not_found(f"No OpenDART insider (elestock) data for '{ref.ticker}'.")
+        return out[:limit]

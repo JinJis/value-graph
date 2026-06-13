@@ -19,14 +19,10 @@ router = APIRouter()
 
 # (path, tag) — registered as 501s grouped by their spec tag.
 _UNBUILT_GET: list[tuple[str, str]] = [
-    ("/news", "News"),
-    ("/insider-trades", "Insider Trades"),
-    ("/institutional-holdings", "Institutional Holdings"),
     ("/institutional-holdings/investors", "Institutional Holdings"),
     ("/institutional-holdings/tickers", "Institutional Holdings"),
     ("/index-funds", "Index Funds"),
     ("/index-funds/tickers", "Index Funds"),
-    ("/earnings", "Earnings"),
     ("/earnings/tickers", "Earnings"),
     ("/financials/search/screener/filters", "Financial Statements"),
     ("/financials/income-statements/segments", "Financial Statements"),

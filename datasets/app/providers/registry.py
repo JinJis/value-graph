@@ -14,10 +14,14 @@ from app.config import settings
 from app.errors import not_implemented
 from app.providers.base import (
     CompanyProvider,
+    EarningsProvider,
     FilingsProvider,
     FinancialsProvider,
+    InsiderProvider,
+    InstitutionalProvider,
     MacroProvider,
     MetricsProvider,
+    NewsProvider,
     PricesProvider,
 )
 from app.symbols import Market
@@ -125,3 +129,49 @@ def get_metrics_provider(market: Market) -> MetricsProvider:
 
         return SecEdgarMetricsProvider()
     _unbuilt("financial-metrics", market)
+
+
+# --- News ----------------------------------------------------------------
+@cache
+def get_news_provider(market: Market) -> NewsProvider:
+    from app.providers.news import GoogleNewsProvider
+
+    return GoogleNewsProvider()
+
+
+# --- Earnings ------------------------------------------------------------
+@cache
+def get_earnings_provider(market: Market) -> EarningsProvider:
+    if market is Market.US:
+        from app.providers.us.sec_edgar import SecEdgarEarningsProvider
+
+        return SecEdgarEarningsProvider()
+    if market is Market.KR:
+        from app.providers.kr.opendart import OpenDartEarningsProvider
+
+        return OpenDartEarningsProvider()
+    _unbuilt("earnings", market)
+
+
+# --- Insider trades ------------------------------------------------------
+@cache
+def get_insider_provider(market: Market) -> InsiderProvider:
+    if market is Market.US:
+        from app.providers.us.sec_edgar import SecEdgarInsiderProvider
+
+        return SecEdgarInsiderProvider()
+    if market is Market.KR:
+        from app.providers.kr.opendart import OpenDartInsiderProvider
+
+        return OpenDartInsiderProvider()
+    _unbuilt("insider-trades", market)
+
+
+# --- Institutional holdings (13F) ---------------------------------------
+@cache
+def get_institutional_provider(market: Market) -> InstitutionalProvider:
+    if market is Market.US:
+        from app.providers.us.sec_edgar import SecEdgar13FProvider
+
+        return SecEdgar13FProvider()
+    _unbuilt("institutional-holdings", market)

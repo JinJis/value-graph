@@ -9,7 +9,19 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from app.errors import register_error_handlers
-from app.routers import company, filings, financials, macro, metrics, prices, scaffold
+from app.routers import (
+    company,
+    earnings,
+    filings,
+    financials,
+    insider,
+    institutional,
+    macro,
+    metrics,
+    news,
+    prices,
+    scaffold,
+)
 
 app = FastAPI(
     title="ValueGraph Datasets API (US + Korea)",
@@ -23,7 +35,10 @@ app = FastAPI(
 
 register_error_handlers(app)
 
-for module in (company, prices, financials, filings, macro, metrics, scaffold):
+for module in (
+    company, prices, financials, filings, macro, metrics,
+    news, earnings, insider, institutional, scaffold,
+):
     app.include_router(module.router)
 
 

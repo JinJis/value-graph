@@ -12,22 +12,41 @@ are cached (TTL) so repeat calls don't re-hit EDGAR.
 from __future__ import annotations
 
 from datetime import date, datetime
+from xml.etree import ElementTree
 
 from app.cache import cache
 from app.config import settings
-from app.errors import not_found, upstream_error
-from app.http import fetch_json
+from app.errors import not_found, not_implemented, upstream_error
+from app.http import fetch_json, fetch_text
 from app.models.generated import (
     BalanceSheet,
     CashFlowStatement,
     CompanyFacts,
+    EarningsRecord,
+    EarningsTimeDimension,
     Filing,
     FinancialMetricSnapshot,
     IncomeStatement,
+    InsiderTrade,
+    InstitutionalHolding,
     Price,
     PriceSnapshot,
 )
 from app.symbols import SecurityRef
+
+# SEC Form 4 transaction codes -> human-readable description.
+_TXN_CODES = {
+    "P": "Open market purchase",
+    "S": "Open market sale",
+    "A": "Grant or award",
+    "D": "Disposition to issuer",
+    "F": "Payment of exercise/tax by shares",
+    "G": "Gift",
+    "M": "Exercise of derivative",
+    "X": "Exercise of in-the-money derivative",
+    "C": "Conversion of derivative",
+    "J": "Other acquisition or disposition",
+}
 
 _UA = {"User-Agent": settings.sec_edgar_user_agent}
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -491,3 +510,249 @@ def _latest(gaap: dict, concepts: list[str]) -> float | None:
             if end > best_end and row.get("val") is not None:
                 best, best_end = row["val"], end
     return best
+
+
+# --- XML / number helpers (insider + 13F) --------------------------------
+def _num(text: str | None) -> float | None:
+    if text in (None, ""):
+        return None
+    try:
+        return float(str(text).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _local(tag: str) -> str:
+    return tag.split("}")[-1]
+
+
+async def _filing_meta(cik10: str) -> dict[str, tuple[str, str]]:
+    """accession_number -> (filing_date, form) from the submissions 'recent' block."""
+    sub = await _submissions(cik10)
+    recent = (sub.get("filings") or {}).get("recent") or {}
+    accns = recent.get("accessionNumber") or []
+    fdates = recent.get("filingDate") or []
+    forms = recent.get("form") or []
+    return {accns[i]: (fdates[i] if i < len(fdates) else None, forms[i] if i < len(forms) else None) for i in range(len(accns))}
+
+
+class SecEdgarEarningsProvider:
+    """Earnings actuals from XBRL (revenue/EPS/margins by reported period).
+
+    Consensus estimates and surprise fields are intentionally null — there is no
+    free estimates feed; we never fabricate them."""
+
+    async def earnings(self, ref: SecurityRef, limit: int) -> list[EarningsRecord]:
+        cik10 = await _resolve_cik(ref)
+        facts = await _company_facts_raw(cik10)
+        gaap = facts.get("facts", {}).get("us-gaap", {})
+        meta = await _filing_meta(cik10)
+        spine = INCOME_MAP["revenue"] + INCOME_MAP["net_income"]
+        rows = _assemble(gaap, INCOME_MAP, spine, "quarterly", limit, instant=False, cik10=cik10)
+        out: list[EarningsRecord] = []
+        for r in rows:
+            accn = r.get("accession_number")
+            fdate, form = meta.get(accn, (None, None))
+            source = form if form in ("8-K", "10-Q", "10-K", "20-F") else "10-Q"
+            dim = EarningsTimeDimension(
+                revenue=r.get("revenue"),
+                earnings_per_share=r.get("earnings_per_share"),
+                gross_profit=r.get("gross_profit"),
+                operating_income=r.get("operating_income"),
+                net_income=r.get("net_income"),
+                weighted_average_shares=r.get("weighted_average_shares"),
+                weighted_average_shares_diluted=r.get("weighted_average_shares_diluted"),
+            )
+            out.append(
+                EarningsRecord(
+                    ticker=ref.ticker.upper(),
+                    report_period=r["report_period"],
+                    fiscal_period=r.get("fiscal_period"),
+                    currency="USD",
+                    source_type=source,
+                    filing_date=fdate or r["report_period"],
+                    filing_url=r.get("filing_url"),
+                    accession_number=accn or "",
+                    quarterly=dim,
+                )
+            )
+        if not out:
+            raise not_found(f"No earnings data for '{ref.ticker}'.")
+        return out
+
+
+def _parse_form4(xml: str, ticker: str) -> tuple[str | None, str | None, str | None, bool | None, list[dict]]:
+    root = ElementTree.fromstring(xml)
+    issuer = root.findtext("issuer/issuerName")
+    owner = root.findtext("reportingOwner/reportingOwnerId/rptOwnerName")
+    rel = root.find("reportingOwner/reportingOwnerRelationship")
+    is_dir = None
+    title = None
+    if rel is not None:
+        is_dir = rel.findtext("isDirector") in ("1", "true")
+        title = rel.findtext("officerTitle")
+    txns: list[dict] = []
+    for tx in root.findall("nonDerivativeTable/nonDerivativeTransaction"):
+        shares = _num(tx.findtext("transactionAmounts/transactionShares/value"))
+        price = _num(tx.findtext("transactionAmounts/transactionPricePerShare/value"))
+        ad = tx.findtext("transactionAmounts/transactionAcquiredDisposedCode/value")
+        signed = (shares * (-1 if ad == "D" else 1)) if shares is not None else None
+        txns.append(
+            {
+                "code": tx.findtext("transactionCoding/transactionCode"),
+                "date": tx.findtext("transactionDate/value"),
+                "shares": signed,
+                "price": price,
+                "owned_after": _num(tx.findtext("postTransactionAmounts/sharesOwnedFollowingTransaction/value")),
+                "security": tx.findtext("securityTitle/value"),
+            }
+        )
+    return issuer, owner, title, is_dir, txns
+
+
+class SecEdgarInsiderProvider:
+    """Insider transactions parsed from SEC Form 4 XML."""
+
+    async def _xml_name(self, cik10: str, nodash: str, primary: str) -> str:
+        raw = primary.split("/")[-1] if primary else ""
+        if raw.endswith(".xml"):
+            return raw
+        idx = await fetch_json(
+            "sec_edgar", f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/index.json", headers=_UA
+        )
+        for item in (idx.get("directory", {}) or {}).get("item", []):
+            n = item.get("name", "")
+            if n.endswith(".xml") and not n.startswith("xsl"):
+                return n
+        return ""
+
+    async def insider_trades(self, ref: SecurityRef, limit: int) -> list[InsiderTrade]:
+        cik10 = await _resolve_cik(ref)
+        sub = await _submissions(cik10)
+        recent = (sub.get("filings") or {}).get("recent") or {}
+        forms = recent.get("form") or []
+        accns = recent.get("accessionNumber") or []
+        fdates = recent.get("filingDate") or []
+        prim = recent.get("primaryDocument") or []
+        out: list[InsiderTrade] = []
+        for i in range(len(forms)):
+            if forms[i] != "4":
+                continue
+            accn = accns[i]
+            nodash = accn.replace("-", "")
+            name = await self._xml_name(cik10, nodash, prim[i] if i < len(prim) else "")
+            if not name:
+                continue
+            url = f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/{name}"
+            try:
+                xml = await fetch_text("sec_edgar", url, headers=_UA)
+                issuer, owner, title, is_dir, txns = _parse_form4(xml, ref.ticker)
+            except Exception:
+                continue
+            for t in txns:
+                value = t["shares"] * t["price"] if t["shares"] is not None and t["price"] else None
+                out.append(
+                    InsiderTrade(
+                        ticker=ref.ticker.upper(),
+                        issuer=issuer,
+                        name=owner,
+                        title=title,
+                        is_board_director=is_dir,
+                        transaction_date=t["date"],
+                        transaction_shares=t["shares"],
+                        transaction_price_per_share=t["price"],
+                        transaction_value=value,
+                        shares_owned_after_transaction=t["owned_after"],
+                        security_title=t["security"],
+                        transaction_type=_TXN_CODES.get(t["code"], t["code"]),
+                        filing_date=fdates[i] if i < len(fdates) else None,
+                    )
+                )
+            if len(out) >= limit:
+                break
+        if not out:
+            raise not_found(f"No insider Form 4 data for '{ref.ticker}'.")
+        return out[:limit]
+
+
+def _parse_13f(xml: str, report_period: str | None, filing_date: str | None, form: str, accn: str) -> list[InstitutionalHolding]:
+    root = ElementTree.fromstring(xml)
+    out: list[InstitutionalHolding] = []
+    for info in root.iter():
+        if _local(info.tag) != "infoTable":
+            continue
+        d = {_local(c.tag): c for c in info}
+        ssh = None
+        shrs = d.get("shrsOrPrnAmt")
+        if shrs is not None:
+            for c in shrs:
+                if _local(c.tag) == "sshPrnamt":
+                    ssh = _num(c.text)
+        value = _num(d["value"].text) if "value" in d else None
+        put_call = d["putCall"].text if "putCall" in d else None
+        out.append(
+            InstitutionalHolding(
+                ticker=None,
+                name_of_issuer=d["nameOfIssuer"].text if "nameOfIssuer" in d else None,
+                cusip=d["cusip"].text if "cusip" in d else None,
+                report_period=report_period,
+                filing_date=filing_date,
+                form_type=form if form in ("13F-HR", "13F-HR/A") else "13F-HR",
+                accession_number=accn,
+                title_of_class=d["titleOfClass"].text if "titleOfClass" in d else None,
+                put_call=put_call or None,
+                shares=int(ssh) if ssh is not None else None,
+                value_usd=int(value) if value is not None else None,
+            )
+        )
+    return out
+
+
+class SecEdgar13FProvider:
+    """13F holdings parsed from a filer's latest information table (filer_cik mode)."""
+
+    async def _infotable_name(self, cik10: str, nodash: str) -> str:
+        idx = await fetch_json(
+            "sec_edgar", f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/index.json", headers=_UA
+        )
+        xmls = [
+            item.get("name", "")
+            for item in (idx.get("directory", {}) or {}).get("item", [])
+            if item.get("name", "").endswith(".xml")
+        ]
+        for n in xmls:
+            low = n.lower()
+            if "info" in low or "table" in low:
+                return n
+        for n in xmls:
+            if n.lower() != "primary_doc.xml":
+                return n
+        return ""
+
+    async def by_filer(self, filer_cik: str, limit: int) -> list[InstitutionalHolding]:
+        cik10 = _cik10(filer_cik)
+        sub = await _submissions(cik10)
+        recent = (sub.get("filings") or {}).get("recent") or {}
+        forms = recent.get("form") or []
+        accns = recent.get("accessionNumber") or []
+        fdates = recent.get("filingDate") or []
+        rdates = recent.get("reportDate") or []
+        idx = next((i for i, f in enumerate(forms) if f in ("13F-HR", "13F-HR/A")), None)
+        if idx is None:
+            raise not_found(f"No 13F-HR filing for CIK {filer_cik}.")
+        accn = accns[idx]
+        nodash = accn.replace("-", "")
+        name = await self._infotable_name(cik10, nodash)
+        if not name:
+            raise not_found(f"No 13F information table found for CIK {filer_cik}.")
+        url = f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/{name}"
+        xml = await fetch_text("sec_edgar", url, headers=_UA)
+        holdings = _parse_13f(xml, rdates[idx] if idx < len(rdates) else None, fdates[idx] if idx < len(fdates) else None, forms[idx], accn)
+        holdings.sort(key=lambda h: h.value_usd or 0, reverse=True)
+        return holdings[:limit]
+
+    async def by_ticker(self, ref: SecurityRef, limit: int) -> list[InstitutionalHolding]:
+        raise not_implemented(
+            "Ticker-mode 13F (which filers hold a security) requires a reverse CUSIP/holdings "
+            "index that this build does not maintain yet. Use ?filer_cik=... for a filer's holdings."
+        )
