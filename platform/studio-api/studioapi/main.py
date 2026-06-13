@@ -17,12 +17,15 @@ from studioapi.chat import stream_and_persist
 from studioapi.db import SessionLocal, init_db
 from studioapi.deps import current_user, require_service
 from studioapi.models import Conversation, Message, User
+from studioapi.prompts import router as prompts_router
+from studioapi.prompts import seed_community_prompts
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     seed_templates()
+    seed_community_prompts()
     yield
 
 
@@ -76,3 +79,4 @@ async def chat_stream(body: ChatIn, user: User = Depends(current_user)) -> Strea
 
 app.include_router(agents_router)
 app.include_router(connectors_router)
+app.include_router(prompts_router)

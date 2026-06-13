@@ -170,6 +170,18 @@ Users configure agents and run chats through them.
 - Verified: e2e creates an agent restricted to `sec_edgar` and asks a price question — the answer uses an
   SEC tool and **never** reaches `yahoo`, proving the data-source restriction is enforced end-to-end.
 
+### 4.9 Prompt library — `studio-api` + `web`  ✅ (F2)
+Reusable prompts: a personal collection + a seeded community catalog.
+- **`studio-api`**: `prompts` CRUD (`/prompts`, `/prompts/{id}`); `GET /prompts/community` returns the
+  seeded read-only catalog (`user_email = NULL`); `POST /prompts/{id}/import` clones a community prompt
+  into the user's library — **idempotent** (re-import returns the same copy) and records `source_id` for
+  provenance. Personal prompts are per-user scoped; community ones are shared and not editable/deletable.
+- **`web`**: a prompt-library modal with **내 프롬프트 / 커뮤니티** tabs — create/edit/delete personal prompts,
+  import community ones, and **사용** drops the prompt body straight into the composer. BFF routes
+  `/api/prompts` (+ `[id]`, `[id]/import`, `community`).
+- Verified: e2e lists the community catalog, imports one prompt, and asserts an editable copy with its
+  `source_id` appears in the personal library.
+
 ### 4.5 Keystone — the Connector Manifest
 A machine-readable descriptor per connector (`platform/datasets/app/connectors/`). One artifact drives:
 REST docs · **MCP tool generation** · RAG source registration · entitlements (activation) · metering
@@ -208,10 +220,10 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
 | mcp | 9 | tool generation (incl. `rag__search`), call success, unentitled 403, GET params/POST body, key-header omission, import |
 | rag | 14 | chunking, hash embedder, ingest→search+provenance, market/ticker filter, top_k, relevance ranking, reranker, factory |
 | agent-engine | 21 | guardrails, tool-use+citations, forecast refusal, rag routing, **connector-level filter**, **per-agent backend**, **system passthrough**, chat stream |
-| studio-api | 19 | service-token guard, provisioning resilience, conversation scoping/continuity, **agents CRUD + templates**, **connectors proxy**, **chat-with-agent spec** |
-| web | build | Next.js typechecks + builds (Auth.js, chat UI, **agent picker/builder**, BFF) |
-| **unit total** | **138** | (+ web build) |
-| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → studio-api chat → **agent builder restricting a chat to a data-source subset** |
+| studio-api | 24 | service-token guard, provisioning resilience, conversation scoping, agents CRUD + templates, connectors proxy, chat-with-agent spec, **prompts CRUD + community import** |
+| web | build | Next.js typechecks + builds (Auth.js, chat UI, **agent builder**, **prompt library**, BFF) |
+| **unit total** | **143** | (+ web build) |
+| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → studio-api chat → agent builder (data-source subset) → **prompt-library community import** |
 
 ---
 

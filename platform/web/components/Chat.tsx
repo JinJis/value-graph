@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
+import PromptLibrary from "./PromptLibrary";
 
 type Citation = { tool?: string; source?: string; url?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: { name: string }[]; citations?: Citation[] };
@@ -24,6 +25,8 @@ export default function Chat({ name }: { name: string }) {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [agentId, setAgentId] = useState<string>(""); // "" = default agent
   const [builder, setBuilder] = useState<{ open: boolean; base: Agent | null }>({ open: false, base: null });
+  const [library, setLibrary] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function loadAgents() {
     try {
@@ -126,6 +129,7 @@ export default function Chat({ name }: { name: string }) {
             title={selected ? "선택한 에이전트 편집/복제" : "새 에이전트 만들기"}>
             {selected ? (selected.editable ? "편집" : "복제") : "＋ 에이전트"}
           </button>
+          <button className="btn ghost sm" onClick={() => setLibrary(true)} title="프롬프트 라이브러리">프롬프트</button>
         </div>
         <div className="who">{name} · <a href="/api/auth/signout">로그아웃</a></div>
       </header>
@@ -165,7 +169,7 @@ export default function Chat({ name }: { name: string }) {
 
       <footer className="composer">
         <form onSubmit={(e) => { e.preventDefault(); send(input); }}>
-          <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="메시지를 입력하세요…" disabled={busy} />
+          <input ref={inputRef} className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="메시지를 입력하세요…" disabled={busy} />
           <button className="btn" disabled={busy || !input.trim()}>보내기</button>
         </form>
         <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
@@ -177,6 +181,17 @@ export default function Chat({ name }: { name: string }) {
           connectors={connectors}
           onClose={() => setBuilder({ open: false, base: null })}
           onSaved={onSaved}
+        />
+      )}
+
+      {library && (
+        <PromptLibrary
+          onClose={() => setLibrary(false)}
+          onUse={(body) => {
+            setInput(body);
+            setLibrary(false);
+            setTimeout(() => inputRef.current?.focus(), 0);
+          }}
         />
       )}
     </div>

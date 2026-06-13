@@ -21,8 +21,8 @@ builders develop against a defined interface or via natural language.
 | MCP server (tools from catalog) | `mcp/` | ✅ P2 | 9 |
 | RAG (pluggable CPU-OSS / GCP / GPU; routed via gateway + MCP) | `rag/` | ✅ P3 | 14 |
 | Agent Engine (tools + RAG via gateway, guardrails, citations, streaming chat) | `agent-engine/` | ✅ P4 | 21 |
-| Studio API (provisioning, conversations, chat BFF, **agent builder**) | `studio-api/` | ✅ | 19 |
-| Web — chat UI + **agent picker/builder** (Next.js + Auth.js Google) | `web/` | ✅ F1 | build |
+| Studio API (provisioning, conversations, chat BFF, **agent builder**, **prompt library**) | `studio-api/` | ✅ | 24 |
+| Web — chat UI + **agent builder** + **prompt library** (Next.js + Auth.js Google) | `web/` | ✅ F1·F2 | build |
 | **End-to-end** (full stack via compose, incl. chat) | `scripts/e2e.sh` | ✅ | — |
 
 ## Layout
@@ -41,8 +41,9 @@ platform/
   agent-engine/    # ✅ AGENT ENGINE — run/stream agents over activated connectors + RAG via the gateway;
                    #    guardrails (no advice/forecasting) + provenance citations; stub|gemini planner (P4)
   studio-api/      # ✅ STUDIO API — Google user→tenant provisioning, conversations, chat BFF (holds the key)
-  web/             # ✅ WEB — chat UI (Next.js + Auth.js); tools & sources panel + agent picker/builder (F1)
-  # next phases: prompt library + community (F2) · Telegram/Slack messengers (F3)
+  web/             # ✅ WEB — chat UI (Next.js + Auth.js); tools & sources panel + agent builder (F1)
+                   #    + prompt library / community import (F2)
+  # next phase: Telegram/Slack messengers (F3)
 ```
 
 ## Principles
@@ -97,9 +98,9 @@ cd web           && npm install && npm run build              # Web UI (:3000)
 bash scripts/e2e.sh                                           # full-stack e2e via docker compose
 ```
 
-All **138 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises the whole chain (catalog
+All **143 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises the whole chain (catalog
 → tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → **studio-api chat** →
-**agent builder** restricting a chat to a data-source subset).
+**agent builder** restricting a chat to a data-source subset → **prompt library** community import).
 
 ## The product (chat UI)
 

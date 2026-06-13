@@ -3,8 +3,8 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 138 unit** — datasets 63 · control-plane 12 · mcp 9 · rag 14 ·
-> agent-engine 21 · studio-api 19 — plus the web build and the full-stack `scripts/e2e.sh`.
+> **Test totals (current): 143 unit** — datasets 63 · control-plane 12 · mcp 9 · rag 14 ·
+> agent-engine 21 · studio-api 24 — plus the web build and the full-stack `scripts/e2e.sh`.
 > (The per-milestone counts below are historical, as of when each phase landed.)
 
 ---
@@ -60,8 +60,17 @@ Users create/configure agents and pick from provided templates; a chat runs thro
   checkboxes); BFF routes `/api/agents`, `/api/agents/[id]`, `/api/connectors`; chat sends `agent_id`
 - ✅ e2e: a custom agent restricted to `sec_edgar` answers a price question **without** reaching `yahoo`
 
-### Product layer — next phases  ⬜ (F2–F3)
-- ⬜ **F2 Prompts + community:** personal prompt library + seeded community catalog with import. (`prompts`)
+### Product layer — prompt library  ✅ (F2)
+A personal prompt collection + a seeded community catalog users import from.
+- ✅ `studio-api`: `prompts` CRUD (`/prompts`, `/prompts/{id}`) + 5 seeded community prompts
+  (`/prompts/community`, read-only); `POST /prompts/{id}/import` clones a community prompt into the user's
+  library (idempotent, records `source_id`). Per-user scoped; community rows are `user_email = NULL`.
+- ✅ `web`: prompt library modal (내 프롬프트 / 커뮤니티 tabs) — create/edit/delete personal prompts,
+  import community ones, **사용** drops the prompt body into the composer. BFF routes `/api/prompts`
+  (+`[id]`, +`[id]/import`, +`community`).
+- ✅ e2e: list community prompts → import one → assert an editable copy (with `source_id`) lands in the library
+
+### Product layer — next phase  ⬜ (F3)
 - ⬜ **F3 Messengers:** Telegram/Slack connect → inbound webhook runs an agent → reply. (`integrations`)
 
 ### Platform hardening

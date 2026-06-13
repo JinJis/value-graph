@@ -67,12 +67,19 @@ class Agent(Base):
 
 
 class Prompt(Base):
+    """A reusable prompt. ``community`` rows (``user_email is None``) are the
+    seeded public catalog; a user imports one to get an editable personal copy
+    (``source_id`` records where it came from)."""
+
     __tablename__ = "prompts"
     id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("prm"))
-    user_email: Mapped[str | None] = mapped_column(nullable=True)  # null = community
+    user_email: Mapped[str | None] = mapped_column(index=True, nullable=True)  # null = community
     title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(String(280), nullable=True)
     body: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(48), nullable=True)
     community: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_id: Mapped[str | None] = mapped_column(String(48), nullable=True)  # imported-from community id
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

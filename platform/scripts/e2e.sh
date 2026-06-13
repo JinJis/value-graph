@@ -118,6 +118,16 @@ SCA=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/chat/stream \
 has "agent-scoped chat uses the allowed SEC source" "$SCA" 'sec_edgar__'
 printf '%s' "$SCA" | grep -q 'yahoo__prices' && fail "restricted agent leaked yahoo__prices" || ok "restricted agent blocked yahoo__prices"
 
+echo "== F2: prompt library (community catalog + import) =="
+COMM=$(curl -s "${SH[@]}" $SA/prompts/community)
+has "studio seeds community prompts" "$COMM" 'cpr_earnings'
+# personal library starts without the community prompt; import puts an editable copy there
+PID=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/prompts/cpr_earnings/import | jget '["id"]')
+[ -n "$PID" ] && ok "imported community prompt ($PID)" || fail "prompt import"
+MINE=$(curl -s "${SH[@]}" $SA/prompts)
+has "imported prompt lands in personal library" "$MINE" "$PID"
+has "imported copy records its source" "$MINE" 'cpr_earnings'
+
 echo "== teardown =="
 docker compose down -v >/dev/null 2>&1
 
