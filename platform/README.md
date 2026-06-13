@@ -42,13 +42,26 @@ tenancy, catalog-driven entitlements, metering, audit, rate-limit, and a gateway
 plane. Next: **P2** MCP server → **P3** RAG → **P4** Agent Engine, with the **value-chain agent** as the
 flagship template.
 
-Run the two together:
+## Run the whole stack (one command)
+
+A single `docker compose` brings up the data plane + control plane, both reading **one shared
+`platform/.env`** (copy from `.env.example`):
+
 ```bash
-# data plane
-(cd datasets && uv run uvicorn app.main:app --port 8000) &
-# control plane in front of it
-(cd control-plane && DATASETS_URL=http://127.0.0.1:8000 uv run uvicorn controlplane.main:app --port 8001) &
+cd platform
+cp .env.example .env          # fill in free keys (OPENDART/ECOS/FRED)
+docker compose up --build     # datasets on :8000, control-plane gateway on :8010
+docker compose down
 ```
+
+Then drive it through the gateway (control-plane on host `:8010`):
+```bash
+A='-H X-Admin-Token:dev-admin-token'
+PRJ=...   # POST /admin/tenants -> /projects -> /keys -> /activations (connector_id)
+curl -H "X-API-KEY: vgk_..." "http://127.0.0.1:8010/company/facts?ticker=AAPL&market=US"
+```
+
+Local (no docker): run each with `uv run uvicorn ...`; both still read the shared `../.env`.
 
 ## Run the data plane
 

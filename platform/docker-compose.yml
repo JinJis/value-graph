@@ -1,0 +1,50 @@
+# Whole platform, one command:  docker compose up --build
+# Reads a single shared ./platform/.env (copy from .env.example) for every service.
+name: valuegraph-platform
+
+services:
+  datasets:
+    build: ./datasets
+    image: valuegraph-datasets:latest
+    env_file: [.env]
+    environment:
+      DATABASE_URL: "sqlite:////data/datasets.db"
+    volumes:
+      - datasets_data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  control-plane:
+    build: ./control-plane
+    image: valuegraph-control-plane:latest
+    env_file: [.env]
+    environment:
+      # In the compose network the data plane is reachable by service name.
+      DATASETS_URL: "http://datasets:8000"
+      DATABASE_URL: "sqlite:////data/controlplane.db"
+    volumes:
+      - controlplane_data:/data
+    ports:
+      # host 8010 -> container 8001 (host 8001 is often taken)
+      - "8010:8001"
+    depends_on:
+      datasets:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  datasets_data: {}
+  controlplane_data: {}
