@@ -19,8 +19,9 @@ platform/
                    #    · metering · audit · rate-limit · gateway in front of the data plane (P1)
   mcp/             # ✅ MCP SERVER — tenant-scoped tools auto-derived from the catalog, routed through
                    #    the gateway with the tenant key (entitlement + metering enforced) (P2)
+  rag/             # ✅ RAG SERVICE — provenance-first chunk→embed→store→retrieve→rerank, with
+                   #    pluggable backends (CPU-OSS / GCP-Vertex / GPU) selected by .env (P3)
   # planned, built on top of datasets/:
-  # rag/           # document ingestion + Gemini embeddings + pgvector retrieval (provenance-first)
   # agent-engine/  # build & run agents (SDK + natural language) over activated sources
   # value-chain/   # flagship: a user-cloneable supplier→customer value-chain agent
 ```
@@ -38,10 +39,11 @@ platform/
 
 ## Roadmap
 
-`datasets/` (data plane) + **P0** catalog, **P1** control plane (`control-plane/`), and **P2** MCP server
-(`mcp/`) are built — tenancy, catalog-driven entitlements, metering, audit, rate-limit, a gateway, and
-MCP tools auto-derived from the catalog and routed through the gateway. Next: **P3** RAG → **P4** Agent
-Engine, with the **value-chain agent** as the flagship template.
+`datasets/` (data plane) + **P0** catalog, **P1** control plane (`control-plane/`), **P2** MCP server
+(`mcp/`), and **P3** RAG (`rag/`) are built — tenancy, catalog-driven entitlements, metering, audit,
+rate-limit, a gateway, MCP tools auto-derived from the catalog, and provenance-first retrieval with
+CPU-OSS / GCP / GPU backends switchable by `.env`. Next: **P4** Agent Engine, with the **value-chain
+agent** as the flagship template.
 
 ## Run the whole stack (one command)
 

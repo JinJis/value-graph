@@ -1,0 +1,36 @@
+[project]
+name = "valuegraph-rag"
+version = "0.1.0"
+description = "Provenance-first RAG service with pluggable embedding/reranker/store backends (CPU-OSS / GCP / GPU)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# CPU/GPU open-source embeddings + rerankers via ONNX (light, no torch)
+oss = ["fastembed>=0.3"]
+# heavier OSS (torch) — typically the GPU instance path
+st = ["sentence-transformers>=3.0"]
+# Google Cloud: Vertex AI embeddings (gemini-embedding-001) + Ranking API
+gcp = ["google-cloud-aiplatform>=1.60", "google-cloud-discoveryengine>=0.13"]
+# pgvector store
+pg = ["psycopg[binary]>=3.1", "pgvector>=0.3"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rag"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
