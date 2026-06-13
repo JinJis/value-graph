@@ -69,8 +69,8 @@ A single `docker compose` brings up the data plane + control plane, both reading
 
 ```bash
 cd platform
-cp .env.example .env          # fill in free keys (OPENDART/ECOS/FRED)
-docker compose up --build     # datasets on :8000, control-plane gateway on :8010
+cp .env.example .env          # fill in free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true for local login
+docker compose up --build     # whole stack: datasets :8000 · gateway :8010 · web UI :3000
 docker compose down
 ```
 
@@ -107,7 +107,7 @@ All **143 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises
 ```bash
 cd platform
 cp .env.example .env                       # AUTH_DEV_LOGIN=true for local login without Google
-docker compose --profile ui up --build     # backend + web on :3000
+docker compose up --build                  # whole stack incl. web on :3000
 # open http://localhost:3000 — ask "삼성전자 최근 실적"; the agent answers with sources.
 ```
 The browser never holds a platform key: web BFF (Auth.js session) → studio-api (holds the tenant key) →

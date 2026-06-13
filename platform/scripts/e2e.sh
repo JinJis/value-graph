@@ -23,7 +23,10 @@ echo "== bring up stack (build) =="
 # Start from a clean slate: drop volumes so SQLite schemas match the current models
 # (create_all does not ALTER existing tables when columns are added).
 docker compose down -v >/dev/null 2>&1 || true
-docker compose up --build -d || { echo "compose up failed"; exit 1; }
+# Backend services only (web is in the default stack but not exercised here, so we
+# name the services to skip its build and keep the e2e fast).
+docker compose up --build -d datasets rag control-plane agent-engine studio-api \
+  || { echo "compose up failed"; exit 1; }
 for _ in $(seq 1 40); do
   st=$(docker inspect --format '{{.State.Health.Status}}' valuegraph-platform-control-plane-1 2>/dev/null || echo none)
   [ "$st" = healthy ] && break; sleep 2

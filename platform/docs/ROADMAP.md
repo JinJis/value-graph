@@ -47,7 +47,7 @@ with sources. **Value-chain flagship was dropped.**
 - ✅ `studio-api`: Google user→tenant provisioning + default activations (via control-plane admin),
   conversations, chat BFF that holds the tenant key server-side
 - ✅ `web` (Next.js + Auth.js Google, dev-login fallback): streaming chat with a tools & sources panel
-- ✅ In unified compose (web under `ui` profile); e2e covers the full chat chain
+- ✅ In the unified compose default stack (`docker compose up` serves web on :3000); e2e covers the full chat chain
 
 ### Product layer — agent builder  ✅ (F1)
 Users create/configure agents and pick from provided templates; a chat runs through the chosen agent.

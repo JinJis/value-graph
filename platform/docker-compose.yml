@@ -106,12 +106,11 @@ services:
       retries: 3
       start_period: 10s
 
-  # The web UI is under the `ui` profile — `docker compose --profile ui up` to include it
-  # (kept out of the default/e2e bring-up so the backend stack stays fast).
+  # Web UI — part of the default stack: `docker compose up` serves it on :3000.
+  # (The e2e script brings up only the backend services by name, so it stays fast.)
   web:
     build: ./web
     image: valuegraph-web:latest
-    profiles: ["ui"]
     env_file: [.env]
     environment:
       STUDIO_API_URL: "http://studio-api:8004"
