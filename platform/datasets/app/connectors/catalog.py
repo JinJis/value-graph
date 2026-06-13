@@ -189,6 +189,29 @@ CONNECTORS: list[ConnectorManifest] = [
                      params=[], provenance=Provenance(source="ingestion store (SEC/DART)", as_of_field="report_period", freshness=Freshness.periodic)),
         ],
     ),
+    ConnectorManifest(
+        id="rag", name="Document RAG (filings/news)", domain="retrieval",
+        description="Semantic search over ingested filings/news/transcripts; returns passages with provenance.",
+        markets=["US", "KR"],
+        service="rag",  # served by the RAG service, not the data plane
+        upstream=UpstreamCredential(requires_key=False),
+        license=License(
+            id="rag-derived", redistribution=False, attribution_required=True,
+            note="Passages may include copyrighted source text — cite + link, minimal quoting.",
+        ),
+        resources=[
+            Resource(
+                name="search", description="Retrieve relevant passages with provenance (source, as_of, url).",
+                method="POST", path="/rag/search", cost_tier=CostTier.low, markets=["US", "KR"],
+                params=[
+                    ResourceParam(name="query", required=True, description="Natural-language query."),
+                    ResourceParam(name="top_k", type="integer", description="Max passages."),
+                    P_TICKER, P_MARKET,
+                ],
+                provenance=Provenance(source="Platform RAG (filings/news)", freshness=Freshness.periodic),
+            ),
+        ],
+    ),
 ]
 
 
@@ -200,5 +223,7 @@ def get_connector(connector_id: str) -> ConnectorManifest | None:
     return next((c for c in CONNECTORS if c.id == connector_id), None)
 
 
-def all_resource_paths() -> set[tuple[str, str]]:
-    return {(r.method.upper(), r.path) for c in CONNECTORS for r in c.resources}
+def all_resource_paths(service: str = "datasets") -> set[tuple[str, str]]:
+    """(method, path) pairs for connectors served by `service` (default the data plane).
+    Other services (e.g. 'rag') are served elsewhere, so their paths are not data-plane routes."""
+    return {(r.method.upper(), r.path) for c in CONNECTORS if c.service == service for r in c.resources}

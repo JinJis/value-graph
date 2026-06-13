@@ -20,7 +20,9 @@
 - ✅ **P1** Control plane: tenancy, scoped keys, activation/entitlements, gateway, metering, audit, rate-limit (6 tests)
 - ✅ **P2** MCP server: tools auto-derived from catalog, routed through gateway w/ tenant key (4 tests)
 - ✅ **P3** RAG: provenance-first retrieval; pluggable CPU-OSS / GCP / GPU backends via `.env` (6 tests)
-- ✅ Unified `docker compose` (data plane + control plane) + single shared `platform/.env`
+- ✅ Unified `docker compose` (data plane + control plane + **rag**) + single shared `platform/.env`
+- ✅ RAG integrated into gateway + MCP (`rag__search` tool); full-stack `scripts/e2e.sh`
+- ✅ 86 unit tests + e2e
 
 ---
 
@@ -43,7 +45,8 @@ Rebuilt platform-native; a user-cloneable agent template (see the value-chain DE
 - ⬜ VC4 (optional) minimal viz; disclosure-calendar refresh
 
 ### Platform hardening
-- ⬜ Wire **RAG into the gateway + MCP** as a `search` tool (currently RAG is standalone)
+- ✅ Wire **RAG into the gateway + MCP** as a `search` tool — `rag` connector (`service: rag`) in the
+  catalog; gateway routes `/rag/search`; MCP auto-exposes `rag__search`. Full-stack `scripts/e2e.sh`.
 - ⬜ **Governance/licensing enforcement**: redistribution rules, BYO-key fallback for restricted feeds, legal review
 - ⬜ RAG ingestion pipeline: pull filing text (`/filings/items`) + news → chunk → embed → index (per tenant)
 - ⬜ Productionization (#23): Postgres + Redis (cache, rate-limit, quota), CI running all tests, slim images, observability

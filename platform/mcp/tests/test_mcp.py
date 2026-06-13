@@ -75,3 +75,32 @@ def test_server_module_imports():
     import mcpserver.server as srv
 
     assert srv.server is not None
+
+
+def test_build_tools_includes_rag_search():
+    cat = CATALOG + [{
+        "id": "rag", "license": {"id": "rag-derived", "redistribution": False},
+        "resources": [{
+            "name": "search", "description": "semantic search", "method": "POST", "path": "/rag/search",
+            "markets": ["US", "KR"],
+            "params": [{"name": "query", "required": True}, {"name": "top_k", "type": "integer"}],
+            "provenance": {"source": "Platform RAG"},
+        }],
+    }]
+    idx = tool_index(build_tools(cat))
+    assert "rag__search" in idx
+    t = idx["rag__search"]
+    assert t["_method"] == "POST" and t["_path"] == "/rag/search"
+    assert "query" in t["inputSchema"]["required"]
+
+
+@respx.mock
+async def test_call_tool_post_sends_json_body(monkeypatch):
+    monkeypatch.setattr(T.settings, "gateway_url", "http://gw.test")
+    monkeypatch.setattr(T.settings, "api_key", "vgk_k")
+    route = respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": []})
+    )
+    res = await T.call_tool({"_method": "POST", "_path": "/rag/search", "name": "rag__search"}, {"query": "apple"})
+    assert res["status"] == 200 and route.called
+    assert b"apple" in route.calls.last.request.read()

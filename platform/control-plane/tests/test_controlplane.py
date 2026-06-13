@@ -104,3 +104,35 @@ def test_gateway_rate_limit(monkeypatch):
 
 def test_admin_requires_token():
     assert client.post("/admin/tenants", json={"name": "x"}).status_code == 401
+
+
+@respx.mock
+def test_gateway_routes_rag_to_rag_service(monkeypatch):
+    from controlplane.config import settings as cp_settings
+
+    cp_settings.rag_url = "http://rag.test"
+    catalog_index.set_catalog(CATALOG + [
+        {"id": "rag", "service": "rag", "resources": [
+            {"method": "POST", "path": "/rag/search", "markets": ["US", "KR"], "cost_tier": "low"}]}
+    ])
+    respx.route(method="POST", url__regex=r"http://rag\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "x", "provenance": {"source": "SEC EDGAR"}}]})
+    )
+    pid, key = _make_project("RagTenant")
+    H = {"X-API-KEY": key}
+    assert client.post("/rag/search", json={"query": "q"}, headers=H).status_code == 403  # rag not activated
+    client.post(f"/admin/projects/{pid}/activations", json={"connector_id": "rag"}, headers=ADMIN)
+    r = client.post("/rag/search", json={"query": "q"}, headers=H)
+    assert r.status_code == 200 and r.headers.get("x-connector") == "rag"
+    assert r.json()["hits"][0]["provenance"]["source"] == "SEC EDGAR"
+
+
+def test_catalog_index_carries_service():
+    catalog_index.set_catalog([
+        {"id": "rag", "service": "rag", "resources": [{"method": "POST", "path": "/rag/search", "markets": [], "cost_tier": "low"}]},
+        {"id": "yahoo", "resources": [{"method": "GET", "path": "/prices", "markets": ["US"], "cost_tier": "free"}]},
+    ])
+    rag = catalog_index.candidate_connectors("POST", "/rag/search", "US")
+    assert rag and rag[0]["service"] == "rag"
+    yh = catalog_index.candidate_connectors("GET", "/prices", "US")
+    assert yh and yh[0]["service"] == "datasets"  # default

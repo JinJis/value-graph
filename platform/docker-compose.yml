@@ -26,8 +26,9 @@ services:
     image: valuegraph-control-plane:latest
     env_file: [.env]
     environment:
-      # In the compose network the data plane is reachable by service name.
+      # In the compose network backend services are reachable by name.
       DATASETS_URL: "http://datasets:8000"
+      RAG_URL: "http://rag:8002"
       DATABASE_URL: "sqlite:////data/controlplane.db"
     volumes:
       - controlplane_data:/data
@@ -37,9 +38,25 @@ services:
     depends_on:
       datasets:
         condition: service_healthy
+      rag:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  rag:
+    build: ./rag
+    image: valuegraph-rag:latest
+    env_file: [.env]
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8002/health').status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3

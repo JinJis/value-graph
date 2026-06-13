@@ -22,10 +22,16 @@ def set_catalog(connectors: list[dict]) -> None:
     index: dict[tuple[str, str], list[dict]] = {}
     for connector in connectors:
         cid = connector["id"]
+        service = connector.get("service", "datasets")
         for resource in connector.get("resources", []):
             key = (resource.get("method", "GET").upper(), resource["path"])
             index.setdefault(key, []).append(
-                {"connector_id": cid, "markets": resource.get("markets", []), "cost_tier": resource.get("cost_tier", "low")}
+                {
+                    "connector_id": cid,
+                    "markets": resource.get("markets", []),
+                    "cost_tier": resource.get("cost_tier", "low"),
+                    "service": service,
+                }
             )
     global _INDEX
     _INDEX = index

@@ -15,11 +15,12 @@ builders develop against a defined interface or via natural language.
 
 | Component | Path | Status | Tests |
 |---|---|---|---|
-| Data plane (US+KR financial API) | `datasets/` | ✅ | 62 |
+| Data plane (US+KR financial API) | `datasets/` | ✅ | 63 |
 | Connector catalog/manifests (P0) | `datasets/app/connectors/` | ✅ | — |
-| Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 6 |
-| MCP server (tools from catalog) | `mcp/` | ✅ P2 | 4 |
-| RAG (pluggable CPU-OSS / GCP / GPU) | `rag/` | ✅ P3 | 6 |
+| Control plane (tenancy, entitlements, gateway, metering) | `control-plane/` | ✅ P1 | 8 |
+| MCP server (tools from catalog) | `mcp/` | ✅ P2 | 6 |
+| RAG (pluggable CPU-OSS / GCP / GPU; routed via gateway + MCP) | `rag/` | ✅ P3 | 9 |
+| **End-to-end** (full stack via compose) | `scripts/e2e.sh` | ✅ | — |
 | Agent Engine | `agent-engine/` | ⬜ P4 | — |
 | Value-chain flagship | `value-chain/` | ⬜ | — |
 
@@ -87,6 +88,8 @@ cd datasets      && uv sync --extra dev && uv run pytest -q   # data plane (:800
 cd control-plane && uv sync --extra dev && uv run pytest -q   # gateway (:8001/:8010)
 cd mcp           && uv sync --extra dev && uv run pytest -q   # MCP server (stdio)
 cd rag           && uv sync --extra dev && uv run pytest -q   # RAG (:8002); flip backend in .env
+bash scripts/e2e.sh                                           # full-stack e2e via docker compose
 ```
 
-All 78 tests pass. See each service's `README.md` for run/config details.
+All **86 unit tests** pass; `scripts/e2e.sh` exercises the whole chain (catalog → tenant → entitlement
+→ data plane + RAG via gateway → metering → MCP) on the composed stack. See each service's `README.md`.

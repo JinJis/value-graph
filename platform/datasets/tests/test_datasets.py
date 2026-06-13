@@ -721,3 +721,16 @@ def test_catalog_restricted_license_flagged():
     assert get_connector("yahoo").license.redistribution is False
     assert get_connector("google_news").license.redistribution is False
     assert get_connector("sec_edgar").license.redistribution is True
+
+
+# --- RAG connector in the catalog (routed to the rag service) -------------
+def test_catalog_has_rag_connector_routed_to_rag_service():
+    from app.connectors.catalog import all_resource_paths, get_connector
+
+    rag = get_connector("rag")
+    assert rag is not None and rag.service == "rag"
+    assert any(r.path == "/rag/search" and r.method == "POST" for r in rag.resources)
+    # rag paths are served elsewhere, so excluded from the data-plane integrity set
+    assert ("POST", "/rag/search") not in all_resource_paths()
+    assert ("POST", "/rag/search") in all_resource_paths(service="rag")
+    assert rag.license.redistribution is False

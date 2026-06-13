@@ -85,6 +85,8 @@ class ConnectorManifest(BaseModel):
     domain: str = Field(..., description="Primary domain, e.g. 'us-fundamentals', 'prices', 'macro'.")
     description: str
     markets: list[str]
+    # Which backend service serves this connector's resources — the gateway proxies accordingly.
+    service: str = Field("datasets", description="Backing service: 'datasets' (data plane) or 'rag'.")
     upstream: UpstreamCredential
     license: License
     resources: list[Resource]

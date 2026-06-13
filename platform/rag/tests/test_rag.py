@@ -81,3 +81,28 @@ def test_endpoints():
     assert ing.json()["chunks"] >= 1
     res = client.post("/rag/search", json={"query": "Apple TSMC supplier chips", "top_k": 3}).json()
     assert res["hits"] and res["hits"][0]["provenance"]["ticker"] == "AAPL"
+
+
+async def test_reranker_none_passthrough():
+    from rag.rerank import NoneReranker
+
+    out = await NoneReranker().rerank("q", ["a", "b", "c"], 2)
+    assert out == [(0, 0.0), (1, 0.0)]
+
+
+def test_embedder_factory_unknown_raises(monkeypatch):
+    import pytest
+
+    from rag import embeddings
+    from rag.config import settings as s
+
+    embeddings.get_embedder.cache_clear()
+    monkeypatch.setattr(s, "embedding_backend", "nope")
+    with pytest.raises(ValueError):
+        embeddings.get_embedder()
+    embeddings.get_embedder.cache_clear()
+
+
+def test_info_endpoint_reflects_backends():
+    j = client.get("/rag/info").json()
+    assert j["embedding_backend"] == "hash" and j["vector_store"] == "memory" and j["reranker_backend"] == "none"

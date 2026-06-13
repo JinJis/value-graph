@@ -118,7 +118,11 @@ Provenance-first retrieval: **chunk → embed → vector store → retrieve → 
 - **Endpoints:** `/rag/ingest`, `/rag/search` (hits + provenance), `/rag/info`.
 - **Component approach** (we keep chunking + provenance) chosen over managed Vertex Search / RAG Engine,
   so the trust envelope stays uniform across structured + unstructured data.
-- **6 tests** on the dependency-free default. Verified live: real `oss-cpu` fastembed semantic search.
+- **Integrated into the platform:** a `rag` connector (manifest `service: "rag"`) is in the catalog →
+  the gateway routes `/rag/search` to the rag service (entitled like any connector) and the **MCP server
+  auto-exposes `rag__search`**. So agents get retrieval as a tenant-scoped, metered tool.
+- **9 tests** on the dependency-free default. Verified live: real `oss-cpu` fastembed semantic search,
+  and `/rag/search` through the gateway + MCP in the e2e run.
 
 ### 4.5 Keystone — the Connector Manifest
 A machine-readable descriptor per connector (`platform/datasets/app/connectors/`). One artifact drives:
@@ -153,11 +157,12 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
 
 | Service | Tests | Notes |
 |---|---|---|
-| datasets (data plane) | 62 | mapping, XBRL/DART parsers, TTM, screener, scheduler, catalog integrity |
-| control-plane | 6 | auth, entitlement resolver, rate-limit, gateway 401/403/200+metering/429 |
-| mcp | 4 | tool generation, call success, unentitled 403, import |
-| rag | 6 | chunking, hash embedder, ingest→search+provenance, market filter, endpoints |
-| **total** | **78** | + live two-/three-service flows verified end-to-end |
+| datasets (data plane) | 63 | mapping, XBRL/DART parsers, TTM, screener, scheduler, catalog integrity, rag connector |
+| control-plane | 8 | auth, entitlement resolver, rate-limit, gateway 401/403/200+metering/429, **rag routing by service** |
+| mcp | 6 | tool generation (incl. `rag__search`), call success, unentitled 403, POST body, import |
+| rag | 9 | chunking, hash embedder, ingest→search+provenance, market filter, reranker, factory, endpoints |
+| **unit total** | **86** | |
+| **e2e** (`scripts/e2e.sh`) | — | full stack via compose: catalog → tenant → entitlement → data plane + RAG via gateway → metering → MCP |
 
 ---
 

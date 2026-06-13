@@ -11,8 +11,9 @@ class Settings(BaseSettings):
 
     # Control-plane store (tenants, keys, activations, usage, audit).
     database_url: str = "sqlite:///./controlplane.db"
-    # The data plane this gateway fronts.
+    # The backend services this gateway fronts (chosen per connector via its manifest `service`).
     datasets_url: str = "http://127.0.0.1:8000"
+    rag_url: str = "http://127.0.0.1:8002"
     redis_url: str = ""
     # Guards the /admin management endpoints (X-Admin-Token header).
     admin_token: str = "dev-admin-token"
