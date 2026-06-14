@@ -57,26 +57,30 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     if spec and spec.allowed_tools:
         tools = filter_tools(tools, spec.allowed_tools)
 
-    planner = get_planner(spec.backend if spec else None)
     history: list = []
     steps: list[Step] = []
     citations: list[Citation] = []
     answer = ""
-    for _ in range(max_steps):
-        decision = await planner.plan(task, tools, history, system)
-        if decision.final is not None:
-            answer = decision.final
-            break
-        tool = tools.get(decision.tool)
-        if tool is None:
-            answer = f"Planner selected an unavailable tool '{decision.tool}'."
-            break
-        result = await client.call_tool(tool, decision.args or {})
-        steps.append(Step(tool=decision.tool, args=decision.args or {}, status=result["status"]))
-        citations.extend(_citations(tool, result))
-        history.append((decision, result))
-    if not answer:
-        final = await planner.plan(task, tools, history, system)
-        answer = final.final or "Reached the step limit without a final answer."
+    try:
+        planner = get_planner(spec.backend if spec else None)
+        for _ in range(max_steps):
+            decision = await planner.plan(task, tools, history, system)
+            if decision.final is not None:
+                answer = decision.final
+                break
+            tool = tools.get(decision.tool)
+            if tool is None:
+                answer = f"Planner selected an unavailable tool '{decision.tool}'."
+                break
+            result = await client.call_tool(tool, decision.args or {})
+            steps.append(Step(tool=decision.tool, args=decision.args or {}, status=result["status"]))
+            citations.extend(_citations(tool, result))
+            history.append((decision, result))
+        if not answer:
+            final = await planner.plan(task, tools, history, system)
+            answer = final.final or "Reached the step limit without a final answer."
+    except Exception:
+        # Honest degrade on a planner/LLM error rather than a 500.
+        answer = answer or "답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요."
 
     return RunResult(answer=answer, steps=steps, citations=citations, usage={"steps": len(steps)})

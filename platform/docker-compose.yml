@@ -68,6 +68,11 @@ services:
     env_file: [.env]
     environment:
       AGENT_GATEWAY_URL: "http://control-plane:8001"
+      # Planner backend + model + key — overridable from the shell (falls back to
+      # .env, then to the stub planner). Lets `scripts/e2e_live.sh` flip to Gemini.
+      AGENT_LLM_BACKEND: "${AGENT_LLM_BACKEND:-stub}"
+      AGENT_MODEL: "${AGENT_MODEL:-gemini-2.0-flash}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
     ports:
       - "8003:8003"
     depends_on:

@@ -59,34 +59,39 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         tools = filter_tools(tools, spec.allowed_tools)
 
     system = spec.system if spec else None
-    planner = get_planner(spec.backend if spec else None)
     max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
     history: list = []
     citations: list[dict] = []
     answered = False
-    for _ in range(max_steps):
-        decision = await planner.plan(task, tools, history, system)
-        if decision.final is not None:
-            for ch in _chunks(decision.final):
+    try:
+        planner = get_planner(spec.backend if spec else None)
+        for _ in range(max_steps):
+            decision = await planner.plan(task, tools, history, system)
+            if decision.final is not None:
+                for ch in _chunks(decision.final):
+                    yield {"type": "token", "text": ch}
+                answered = True
+                break
+            tool = tools.get(decision.tool)
+            if tool is None:
+                yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
+                answered = True
+                break
+            yield {"type": "tool", "name": decision.tool, "args": decision.args or {}}
+            result = await client.call_tool(tool, decision.args or {})
+            yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
+            for c in _citations(tool, result):
+                cit = c.model_dump()
+                citations.append(cit)
+                yield {"type": "citation", **cit}
+            history.append((decision, result))
+        if not answered:
+            final = await planner.plan(task, tools, history, system)
+            for ch in _chunks(final.final or "Reached the step limit."):
                 yield {"type": "token", "text": ch}
-            answered = True
-            break
-        tool = tools.get(decision.tool)
-        if tool is None:
-            yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
-            answered = True
-            break
-        yield {"type": "tool", "name": decision.tool, "args": decision.args or {}}
-        result = await client.call_tool(tool, decision.args or {})
-        yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
-        for c in _citations(tool, result):
-            cit = c.model_dump()
-            citations.append(cit)
-            yield {"type": "citation", **cit}
-        history.append((decision, result))
-    if not answered:
-        final = await planner.plan(task, tools, history, system)
-        for ch in _chunks(final.final or "Reached the step limit."):
-            yield {"type": "token", "text": ch}
+    except Exception:
+        # A planner/LLM error (e.g. bad model id, missing key, upstream outage)
+        # degrades to an honest message instead of breaking the stream.
+        yield {"type": "token", "text": "답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요."}
 
     yield {"type": "done", "citations": citations, "refused": False}
