@@ -22,11 +22,11 @@
 > MCP is verified-working; not a priority. Order below respects dependencies. UX (U2+) resumes after.
 
 **Tier 0 — make the data real (everything else is hollow without it)**
-- ⬜ **PH-1 · Ingestion operability.** Scheduler is OFF by default + backfill is CLI-only → `FinancialFact`
-  store is empty → `/financials/search/*`, historical metrics, 13F-ticker all return nothing. Add an
-  `/admin/backfill` trigger + an `ingestion_jobs` log table (ticker·market·status·rows·started·error);
-  surface store stats per market + job history in the admin dashboard; ship a sensible default
-  `SCHEDULER_*` config + docs. *(datasets + admin)* — **unblocks PH-5/PH-6 and the screener.**
+- ✅ **PH-1 · Ingestion operability.** `IngestionJob` log + `app/store/jobs.py` (start/finish/list +
+  `run_backfill`); `POST /admin/backfill` (background, US universe / KR tickers) + `GET /admin/jobs`;
+  admin dashboard now shows **per-market store breakdown + an explicit empty-store warning + a
+  "Backfill now" form + recent-jobs table**; `.env.example` documents `SCHEDULER_*` + the backfill paths.
+  Store is no longer empty-and-silent. *(datasets + admin)* +4 datasets, +2 admin tests.
 - ⬜ **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
   `hash` toy embedder + ephemeral `memory` store. Build a pipeline (news now via Google News; filings
   after PH-5's `/filings/items`) → chunk → embed → index per tenant; default `oss-cpu` + `pgvector`

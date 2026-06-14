@@ -93,5 +93,40 @@ def test_dashboard_renders_without_services():
     assert "Data pipeline" in r.text and "RAG" in r.text and "MCP" in r.text
 
 
+def test_dashboard_shows_ingestion_ops(monkeypatch):
+    # PH-1: store stats + job history + backfill trigger surfaced on the dashboard.
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "Ingestion store" in r.text and "Backfill now" in r.text and "Recent ingestion jobs" in r.text
+    # services are down in this test → empty-store warning is shown (not a silent blank)
+    assert "empty" in r.text.lower()
+
+
+def test_ops_backfill_posts_to_datasets(monkeypatch):
+    import httpx as _httpx
+
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): ...
+        async def post(self, url, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            return _Resp()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _Client)
+    r = client.post("/ops/backfill", data={"market": "US", "tickers": "AAPL MSFT"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert captured["url"].endswith("/admin/backfill")
+    assert captured["json"]["market"] == "US" and captured["json"]["tickers"] == ["AAPL", "MSFT"]
+
+
 def test_healthz_open():
     assert client.get("/healthz").json() == {"status": "ok"}
