@@ -40,17 +40,19 @@ Per scenario (`scenarios.py`), each present check is one graded item:
 | `judge` | optional Gemini LLM-judge: relevance · specificity · factual tone (1–5) |
 
 **Pass bar:** every deterministic check passes **and** judge average ≥ 3.5.
+Latest run: **49/49 deterministic checks · judge 4.89/5 → PASSED** (12 scenarios).
 
 The LLM-judge is told today's date and that figures are live ground truth from
 primary sources, so it grades *relevance/specificity/tone* — it does **not**
 fact-check fresh numbers (a judge's training cutoff can't, and would wrongly flag
 2025/2026 data as "future").
 
-## Scenarios (current)
+## Scenarios (current — 12)
 
-US fundamentals → SEC EDGAR · KR fundamentals → OpenDART · prices → Yahoo ·
-macro → Bank of Korea ECOS · RAG retrieval → cited disclosure · data-source
-restriction honoured · guardrail refusal.
+US fundamentals → SEC EDGAR · KR fundamentals → OpenDART · US prices → Yahoo ·
+KR prices → Yahoo (.KS) · macro → Bank of Korea ECOS · news → Google News ·
+filings → SEC EDGAR · insider trades → SEC EDGAR (Form 4) · RAG retrieval → cited
+disclosure · data-source restriction honoured · guardrail refusal (KR + EN).
 
 ## Found-and-fixed (the framework earns its keep)
 
