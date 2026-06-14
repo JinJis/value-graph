@@ -2,7 +2,9 @@
 
 `User` maps a Google-authenticated email to its platform tenant/project/key
 (held server-side, never sent to the browser). `Conversation`/`Message` store
-chat history. `Agent`/`Prompt`/`Integration` are seams for later phases (F1–F3).
+chat history. `Agent`/`Prompt` back the agent builder + prompt library.
+`Watchlist`/`WatchlistItem` are the user's @groups (U1). `Integration` is the
+messenger seam (F3).
 """
 
 from __future__ import annotations
@@ -10,7 +12,16 @@ from __future__ import annotations
 import secrets
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from studioapi.db import Base
@@ -81,6 +92,35 @@ class Prompt(Base):
     community: Mapped[bool] = mapped_column(Boolean, default=False)
     source_id: Mapped[str | None] = mapped_column(String(48), nullable=True)  # imported-from community id
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# --- U1: watchlists / @groups ---------------------------------------------
+class Watchlist(Base):
+    """A user's named group of companies (the ``@handle`` that chat + the analyst
+    builder tag). ``name`` is unique per user and doubles as the @-handle."""
+
+    __tablename__ = "watchlists"
+    __table_args__ = (UniqueConstraint("user_email", "name", name="uq_watchlist_user_name"),)
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("wl"))
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    name: Mapped[str] = mapped_column(String(80))  # the @handle, e.g. "반도체바스켓"
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class WatchlistItem(Base):
+    """One company in a watchlist. A company may belong to many watchlists, so the
+    uniqueness is per (watchlist, market, ticker), not global."""
+
+    __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "market", "ticker", name="uq_item_watchlist_market_ticker"),
+    )
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("wli"))
+    watchlist_id: Mapped[str] = mapped_column(ForeignKey("watchlists.id"), index=True)
+    market: Mapped[str] = mapped_column(String(8))  # US | KR
+    ticker: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Integration(Base):

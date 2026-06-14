@@ -63,10 +63,11 @@ the agent resolves the group and answers for exactly those names, all sourced.
       name+ticker index (SEC company_tickers + DART corp list), returns `{name, ticker, market, cik}`.
       Shared `rank_company_matches` (exact→prefix→substring) used by both providers; manifest entries on
       `sec_edgar`+`opendart`, route, openapi schema, coverage.sh matrix. +3 datasets tests → datasets 67.
-- [ ] **U1-02 · studio-api — watchlist model + CRUD.** `Watchlist {id, user_email, name(@handle)}` +
+- [x] **U1-02 · studio-api — watchlist model + CRUD.** ✅ `Watchlist {id, user_email, name(@handle)}` +
       `WatchlistItem {id, watchlist_id, market, ticker, name}`. Endpoints: `GET/POST /watchlists`,
-      `GET/PATCH/DELETE /watchlists/{id}`, `POST/DELETE /watchlists/{id}/items`. Per-user scoped;
-      unique @handle per user; a company may be in many groups. Unit tests + scoping guard.
+      `GET/PATCH/DELETE /watchlists/{id}`, `POST /watchlists/{id}/items`,
+      `DELETE /watchlists/{id}/items/{item_id}`. Per-user scoped; unique @handle per user (409 on dup);
+      add-item idempotent on (market,ticker); a company may be in many groups. +4 tests → studio-api 28.
 - [ ] **U1-03 · @handle resolution.** studio-api expands `@handle` → the group's tickers before sending
       to agent-engine (chat) and when building an `AgentSpec` (builder targets). Unknown handle →
       graceful message. Unit test: a chat referencing `@group` resolves to exactly its tickers.

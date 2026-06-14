@@ -352,3 +352,71 @@ def test_prompts_are_user_scoped(monkeypatch):
     bob_ids = {x["id"] for x in client.get("/prompts", headers=_hdr("bob2@u.com")).json()["prompts"]}
     assert p["id"] not in bob_ids
     assert client.get(f"/prompts/{p['id']}", headers=_hdr("bob2@u.com")).status_code == 404
+
+
+# --- U1: watchlists / @groups ---------------------------------------------
+@respx.mock
+def test_watchlist_create_add_items_get_delete(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "wl@u.com"
+    wl = client.post("/watchlists", headers=_hdr(email), json={"name": "반도체바스켓"}).json()
+    wid = wl["id"]
+    assert wl["handle"] == "@반도체바스켓" and wl["count"] == 0
+    # add two companies (US + KR)
+    client.post(f"/watchlists/{wid}/items", headers=_hdr(email),
+                json={"market": "kr", "ticker": "005930", "name": "삼성전자"})
+    client.post(f"/watchlists/{wid}/items", headers=_hdr(email),
+                json={"market": "US", "ticker": "NVDA", "name": "NVIDIA"})
+    got = client.get(f"/watchlists/{wid}", headers=_hdr(email)).json()
+    assert got["count"] == 2
+    assert ("KR", "005930") in {(i["market"], i["ticker"]) for i in got["items"]}  # market upper-cased
+    # delete the whole group
+    assert client.delete(f"/watchlists/{wid}", headers=_hdr(email)).status_code == 200
+    assert client.get(f"/watchlists/{wid}", headers=_hdr(email)).status_code == 404
+
+
+@respx.mock
+def test_watchlist_add_item_idempotent_and_market_validated(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "wl2@u.com"
+    wid = client.post("/watchlists", headers=_hdr(email), json={"name": "관심"}).json()["id"]
+    a = client.post(f"/watchlists/{wid}/items", headers=_hdr(email), json={"market": "US", "ticker": "AAPL"}).json()
+    b = client.post(f"/watchlists/{wid}/items", headers=_hdr(email), json={"market": "US", "ticker": "AAPL"}).json()
+    assert a["id"] == b["id"]  # idempotent — no duplicate
+    assert client.get(f"/watchlists/{wid}", headers=_hdr(email)).json()["count"] == 1
+    # bad market rejected
+    assert client.post(f"/watchlists/{wid}/items", headers=_hdr(email),
+                       json={"market": "ZZ", "ticker": "X"}).status_code == 422
+
+
+@respx.mock
+def test_watchlist_rename_and_duplicate_handle_blocked(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "wl3@u.com"
+    client.post("/watchlists", headers=_hdr(email), json={"name": "그룹A"})
+    wb = client.post("/watchlists", headers=_hdr(email), json={"name": "그룹B"}).json()
+    # creating a third with a taken name → 409
+    assert client.post("/watchlists", headers=_hdr(email), json={"name": "그룹A"}).status_code == 409
+    # renaming B to A (taken) → 409; renaming to a free name works
+    assert client.patch(f"/watchlists/{wb['id']}", headers=_hdr(email), json={"name": "그룹A"}).status_code == 409
+    ren = client.patch(f"/watchlists/{wb['id']}", headers=_hdr(email), json={"name": "그룹C"}).json()
+    assert ren["name"] == "그룹C" and ren["handle"] == "@그룹C"
+
+
+@respx.mock
+def test_watchlists_are_user_scoped(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    mine = client.post("/watchlists", headers=_hdr("owner-wl@u.com"), json={"name": "내그룹"}).json()
+    other_ids = {w["id"] for w in client.get("/watchlists", headers=_hdr("intruder@u.com")).json()["watchlists"]}
+    assert mine["id"] not in other_ids
+    assert client.get(f"/watchlists/{mine['id']}", headers=_hdr("intruder@u.com")).status_code == 404
+    # the same ticker can live in two different users' groups (per-watchlist uniqueness, not global)
+    client.post(f"/watchlists/{mine['id']}/items", headers=_hdr("owner-wl@u.com"),
+                json={"market": "US", "ticker": "TSLA"})
+    other = client.post("/watchlists", headers=_hdr("intruder@u.com"), json={"name": "남그룹"}).json()
+    assert client.post(f"/watchlists/{other['id']}/items", headers=_hdr("intruder@u.com"),
+                       json={"market": "US", "ticker": "TSLA"}).status_code == 200
