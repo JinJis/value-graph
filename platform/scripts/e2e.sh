@@ -24,8 +24,10 @@ echo "== bring up stack (build) =="
 # (create_all does not ALTER existing tables when columns are added).
 docker compose down -v >/dev/null 2>&1 || true
 # Backend services only (web is in the default stack but not exercised here, so we
-# name the services to skip its build and keep the e2e fast).
-docker compose up --build -d datasets rag control-plane agent-engine studio-api \
+# name the services to skip its build and keep the e2e fast). Pin the stub planner
+# so this stays deterministic + key-free even when .env defaults to gemini.
+AGENT_LLM_BACKEND=stub \
+  docker compose up --build -d datasets rag control-plane agent-engine studio-api \
   || { echo "compose up failed"; exit 1; }
 for _ in $(seq 1 40); do
   st=$(docker inspect --format '{{.State.Health.Status}}' valuegraph-platform-control-plane-1 2>/dev/null || echo none)

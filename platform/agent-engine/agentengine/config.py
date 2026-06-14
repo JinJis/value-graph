@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # Planner backend: stub (deterministic, dev/CI) | gemini (real LLM)
     llm_backend: str = "stub"
-    model: str = "gemini-2.0-flash"
+    model: str = "gemini-flash-latest"  # an evergreen alias (2.0/1.5 ids get retired)
     # The control-plane gateway the agent's tools are called through.
     gateway_url: str = "http://127.0.0.1:8010"
     max_steps: int = 4

@@ -52,6 +52,11 @@ services:
     build: ./rag
     image: valuegraph-rag:latest
     env_file: [.env]
+    environment:
+      # Embedding backend + model — overridable from the shell (falls back to .env,
+      # then to the deterministic hash dev backend). e2e_functional flips to oss-cpu.
+      RAG_EMBEDDING_BACKEND: "${RAG_EMBEDDING_BACKEND:-hash}"
+      RAG_EMBEDDING_MODEL: "${RAG_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}"
     ports:
       - "8002:8002"
     restart: unless-stopped
@@ -71,7 +76,7 @@ services:
       # Planner backend + model + key — overridable from the shell (falls back to
       # .env, then to the stub planner). Lets `scripts/e2e_live.sh` flip to Gemini.
       AGENT_LLM_BACKEND: "${AGENT_LLM_BACKEND:-stub}"
-      AGENT_MODEL: "${AGENT_MODEL:-gemini-2.0-flash}"
+      AGENT_MODEL: "${AGENT_MODEL:-gemini-flash-latest}"
       GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
     ports:
       - "8003:8003"

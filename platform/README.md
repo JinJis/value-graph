@@ -95,12 +95,21 @@ cd rag           && uv sync --extra dev && uv run pytest -q   # RAG (:8002); fli
 cd agent-engine  && uv sync --extra dev && uv run pytest -q   # Agent Engine (:8003); stub|gemini planner
 cd studio-api    && uv sync --extra dev && uv run pytest -q   # Studio API / chat BFF (:8004)
 cd web           && npm install && npm run build              # Web UI (:3000)
-bash scripts/e2e.sh                                           # full-stack e2e via docker compose
+cd rag && uv run --extra oss pytest tests/test_rag_semantic.py   # REAL oss-cpu semantic retrieval proof
+bash scripts/e2e.sh                                           # full-stack stub e2e (no key)
+bash scripts/e2e_functional.sh                               # functional e2e: real data + MCP + semantic RAG (no key)
+GOOGLE_API_KEY=... bash scripts/e2e_live.sh                   # live e2e: real Gemini answers, grounded + cited
 ```
 
-All **143 unit tests** pass (web verified via build); `scripts/e2e.sh` exercises the whole chain (catalog
-→ tenant → entitlement → data plane + RAG via gateway → metering → MCP → agent → **studio-api chat** →
-**agent builder** restricting a chat to a data-source subset → **prompt library** community import).
+All **152 unit tests** pass (web verified via build). Three docker-compose end-to-end harnesses:
+- **`scripts/e2e.sh`** — stub planner, the whole product chain (catalog → tenant → entitlement → data plane
+  + RAG via gateway → metering → MCP → studio chat → agent builder → prompt import). Deterministic, no key.
+- **`scripts/e2e_functional.sh`** — proves it actually *works*: real upstream numbers (Apple facts, a live
+  AAPL close, Samsung's KRW revenue, the BOK rate), MCP real tool calls + schema + entitlement, and **real
+  semantic RAG** (oss-cpu; a zero-keyword-overlap query retrieves the right doc) with provenance. No key.
+- **`scripts/e2e_live.sh`** — the real Gemini planner answering grounded, cited questions end-to-end
+  (verified: Apple FY2025 revenue $416.161B cited to SEC EDGAR; Samsung ₩333.6T cited to OpenDART; a
+  "should I buy?" prompt refused). Needs `GOOGLE_API_KEY`; skips cleanly without one.
 
 ## The product (chat UI)
 

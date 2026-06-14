@@ -694,6 +694,30 @@ def test_catalog_manifests_valid():
             assert r.provenance and r.provenance.source  # trust envelope present
 
 
+def test_ticker_is_required_where_a_company_is_mandatory():
+    # A user/agent must name a company for price + fundamentals pulls — the manifest
+    # (and thus the MCP/OpenAPI schema) must mark ticker required there, so clients
+    # can't issue a doomed call. company_facts (cik alternative) + news stay optional.
+    from app.connectors.catalog import get_catalog
+
+    by_id = {c.id: c for c in get_catalog()}
+
+    def ticker_required(connector_id: str, resource_name: str) -> bool:
+        res = next(r for r in by_id[connector_id].resources if r.name == resource_name)
+        return any(p.name == "ticker" and p.required for p in res.params)
+
+    for cid, rname in [
+        ("yahoo", "prices"), ("yahoo", "price_snapshot"),
+        ("sec_edgar", "income_statements"), ("sec_edgar", "earnings"), ("sec_edgar", "metrics_snapshot"),
+        ("opendart", "income_statements"), ("opendart", "earnings"), ("opendart", "metrics_snapshot"),
+    ]:
+        assert ticker_required(cid, rname), f"{cid}.{rname} must require ticker"
+
+    # …but endpoints with an alternative or a general mode keep it optional
+    assert not ticker_required("sec_edgar", "company_facts")  # cik works instead
+    assert not ticker_required("google_news", "news")          # general feed
+
+
 def test_catalog_resource_paths_are_real_routes():
     from fastapi.routing import APIRoute
 

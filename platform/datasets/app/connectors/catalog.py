@@ -20,6 +20,9 @@ from app.connectors.manifest import (
 
 # --- reusable params -----------------------------------------------------
 P_TICKER = ResourceParam(name="ticker", description="Ticker symbol (US: AAPL; KR: 005930).")
+# Same field, but required — for data pulls that are meaningless without a company
+# (prices, financial statements). company_facts/news keep the optional P_TICKER.
+P_TICKER_REQ = ResourceParam(name="ticker", required=True, description="Ticker symbol (US: AAPL; KR: 005930).")
 P_MARKET = ResourceParam(name="market", enum=["US", "KR"], description="Market (default US).")
 P_PERIOD = ResourceParam(name="period", required=True, enum=["annual", "quarterly", "ttm"], description="Reporting period.")
 P_LIMIT = ResourceParam(name="limit", type="integer", description="Max rows.")
@@ -63,7 +66,7 @@ def _statements(market: str, prov: Provenance, cost: CostTier) -> list[Resource]
     ]
     return [
         Resource(name=n, description=d, path=p, output_model=m, markets=[market], cost_tier=cost,
-                 params=[P_TICKER, P_PERIOD, P_LIMIT, P_MARKET], provenance=prov)
+                 params=[P_TICKER_REQ, P_PERIOD, P_LIMIT, P_MARKET], provenance=prov)
         for n, p, m, d in items
     ]
 
@@ -83,7 +86,7 @@ CONNECTORS: list[ConnectorManifest] = [
             Resource(name="filings", description="SEC filings.", path="/filings", output_model="FilingsResponse",
                      markets=["US"], cost_tier=CostTier.free, params=[P_TICKER, P_LIMIT, P_MARKET], provenance=PROV_SEC_FILINGS),
             Resource(name="earnings", description="Earnings actuals (XBRL).", path="/earnings", output_model="EarningsResponse",
-                     markets=["US"], cost_tier=CostTier.free, params=[P_TICKER, P_LIMIT], provenance=PROV_SEC),
+                     markets=["US"], cost_tier=CostTier.free, params=[P_TICKER_REQ, P_LIMIT], provenance=PROV_SEC),
             Resource(name="insider_trades", description="Insider trades (Form 4).", path="/insider-trades",
                      output_model="InsiderTradesResponse", markets=["US"], cost_tier=CostTier.free,
                      params=[P_TICKER, P_LIMIT, P_MARKET], provenance=PROV_SEC_FILINGS),
@@ -92,7 +95,7 @@ CONNECTORS: list[ConnectorManifest] = [
                      params=[ResourceParam(name="filer_cik", description="13F filer CIK."), P_LIMIT], provenance=PROV_SEC_FILINGS),
             Resource(name="metrics_snapshot", description="Derived valuation metrics snapshot.", path="/financial-metrics/snapshot",
                      output_model="FinancialMetricSnapshotResponse", markets=["US"], cost_tier=CostTier.free,
-                     params=[P_TICKER, P_MARKET], provenance=PROV_SEC),
+                     params=[P_TICKER_REQ, P_MARKET], provenance=PROV_SEC),
         ],
     ),
     ConnectorManifest(
@@ -104,11 +107,11 @@ CONNECTORS: list[ConnectorManifest] = [
         resources=[
             Resource(name="prices", description="Historical EOD OHLCV.", path="/prices", output_model="PricesResponse",
                      cost_tier=CostTier.free, params=[
-                         P_TICKER, ResourceParam(name="interval", required=True, enum=["day", "week", "month", "year"]),
+                         P_TICKER_REQ, ResourceParam(name="interval", required=True, enum=["day", "week", "month", "year"]),
                          ResourceParam(name="start_date", required=True, type="date"),
                          ResourceParam(name="end_date", required=True, type="date"), P_MARKET], provenance=PROV_YAHOO),
             Resource(name="price_snapshot", description="Latest price snapshot.", path="/prices/snapshot",
-                     output_model="PriceSnapshotResponse", cost_tier=CostTier.free, params=[P_TICKER, P_MARKET], provenance=PROV_YAHOO),
+                     output_model="PriceSnapshotResponse", cost_tier=CostTier.free, params=[P_TICKER_REQ, P_MARKET], provenance=PROV_YAHOO),
         ],
     ),
     ConnectorManifest(
@@ -139,13 +142,13 @@ CONNECTORS: list[ConnectorManifest] = [
             Resource(name="filings", description="DART filings.", path="/filings", output_model="FilingsResponse",
                      markets=["KR"], cost_tier=CostTier.low, params=[P_TICKER, P_LIMIT, P_MARKET], provenance=PROV_DART_FILINGS),
             Resource(name="earnings", description="Earnings actuals (DART).", path="/earnings", output_model="EarningsResponse",
-                     markets=["KR"], cost_tier=CostTier.low, params=[P_TICKER, P_LIMIT, P_MARKET], provenance=PROV_DART),
+                     markets=["KR"], cost_tier=CostTier.low, params=[P_TICKER_REQ, P_LIMIT, P_MARKET], provenance=PROV_DART),
             Resource(name="insider_trades", description="Insider/major-shareholder reports.", path="/insider-trades",
                      output_model="InsiderTradesResponse", markets=["KR"], cost_tier=CostTier.low,
                      params=[P_TICKER, P_LIMIT, P_MARKET], provenance=PROV_DART_FILINGS),
             Resource(name="metrics_snapshot", description="Derived metrics snapshot.", path="/financial-metrics/snapshot",
                      output_model="FinancialMetricSnapshotResponse", markets=["KR"], cost_tier=CostTier.low,
-                     params=[P_TICKER, P_MARKET], provenance=PROV_DART),
+                     params=[P_TICKER_REQ, P_MARKET], provenance=PROV_DART),
         ],
     ),
     ConnectorManifest(
