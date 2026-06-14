@@ -513,7 +513,7 @@ def test_to_gemini_contents_mapping():
         {"role": "assistant", "content": "Let me look up the price."}
     ]
     history = [
-        (Decision(tool="yahoo__prices", args={"ticker": "AAPL"}), {"status": 200, "data": {"close": 180.5}})
+        (Decision(tool="yahoo__prices", args={"ticker": "AAPL"}, thought_signature=b"sig_data"), {"status": 200, "data": {"close": 180.5}})
     ]
     task = "Is it higher than last week?"
 
@@ -525,10 +525,11 @@ def test_to_gemini_contents_mapping():
     # Turn 1: Assistant message "Let me look up the price."
     assert contents[1].role == "model"
     assert contents[1].parts[0].text == "Let me look up the price."
-    # Turn 2: Model function call
+    # Turn 2: Model function call + thought signature
     assert contents[2].role == "model"
     assert contents[2].parts[0].function_call.name == "yahoo__prices"
     assert contents[2].parts[0].function_call.args == {"ticker": "AAPL"}
+    assert contents[2].parts[0].thought_signature == b"sig_data"
     # Turn 3: Tool response
     assert contents[3].role == "tool"
     assert contents[3].parts[0].function_response.name == "yahoo__prices"

@@ -19,6 +19,7 @@ class Decision:
     tool: str | None = None
     args: dict | None = None
     final: str | None = None
+    thought_signature: bytes | None = None
 
 
 # task keyword -> tool-name suffix to prefer (English + Korean). Order matters:
@@ -281,7 +282,13 @@ class GeminiPlanner:
         calls = getattr(resp, "function_calls", None)
         if calls:
             call = calls[0]
-            return Decision(tool=call.name, args=dict(call.args or {}))
+            thought_sig = None
+            if resp.candidates and resp.candidates[0].content and resp.candidates[0].content.parts:
+                for part in resp.candidates[0].content.parts:
+                    if part.function_call and part.function_call.name == call.name:
+                        thought_sig = part.thought_signature
+                        break
+            return Decision(tool=call.name, args=dict(call.args or {}), thought_signature=thought_sig)
         return Decision(final=resp.text)
 
 
@@ -302,10 +309,19 @@ def _to_gemini_contents(conversation: list | None, history: list, task: str):
 
     for dec, res in history:
         # Function Call
-        model_part = types.Part.from_function_call(
-            name=dec.tool,
-            args=dec.args or {}
-        )
+        if dec.thought_signature:
+            model_part = types.Part(
+                function_call=types.FunctionCall(
+                    name=dec.tool,
+                    args=dec.args or {}
+                ),
+                thought_signature=dec.thought_signature
+            )
+        else:
+            model_part = types.Part.from_function_call(
+                name=dec.tool,
+                args=dec.args or {}
+            )
         out.append(types.Content(role="model", parts=[model_part]))
 
         # Function Response

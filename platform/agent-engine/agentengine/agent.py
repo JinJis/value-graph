@@ -7,11 +7,14 @@ answers are sourced.
 
 from __future__ import annotations
 
+import logging
 from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.models import AgentSpec, Citation, RunResult, Step
 from agentengine.planner import get_planner
+
+logger = logging.getLogger(__name__)
 
 
 def _find_urls(obj, out: list | None = None) -> list:
@@ -125,8 +128,9 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         if not answer:
             final = await planner.plan(task, tools, history, system, force_final=True)
             answer = final.final or "Reached the step limit without a final answer."
-    except Exception:
+    except Exception as e:
+        logger.exception("Error in run_agent loop")
         # Honest degrade on a planner/LLM error rather than a 500.
-        answer = answer or "답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요."
+        answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
 
     return RunResult(answer=answer, steps=steps, citations=dedup_citations(citations), usage={"steps": len(steps)})
