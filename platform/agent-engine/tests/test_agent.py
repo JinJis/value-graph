@@ -473,6 +473,7 @@ def test_chat_endpoint_sse(monkeypatch):
 
 
 async def test_gemini_guardrailer_violates(monkeypatch):
+    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
     from unittest.mock import MagicMock
     from agentengine.guardrails import GeminiGuardrailer
     import google.genai
@@ -494,6 +495,7 @@ async def test_gemini_guardrailer_violates(monkeypatch):
 
 
 def test_get_guardrailer_factory(monkeypatch):
+    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
     from unittest.mock import MagicMock
     import google.genai
     monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: MagicMock())
@@ -505,6 +507,7 @@ def test_get_guardrailer_factory(monkeypatch):
 
 
 def test_to_gemini_contents_mapping():
+    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
     from agentengine.planner import _to_gemini_contents, Decision
     from google.genai import types
 
