@@ -81,7 +81,7 @@ tool "interest_rates_snapshot" GET "/macro/interest-rates/snapshot?bank=FED&mark
 
 section "OpenDART — KR fundamentals (10 tools)"
 tool "company_facts"        GET "/company/facts?$KR"                            "" 'company_facts'
-tool "company_search"       GET "/company/search?q=삼성&market=KR"              "" 'results'
+tool "company_search"       GET "/company/search?q=005930&market=KR"           "" 'results'
 tool "income_statements"    GET "/financials/income-statements?$KR&$ANN"        "" 'income_statements'
 tool "balance_sheets"       GET "/financials/balance-sheets?$KR&$ANN"           "" 'balance_sheets'
 tool "cash_flow_statements" GET "/financials/cash-flow-statements?$KR&$ANN"     "" 'cash_flow'
