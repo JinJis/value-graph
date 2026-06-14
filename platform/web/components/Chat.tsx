@@ -6,7 +6,8 @@ import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
 
 type Citation = { tool?: string; source?: string; url?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: { name: string }[]; citations?: Citation[] };
+type ToolUse = { name: string; label?: string };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[] };
 
 const EXAMPLES = [
   "삼성전자 최근 실적 알려줘",
@@ -109,8 +110,12 @@ export default function Chat({ name }: { name: string }) {
             const next = [...prev];
             const a = { ...next[next.length - 1] };
             if (ev.type === "token") a.content += ev.text || "";
-            else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name }];
-            else if (ev.type === "citation") a.citations = [...(a.citations || []), { tool: ev.tool, source: ev.source, url: ev.url }];
+            else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
+            else if (ev.type === "citation") {
+              const cite = { tool: ev.tool, source: ev.source, url: ev.url };
+              const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
+              if (!dup) a.citations = [...(a.citations || []), cite];
+            }
             next[next.length - 1] = a;
             return next;
           });
@@ -205,11 +210,11 @@ export default function Chat({ name }: { name: string }) {
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
                     <details className="sources">
                       <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
-                      {m.tools?.map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.name}</div>)}
+                      {m.tools?.map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
                       {m.citations?.map((c, j) => (
                         <div key={`c${j}`} className="cite">
-                          📎 {c.source || c.tool}
-                          {c.url ? <> · <a href={c.url} target="_blank" rel="noreferrer">출처</a></> : null}
+                          📎 {c.source || "출처"}
+                          {c.url ? <> · <a href={c.url} target="_blank" rel="noreferrer">원문</a></> : null}
                         </div>
                       ))}
                     </details>
@@ -252,7 +257,7 @@ export default function Chat({ name }: { name: string }) {
           ) : (
             liveCites.map((c, j) => (
               <div key={j} className="live-item">
-                📎 {c.source || c.tool}
+                📎 {c.source || "출처"}
                 {c.url ? <a href={c.url} target="_blank" rel="noreferrer" className="meta">{c.url}</a> : null}
               </div>
             ))

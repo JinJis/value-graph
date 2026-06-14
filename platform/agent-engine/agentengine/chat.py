@@ -62,6 +62,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
     history: list = []
     citations: list[dict] = []
+    seen_cites: set = set()
     answered = False
     try:
         planner = get_planner(spec.backend if spec else None)
@@ -77,11 +78,15 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
                 answered = True
                 break
-            yield {"type": "tool", "name": decision.tool, "args": decision.args or {}}
+            yield {"type": "tool", "name": decision.tool, "label": tool.get("friendly") or tool.get("connector_name"), "args": decision.args or {}}
             result = await client.call_tool(tool, decision.args or {})
             yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
             for c in _citations(tool, result):
                 cit = c.model_dump()
+                key = (cit.get("source"), cit.get("url"))
+                if key in seen_cites:  # de-dup repeated sources across tool calls
+                    continue
+                seen_cites.add(key)
                 citations.append(cit)
                 yield {"type": "citation", **cit}
             history.append((decision, result))

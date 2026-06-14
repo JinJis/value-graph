@@ -59,6 +59,20 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
     return [Citation(tool=tool["name"], source=src, url=u) for u in urls]
 
 
+def dedup_citations(cites: list[Citation]) -> list[Citation]:
+    """Collapse repeats — the same (source, url) cited by several tool calls should
+    appear once (fixes the '📎 OpenDART · 📎 OpenDART · …' repetition)."""
+    seen: set = set()
+    out: list[Citation] = []
+    for c in cites:
+        key = (c.source, c.url)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+    return out
+
+
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
     """Restrict ``tools`` to ``allowed`` — entries match a full tool name
     (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
@@ -106,4 +120,4 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         # Honest degrade on a planner/LLM error rather than a 500.
         answer = answer or "답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요."
 
-    return RunResult(answer=answer, steps=steps, citations=citations, usage={"steps": len(steps)})
+    return RunResult(answer=answer, steps=steps, citations=dedup_citations(citations), usage={"steps": len(steps)})

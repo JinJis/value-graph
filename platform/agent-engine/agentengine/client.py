@@ -34,11 +34,16 @@ class PlatformClient:
             raise last_exc if last_exc else RuntimeError("catalog unavailable")
         tools: dict[str, dict] = {}
         for con in connectors:
+            con_name = con.get("name") or con["id"]
             for res in con.get("resources", []):
                 name = f"{con['id']}__{res['name']}"
+                desc = (res.get("description") or "").rstrip(".")
                 tools[name] = {
                     "name": name,
                     "connector": con["id"],
+                    "connector_name": con_name,  # human-readable, e.g. "OpenDART (KR)"
+                    # friendly label for the UI/answer instead of the raw `{con}__{res}` id
+                    "friendly": f"{con_name} · {desc}" if desc else con_name,
                     "method": res.get("method", "GET").upper(),
                     "path": res["path"],
                     "params": res.get("params", []),

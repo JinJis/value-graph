@@ -78,6 +78,33 @@ def test_citations_fallback_to_source_when_no_url():
     assert len(cites) == 1 and cites[0].url is None and cites[0].source == "Yahoo Finance"
 
 
+def test_dedup_citations_collapses_repeats():
+    from agentengine.models import Citation
+    cites = [
+        Citation(tool="opendart__income_statements", source="OpenDART (FSS)", url=None),
+        Citation(tool="opendart__balance_sheets", source="OpenDART (FSS)", url=None),  # dup (src,url)
+        Citation(tool="opendart__filings", source="OpenDART (FSS)", url="https://dart/x"),
+    ]
+    out = A.dedup_citations(cites)
+    assert len(out) == 2  # the two same (source=None-url) collapse to one; the url'd one stays
+    assert {(c.source, c.url) for c in out} == {("OpenDART (FSS)", None), ("OpenDART (FSS)", "https://dart/x")}
+
+
+@respx.mock
+async def test_fetch_tools_attaches_friendly_connector_name(monkeypatch):
+    from agentengine.client import PlatformClient
+    _gw(monkeypatch)
+    catalog = {"connectors": [{"id": "opendart", "name": "OpenDART (KR)", "markets": ["KR"], "resources": [
+        {"name": "income_statements", "method": "GET", "path": "/financials/income-statements",
+         "description": "Income statements.", "params": [], "provenance": {"source": "OpenDART (FSS)"}}]}]}
+    respx.get("http://gw.test/catalog").mock(return_value=httpx.Response(200, json=catalog))
+    tools = await PlatformClient("k").fetch_tools()
+    t = tools["opendart__income_statements"]
+    # no raw id leaks into the human-facing fields
+    assert t["connector_name"] == "OpenDART (KR)"
+    assert t["friendly"] == "OpenDART (KR) · Income statements" and "__" not in t["friendly"]
+
+
 # --- eval-driven fixes ----------------------------------------------------
 def test_guardrail_refuses_korean_forecast_and_advice():
     for bad in ["삼성전자 주가 오를까?", "지금 사야 할까요?", "AAPL 목표주가 알려줘",
@@ -144,7 +171,9 @@ async def test_run_uses_tool_and_cites(monkeypatch):
     assert res.refused is False
     assert res.steps and res.steps[0].tool == "yahoo__prices" and res.steps[0].status == 200
     assert res.citations and res.citations[0].source == "Yahoo Finance"
-    assert "yahoo__prices" in res.answer and res.usage["steps"] == 1
+    # PH-3: the raw tool id must NOT leak into the human-facing answer
+    assert "yahoo__prices" not in res.answer and "`" not in res.answer
+    assert res.usage["steps"] == 1
 
 
 @respx.mock

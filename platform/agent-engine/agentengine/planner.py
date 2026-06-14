@@ -156,16 +156,17 @@ def _ticker_fallback(tools: dict) -> list[str]:
     return ordered
 
 
-def _summarize(task: str, history: list) -> str:
+def _summarize(task: str, history: list, tools: dict | None = None) -> str:
+    """Deterministic stub summary — uses the connector's human-readable name (never
+    the raw `{connector}__{resource}` id) and appends no canned disclaimer (the
+    guardrail is a UI label; the gemini backend writes real prose)."""
     dec, res = history[-1]
-    src = res.get("connector") or dec.tool.split("__")[0]
+    tool = (tools or {}).get(dec.tool, {})
+    src = tool.get("connector_name") or tool.get("source") or res.get("connector") or "데이터 소스"
     if res["status"] == 200:
-        return (
-            f"`{dec.tool}` (출처: {src}) 로 데이터를 가져왔습니다. 자세한 내용과 출처는 인용을 확인하세요. "
-            "(투자 자문이 아니며, 가격 예측을 제공하지 않습니다.)"
-        )
+        return f"{src} 데이터를 가져왔어요. 핵심 수치와 출처는 아래 출처에서 확인하세요."
     return (
-        f"요청은 처리했지만 `{dec.tool}` (출처: {src}) 에서 해당 데이터를 찾지 못했어요 (상태 {res['status']}). "
+        f"{src}에서 해당 데이터를 찾지 못했어요 (상태 {res['status']}). "
         "다른 종목·기간으로 다시 시도해 보세요."
     )
 
@@ -191,7 +192,7 @@ class StubPlanner:
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
                    conversation: list | None = None) -> Decision:
         if history:  # already observed a tool result -> finalize
-            return Decision(final=_summarize(task, history))
+            return Decision(final=_summarize(task, history, tools))
         if not tools:
             return Decision(final=_no_tool_message(task, has_tools=False))
         # resolve the company from THIS turn, else from earlier turns (follow-ups like
@@ -230,10 +231,17 @@ class GeminiPlanner:
         from google.genai import types
 
         if history:  # ask for a final, grounded answer from the observed data
-            observed = "\n\n".join(f"{d.tool} -> {str(r['data'])[:1500]}" for d, r in history)
+            observed = "\n\n".join(
+                f"[출처: {tools.get(d.tool, {}).get('connector_name') or tools.get(d.tool, {}).get('source') or '데이터'}] "
+                f"{str(r['data'])[:1500]}"
+                for d, r in history
+            )
             prompt = (
-                f"Task: {task}\n\nObserved tool results:\n{observed}\n\n"
-                "Answer using ONLY this data. Cite the source. Do not predict prices or give advice."
+                f"질문: {task}\n\n수집된 데이터:\n{observed}\n\n"
+                "위 데이터에만 근거해 핵심을 간결하고 자연스럽게 답하세요(질문과 같은 언어로). "
+                "수치는 단위·기간과 함께 제시하고, 출처는 기관 이름(예: OpenDART, SEC EDGAR)으로 자연스럽게 언급하세요. "
+                "내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 절대 노출하지 마세요. "
+                "가격 예측이나 매수/매도 의견은 금지하며, 별도의 면책 문구는 덧붙이지 마세요."
             )
             resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=prompt)
             return Decision(final=resp.text)

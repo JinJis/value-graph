@@ -3,8 +3,8 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 168 unit** — datasets 67 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
-> semantic) · agent-engine 33 · studio-api 31 — plus the web build, three docker e2e harnesses
+> **Test totals (current): 170 unit** — datasets 67 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> semantic) · agent-engine 35 · studio-api 31 — plus the web build, three docker e2e harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), the
 > **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn; 59/59 checks + judge 5.00/5), and
@@ -33,10 +33,12 @@
   (persistent); add per-tenant doc isolation. *(rag + pipeline)* — partially depends on PH-5 for filing text.
 
 **Tier 1 — answer quality (most visible; mostly independent)**
-- ⬜ **PH-3 · Answer-quality quick wins.** (a) friendly tool/source names from the catalog manifest (kill
-  raw `opendart__income_statements` exposure); (b) **dedup** citations by (source,url); (c) guardrail =
-  a UI label shown only when `refused`, not appended prose; (d) better Gemini synthesis prompt (clean
-  narrative grounded in results, friendly names, no raw ids). *(agent-engine + web)* — independent, fast.
+- ✅ **PH-3 · Answer-quality quick wins.** (a) catalog `name` → friendly `connector_name`/`friendly`
+  label on each tool; stub summary + Gemini synth prompt use it, raw `opendart__income_statements` no
+  longer leaks into answers; (b) `dedup_citations` (+ stream-time de-dup) collapses repeated (source,url);
+  (c) canned "투자 자문…" disclaimer dropped from answer prose (kept as the persistent UI footer label);
+  (d) Gemini final-answer prompt rewritten (concise, source-by-institution-name, no tool ids, no
+  appended disclaimer). web renders the friendly tool label + de-duped sources. +2 agent-engine tests → 35.
 - ⬜ **PH-4 (= U2) · Perplexity-style inline citations + source-preview cards.** Enrich the `Citation`
   model (`as_of`/`doc_type`/`freshness`/`index`), anchor inline `[n]` markers to spans, type-aware
   preview cards (filing verbatim-span / metric computation / news snippet). **This is U2, pulled in
