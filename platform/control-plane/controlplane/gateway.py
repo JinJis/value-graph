@@ -17,7 +17,7 @@ from controlplane.auth import resolve_key
 from controlplane.catalog_index import candidate_connectors, cost_units, is_governed
 from controlplane.config import settings
 from controlplane.db import SessionLocal
-from controlplane.models import Activation, AuditLog, UsageEvent
+from controlplane.models import Activation, AuditLog, UsageEvent, Project
 from controlplane.ratelimit import RateLimiter
 
 router = APIRouter()
@@ -40,11 +40,13 @@ def _meter(project_id, key_id, connector_id, method, path, status, cost, latency
         db.commit()
 
 
-async def _proxy(method, path, request, *, connector_id, cost=0, project_id=None, key_id=None, base_url=None) -> Response:
+async def _proxy(method, path, request, *, connector_id, cost=0, project_id=None, key_id=None, tenant_id=None, base_url=None) -> Response:
     url = f"{base_url or settings.datasets_url}{path}"
     if request.url.query:
         url += f"?{request.url.query}"
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP}
+    if tenant_id:
+        headers["X-Tenant-Id"] = tenant_id
     started = time.monotonic()
     try:
         upstream = await _client.request(method, url, content=await request.body(), headers=headers)
@@ -78,6 +80,8 @@ async def gateway(full_path: str, request: Request) -> Response:
         if api_key is None:
             raise HTTPException(401, "Missing or invalid API key.")
         project_id, key_id = api_key.project_id, api_key.id
+        project = db.get(Project, project_id)
+        tenant_id = project.tenant_id if project else None
 
     # 2) entitlement (only catalog-governed paths)
     connector_id, cost, base_url = None, 0, settings.datasets_url
@@ -107,4 +111,4 @@ async def gateway(full_path: str, request: Request) -> Response:
         raise HTTPException(429, "Rate limit exceeded.")
 
     # 4) proxy + meter + audit
-    return await _proxy(method, path, request, connector_id=connector_id, cost=cost, project_id=project_id, key_id=key_id, base_url=base_url)
+    return await _proxy(method, path, request, connector_id=connector_id, cost=cost, project_id=project_id, key_id=key_id, tenant_id=tenant_id, base_url=base_url)

@@ -221,6 +221,12 @@ CONNECTORS: list[ConnectorManifest] = [
                 ],
                 provenance=Provenance(source="Platform RAG (filings/news)", freshness=Freshness.periodic),
             ),
+            Resource(
+                name="ingest", description="Ingest documents into RAG.",
+                method="POST", path="/rag/ingest", cost_tier=CostTier.free, markets=["US", "KR"],
+                params=[],
+                provenance=Provenance(source="Platform RAG (filings/news)", freshness=Freshness.periodic),
+            ),
         ],
     ),
 ]

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 from contextlib import asynccontextmanager
+import json
+import logging
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import StreamingResponse
@@ -23,12 +25,37 @@ from studioapi.search import router as search_router
 from studioapi.watchlists import router as watchlists_router
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _rag_ingestion_loop():
+    from studioapi.config import settings
+
+    # Wait a few seconds to let other containers boot up first
+    await asyncio.sleep(15)
+    while True:
+        try:
+            logger.info("Running periodic RAG ingestion pipeline...")
+            from studioapi.rag_pipeline import run_rag_ingestion_pipeline
+            summary = await run_rag_ingestion_pipeline()
+            logger.info(f"Periodic RAG ingestion finished: {summary}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic RAG ingestion loop: {e}")
+        await asyncio.sleep(settings.rag_ingestion_interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     seed_templates()
     seed_community_prompts()
-    yield
+    task = asyncio.create_task(_rag_ingestion_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
 
 
 app = FastAPI(title="Studio API", version="0.1.0", lifespan=lifespan)
@@ -77,6 +104,13 @@ async def chat_stream(body: ChatIn, user: User = Depends(current_user)) -> Strea
         stream_and_persist(user, body.conversation_id, body.messages, body.agent_id),
         media_type="text/event-stream",
     )
+
+
+@app.post("/ops/rag/ingest", tags=["Ops"], dependencies=[Depends(require_service)])
+async def trigger_rag_ingestion() -> dict:
+    from studioapi.rag_pipeline import run_rag_ingestion_pipeline
+    summary = await run_rag_ingestion_pipeline()
+    return {"status": "ok", "summary": summary}
 
 
 app.include_router(agents_router)

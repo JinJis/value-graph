@@ -8,9 +8,11 @@ from rag.models import Chunk, IngestDoc, doc_to_chunks
 from rag.store import get_store
 
 
-async def ingest_docs(docs: list[IngestDoc]) -> int:
+async def ingest_docs(docs: list[IngestDoc], tenant_id: str | None = None) -> int:
     chunks: list[Chunk] = []
     for doc in docs:
+        if tenant_id and not doc.tenant_id:
+            doc.tenant_id = tenant_id
         chunks.extend(doc_to_chunks(doc, chunk_text(doc.text)))
     if not chunks:
         return 0

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 # Provenance fields a chunk/doc may carry (the trust envelope for unstructured data).
-_PROVENANCE = ("source", "doc_type", "ticker", "market", "as_of", "url", "section", "accession")
+_PROVENANCE = ("source", "doc_type", "ticker", "market", "as_of", "url", "section", "accession", "tenant_id")
 
 
 class IngestDoc(BaseModel):
@@ -19,6 +19,7 @@ class IngestDoc(BaseModel):
     url: str | None = None
     section: str | None = None
     accession: str | None = None
+    tenant_id: str | None = None
 
 
 class Chunk(BaseModel):
@@ -32,6 +33,7 @@ class Chunk(BaseModel):
     url: str | None = None
     section: str | None = None
     accession: str | None = None
+    tenant_id: str | None = None
 
     def provenance(self) -> dict:
         return {k: getattr(self, k) for k in _PROVENANCE if getattr(self, k) is not None}
@@ -60,6 +62,7 @@ def doc_to_chunks(doc: IngestDoc, texts: list[str]) -> list[Chunk]:
         Chunk(
             id=f"{base}::{i}", text=t, source=doc.source, doc_type=doc.doc_type, ticker=doc.ticker,
             market=doc.market, as_of=doc.as_of, url=doc.url, section=doc.section, accession=doc.accession,
+            tenant_id=doc.tenant_id,
         )
         for i, t in enumerate(texts)
     ]

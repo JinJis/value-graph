@@ -6,7 +6,7 @@ the same service runs CPU-OSS, GCP (Vertex), or GPU without code changes.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from rag.config import settings
 from rag.ingest import ingest_docs
@@ -35,13 +35,17 @@ async def info() -> dict:
 
 
 @app.post("/rag/ingest", tags=["RAG"], summary="Ingest documents (chunk + embed + store)")
-async def ingest(body: IngestRequest) -> dict:
-    n = await ingest_docs(body.documents)
+async def ingest(body: IngestRequest, request: Request) -> dict:
+    tenant_id = request.headers.get("X-Tenant-Id") or request.headers.get("x-tenant-id")
+    n = await ingest_docs(body.documents, tenant_id=tenant_id)
     return {"chunks": n}
 
 
 @app.post("/rag/search", tags=["RAG"], summary="Retrieve passages with provenance")
-async def search(body: SearchRequest) -> dict:
+async def search(body: SearchRequest, request: Request) -> dict:
     filters = {k: v for k, v in (("ticker", body.ticker), ("market", body.market)) if v}
+    tenant_id = request.headers.get("X-Tenant-Id") or request.headers.get("x-tenant-id")
+    if tenant_id:
+        filters["tenant_id"] = tenant_id
     hits = await run_search(body.query, body.top_k, filters)
     return {"hits": [h.model_dump() for h in hits]}

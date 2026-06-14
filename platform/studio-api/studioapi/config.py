@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     agent_engine_url: str = "http://127.0.0.1:8003"      # AGENT_ENGINE_URL
     database_url: str = "sqlite:///./studio.db"          # DATABASE_URL
     http_timeout_seconds: float = 120.0
+    rag_ingestion_interval_seconds: float = 600.0
 
 
 settings = Settings()

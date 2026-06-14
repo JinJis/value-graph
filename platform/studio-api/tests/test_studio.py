@@ -493,3 +493,58 @@ def test_watchlists_are_user_scoped(monkeypatch):
     other = client.post("/watchlists", headers=_hdr("intruder@u.com"), json={"name": "남그룹"}).json()
     assert client.post(f"/watchlists/{other['id']}/items", headers=_hdr("intruder@u.com"),
                        json={"market": "US", "ticker": "TSLA"}).status_code == 200
+
+
+@respx.mock
+async def test_rag_pipeline_triggers_and_ingests(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    from studioapi.db import SessionLocal
+    from studioapi.models import User, Watchlist, WatchlistItem
+
+    with SessionLocal() as db:
+        user = db.get(User, "pipeline@u.com")
+        if not user:
+            user = User(email="pipeline@u.com", tenant_id="ten1", project_id="prj1", api_key="vgk_demo")
+            db.add(user)
+            db.commit()
+
+        # Add a watchlist + item
+        wl = Watchlist(user_email="pipeline@u.com", name="반도체")
+        db.add(wl)
+        db.commit()
+
+        item = WatchlistItem(watchlist_id=wl.id, market="US", ticker="AAPL", name="Apple")
+        db.add(item)
+        db.commit()
+
+    # Mock the gateway news endpoint
+    news_mock = respx.get("http://cp.test/news").mock(return_value=httpx.Response(200, json={
+        "news": [
+            {"title": "Apple launches new device", "source": "Reuters", "date": "2026-06-14", "url": "http://x.com/aapl"}
+        ]
+    }))
+
+    # Mock RAG ingest
+    ingest_mock = respx.post("http://cp.test/rag/ingest").mock(return_value=httpx.Response(200, json={
+        "chunks": 1
+    }))
+
+    from studioapi.rag_pipeline import run_rag_ingestion_pipeline
+    summary = await run_rag_ingestion_pipeline()
+
+    assert summary.get("pipeline@u.com") >= 1
+    assert news_mock.called
+    assert ingest_mock.called
+
+    # Verify the body passed to ingest_mock contains the correct documents
+    aapl_doc = None
+    for call in ingest_mock.calls:
+        req_body = json.loads(call.request.content)
+        for doc in req_body.get("documents", []):
+            if doc.get("ticker") == "AAPL":
+                aapl_doc = doc
+                break
+    assert aapl_doc is not None
+    assert aapl_doc["text"] == "Apple launches new device"
+    assert aapl_doc["market"] == "US"

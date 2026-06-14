@@ -1,10 +1,8 @@
-"""RAG tests on the dependency-free default (hash embedder + memory store + no rerank).
-
-The hash embedder is lexical, so semantically these are keyword-overlap checks —
-enough to verify the full pipeline + provenance end-to-end without heavy models.
-"""
-
 from __future__ import annotations
+
+import os
+os.environ["RAG_EMBEDDING_BACKEND"] = "hash"
+os.environ["RAG_VECTOR_STORE"] = "memory"
 
 import math
 
@@ -147,3 +145,44 @@ def test_long_text_chunks_into_multiple_pieces():
     text = ". ".join(f"Sentence {i} about supply chains and disclosures" for i in range(40))
     chunks = chunk_text(text, size=80, overlap=10)
     assert len(chunks) > 1 and all(chunks)
+
+
+async def test_search_filter_by_tenant_id():
+    _reset()
+    await ingest_docs([
+        IngestDoc(text="Apple chips and suppliers (Tenant A).", ticker="AAPL", market="US", source="SEC EDGAR", tenant_id="tenant_a"),
+        IngestDoc(text="Apple chips and suppliers (Tenant B).", ticker="AAPL", market="US", source="SEC EDGAR", tenant_id="tenant_b"),
+    ])
+    hits = await search("apple suppliers", top_k=5, filters={"tenant_id": "tenant_a"})
+    assert hits and len(hits) == 1
+    assert hits[0].provenance.get("tenant_id") == "tenant_a"
+    assert "Tenant A" in hits[0].text
+
+
+def test_endpoints_respect_tenant_id():
+    _reset()
+    # Ingest with tenant header
+    ing = client.post("/rag/ingest", json={"documents": [
+        {"text": "Secret project details of Tenant A.", "source": "Internal", "ticker": "AAPL"}
+    ]}, headers={"X-Tenant-Id": "tenant_a"})
+    assert ing.json()["chunks"] >= 1
+
+    # Ingest for another tenant
+    ing2 = client.post("/rag/ingest", json={"documents": [
+        {"text": "Secret project details of Tenant B.", "source": "Internal", "ticker": "AAPL"}
+    ]}, headers={"X-Tenant-Id": "tenant_b"})
+    assert ing2.json()["chunks"] >= 1
+
+    # Search with tenant A header
+    res_a = client.post("/rag/search", json={"query": "Secret project details", "top_k": 5}, headers={"X-Tenant-Id": "tenant_a"}).json()
+    assert len(res_a["hits"]) == 1
+    assert "Tenant A" in res_a["hits"][0]["text"]
+
+    # Search with tenant B header
+    res_b = client.post("/rag/search", json={"query": "Secret project details", "top_k": 5}, headers={"X-Tenant-Id": "tenant_b"}).json()
+    assert len(res_b["hits"]) == 1
+    assert "Tenant B" in res_b["hits"][0]["text"]
+
+    # Search without tenant header should return both
+    res_all = client.post("/rag/search", json={"query": "Secret project details", "top_k": 5}).json()
+    assert len(res_all["hits"]) == 2

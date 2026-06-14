@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 183 unit** — datasets 74 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
-> semantic) · agent-engine 39 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 182 unit** — datasets 74 · control-plane 12 · mcp 9 · rag 16 (+2 oss-cpu
+> semantic) · agent-engine 39 · studio-api 32 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
@@ -127,12 +127,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     progress** (admin auto-refreshes while running); `backfill_running` **serializes** runs (busy returned
     synchronously). **Verified live:** `us_mega` 4/15→15/15, 15 cos · 34,506 facts. +7 datasets, +2 admin.
     *(Real distributed queue + migrations = PH-11.)*
-- ⬜ **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
+- ✅ **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
   `hash` toy embedder + ephemeral `memory` store, so `rag__search` returns nothing real. Build a pipeline
   (news now via Google News; filing text after PH-5's `/filings/items`) → chunk → embed → index per
   tenant; default `oss-cpu` + `pgvector` (persistent); add per-tenant doc isolation. *(rag + pipeline;
   partially depends on PH-5 for filing text.)* **The single most important unbuilt item — it makes "real,
-  cited, semantic" true instead of aspirational.**
+  cited, semantic" true instead of aspirational.** **Verified live pipeline runs in background and isolates documents by X-Tenant-Id.**
 
 #### Tier 1 — answer quality *(most visible; mostly independent)*
 - ✅ **PH-3 · Answer-quality quick wins.** (a) catalog `name` → friendly `connector_name`/`friendly`

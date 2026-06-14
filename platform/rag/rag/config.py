@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
 
     # --- embeddings --------------------------------------------------------
-    embedding_backend: str = "hash"          # hash | oss-cpu | oss-gpu | tei | gcp
+    embedding_backend: str = "oss-cpu"          # hash | oss-cpu | oss-gpu | tei | gcp
     embedding_model: str = "BAAI/bge-m3"
     embedding_endpoint: str = ""             # for tei
     hash_dim: int = 384
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     reranker_endpoint: str = ""
 
     # --- vector store ------------------------------------------------------
-    vector_store: str = "memory"             # memory | pgvector
+    vector_store: str = "pgvector"             # memory | pgvector
     database_url: str = ""                    # pgvector (postgresql://...)
 
     # --- google cloud ------------------------------------------------------
