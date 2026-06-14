@@ -8,7 +8,12 @@
 > technical tasks (data-plane 501s, hardening) and test counts. Each milestone below names the
 > `ROADMAP.md` items it depends on or completes.
 >
-> Status: ✅ done · 🚧 partial · ⬜ todo. **One milestone at a time, one task per PR.** Tag PRs with the
+> > **⚠️ Re-prioritised 2026-06-14:** a platform audit moved **Platform Hardening & Quality (PH-1…PH-12,
+> see [`ROADMAP.md`](./ROADMAP.md))** ahead of U2+. Reason: answers read robotic, the data stores are
+> empty by default (scheduler off, no RAG ingestion pipeline), and the admin/ops layer isn't
+> production-operable. **U2 is folded into PH-4.** Resume U3/U4/U5/U0 after the PH tier. U1 + U-SHELL stay done.
+
+Status: ✅ done · 🚧 partial · ⬜ todo. **One milestone at a time, one task per PR.** Tag PRs with the
 > milestone (e.g. `[U1-WATCHLIST-02]`). A milestone isn't done until its acceptance criteria pass + the
 > global Definition of Done (`../CLAUDE.md` §9).
 

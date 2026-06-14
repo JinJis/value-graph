@@ -12,6 +12,61 @@
 
 ---
 
+## 🔴 Platform Hardening & Quality (PH) — CURRENT TOP PRIORITY
+
+> Pulled ahead of the UX milestones (U2+) on 2026-06-14 after a full audit. The product *plumbing*
+> works, but three things undermine it: **(1) answers read like a machine** (raw tool ids, canned
+> disclaimer, ugly citations), **(2) the data stores are empty by default** (scheduler OFF, backfill is
+> manual-only, RAG has no ingestion pipeline → screener / historical / `rag__search` return nothing for
+> real users), and **(3) it isn't operable** (admin is raw-HTML + insecure, no ingestion visibility).
+> MCP is verified-working; not a priority. Order below respects dependencies. UX (U2+) resumes after.
+
+**Tier 0 — make the data real (everything else is hollow without it)**
+- ⬜ **PH-1 · Ingestion operability.** Scheduler is OFF by default + backfill is CLI-only → `FinancialFact`
+  store is empty → `/financials/search/*`, historical metrics, 13F-ticker all return nothing. Add an
+  `/admin/backfill` trigger + an `ingestion_jobs` log table (ticker·market·status·rows·started·error);
+  surface store stats per market + job history in the admin dashboard; ship a sensible default
+  `SCHEDULER_*` config + docs. *(datasets + admin)* — **unblocks PH-5/PH-6 and the screener.**
+- ⬜ **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
+  `hash` toy embedder + ephemeral `memory` store. Build a pipeline (news now via Google News; filings
+  after PH-5's `/filings/items`) → chunk → embed → index per tenant; default `oss-cpu` + `pgvector`
+  (persistent); add per-tenant doc isolation. *(rag + pipeline)* — partially depends on PH-5 for filing text.
+
+**Tier 1 — answer quality (most visible; mostly independent)**
+- ⬜ **PH-3 · Answer-quality quick wins.** (a) friendly tool/source names from the catalog manifest (kill
+  raw `opendart__income_statements` exposure); (b) **dedup** citations by (source,url); (c) guardrail =
+  a UI label shown only when `refused`, not appended prose; (d) better Gemini synthesis prompt (clean
+  narrative grounded in results, friendly names, no raw ids). *(agent-engine + web)* — independent, fast.
+- ⬜ **PH-4 (= U2) · Perplexity-style inline citations + source-preview cards.** Enrich the `Citation`
+  model (`as_of`/`doc_type`/`freshness`/`index`), anchor inline `[n]` markers to spans, type-aware
+  preview cards (filing verbatim-span / metric computation / news snippet). **This is U2, pulled in
+  here.** Depends on PH-3 + citation metadata.
+
+**Tier 2 — more tools (depth; several depend on a populated store)**
+- ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,
+  `/earnings/tickers`, `/company/facts/ciks`, `/prices/snapshot/market`, and `/filings/items` (filing
+  text — also feeds PH-2). *(datasets, mostly S)*
+- ⬜ **PH-6 · Store-backed endpoints.** #18 13F **ticker-mode** (reverse-CUSIP index) + #21 **historical
+  financial-metrics** (ratios across periods). *(datasets; depends on PH-1 populated store)*
+- ⬜ **PH-7 · XBRL depth.** #20 **segments** + **as-reported** financials (XBRL direct parse, US+KR). *(L)*
+- ⬜ **PH-8 · #19 Index/ETF holdings** (US SEC N-PORT; KR KRX/DART later). *(M)*
+- ⬜ **PH-9 · #22 KPIs via Gemini** from earnings text (needs text ingestion + Gemini + metering). *(depends PH-2)*
+- ⬜ **PH-DEFER · #24 paid adapters** (Polygon/Tiingo/FMP/KIS) — needs keys; tie to BYO-key/governance (PH-12).
+
+**Tier 3 — production hardening**
+- ⬜ **PH-10 · Admin → real ops console.** Harden auth (hash/secret + rate-limit, drop `admin`/`admin`);
+  styled dashboard (not raw HTML); job-history + RAG-index-stats + per-market store + per-tenant usage
+  views; bulk-backfill form. *(admin)*
+- ⬜ **PH-11 · Productionization (#23).** Postgres + Redis (cache/rate-limit/quota), CI running all tests,
+  slim images, observability/metrics.
+- ⬜ **PH-12 · Governance/licensing enforcement + BYO-key.** Redistribution rules, BYO-key fallback for
+  restricted feeds (also unblocks U5 clone of yahoo/news + PH-DEFER paid adapters).
+
+**Then resume UX:** U2 is folded into PH-4; U3 (artifacts+board) · U4 (standing analysts/push) · U5
+(gallery clone) · U0 (onboarding) follow per `UX_ROADMAP.md`.
+
+---
+
 ## Done ✅
 
 ### Data plane (`platform/datasets/`)
