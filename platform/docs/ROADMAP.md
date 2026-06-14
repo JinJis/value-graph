@@ -43,8 +43,9 @@
   model (`as_of`/`doc_type`/`freshness`/`index`), anchor inline `[n]` markers to spans, type-aware
   preview cards (filing verbatim-span / metric computation / news snippet). **This is U2, pulled in
   here.** Depends on PH-3 + citation metadata.
-- ⬜ **PH-13 · LLM-based Guardrails.** Replace regex pattern matching in `guardrails.py` with Gemini LLM classification for price predictions and investment advice. *(agent-engine)*
-- ⬜ **PH-14 · Agent Engine Multi-step Planner & Tool Selection.** Refactor GeminiPlanner to support multi-step tool calls by passing proper conversation history to GenAI; enrich parameter schemas with descriptions; inject date context; auto-resolve tickers from company names. *(agent-engine)*
+- ✅ **PH-13 · LLM-based Guardrails.** Replace regex pattern matching in `guardrails.py` with Gemini LLM classification for price predictions and investment advice. *(agent-engine)*
+- ✅ **PH-14 · Agent Engine Multi-step Planner & Tool Selection.** Refactor GeminiPlanner to support multi-step tool calls by passing proper conversation history to GenAI; enrich parameter schemas with descriptions; inject date context; auto-resolve tickers from company names. *(agent-engine)*
+- ⬜ **PH-15 · Dynamic step budget & strict loop guarantees.** Dynamically adjust `max_steps` based on estimated task complexity; enforce a strict guarantee where the planner must finalize and return a valid answer before reaching the absolute step limit (e.g., force-finalizing at `step = max_steps - 1` to avoid an extra +1 call, handling intermediate tool execution failures gracefully, and preventing infinite tool-looping by checking for identical consecutive calls). *(agent-engine)*
 
 
 **Tier 2 — more tools (depth; several depend on a populated store)**

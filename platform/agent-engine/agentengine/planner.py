@@ -7,11 +7,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from functools import cache
 
 from agentengine.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -276,7 +279,9 @@ class GeminiPlanner:
                 temperature=0.2,
             )
             resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
-            return Decision(final=_get_text_from_response(resp))
+            text_val = _get_text_from_response(resp)
+            logger.info("force_final response candidate content parts: %s", resp.candidates[0].content.parts if resp.candidates else None)
+            return Decision(final=text_val)
 
         decls = [
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=_schema(t))
