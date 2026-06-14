@@ -41,7 +41,8 @@ def _chunks(text: str, size: int = 6) -> list[str]:
 async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec | None = None) -> AsyncIterator[dict]:
     task = _last_user(messages)
 
-    refusal = guardrails.check(task)
+    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
+    refusal = await guardrailer.check(task)
     if refusal:
         for ch in _chunks(refusal):
             yield {"type": "token", "text": ch}
@@ -73,6 +74,14 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                     yield {"type": "token", "text": ch}
                 answered = True
                 break
+
+            # Auto-resolve ticker from company name/alias
+            if decision.tool and decision.args and "ticker" in decision.args:
+                from agentengine.planner import resolve_ticker
+                resolved = resolve_ticker(decision.args["ticker"])
+                if resolved:
+                    decision.args["ticker"] = resolved
+
             tool = tools.get(decision.tool)
             if tool is None:
                 yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
@@ -91,7 +100,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 yield {"type": "citation", **cit}
             history.append((decision, result))
         if not answered:
-            final = await planner.plan(task, tools, history, system, conversation=messages)
+            final = await planner.plan(task, tools, history, system, conversation=messages, force_final=True)
             for ch in _chunks(final.final or "Reached the step limit."):
                 yield {"type": "token", "text": ch}
     except Exception:

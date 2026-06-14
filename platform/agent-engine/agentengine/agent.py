@@ -83,7 +83,8 @@ def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
 
 
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:
-    refusal = guardrails.check(task)
+    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
+    refusal = await guardrailer.check(task)
     if refusal:
         return RunResult(answer=refusal, refused=True, usage={"steps": 0})
 
@@ -105,6 +106,14 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             if decision.final is not None:
                 answer = decision.final
                 break
+            
+            # Auto-resolve ticker from company name/alias
+            if decision.tool and decision.args and "ticker" in decision.args:
+                from agentengine.planner import resolve_ticker
+                resolved = resolve_ticker(decision.args["ticker"])
+                if resolved:
+                    decision.args["ticker"] = resolved
+
             tool = tools.get(decision.tool)
             if tool is None:
                 answer = f"Planner selected an unavailable tool '{decision.tool}'."
@@ -114,7 +123,7 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             citations.extend(_citations(tool, result))
             history.append((decision, result))
         if not answer:
-            final = await planner.plan(task, tools, history, system)
+            final = await planner.plan(task, tools, history, system, force_final=True)
             answer = final.final or "Reached the step limit without a final answer."
     except Exception:
         # Honest degrade on a planner/LLM error rather than a 500.

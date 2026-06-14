@@ -96,6 +96,8 @@ screen. This is a layout pass, not new data — features fill their rail destina
 - [x] **U-SHELL-01 · web shell.** 3-pane grid (rail · main · right), rail nav with active/소ON state +
       "곧" placeholders, 관심 as an embedded rail screen, desk top-bar keeps the analyst picker/builder/
       프롬프트, right pane = first-cut Live Context (current turn's sources + guardrail label). Web build green.
+- ⬜ **U-SHELL-02 · thinking state & live tool execution indicator.** Render the mascot thinking animation/state in the chat message stream and display a dynamic progress indicator of active tool calls (e.g. "삼성전자 공시를 분석하는 중...", "Yahoo Finance 시세를 가져오는 중...") derived from the stream's SSE events.
+
 
 ---
 

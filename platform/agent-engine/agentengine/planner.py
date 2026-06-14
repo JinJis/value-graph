@@ -62,7 +62,7 @@ _STOP = {
 }
 
 
-def _resolve_ticker(task: str) -> str | None:
+def resolve_ticker(task: str) -> str | None:
     low = task.lower()
     # 1) known company name (longest match first so "삼성전자" beats "삼성"). ASCII
     #    names need word boundaries so "intel" doesn't fire on "intelligence".
@@ -197,7 +197,7 @@ class StubPlanner:
             return Decision(final=_no_tool_message(task, has_tools=False))
         # resolve the company from THIS turn, else from earlier turns (follow-ups like
         # "그럼 그 회사 주가는?" inherit the ticker named earlier in the conversation).
-        ticker = _resolve_ticker(task) or _resolve_ticker(_user_text(conversation))
+        ticker = resolve_ticker(task) or resolve_ticker(_user_text(conversation))
         market = _market_of(ticker)
         # keyword intent first; only fall back to ticker tools when a ticker is known
         # (a vague question with no intent/ticker gets guidance, never a doomed call).
@@ -225,41 +225,58 @@ class GeminiPlanner:
         self.model = model
 
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
-                   conversation: list | None = None) -> Decision:
+                   conversation: list | None = None, force_final: bool = False) -> Decision:
         import asyncio
-
         from google.genai import types
+        from datetime import datetime
 
-        if history:  # ask for a final, grounded answer from the observed data
-            observed = "\n\n".join(
-                f"[출처: {tools.get(d.tool, {}).get('connector_name') or tools.get(d.tool, {}).get('source') or '데이터'}] "
-                f"{str(r['data'])[:1500]}"
-                for d, r in history
-            )
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        base_system = (
+            "You are an expert financial-data assistant. Your goal is to answer the user's query using the provided tools.\n\n"
+            f"Current Date: {current_date}\n\n"
+            "Guidelines for tool selection:\n"
+            "1. For stock prices, historical stock prices, EOD prices, charts, or recent market prices, use 'yahoo__prices'.\n"
+            "2. For general company search, semantic queries, news, press releases, risk factors, or qualitative information, use the RAG search tool 'rag__search'.\n"
+            "3. For official US public company filings, financial reports, or company profile facts, use 'sec_edgar__company_facts'.\n"
+            "4. For Korean public company financial statements or reports, use 'opendart__income_statements'.\n"
+            "5. For macro economy metrics like interest rates or central bank decisions, use 'fred__interest_rates' (US/global) or 'ecos__interest_rates_snapshot' (Korea).\n\n"
+            "Important Parameter Instructions:\n"
+            "- 'ticker': Stock tickers MUST be official symbols (e.g., 'AAPL' for Apple, '005930' for Samsung Electronics). NEVER pass company names (e.g., 'Apple', '삼성전자') as the ticker parameter.\n"
+            "- Always identify the correct market ('US' or 'KR') based on the company or central bank mentioned.\n"
+            "- Resolve follow-up references (e.g. 'that company') from the conversation so far.\n"
+            "Never predict prices or give buy/sell advice; this is not investment advice."
+        )
+
+        system_instruction = f"{base_system}\n\n{system.strip()}" if system and system.strip() else base_system
+
+        contents = _to_gemini_contents(conversation, history, task)
+
+        if force_final:
             prompt = (
-                f"질문: {task}\n\n수집된 데이터:\n{observed}\n\n"
                 "위 데이터에만 근거해 핵심을 간결하고 자연스럽게 답하세요(질문과 같은 언어로). "
                 "수치는 단위·기간과 함께 제시하고, 출처는 기관 이름(예: OpenDART, SEC EDGAR)으로 자연스럽게 언급하세요. "
                 "내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 절대 노출하지 마세요. "
                 "가격 예측이나 매수/매도 의견은 금지하며, 별도의 면책 문구는 덧붙이지 마세요."
             )
-            resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=prompt)
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt)]))
+            config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.2,
+            )
+            resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
             return Decision(final=resp.text)
+
         decls = [
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=_schema(t))
             for t in tools.values()
         ]
-        base = (
-            "You are a financial-data agent. Use the tools to fetch sourced facts. "
-            "Resolve follow-up references (e.g. 'that company') from the conversation so far. "
-            "Never predict prices or give buy/sell advice; this is not investment advice."
-        )
+        
         config = types.GenerateContentConfig(
             tools=[types.Tool(function_declarations=decls)],
-            system_instruction=f"{base}\n\n{system.strip()}" if system and system.strip() else base,
+            system_instruction=system_instruction,
         )
-        # pass the full conversation so the model can resolve cross-turn references
-        contents = _to_contents(conversation) or task
+
         resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
         calls = getattr(resp, "function_calls", None)
         if calls:
@@ -268,18 +285,41 @@ class GeminiPlanner:
         return Decision(final=resp.text)
 
 
-def _to_contents(conversation: list | None):
-    """Map a [{role, content}] conversation to the genai `contents` format."""
-    if not conversation:
-        return None
+def _to_gemini_contents(conversation: list | None, history: list, task: str):
+    from google.genai import types
+
     out = []
-    for m in conversation:
-        c = m.get("content")
-        if not c:
-            continue
-        role = "model" if m.get("role") == "assistant" else "user"
-        out.append({"role": role, "parts": [{"text": c}]})
-    return out or None
+    if conversation:
+        for m in conversation:
+            c = m.get("content")
+            if not c:
+                continue
+            role = "model" if m.get("role") == "assistant" else "user"
+            out.append(types.Content(role=role, parts=[types.Part.from_text(text=c)]))
+
+    if not out:
+        out.append(types.Content(role="user", parts=[types.Part.from_text(text=task)]))
+
+    for dec, res in history:
+        # Function Call
+        model_part = types.Part.from_function_call(
+            name=dec.tool,
+            args=dec.args or {}
+        )
+        out.append(types.Content(role="model", parts=[model_part]))
+
+        # Function Response
+        response_data = res.get("data")
+        if not isinstance(response_data, dict):
+            response_data = {"result": response_data}
+
+        tool_part = types.Part.from_function_response(
+            name=dec.tool,
+            response=response_data
+        )
+        out.append(types.Content(role="tool", parts=[tool_part]))
+
+    return out
 
 
 def _schema(tool: dict) -> dict:
@@ -288,6 +328,8 @@ def _schema(tool: dict) -> dict:
         prop = {"type": p.get("type", "string").upper() if p.get("type") in ("integer", "number", "boolean") else "STRING"}
         if p.get("enum"):
             prop["enum"] = p["enum"]
+        if p.get("description"):
+            prop["description"] = p["description"]
         props[p["name"]] = prop
         if p.get("required"):
             required.append(p["name"])

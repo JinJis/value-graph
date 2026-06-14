@@ -3,8 +3,8 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 174 unit** — datasets 71 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
-> semantic) · agent-engine 35 · studio-api 31 — plus the web build, three docker e2e harnesses
+> **Test totals (current): 178 unit** — datasets 71 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> semantic) · agent-engine 39 · studio-api 31 — plus the web build, three docker e2e harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), the
 > **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn; 59/59 checks + judge 5.00/5), and
@@ -43,6 +43,9 @@
   model (`as_of`/`doc_type`/`freshness`/`index`), anchor inline `[n]` markers to spans, type-aware
   preview cards (filing verbatim-span / metric computation / news snippet). **This is U2, pulled in
   here.** Depends on PH-3 + citation metadata.
+- ⬜ **PH-13 · LLM-based Guardrails.** Replace regex pattern matching in `guardrails.py` with Gemini LLM classification for price predictions and investment advice. *(agent-engine)*
+- ⬜ **PH-14 · Agent Engine Multi-step Planner & Tool Selection.** Refactor GeminiPlanner to support multi-step tool calls by passing proper conversation history to GenAI; enrich parameter schemas with descriptions; inject date context; auto-resolve tickers from company names. *(agent-engine)*
+
 
 **Tier 2 — more tools (depth; several depend on a populated store)**
 - ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,
@@ -107,7 +110,7 @@ Runs agents over a tenant's activated connectors + RAG via the gateway.
 - ✅ Guardrails ("not investment advice", **no forecasting**); provenance citations in outputs
 - ⬜ Follow-ups: full LangGraph graph; per-tenant budgets; Gemini planner live-tested with a key
 
-### Product layer — chat UI  ✅ (F0)
+### Product layer — chat UI  🚧 (F0)
 A Claude-style web app where users freely ask about holdings/news/markets/economy and the agent answers
 with sources. **Value-chain flagship was dropped.**
 - ✅ `agent-engine` streaming multi-turn chat (`POST /agent/chat` SSE)
@@ -115,6 +118,7 @@ with sources. **Value-chain flagship was dropped.**
   conversations, chat BFF that holds the tenant key server-side
 - ✅ `web` (Next.js + Auth.js Google, dev-login fallback): streaming chat with a tools & sources panel
 - ✅ In the unified compose default stack (`docker compose up` serves web on :3000); e2e covers the full chat chain
+- ⬜ **F0-thinking · Thinking & step progress indicator.** Render the mascot's thinking state and show active tool call/execution steps during SSE response streaming. *(web)*
 
 ### Product layer — agent builder  ✅ (F1)
 Users create/configure agents and pick from provided templates; a chat runs through the chosen agent.
