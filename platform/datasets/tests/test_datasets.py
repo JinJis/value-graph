@@ -314,7 +314,7 @@ async def test_run_backfill_records_job(monkeypatch):
 
     init_db()
 
-    async def fake_us(tickers=None, zip_path=None, limit=None):
+    async def fake_us(tickers=None, zip_path=None, limit=None, on_progress=None):
         return {"AAPL": 120, "MSFT": -1}  # one ok, one per-ticker failure
 
     monkeypatch.setattr(J, "bulk_load_us", fake_us)
@@ -330,7 +330,7 @@ async def test_run_backfill_records_error(monkeypatch):
 
     init_db()
 
-    async def boom(tickers=None, zip_path=None, limit=None):
+    async def boom(tickers=None, zip_path=None, limit=None, on_progress=None):
         raise RuntimeError("upstream down")
 
     monkeypatch.setattr(J, "bulk_load_us", boom)
@@ -343,6 +343,59 @@ async def test_run_backfill_records_error(monkeypatch):
 def test_admin_jobs_endpoint():
     r = client.get("/admin/jobs")
     assert r.status_code == 200 and "jobs" in r.json()
+
+
+def test_universe_presets_listed_and_endpoint():
+    from app.store.universes import get_preset, list_presets
+    ids = {u["id"] for u in list_presets()}
+    assert {"us_mega", "us_large", "kr_large"} <= ids
+    assert get_preset("us_mega")["market"] == "US" and "AAPL" in get_preset("us_mega")["tickers"]
+    assert get_preset("nope") is None
+    r = client.get("/admin/universes")
+    assert r.status_code == 200 and any(u["id"] == "kr_large" for u in r.json()["universes"])
+
+
+async def test_run_backfill_by_preset_sets_progress(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+    seen_progress = []
+
+    async def fake_us(tickers=None, zip_path=None, limit=None, on_progress=None):
+        for i, _t in enumerate(tickers, 1):
+            if on_progress:
+                on_progress(i, len(tickers))
+        return {t: 10 for t in tickers}
+
+    monkeypatch.setattr(J, "bulk_load_us", fake_us)
+    out = await J.run_backfill(preset="us_mega")
+    assert out["status"] == "success" and out["rows"] > 0
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["total"] == row["done"] and row["total"] >= 15  # progressed to completion
+    assert row["spec"].startswith("universe:us_mega")
+    # unknown preset is rejected
+    assert (await J.run_backfill(preset="bogus"))["status"] == "error"
+
+
+async def test_backfill_guard_blocks_concurrent(monkeypatch):
+    from app.store.db import SessionLocal, init_db
+    from app.store import jobs as J
+    from app.store.models import IngestionJob
+
+    init_db()
+    # simulate an in-flight backfill
+    with SessionLocal() as db:
+        db.add(IngestionJob(kind="backfill", market="US", status="running", total=5, done=1))
+        db.commit()
+    assert J.backfill_running() is True
+    out = await J.run_backfill(market="US", tickers=["AAPL"])
+    assert out["status"] == "busy"
+    # clean up
+    with SessionLocal() as db:
+        from sqlalchemy import delete
+        db.execute(delete(IngestionJob).where(IngestionJob.status == "running"))
+        db.commit()
 
 
 # --- one provider path with mocked upstream -------------------------------

@@ -59,6 +59,8 @@ class IngestionJob(Base):
     spec: Mapped[str | None] = mapped_column(String(256), nullable=True)  # tickers / universe / "deep"
     status: Mapped[str] = mapped_column(String(12), index=True)  # running | success | error
     rows: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)  # tickers to process
+    done: Mapped[int] = mapped_column(Integer, default=0)   # tickers processed (live progress)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

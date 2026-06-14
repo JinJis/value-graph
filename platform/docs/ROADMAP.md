@@ -3,8 +3,8 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 178 unit** — datasets 71 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
-> semantic) · agent-engine 39 · studio-api 31 — plus the web build, three docker e2e harnesses
+> **Test totals (current): 179 unit** — datasets 74 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> semantic) · agent-engine 39 · studio-api 31 (+ admin 7) — plus the web build, three docker e2e harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), the
 > **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn; 59/59 checks + judge 5.00/5), and
@@ -23,10 +23,14 @@
 
 **Tier 0 — make the data real (everything else is hollow without it)**
 - ✅ **PH-1 · Ingestion operability.** `IngestionJob` log + `app/store/jobs.py` (start/finish/list +
-  `run_backfill`); `POST /admin/backfill` (background, US universe / KR tickers) + `GET /admin/jobs`;
-  admin dashboard now shows **per-market store breakdown + an explicit empty-store warning + a
-  "Backfill now" form + recent-jobs table**; `.env.example` documents `SCHEDULER_*` + the backfill paths.
-  Store is no longer empty-and-silent. *(datasets + admin)* +4 datasets, +2 admin tests.
+  `run_backfill`); `POST /admin/backfill` + `GET /admin/jobs`; admin dashboard shows **per-market store
+  breakdown + empty-store warning + recent-jobs table**; `.env.example` documents `SCHEDULER_*` + backfill.
+  **Verified live:** AAPL+MSFT 0→5,734 facts (2007→2026), KR DART works, screener returns real data.
+  - ✅ **PH-1b · universe presets + live progress + queue guard.** Curated `universes.py` presets
+    (`us_mega`/`us_large`/`kr_large`) selectable in admin; `IngestionJob.total`/`done` give **per-ticker
+    progress** (admin auto-refreshes while running); `backfill_running` **serializes** runs (busy returned
+    synchronously). **Verified live:** `us_mega` progressed 4/15→15/15, 15 cos · 34,506 facts.
+    *(datasets + admin)* +7 datasets, +2 admin tests. *(Real distributed queue = PH-11; migrations also PH-11.)*
 - ⬜ **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
   `hash` toy embedder + ephemeral `memory` store. Build a pipeline (news now via Google News; filings
   after PH-5's `/filings/items`) → chunk → embed → index per tenant; default `oss-cpu` + `pgvector`

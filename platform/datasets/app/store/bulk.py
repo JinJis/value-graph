@@ -96,25 +96,29 @@ async def _load_us_zip(zip_path: str, limit: int | None) -> dict:
     return await asyncio.to_thread(_process)
 
 
-async def bulk_load_us(tickers: list[str] | None = None, zip_path: str | None = None, limit: int | None = None) -> dict:
+async def bulk_load_us(tickers: list[str] | None = None, zip_path: str | None = None,
+                       limit: int | None = None, on_progress=None) -> dict:
     init_db()
     if zip_path:
         return await _load_us_zip(zip_path, limit)
     out: dict[str, int] = {}
-    for t in tickers or []:
+    tickers = tickers or []
+    for i, t in enumerate(tickers, 1):
         try:
             out[t] = await _load_us_ticker_deep(t)
         except Exception as exc:
             out[t] = -1
             print(f"  ! US:{t} failed: {exc}")
+        if on_progress:
+            on_progress(i, len(tickers))
     return out
 
 
 # --- KR ------------------------------------------------------------------
-async def bulk_load_kr(tickers: list[str], limit: int = 15) -> dict:
+async def bulk_load_kr(tickers: list[str], limit: int = 15, on_progress=None) -> dict:
     init_db()
     out: dict[str, int] = {}
-    for t in tickers:
+    for i, t in enumerate(tickers, 1):
         try:
             annual = await ingest_ticker(Market.KR, t, "annual", limit)
             quarterly = await ingest_ticker(Market.KR, t, "quarterly", limit)
@@ -122,4 +126,6 @@ async def bulk_load_kr(tickers: list[str], limit: int = 15) -> dict:
         except Exception as exc:
             out[t] = -1
             print(f"  ! KR:{t} failed: {exc}")
+        if on_progress:
+            on_progress(i, len(tickers))
     return out
