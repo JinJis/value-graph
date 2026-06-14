@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.1",
   "info": {
-    "title": "Financial Datasets API",
+    "title": "ValueGraph Datasets API",
     "description": "Stock market API with real-time and historical financial data for 27,000+ tickers over 30+ years. Financial statements, equity prices, insider trades, SEC filings, and more.",
     "version": "1.0.0",
     "license": {
@@ -9,16 +9,13 @@
       "url": "https://opensource.org/licenses/MIT"
     },
     "contact": {
-      "name": "API Support",
-      "url": "mailto:support@financialdatasets.ai",
-      "email": "support@financialdatasets.ai"
-    },
-    "termsOfService": "https://financialdatasets.ai/terms-of-use"
+      "name": "ValueGraph"
+    }
   },
   "servers": [
     {
-      "url": "https://api.financialdatasets.ai/",
-      "description": "Production server"
+      "url": "http://localhost:8000",
+      "description": "Local"
     }
   ],
   "tags": [
@@ -624,7 +621,10 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": ["equity", "bond"]
+              "enum": [
+                "equity",
+                "bond"
+              ]
             }
           },
           {
@@ -1290,7 +1290,9 @@
             "in": "query",
             "description": "The ticker symbol. Required if cik is not provided.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "period",
@@ -1299,41 +1301,69 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["annual", "quarterly"]
+              "enum": [
+                "annual",
+                "quarterly"
+              ]
             }
           },
           {
             "name": "limit",
             "in": "query",
             "description": "The maximum number of periods to return.",
-            "schema": {"type": "integer", "format": "int32"}
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
           },
           {
             "name": "cik",
             "in": "query",
             "description": "The Central Index Key (CIK) of the company.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
-          {"$ref": "#/components/parameters/ReportPeriod"},
-          {"$ref": "#/components/parameters/ReportPeriodGte"},
-          {"$ref": "#/components/parameters/ReportPeriodLte"},
-          {"$ref": "#/components/parameters/ReportPeriodGt"},
-          {"$ref": "#/components/parameters/ReportPeriodLt"}
+          {
+            "$ref": "#/components/parameters/ReportPeriod"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGt"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLt"
+          }
         ],
         "responses": {
           "200": {
             "description": "As-reported income statements response",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/AsReportedIncomeStatementsResponse"}
+                "schema": {
+                  "$ref": "#/components/schemas/AsReportedIncomeStatementsResponse"
+                }
               }
             }
           },
-          "400": {"$ref": "#/components/responses/BadRequestError"},
-          "401": {"$ref": "#/components/responses/UnauthorizedError"},
-          "402": {"$ref": "#/components/responses/PaymentRequiredError"},
-          "404": {"$ref": "#/components/responses/NotFoundError"}
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequiredError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          }
         }
       }
     },
@@ -1351,7 +1381,9 @@
             "in": "query",
             "description": "The ticker symbol. Required if cik is not provided.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "period",
@@ -1360,41 +1392,69 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["annual", "quarterly"]
+              "enum": [
+                "annual",
+                "quarterly"
+              ]
             }
           },
           {
             "name": "limit",
             "in": "query",
             "description": "The maximum number of periods to return.",
-            "schema": {"type": "integer", "format": "int32"}
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
           },
           {
             "name": "cik",
             "in": "query",
             "description": "The Central Index Key (CIK) of the company.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
-          {"$ref": "#/components/parameters/ReportPeriod"},
-          {"$ref": "#/components/parameters/ReportPeriodGte"},
-          {"$ref": "#/components/parameters/ReportPeriodLte"},
-          {"$ref": "#/components/parameters/ReportPeriodGt"},
-          {"$ref": "#/components/parameters/ReportPeriodLt"}
+          {
+            "$ref": "#/components/parameters/ReportPeriod"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGt"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLt"
+          }
         ],
         "responses": {
           "200": {
             "description": "As-reported balance sheets response",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/AsReportedBalanceSheetsResponse"}
+                "schema": {
+                  "$ref": "#/components/schemas/AsReportedBalanceSheetsResponse"
+                }
               }
             }
           },
-          "400": {"$ref": "#/components/responses/BadRequestError"},
-          "401": {"$ref": "#/components/responses/UnauthorizedError"},
-          "402": {"$ref": "#/components/responses/PaymentRequiredError"},
-          "404": {"$ref": "#/components/responses/NotFoundError"}
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequiredError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          }
         }
       }
     },
@@ -1412,7 +1472,9 @@
             "in": "query",
             "description": "The ticker symbol. Required if cik is not provided.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "period",
@@ -1421,41 +1483,69 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["annual", "quarterly"]
+              "enum": [
+                "annual",
+                "quarterly"
+              ]
             }
           },
           {
             "name": "limit",
             "in": "query",
             "description": "The maximum number of periods to return.",
-            "schema": {"type": "integer", "format": "int32"}
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
           },
           {
             "name": "cik",
             "in": "query",
             "description": "The Central Index Key (CIK) of the company.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
-          {"$ref": "#/components/parameters/ReportPeriod"},
-          {"$ref": "#/components/parameters/ReportPeriodGte"},
-          {"$ref": "#/components/parameters/ReportPeriodLte"},
-          {"$ref": "#/components/parameters/ReportPeriodGt"},
-          {"$ref": "#/components/parameters/ReportPeriodLt"}
+          {
+            "$ref": "#/components/parameters/ReportPeriod"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGt"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLt"
+          }
         ],
         "responses": {
           "200": {
             "description": "As-reported cash flow statements response",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/AsReportedCashFlowStatementsResponse"}
+                "schema": {
+                  "$ref": "#/components/schemas/AsReportedCashFlowStatementsResponse"
+                }
               }
             }
           },
-          "400": {"$ref": "#/components/responses/BadRequestError"},
-          "401": {"$ref": "#/components/responses/UnauthorizedError"},
-          "402": {"$ref": "#/components/responses/PaymentRequiredError"},
-          "404": {"$ref": "#/components/responses/NotFoundError"}
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequiredError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          }
         }
       }
     },
@@ -1473,7 +1563,9 @@
             "in": "query",
             "description": "The ticker symbol. Required if cik is not provided.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "period",
@@ -1482,41 +1574,69 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["annual", "quarterly"]
+              "enum": [
+                "annual",
+                "quarterly"
+              ]
             }
           },
           {
             "name": "limit",
             "in": "query",
             "description": "The maximum number of periods to return.",
-            "schema": {"type": "integer", "format": "int32"}
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
           },
           {
             "name": "cik",
             "in": "query",
             "description": "The Central Index Key (CIK) of the company.",
             "required": false,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           },
-          {"$ref": "#/components/parameters/ReportPeriod"},
-          {"$ref": "#/components/parameters/ReportPeriodGte"},
-          {"$ref": "#/components/parameters/ReportPeriodLte"},
-          {"$ref": "#/components/parameters/ReportPeriodGt"},
-          {"$ref": "#/components/parameters/ReportPeriodLt"}
+          {
+            "$ref": "#/components/parameters/ReportPeriod"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLte"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodGt"
+          },
+          {
+            "$ref": "#/components/parameters/ReportPeriodLt"
+          }
         ],
         "responses": {
           "200": {
             "description": "All as-reported financials response",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/AsReportedFinancialsResponse"}
+                "schema": {
+                  "$ref": "#/components/schemas/AsReportedFinancialsResponse"
+                }
               }
             }
           },
-          "400": {"$ref": "#/components/responses/BadRequestError"},
-          "401": {"$ref": "#/components/responses/UnauthorizedError"},
-          "402": {"$ref": "#/components/responses/PaymentRequiredError"},
-          "404": {"$ref": "#/components/responses/NotFoundError"}
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequiredError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          }
         }
       }
     },
@@ -2790,7 +2910,7 @@
                     },
                     "message": {
                       "type": "string",
-                      "example": "KPI endpoints are in early access. Contact support@financialdatasets.ai for access."
+                      "example": "KPI endpoints are in early access."
                     }
                   }
                 }
@@ -2884,51 +3004,193 @@
     },
     "/kpi/guidance": {
       "get": {
-        "tags": ["KPIs"],
+        "tags": [
+          "KPIs"
+        ],
         "operationId": "getKPIGuidance",
         "summary": "Get forward guidance",
         "description": "Get structured forward guidance from earnings releases. Returns ranges, point estimates, and directional signals.",
         "parameters": [
-          {"name": "ticker", "in": "query", "description": "The ticker symbol.", "required": true, "schema": {"type": "string"}},
-          {"name": "metric_name", "in": "query", "description": "Filter to a specific metric.", "required": false, "schema": {"type": "string"}},
-          {"name": "period", "in": "query", "description": "Filter by period type: quarterly or annual.", "required": false, "schema": {"type": "string", "enum": ["quarterly", "annual"], "default": "quarterly"}},
-          {"name": "report_period_gte", "in": "query", "description": "Only return guidance on or after this date (YYYY-MM-DD).", "required": false, "schema": {"type": "string", "format": "date"}},
-          {"name": "report_period_lte", "in": "query", "description": "Only return guidance on or before this date (YYYY-MM-DD).", "required": false, "schema": {"type": "string", "format": "date"}},
-          {"name": "limit", "in": "query", "description": "Number of periods to return.", "required": false, "schema": {"type": "integer", "default": 4, "maximum": 50}}
+          {
+            "name": "ticker",
+            "in": "query",
+            "description": "The ticker symbol.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metric_name",
+            "in": "query",
+            "description": "Filter to a specific metric.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Filter by period type: quarterly or annual.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "quarterly",
+                "annual"
+              ],
+              "default": "quarterly"
+            }
+          },
+          {
+            "name": "report_period_gte",
+            "in": "query",
+            "description": "Only return guidance on or after this date (YYYY-MM-DD).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "report_period_lte",
+            "in": "query",
+            "description": "Only return guidance on or before this date (YYYY-MM-DD).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of periods to return.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 4,
+              "maximum": 50
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Guidance response",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KPIGuidanceResponse"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KPIGuidanceResponse"
+                }
+              }
+            }
           },
-          "400": {"$ref": "#/components/responses/BadRequestError"},
-          "401": {"$ref": "#/components/responses/UnauthorizedError"},
-          "403": {"description": "Pro subscription required"}
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "description": "Pro subscription required"
+          }
         }
       }
     },
     "/kpi/non-gaap": {
       "get": {
-        "tags": ["KPIs"],
+        "tags": [
+          "KPIs"
+        ],
         "operationId": "getKPINonGAAP",
         "summary": "Get non-GAAP metrics",
         "description": "Get non-GAAP financial metrics with GAAP equivalents and key adjustments.",
         "parameters": [
-          {"name": "ticker", "in": "query", "description": "The ticker symbol.", "required": true, "schema": {"type": "string"}},
-          {"name": "metric_name", "in": "query", "description": "Filter to a specific metric.", "required": false, "schema": {"type": "string"}},
-          {"name": "period", "in": "query", "description": "Filter by period type: quarterly or annual.", "required": false, "schema": {"type": "string", "enum": ["quarterly", "annual"], "default": "quarterly"}},
-          {"name": "report_period_gte", "in": "query", "description": "Only return metrics on or after this date (YYYY-MM-DD).", "required": false, "schema": {"type": "string", "format": "date"}},
-          {"name": "report_period_lte", "in": "query", "description": "Only return metrics on or before this date (YYYY-MM-DD).", "required": false, "schema": {"type": "string", "format": "date"}},
-          {"name": "limit", "in": "query", "description": "Number of periods to return.", "required": false, "schema": {"type": "integer", "default": 4, "maximum": 50}}
+          {
+            "name": "ticker",
+            "in": "query",
+            "description": "The ticker symbol.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metric_name",
+            "in": "query",
+            "description": "Filter to a specific metric.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Filter by period type: quarterly or annual.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "quarterly",
+                "annual"
+              ],
+              "default": "quarterly"
+            }
+          },
+          {
+            "name": "report_period_gte",
+            "in": "query",
+            "description": "Only return metrics on or after this date (YYYY-MM-DD).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "report_period_lte",
+            "in": "query",
+            "description": "Only return metrics on or before this date (YYYY-MM-DD).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of periods to return.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 4,
+              "maximum": 50
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Non-GAAP metrics response",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KPINonGAAPResponse"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KPINonGAAPResponse"
+                }
+              }
+            }
           },
-          "400": {"$ref": "#/components/responses/BadRequestError"},
-          "401": {"$ref": "#/components/responses/UnauthorizedError"},
-          "403": {"description": "Pro subscription required"}
+          "400": {
+            "$ref": "#/components/responses/BadRequestError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "description": "Pro subscription required"
+          }
         }
       }
     }
@@ -3247,16 +3509,50 @@
             "type": "object",
             "description": "Fund header: identity, the as-of period, and coverage counts for the full fund (not the returned page).",
             "properties": {
-              "name": { "type": "string", "description": "Fund name." },
-              "cik": { "type": "string", "description": "The fund registrant's SEC CIK." },
-              "asset_class": { "type": "string", "description": "Fund asset class (e.g., `equity`, `bond`)." },
-              "as_of": { "type": "string", "format": "date", "description": "Reporting period of the filing the holdings are drawn from." },
-              "filing_date": { "type": "string", "format": "date", "nullable": true, "description": "Date the filing was submitted to the SEC." },
-              "source": { "type": "string", "description": "Provenance of the holdings." },
-              "total_net_assets": { "type": "number", "nullable": true, "description": "The fund's total net assets in USD (the weight denominator)." },
-              "total_holdings": { "type": "integer", "description": "Total number of holdings in the fund for this period." },
-              "returned": { "type": "integer", "description": "Number of holdings in this page." },
-              "offset": { "type": "integer", "description": "The pagination offset echoed back from the request." }
+              "name": {
+                "type": "string",
+                "description": "Fund name."
+              },
+              "cik": {
+                "type": "string",
+                "description": "The fund registrant's SEC CIK."
+              },
+              "asset_class": {
+                "type": "string",
+                "description": "Fund asset class (e.g., `equity`, `bond`)."
+              },
+              "as_of": {
+                "type": "string",
+                "format": "date",
+                "description": "Reporting period of the filing the holdings are drawn from."
+              },
+              "filing_date": {
+                "type": "string",
+                "format": "date",
+                "nullable": true,
+                "description": "Date the filing was submitted to the SEC."
+              },
+              "source": {
+                "type": "string",
+                "description": "Provenance of the holdings."
+              },
+              "total_net_assets": {
+                "type": "number",
+                "nullable": true,
+                "description": "The fund's total net assets in USD (the weight denominator)."
+              },
+              "total_holdings": {
+                "type": "integer",
+                "description": "Total number of holdings in the fund for this period."
+              },
+              "returned": {
+                "type": "integer",
+                "description": "Number of holdings in this page."
+              },
+              "offset": {
+                "type": "integer",
+                "description": "The pagination offset echoed back from the request."
+              }
             }
           },
           "holdings": {
@@ -3271,14 +3567,45 @@
         "type": "object",
         "description": "A single constituent of a fund. Identifiers are always present; `ticker` is null when the security has not been resolved to a ticker (e.g., some bonds and foreign securities).",
         "properties": {
-          "ticker": { "type": "string", "nullable": true, "description": "Ticker of the held security, or null when unresolved." },
-          "name": { "type": "string", "nullable": true, "description": "Name of the held security." },
-          "cusip": { "type": "string", "nullable": true, "description": "9-character CUSIP, when available." },
-          "isin": { "type": "string", "nullable": true, "description": "12-character ISIN, when available." },
-          "weight": { "type": "number", "nullable": true, "description": "The position as a percent of the fund's net assets." },
-          "market_value": { "type": "number", "nullable": true, "description": "Position market value in USD." },
-          "shares": { "type": "number", "nullable": true, "description": "Number of shares or principal amount held." },
-          "asset_class": { "type": "string", "description": "Friendly instrument type: `equity`, `bond`, or `other`." }
+          "ticker": {
+            "type": "string",
+            "nullable": true,
+            "description": "Ticker of the held security, or null when unresolved."
+          },
+          "name": {
+            "type": "string",
+            "nullable": true,
+            "description": "Name of the held security."
+          },
+          "cusip": {
+            "type": "string",
+            "nullable": true,
+            "description": "9-character CUSIP, when available."
+          },
+          "isin": {
+            "type": "string",
+            "nullable": true,
+            "description": "12-character ISIN, when available."
+          },
+          "weight": {
+            "type": "number",
+            "nullable": true,
+            "description": "The position as a percent of the fund's net assets."
+          },
+          "market_value": {
+            "type": "number",
+            "nullable": true,
+            "description": "Position market value in USD."
+          },
+          "shares": {
+            "type": "number",
+            "nullable": true,
+            "description": "Number of shares or principal amount held."
+          },
+          "asset_class": {
+            "type": "string",
+            "description": "Friendly instrument type: `equity`, `bond`, or `other`."
+          }
         }
       },
       "IndexFundsForHoldingResponse": {
@@ -3293,13 +3620,37 @@
             "type": "object",
             "description": "Security header: the queried security plus result counts.",
             "properties": {
-              "ticker": { "type": "string", "description": "The queried security ticker." },
-              "name": { "type": "string", "nullable": true, "description": "Security name (null when no fund holds it)." },
-              "cusip": { "type": "string", "nullable": true, "description": "9-character CUSIP, when available." },
-              "isin": { "type": "string", "nullable": true, "description": "12-character ISIN, when available." },
-              "total_funds": { "type": "integer", "description": "Total funds whose latest filing holds the security (not the returned page)." },
-              "returned": { "type": "integer", "description": "Number of funds in this page." },
-              "offset": { "type": "integer", "description": "The pagination offset echoed back from the request." }
+              "ticker": {
+                "type": "string",
+                "description": "The queried security ticker."
+              },
+              "name": {
+                "type": "string",
+                "nullable": true,
+                "description": "Security name (null when no fund holds it)."
+              },
+              "cusip": {
+                "type": "string",
+                "nullable": true,
+                "description": "9-character CUSIP, when available."
+              },
+              "isin": {
+                "type": "string",
+                "nullable": true,
+                "description": "12-character ISIN, when available."
+              },
+              "total_funds": {
+                "type": "integer",
+                "description": "Total funds whose latest filing holds the security (not the returned page)."
+              },
+              "returned": {
+                "type": "integer",
+                "description": "Number of funds in this page."
+              },
+              "offset": {
+                "type": "integer",
+                "description": "The pagination offset echoed back from the request."
+              }
             }
           },
           "funds": {
@@ -3314,15 +3665,49 @@
         "type": "object",
         "description": "One fund's position in the queried security.",
         "properties": {
-          "ticker": { "type": "string", "nullable": true, "description": "The fund's ticker." },
-          "name": { "type": "string", "description": "Fund name." },
-          "cik": { "type": "string", "description": "The fund registrant's SEC CIK." },
-          "asset_class": { "type": "string", "description": "Fund asset class (e.g., `equity`, `bond`)." },
-          "as_of": { "type": "string", "format": "date", "description": "Reporting period of the fund's latest filing." },
-          "filing_date": { "type": "string", "format": "date", "nullable": true, "description": "Date the filing was submitted to the SEC." },
-          "weight": { "type": "number", "nullable": true, "description": "The security as a percent of this fund's net assets." },
-          "market_value": { "type": "number", "nullable": true, "description": "The fund's position value in USD." },
-          "shares": { "type": "number", "nullable": true, "description": "Shares or principal amount the fund holds." }
+          "ticker": {
+            "type": "string",
+            "nullable": true,
+            "description": "The fund's ticker."
+          },
+          "name": {
+            "type": "string",
+            "description": "Fund name."
+          },
+          "cik": {
+            "type": "string",
+            "description": "The fund registrant's SEC CIK."
+          },
+          "asset_class": {
+            "type": "string",
+            "description": "Fund asset class (e.g., `equity`, `bond`)."
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "description": "Reporting period of the fund's latest filing."
+          },
+          "filing_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "Date the filing was submitted to the SEC."
+          },
+          "weight": {
+            "type": "number",
+            "nullable": true,
+            "description": "The security as a percent of this fund's net assets."
+          },
+          "market_value": {
+            "type": "number",
+            "nullable": true,
+            "description": "The fund's position value in USD."
+          },
+          "shares": {
+            "type": "number",
+            "nullable": true,
+            "description": "Shares or principal amount the fund holds."
+          }
         }
       },
       "IndexFundsTickersResponse": {
@@ -3811,7 +4196,10 @@
       "Signal": {
         "type": "object",
         "description": "A curated market-moving insight derived from this filing. Pre-rendered `headline` is suitable for direct display; `details` carries structured fields for filtering and programmatic use. Signals are returned in priority order (most material first); the `type` itself encodes magnitude (e.g. `STRONG_REVENUE_INCREASE` vs `REVENUE_INCREASE`).",
-        "required": ["type", "headline"],
+        "required": [
+          "type",
+          "headline"
+        ],
         "properties": {
           "type": {
             "type": "string",
@@ -4008,7 +4396,7 @@
           "market_cap": {
             "type": "number",
             "nullable": true,
-            "description": "The total market capitalization (stock price \u00d7 shares outstanding)."
+            "description": "The total market capitalization (stock price × shares outstanding)."
           },
           "enterprise_value": {
             "type": "number",
@@ -4319,7 +4707,10 @@
           },
           "form_type": {
             "type": "string",
-            "enum": ["13F-HR", "13F-HR/A"],
+            "enum": [
+              "13F-HR",
+              "13F-HR/A"
+            ],
             "description": "The 13F form type (original `13F-HR` or amendment `13F-HR/A`)."
           },
           "accession_number": {
@@ -4333,7 +4724,11 @@
           "put_call": {
             "type": "string",
             "nullable": true,
-            "enum": [null, "Put", "Call"],
+            "enum": [
+              null,
+              "Put",
+              "Call"
+            ],
             "description": "Set to `Put` or `Call` for option positions; `null` for the underlying equity."
           },
           "shares": {
@@ -4386,12 +4781,19 @@
           },
           "shares_principal_amount_type": {
             "type": "string",
-            "enum": ["SH", "PRN"],
+            "enum": [
+              "SH",
+              "PRN"
+            ],
             "description": "`SH` for shares; `PRN` for principal amount (debt-like instruments)."
           },
           "investment_discretion": {
             "type": "string",
-            "enum": ["SOLE", "DFND", "OTR"],
+            "enum": [
+              "SOLE",
+              "DFND",
+              "OTR"
+            ],
             "description": "SEC investment-discretion code."
           },
           "voting_authority_sole": {
@@ -4467,7 +4869,10 @@
           },
           "period": {
             "type": "string",
-            "enum": ["quarterly", "annual"],
+            "enum": [
+              "quarterly",
+              "annual"
+            ],
             "description": "The time period."
           },
           "currency": {
@@ -4486,23 +4891,37 @@
       },
       "IncomeStatementSegments": {
         "allOf": [
-          {"$ref": "#/components/schemas/SegmentMetadata"},
+          {
+            "$ref": "#/components/schemas/SegmentMetadata"
+          },
           {
             "type": "object",
             "properties": {
               "revenue": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Revenue broken down by product and/or segment."
               },
               "operating_income": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Operating income broken down by segment."
               },
               "depreciation": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Depreciation broken down by segment."
               }
             }
@@ -4511,23 +4930,37 @@
       },
       "BalanceSheetSegments": {
         "allOf": [
-          {"$ref": "#/components/schemas/SegmentMetadata"},
+          {
+            "$ref": "#/components/schemas/SegmentMetadata"
+          },
           {
             "type": "object",
             "properties": {
               "assets": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Assets broken down by segment."
               },
               "goodwill": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Goodwill broken down by segment."
               },
               "long_lived_assets": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Long-lived assets broken down by segment."
               }
             }
@@ -4536,13 +4969,19 @@
       },
       "CashFlowStatementSegments": {
         "allOf": [
-          {"$ref": "#/components/schemas/SegmentMetadata"},
+          {
+            "$ref": "#/components/schemas/SegmentMetadata"
+          },
           {
             "type": "object",
             "properties": {
               "capital_expenditure": {
                 "nullable": true,
-                "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}],
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SegmentCategory"
+                  }
+                ],
                 "description": "Capital expenditure broken down by segment."
               }
             }
@@ -4604,21 +5043,27 @@
           "children": {
             "type": "array",
             "description": "Nested line items beneath this row.",
-            "items": {"$ref": "#/components/schemas/AsReportedNode"}
+            "items": {
+              "$ref": "#/components/schemas/AsReportedNode"
+            }
           }
         }
       },
       "AsReportedStatement": {
         "description": "An as-reported financial statement for a single reporting period.",
         "allOf": [
-          {"$ref": "#/components/schemas/SegmentMetadata"},
+          {
+            "$ref": "#/components/schemas/SegmentMetadata"
+          },
           {
             "type": "object",
             "properties": {
               "line_items": {
                 "type": "array",
                 "description": "The as-filed line item tree.",
-                "items": {"$ref": "#/components/schemas/AsReportedNode"}
+                "items": {
+                  "$ref": "#/components/schemas/AsReportedNode"
+                }
               }
             }
           }
@@ -4629,7 +5074,9 @@
         "properties": {
           "as_reported_income_statements": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/AsReportedStatement"}
+            "items": {
+              "$ref": "#/components/schemas/AsReportedStatement"
+            }
           }
         }
       },
@@ -4638,7 +5085,9 @@
         "properties": {
           "as_reported_balance_sheets": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/AsReportedStatement"}
+            "items": {
+              "$ref": "#/components/schemas/AsReportedStatement"
+            }
           }
         }
       },
@@ -4647,7 +5096,9 @@
         "properties": {
           "as_reported_cash_flow_statements": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/AsReportedStatement"}
+            "items": {
+              "$ref": "#/components/schemas/AsReportedStatement"
+            }
           }
         }
       },
@@ -4658,7 +5109,9 @@
             "type": "array",
             "items": {
               "allOf": [
-                {"$ref": "#/components/schemas/SegmentMetadata"},
+                {
+                  "$ref": "#/components/schemas/SegmentMetadata"
+                },
                 {
                   "type": "object",
                   "properties": {
@@ -4669,7 +5122,9 @@
                       "properties": {
                         "line_items": {
                           "type": "array",
-                          "items": {"$ref": "#/components/schemas/AsReportedNode"}
+                          "items": {
+                            "$ref": "#/components/schemas/AsReportedNode"
+                          }
                         }
                       }
                     },
@@ -4680,7 +5135,9 @@
                       "properties": {
                         "line_items": {
                           "type": "array",
-                          "items": {"$ref": "#/components/schemas/AsReportedNode"}
+                          "items": {
+                            "$ref": "#/components/schemas/AsReportedNode"
+                          }
                         }
                       }
                     },
@@ -4691,7 +5148,9 @@
                       "properties": {
                         "line_items": {
                           "type": "array",
-                          "items": {"$ref": "#/components/schemas/AsReportedNode"}
+                          "items": {
+                            "$ref": "#/components/schemas/AsReportedNode"
+                          }
                         }
                       }
                     }
@@ -4709,7 +5168,9 @@
             "type": "array",
             "items": {
               "allOf": [
-                {"$ref": "#/components/schemas/SegmentMetadata"},
+                {
+                  "$ref": "#/components/schemas/SegmentMetadata"
+                },
                 {
                   "type": "object",
                   "properties": {
@@ -4720,15 +5181,27 @@
                       "properties": {
                         "revenue": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         },
                         "operating_income": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         },
                         "depreciation": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         }
                       }
                     },
@@ -4739,15 +5212,27 @@
                       "properties": {
                         "assets": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         },
                         "goodwill": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         },
                         "long_lived_assets": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         }
                       }
                     },
@@ -4758,7 +5243,11 @@
                       "properties": {
                         "capital_expenditure": {
                           "nullable": true,
-                          "allOf": [{"$ref": "#/components/schemas/SegmentCategory"}]
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/SegmentCategory"
+                            }
+                          ]
                         }
                       }
                     }
@@ -5745,29 +6234,94 @@
         "properties": {
           "kpi_guidance": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/KPIGuidanceItem"}
+            "items": {
+              "$ref": "#/components/schemas/KPIGuidanceItem"
+            }
           }
         }
       },
       "KPIGuidanceItem": {
         "type": "object",
-        "required": ["ticker", "metric_name", "period", "period_type"],
+        "required": [
+          "ticker",
+          "metric_name",
+          "period",
+          "period_type"
+        ],
         "properties": {
-          "ticker": {"type": "string", "example": "DAL"},
-          "metric_name": {"type": "string", "example": "Operating Margin"},
-          "value": {"type": "number", "nullable": true},
-          "unit": {"type": "string", "example": "%"},
-          "period": {"type": "string", "example": "Q2 2026"},
-          "period_type": {"type": "string", "enum": ["quarterly", "annual"]},
-          "segment": {"type": "string", "nullable": true},
-          "low": {"type": "number", "nullable": true, "description": "Low end of guidance range.", "example": 6.0},
-          "high": {"type": "number", "nullable": true, "description": "High end of guidance range.", "example": 8.0},
-          "point_estimate": {"type": "number", "nullable": true, "description": "Single-point guidance when no range is given."},
-          "prior_value": {"type": "number", "nullable": true, "description": "Prior guidance value for revisions."},
-          "raw_text": {"type": "string", "nullable": true, "description": "Original guidance text from the filing."},
-          "change_direction": {"type": "string", "nullable": true, "description": "Direction: raised, lowered, maintained, initiated, withdrawn.", "example": "initiated"},
-          "source_text": {"type": "string", "nullable": true},
-          "source_url": {"type": "string", "format": "uri", "nullable": true}
+          "ticker": {
+            "type": "string",
+            "example": "DAL"
+          },
+          "metric_name": {
+            "type": "string",
+            "example": "Operating Margin"
+          },
+          "value": {
+            "type": "number",
+            "nullable": true
+          },
+          "unit": {
+            "type": "string",
+            "example": "%"
+          },
+          "period": {
+            "type": "string",
+            "example": "Q2 2026"
+          },
+          "period_type": {
+            "type": "string",
+            "enum": [
+              "quarterly",
+              "annual"
+            ]
+          },
+          "segment": {
+            "type": "string",
+            "nullable": true
+          },
+          "low": {
+            "type": "number",
+            "nullable": true,
+            "description": "Low end of guidance range.",
+            "example": 6.0
+          },
+          "high": {
+            "type": "number",
+            "nullable": true,
+            "description": "High end of guidance range.",
+            "example": 8.0
+          },
+          "point_estimate": {
+            "type": "number",
+            "nullable": true,
+            "description": "Single-point guidance when no range is given."
+          },
+          "prior_value": {
+            "type": "number",
+            "nullable": true,
+            "description": "Prior guidance value for revisions."
+          },
+          "raw_text": {
+            "type": "string",
+            "nullable": true,
+            "description": "Original guidance text from the filing."
+          },
+          "change_direction": {
+            "type": "string",
+            "nullable": true,
+            "description": "Direction: raised, lowered, maintained, initiated, withdrawn.",
+            "example": "initiated"
+          },
+          "source_text": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          }
         }
       },
       "KPINonGAAPResponse": {
@@ -5775,24 +6329,72 @@
         "properties": {
           "kpi_non_gaap": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/KPINonGAAPMetric"}
+            "items": {
+              "$ref": "#/components/schemas/KPINonGAAPMetric"
+            }
           }
         }
       },
       "KPINonGAAPMetric": {
         "type": "object",
-        "required": ["ticker", "metric_name", "value", "unit", "period", "period_type"],
+        "required": [
+          "ticker",
+          "metric_name",
+          "value",
+          "unit",
+          "period",
+          "period_type"
+        ],
         "properties": {
-          "ticker": {"type": "string", "example": "DAL"},
-          "metric_name": {"type": "string", "example": "Adjusted Diluted EPS"},
-          "value": {"type": "number", "nullable": true, "example": 0.64},
-          "unit": {"type": "string", "example": "USD per share"},
-          "period": {"type": "string", "example": "Q1 2026"},
-          "period_type": {"type": "string", "enum": ["quarterly", "annual"]},
-          "gaap_equivalent": {"type": "string", "nullable": true, "description": "The GAAP line item this metric adjusts.", "example": "Diluted earnings per share"},
-          "key_adjustments": {"type": "string", "nullable": true, "description": "Description of adjustments made.", "example": "Excludes restructuring charges of $150M"},
-          "source_text": {"type": "string", "nullable": true},
-          "source_url": {"type": "string", "format": "uri", "nullable": true}
+          "ticker": {
+            "type": "string",
+            "example": "DAL"
+          },
+          "metric_name": {
+            "type": "string",
+            "example": "Adjusted Diluted EPS"
+          },
+          "value": {
+            "type": "number",
+            "nullable": true,
+            "example": 0.64
+          },
+          "unit": {
+            "type": "string",
+            "example": "USD per share"
+          },
+          "period": {
+            "type": "string",
+            "example": "Q1 2026"
+          },
+          "period_type": {
+            "type": "string",
+            "enum": [
+              "quarterly",
+              "annual"
+            ]
+          },
+          "gaap_equivalent": {
+            "type": "string",
+            "nullable": true,
+            "description": "The GAAP line item this metric adjusts.",
+            "example": "Diluted earnings per share"
+          },
+          "key_adjustments": {
+            "type": "string",
+            "nullable": true,
+            "description": "Description of adjustments made.",
+            "example": "Excludes restructuring charges of $150M"
+          },
+          "source_text": {
+            "type": "string",
+            "nullable": true
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          }
         }
       }
     },
@@ -5858,7 +6460,10 @@
         "headers": {
           "Retry-After": {
             "description": "Number of seconds to wait before retrying the request.",
-            "schema": { "type": "integer", "example": 30 }
+            "schema": {
+              "type": "integer",
+              "example": 30
+            }
           }
         },
         "content": {
@@ -5878,4 +6483,3 @@
     }
   }
 }
-

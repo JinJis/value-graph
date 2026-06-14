@@ -1,0 +1,173 @@
+# Whole platform, one command:  docker compose up --build
+# Reads a single shared ./platform/.env (copy from .env.example) for every service.
+name: valuegraph-platform
+
+services:
+  datasets:
+    build: ./datasets
+    image: valuegraph-datasets:latest
+    env_file: [.env]
+    environment:
+      DATABASE_URL: "sqlite:////data/datasets.db"
+    volumes:
+      - datasets_data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  control-plane:
+    build: ./control-plane
+    image: valuegraph-control-plane:latest
+    env_file: [.env]
+    environment:
+      # In the compose network backend services are reachable by name.
+      DATASETS_URL: "http://datasets:8000"
+      RAG_URL: "http://rag:8002"
+      DATABASE_URL: "sqlite:////data/controlplane.db"
+    volumes:
+      - controlplane_data:/data
+    ports:
+      # host 8010 -> container 8001 (host 8001 is often taken)
+      - "8010:8001"
+    depends_on:
+      datasets:
+        condition: service_healthy
+      rag:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # MCP server. Not part of the default stack (stdio); `tools` profile so e2e can
+  # run it as a one-off on the network: `docker compose run --rm -T mcp python ...`.
+  mcp:
+    build: ./mcp
+    image: valuegraph-mcp:latest
+    profiles: ["tools"]
+    env_file: [.env]
+    environment:
+      MCP_GATEWAY_URL: "http://control-plane:8001"
+
+  rag:
+    build: ./rag
+    image: valuegraph-rag:latest
+    env_file: [.env]
+    environment:
+      # Embedding backend + model — overridable from the shell (falls back to .env,
+      # then to the deterministic hash dev backend). e2e_functional flips to oss-cpu.
+      RAG_EMBEDDING_BACKEND: "${RAG_EMBEDDING_BACKEND:-hash}"
+      RAG_EMBEDDING_MODEL: "${RAG_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}"
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8002/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  agent-engine:
+    build: ./agent-engine
+    image: valuegraph-agent-engine:latest
+    env_file: [.env]
+    environment:
+      AGENT_GATEWAY_URL: "http://control-plane:8001"
+      # Planner backend + model + key — overridable from the shell (falls back to
+      # .env, then to the stub planner). Lets `scripts/e2e_live.sh` flip to Gemini.
+      AGENT_LLM_BACKEND: "${AGENT_LLM_BACKEND:-stub}"
+      AGENT_MODEL: "${AGENT_MODEL:-gemini-flash-latest}"
+      # the genai SDK accepts either GOOGLE_API_KEY or GEMINI_API_KEY
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+    ports:
+      - "8003:8003"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8003/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  studio-api:
+    build: ./studio-api
+    image: valuegraph-studio-api:latest
+    env_file: [.env]
+    environment:
+      CONTROL_PLANE_URL: "http://control-plane:8001"
+      AGENT_ENGINE_URL: "http://agent-engine:8003"
+      DATABASE_URL: "sqlite:////data/studio.db"
+    volumes:
+      - studio_data:/data
+    ports:
+      - "8004:8004"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      agent-engine:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8004/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Web UI — part of the default stack: `docker compose up` serves it on :3000.
+  # (The e2e script brings up only the backend services by name, so it stays fast.)
+  web:
+    build: ./web
+    image: valuegraph-web:latest
+    env_file: [.env]
+    environment:
+      STUDIO_API_URL: "http://studio-api:8004"
+    ports:
+      - "3000:3000"
+    depends_on:
+      studio-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Admin panel — Django-admin-style CRUD over every service DB (mounts their data
+  # volumes) + an ops console. Login via ADMINUI_USERNAME/ADMINUI_PASSWORD.
+  admin:
+    build: ./admin
+    image: valuegraph-admin:latest
+    env_file: [.env]
+    environment:
+      ADMINUI_USERNAME: "${ADMINUI_USERNAME:-admin}"
+      ADMINUI_PASSWORD: "${ADMINUI_PASSWORD:-admin}"
+    ports:
+      - "8005:8005"
+    volumes:
+      - controlplane_data:/dbs/controlplane
+      - studio_data:/dbs/studio
+      - datasets_data:/dbs/datasets
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      studio-api:
+        condition: service_healthy
+      datasets:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  datasets_data: {}
+  controlplane_data: {}
+  studio_data: {}

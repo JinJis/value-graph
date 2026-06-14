@@ -1,0 +1,330 @@
+#!/usr/bin/env python3
+"""Quality-evaluation harness for the investment-agent platform.
+
+Drives each scenario in `scenarios.py` through the REAL product path:
+  provision a user → create an agent with chosen data sources (studio-api /agents)
+  → ask the question (studio-api /chat/stream) → parse the SSE → grade.
+
+Graders check that the agent fetched from the right source (MCP/data-plane/RAG),
+grounded the answer in real data, cited the source, and respected its data-source
+restrictions / guardrails. An optional Gemini LLM-judge scores answer quality.
+
+Needs the stack up (default ports). Stdlib only — run with system python3:
+    cd platform && python3 eval/run_eval.py
+Env: STUDIO_URL, RAG_URL, SERVICE_TOKEN, EVAL_USER, GOOGLE_API_KEY, AGENT_MODEL.
+"""
+
+from __future__ import annotations
+
+import datetime
+import http.client
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(__file__))
+from scenarios import SCENARIOS  # noqa: E402
+
+STUDIO = os.environ.get("STUDIO_URL", "http://127.0.0.1:8004")
+RAG = os.environ.get("RAG_URL", "http://127.0.0.1:8002")
+SVC = os.environ.get("SERVICE_TOKEN", "dev-service-token")
+USER = os.environ.get("EVAL_USER", "eval@valuegraph.local")
+
+
+def _envval(*keys: str) -> str:
+    path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    if not os.path.exists(path):
+        return ""
+    rows = {}
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            rows[k.strip()] = v.strip().strip("\"'")
+    for k in keys:
+        if rows.get(k):
+            return rows[k]
+    return ""
+
+
+# Accept GOOGLE_API_KEY or GEMINI_API_KEY (the genai SDK reads either).
+GKEY = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        or _envval("GOOGLE_API_KEY", "GEMINI_API_KEY"))
+JUDGE_MODEL = os.environ.get("AGENT_MODEL") or _envval("AGENT_MODEL") or "gemini-flash-latest"
+
+
+# --- HTTP (stdlib) --------------------------------------------------------
+def _request(method: str, url: str, body=None, headers=None, timeout=300) -> tuple[int, bytes]:
+    """Robust request: recovers a truncated streaming body and never raises (a
+    dropped SSE connection should fail the scenario, not abort the whole run)."""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            try:
+                return resp.status, resp.read()
+            except http.client.IncompleteRead as e:
+                return resp.status, e.partial  # keep whatever SSE events arrived
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, e.read()
+        except Exception:
+            return e.code, b""
+    except Exception as e:  # connection reset / timeout / DNS — report, don't crash
+        return 0, f"__ERROR__ {type(e).__name__}: {e}".encode()
+
+
+def studio(method: str, path: str, body=None) -> tuple[int, dict]:
+    headers = {"X-Service-Token": SVC, "X-User-Email": USER, "Content-Type": "application/json"}
+    code, raw = _request(method, f"{STUDIO}{path}", body, headers)
+    try:
+        return code, json.loads(raw or b"{}")
+    except ValueError:
+        return code, {"_raw": raw.decode("utf-8", "replace")}
+
+
+def chat_messages(messages: list[dict], agent_id: str) -> dict:
+    """POST /chat/stream with a full conversation and fold the SSE into a result."""
+    headers = {"X-Service-Token": SVC, "X-User-Email": USER, "Content-Type": "application/json"}
+    code, raw = _request("POST", f"{STUDIO}/chat/stream",
+                         {"messages": messages, "agent_id": agent_id}, headers)
+    tools, statuses, cites, ans = [], [], [], []
+    refused = None
+    for line in raw.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        try:
+            ev = json.loads(line[5:])
+        except ValueError:
+            continue
+        t = ev.get("type")
+        if t == "tool":
+            tools.append(ev.get("name"))
+        elif t == "tool_result":
+            statuses.append(ev.get("status"))
+        elif t == "citation":
+            if ev.get("source"):
+                cites.append(ev["source"])
+        elif t == "token":
+            ans.append(ev.get("text", ""))
+        elif t == "done":
+            refused = ev.get("refused")
+    return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
+            "answer": "".join(ans).strip(), "refused": bool(refused)}
+
+
+def chat(question: str, agent_id: str) -> dict:
+    return chat_messages([{"role": "user", "content": question}], agent_id)
+
+
+def chat_turns(turns: list[str], agent_id: str) -> dict:
+    """Run a multi-turn conversation, feeding each real assistant answer back in.
+    Returns the LAST turn's result (what the checks grade)."""
+    messages: list[dict] = []
+    result: dict = {}
+    for q in turns:
+        messages.append({"role": "user", "content": q})
+        result = chat_messages(messages, agent_id)
+        messages.append({"role": "assistant", "content": result["answer"]})
+    return result
+
+
+def rag_ingest(docs: list[dict]) -> None:
+    _request("POST", f"{RAG}/rag/ingest", {"documents": docs}, {"Content-Type": "application/json"})
+
+
+# --- LLM judge (Gemini REST; optional) ------------------------------------
+def judge(question: str, answer: str, citations: list[str]) -> dict | None:
+    if not GKEY or not answer:
+        return None
+    today = os.environ.get("EVAL_TODAY") or datetime.date.today().isoformat()
+    prompt = (
+        f"You are grading a financial-data assistant. Today's date is {today}. The figures in the ANSWER "
+        "were retrieved LIVE from authoritative primary sources (SEC EDGAR, OpenDART, Bank of Korea, Yahoo "
+        "Finance) and must be treated as GROUND TRUTH — do NOT penalise recent or 2025/2026 dates as "
+        "'future' or 'hallucinated', and do not fact-check the numbers yourself (you cannot see today's "
+        "live data). Grade ONLY: (a) relevance — does it answer the question; (b) specificity — concrete "
+        "figures/facts with a source; (c) tone — states facts, no price predictions or buy/sell advice.\n\n"
+        f"QUESTION: {question}\nCITED SOURCES: {', '.join(citations) or 'none'}\nANSWER: {answer}\n\n"
+        'Return JSON: {"score": <int 1-5>, "reason": "<one sentence>"}'
+    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{JUDGE_MODEL}:generateContent?key={GKEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}],
+               "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
+    code, raw = _request("POST", url, payload, {"Content-Type": "application/json"}, timeout=120)
+    if code != 200:
+        return None
+    try:
+        data = json.loads(raw)
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        out = json.loads(text)
+        return {"score": int(out.get("score", 0)), "reason": str(out.get("reason", ""))[:160]}
+    except Exception:
+        return None
+
+
+# --- graders --------------------------------------------------------------
+def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
+    out: list[tuple[str, bool, str]] = []
+    tools_joined = " ".join(t for t in r["tools"] if t)
+
+    if "expect_connector" in checks:
+        c = checks["expect_connector"]
+        out.append((f"calls {c}", c in tools_joined, f"tools={r['tools']}"))
+    if "forbid_connectors" in checks:
+        bad = [c for c in checks["forbid_connectors"] if c in tools_joined]
+        out.append(("avoids " + "/".join(checks["forbid_connectors"]), not bad, f"tools={r['tools']}"))
+    if "expect_status" in checks:
+        s = checks["expect_status"]
+        out.append((f"tool status {s}", s in r["statuses"], f"statuses={r['statuses']}"))
+    if "expect_cite" in checks:
+        c = checks["expect_cite"]
+        out.append((f"cites {c}", any(c in s for s in r["citations"]), f"cites={r['citations']}"))
+    if "answer_regex" in checks:
+        rx = checks["answer_regex"]
+        out.append((f"answer matches /{rx}/", bool(re.search(rx, r["answer"])), r["answer"][:80]))
+    if "answer_contains" in checks:
+        for sub in checks["answer_contains"]:
+            out.append((f"answer contains '{sub}'", sub.lower() in r["answer"].lower(), r["answer"][:80]))
+    if "expect_refused" in checks:
+        want = checks["expect_refused"]
+        out.append((f"refused={want}", r["refused"] == want, f"refused={r['refused']}"))
+    return out
+
+
+# --- terminal viz --------------------------------------------------------
+_TTY = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+
+def _c(s, code):
+    return f"\033[{code}m{s}\033[0m" if _TTY else s
+
+
+def green(s): return _c(s, "32")
+def red(s): return _c(s, "31")
+def yellow(s): return _c(s, "33")
+def cyan(s): return _c(s, "36")
+def dim(s): return _c(s, "2")
+def bold(s): return _c(s, "1")
+
+
+def _bar(p, t, width=12):
+    if not t:
+        return ""
+    fill = round(p / t * width)
+    return (green if p == t else (yellow if p else red))("█" * fill) + dim("░" * (width - fill))
+
+
+def _looks_transient(r: dict) -> bool:
+    a = r.get("answer", "")
+    return (not r.get("tools") and not r.get("refused")
+            and (not a or "unavailable" in a or "문제가 발생" in a or a.startswith("__ERROR__")))
+
+
+def _run_scenario_chat(sc: dict, agent_id: str) -> dict:
+    """Run the chat with one retry on a transient blip (a dropped gateway/SSE
+    connection or 'platform unavailable'), so one hiccup doesn't fail a scenario."""
+    import time
+    r = chat_turns(sc["turns"], agent_id) if sc.get("turns") else chat(sc["question"], agent_id)
+    if _looks_transient(r):
+        time.sleep(2)
+        r = chat_turns(sc["turns"], agent_id) if sc.get("turns") else chat(sc["question"], agent_id)
+    return r
+
+
+# --- run ------------------------------------------------------------------
+def main() -> int:
+    if not GKEY:
+        print("⏭️  EVAL SKIPPED — no GOOGLE_API_KEY / GEMINI_API_KEY (env or platform/.env).")
+        print("   The eval builds Gemini-backed agents and grades real natural-language answers, so it")
+        print("   needs a key. Set GOOGLE_API_KEY (or GEMINI_API_KEY) in platform/.env, then re-run.")
+        return 2
+
+    n = len(SCENARIOS)
+    print(bold("Quality eval") + dim(f"  · studio={STUDIO} · judge={JUDGE_MODEL} · {n} scenarios"))
+    print(dim("─" * 70))
+    code, _ = studio("POST", "/users/ensure")
+    if code != 200:
+        print(red(f"FATAL: could not provision the eval user (studio /users/ensure → {code}). Is the stack up?"))
+        return 2
+
+    total = passed = 0
+    judged: list[int] = []
+    rows: list[tuple[str, int, int, str]] = []
+
+    for i, sc in enumerate(SCENARIOS, 1):
+        name = sc["name"]
+        tag = cyan(f"[{i:>2}/{n}]")
+        try:
+            if sc.get("rag_docs"):
+                rag_ingest(sc["rag_docs"])
+            ac, agent = studio("POST", "/agents", {
+                "name": sc["agent"]["name"], "model": sc["agent"].get("model", "gemini"),
+                "data_sources": sc["agent"]["data_sources"], "system_prompt": sc["agent"].get("system_prompt"),
+            })
+            if ac != 200 or "id" not in agent:
+                print(f"{tag} {red('✗')} {bold(name)}  {red(f'agent-create-failed ({ac})')}")
+                rows.append((name, 0, 1, "")); total += 1; print(); continue
+            r = _run_scenario_chat(sc, agent["id"])
+            question = sc["turns"][-1] if sc.get("turns") else sc["question"]
+        except Exception as e:  # never let one scenario abort the run
+            print(f"{tag} {red('✗')} {bold(name)}  {red(f'ERROR {type(e).__name__}: {e}')}")
+            rows.append((name, 0, 1, "")); total += 1; print(); continue
+
+        results = grade(sc["checks"], r)
+        sp = sum(1 for _, ok, _ in results if ok)
+        total += len(results); passed += sp
+        mark = green("✓") if sp == len(results) else red("✗")
+        print(f"{tag} {mark} {bold(name)}  {dim(f'{sp}/{len(results)} checks')}")
+
+        qshow = " | ".join(sc["turns"]) if sc.get("turns") else question
+        print(dim(f"        Q  {qshow[:100]}"))
+        tools = ", ".join(r["tools"]) or "—"
+        print(dim(f"        ↳  tools=[{tools}] status={r['statuses'] or '—'} refused={r['refused']}"))
+        print(dim(f"        A  {r['answer'][:130].replace(chr(10), ' ')}"))
+        for label, ok, detail in results:
+            if ok:
+                print("        " + green("✓") + " " + dim(label))
+            else:
+                print("        " + red("✗") + " " + label + "  " + red(f"({detail[:90]})"))
+
+        jtxt = ""
+        if sc["checks"].get("judge"):
+            j = judge(question, r["answer"], r["citations"])
+            if j:
+                judged.append(j["score"])
+                jtxt = f"{j['score']}/5"
+                col = green if j["score"] >= 4 else (yellow if j["score"] >= 3 else red)
+                print("        " + dim("◆ judge ") + col(jtxt) + dim(f"  {j['reason'][:88]}"))
+        rows.append((name, sp, len(results), jtxt))
+        print()
+
+    # --- summary ----------------------------------------------------------
+    print(dim("─" * 70))
+    print(bold("Summary"))
+    w = max((len(name) for name, *_ in rows), default=10)
+    for name, sp, tot, jtxt in rows:
+        mark = green("✓") if sp == tot else red("✗")
+        line = f"  {mark} {name.ljust(w)}  {_bar(sp, tot)} {sp}/{tot}"
+        print(line + (dim(f"   judge {jtxt}") if jtxt else ""))
+
+    pct = passed / total * 100 if total else 0
+    avg = sum(judged) / len(judged) if judged else None
+    print()
+    print(f"  {bold('Deterministic')}  {_bar(passed, total)} {passed}/{total} {dim(f'({pct:.0f}%)')}")
+    if avg is not None:
+        col = green if avg >= 3.5 else red
+        print(f"  {bold('LLM-judge')}      {col(f'{avg:.2f}/5')} {dim(f'over {len(judged)} answers')}")
+
+    ok = (passed == total) and (avg is None or avg >= 3.5)
+    print()
+    print((green("✅ EVAL PASSED") if ok else red("❌ EVAL BELOW BAR")) + dim("   (all checks pass + judge avg ≥ 3.5)"))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

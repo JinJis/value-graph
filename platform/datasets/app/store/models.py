@@ -1,0 +1,59 @@
+"""ORM models for the ingestion store.
+
+``FinancialFact`` is point-in-time / restatement-aware: the same (ticker, line
+item, period, report_period) can exist under different ``accession_number``s, so
+an originally-reported value and a later restatement are both retained rather
+than overwritten (CLAUDE.md: reconcile, don't overwrite). ``accession_number``
+is stored as "" (not NULL) when absent so the uniqueness constraint holds.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from sqlalchemy import DateTime, Float, Index, String, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.store.db import Base
+
+
+class FinancialFact(Base):
+    __tablename__ = "financial_facts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    market: Mapped[str] = mapped_column(String(2), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    cik: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    statement: Mapped[str] = mapped_column(String(16))  # income | balance | cashflow
+    line_item: Mapped[str] = mapped_column(String(64), index=True)
+    value: Mapped[float] = mapped_column(Float)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    period: Mapped[str] = mapped_column(String(10))  # annual | quarterly | ttm
+    report_period: Mapped[date] = mapped_column(index=True)
+    fiscal_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    filing_date: Mapped[date | None] = mapped_column(nullable=True)
+    accession_number: Mapped[str] = mapped_column(String(40), default="")
+    source: Mapped[str] = mapped_column(String(24))
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "market", "ticker", "statement", "line_item", "period", "report_period",
+            "accession_number", name="uq_financial_fact",
+        ),
+        Index("ix_fact_screen", "line_item", "period", "report_period"),
+        Index("ix_fact_lookup", "market", "ticker", "line_item", "period"),
+    )
+
+
+class Company(Base):
+    __tablename__ = "companies"
+
+    market: Mapped[str] = mapped_column(String(2), primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    cik: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    exchange: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
