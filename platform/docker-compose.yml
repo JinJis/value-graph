@@ -143,6 +143,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Admin panel — Django-admin-style CRUD over every service DB (mounts their data
+  # volumes) + an ops console. Login via ADMINUI_USERNAME/ADMINUI_PASSWORD.
+  admin:
+    build: ./admin
+    image: valuegraph-admin:latest
+    env_file: [.env]
+    environment:
+      ADMINUI_USERNAME: "${ADMINUI_USERNAME:-admin}"
+      ADMINUI_PASSWORD: "${ADMINUI_PASSWORD:-admin}"
+    ports:
+      - "8005:8005"
+    volumes:
+      - controlplane_data:/dbs/controlplane
+      - studio_data:/dbs/studio
+      - datasets_data:/dbs/datasets
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      studio-api:
+        condition: service_healthy
+      datasets:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   datasets_data: {}
   controlplane_data: {}

@@ -31,40 +31,53 @@ Six services run together (one `docker compose`, one shared `.env`). Every reque
 the gateway (which enforces auth · entitlement · metering on every hop) and real data flows **up** carrying
 its provenance, which becomes the citations the user sees.
 
+```mermaid
+flowchart TD
+    browser(["🌐 Browser"])
+
+    subgraph product["Product layer"]
+        web["<b>web</b> :3000<br/>Next.js + Auth.js<br/>chat · agent builder · prompts"]
+        studio["<b>studio-api</b> :8004<br/>user↔tenant · conversations<br/>chat BFF · holds tenant key"]
+        agent["<b>agent-engine</b> :8003<br/>guardrail → plan(stub / gemini)<br/>→ call tools → cite"]
+    end
+
+    subgraph control["Control plane"]
+        gw["<b>control-plane</b> :8010<br/><b>gateway</b><br/>auth → entitle → rate-limit<br/>→ meter/audit → proxy"]
+        admin["admin API<br/>tenants · keys · activations"]
+    end
+
+    subgraph dataplane["Data plane"]
+        datasets["<b>datasets</b> :8000<br/>REST connectors<br/>+ ingestion store"]
+        rag["<b>rag</b> :8002<br/>chunk→embed→retrieve→rerank<br/>hash · oss-cpu · gcp · gpu"]
+    end
+
+    mcp["<b>mcp</b> (stdio)<br/>1 tool per catalog resource"]
+    upstreams[("SEC · Yahoo · FRED<br/>OpenDART · ECOS · Google News")]
+    store[("ingestion store<br/>SQLite / Postgres")]
+    vec[("vector store<br/>memory / pgvector")]
+
+    browser -->|"① POST /api/chat<br/>session"| web
+    web -->|"X-Service-Token<br/>+ user email"| studio
+    studio -.->|"② first login:<br/>provision"| admin
+    studio -->|"③ /agent/chat (SSE)<br/>tenant key"| agent
+    agent -->|"④ X-API-KEY"| gw
+    mcp -->|"tenant key"| gw
+    gw -->|"⑤ route by<br/>path·market·service"| datasets
+    gw -->|"⑤"| rag
+    datasets -->|"⑥ provider adapters"| upstreams
+    datasets --- store
+    rag --- vec
+
+    web -. "SSE: token·tool·citation·done" .-> browser
+
+    classDef svc fill:#1b2230,stroke:#4f8cff,color:#e7ecf3;
+    classDef ext fill:#141925,stroke:#93a0b4,color:#93a0b4;
+    class web,studio,agent,gw,admin,datasets,rag,mcp svc;
+    class upstreams,store,vec ext;
 ```
-                                    ┌──────────────┐
-                          Browser ──▶│  web :3000   │  Next.js + Auth.js (Google / dev-login)
-                           ◀── SSE  └──────┬───────┘  chat UI · agent builder · prompt library
-                                           │ ① POST /api/chat   (BFF — browser never holds the platform key)
-                                           │    headers: X-Service-Token + the signed-in user's email
-                                    ┌──────▼────────────┐
-                                    │  studio-api :8004 │  user ↔ tenant map · conversations · chat BFF
-                                    └───┬───────────┬───┘  holds the tenant API key (server-side only)
-                       first login ②    │           │ ③ POST /agent/chat  (SSE: token/tool/citation/done)
-              ┌──── provision ──────────┘           ▼
-              │  (tenant·project·key·         ┌──────────────────────┐
-              │   default activations)        │  agent-engine :8003  │  guardrail → plan(stub|gemini)
-              │                               │                      │  → call each tool → collect citations
-              │                               └──────────┬───────────┘
-              │                       ④ X-API-KEY (tenant key)  │
-              ▼                                          ▼               ⑇ external agents reach the SAME
-    ┌────────────────────┐               ┌──────────────────────────┐     gateway via the MCP server
-    │ control-plane :8010│◀──────────────│  control-plane gateway   │◀────  (mcp/ — one tool per catalog
-    │  admin (provision) │               │  auth → entitle → rate-  │       resource, tenant-scoped)
-    └────────────────────┘               │  limit → meter+audit →   │
-                                         │  proxy  (routes by       │
-                                         │   path · market · service)│
-                                         └────┬────────────────┬─────┘
-                                  ⑤ datasets   │                │  ⑤ rag
-                                    ┌──────────▼──────┐   ┌─────▼──────────┐
-                                    │  datasets :8000 │   │   rag :8002    │  chunk→embed→retrieve→rerank
-                                    │  REST data plane│   │  provenance per│  backend: hash|oss-cpu|gcp|gpu
-                                    │  + ingest store │   │  chunk         │  store: memory | pgvector
-                                    └──────────┬──────┘   └────────────────┘
-                                  ⑥ provider adapters
-        SEC EDGAR · Yahoo Finance · FRED · OpenDART · Bank of Korea ECOS · Google News
-        (point-in-time ingestion store: SQLite | Postgres — restatement-aware history)
-```
+
+> Renders on GitHub and most Markdown viewers (solid = request path, dotted = first-login provisioning /
+> the SSE stream back). The numbered steps ①–⑥ are spelled out below.
 
 **Request flow (a chat turn).** ① the browser POSTs to the web BFF, which attaches the Auth.js session;
 ② on first login studio-api provisions a tenant/project/key + default activations via the control-plane
@@ -72,7 +85,7 @@ admin API; ③ studio-api streams the conversation to the agent engine with the 
 ④ the agent plans (stub or Gemini) and calls each tool **through the gateway** with that key; ⑤ the gateway
 authenticates, checks the project activated the connector, rate-limits, meters, and proxies to `datasets`
 or `rag` (chosen by path · market · `service`); ⑥ the provider adapter fetches from the real upstream (or
-the ingestion store). ⑇ External MCP clients hit the exact same gateway, so entitlement + metering are
+the ingestion store). External MCP clients hit the exact same gateway, so entitlement + metering are
 identical no matter who calls.
 
 **Response / data flow.** Each datum and RAG chunk carries `source · as_of · url`; the agent turns those
@@ -91,6 +104,7 @@ message + citations, and the answer streams back to the browser as SSE (`token` 
 | **datasets** | 8000 | REST data plane: connectors (SEC/Yahoo/FRED/DART/ECOS/News) + point-in-time ingestion store + `/catalog` | upstream APIs, (Postgres) |
 | **rag** | 8002 | provenance-first retrieval: chunk→embed→store→retrieve→rerank; pluggable backends | (vector store, embed backend) |
 | *mcp* | stdio | one tool per catalog resource, routed through the gateway with the tenant key (entitled + metered) | control-plane |
+| **admin** | 8005 | Django-admin-style CRUD over every service DB (SQLAlchemy reflection + sqladmin) + ops console (scheduler · self-test · RAG · catalog). Out-of-band tool, not in the request path | controlplane/studio/datasets DB volumes |
 
 The **catalog** (`datasets/app/connectors/`) is the keystone: each connector's manifest (resources, params,
 provenance, license, `service`) is what the gateway entitles against, what the MCP server turns into tools,

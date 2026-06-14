@@ -83,6 +83,7 @@ docker compose down           # stop  (add -v to also wipe the SQLite/volume sta
 | `agent-engine` | 8003 | agent loop (`AGENT_LLM_BACKEND=stub|gemini`) |
 | `studio-api` | 8004 | provisioning · conversations · chat BFF |
 | `web` | 3000 | chat UI (open <http://localhost:3000>) |
+| `admin` | 8005 | Django-admin-style CRUD over every service DB + ops console (login `admin`/`admin`) |
 
 Rebuild one service after a code change: `docker compose up -d --build agent-engine`.
 Drive the data plane through the gateway:
