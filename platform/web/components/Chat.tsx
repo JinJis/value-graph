@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
+import Watchlists, { Watchlist } from "./Watchlists";
 
 type Citation = { tool?: string; source?: string; url?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: { name: string }[]; citations?: Citation[] };
@@ -28,14 +29,26 @@ export default function Chat({ name }: { name: string }) {
   const [library, setLibrary] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // watchlists / @groups
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [handles, setHandles] = useState<string[]>([]);
+  const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
+
   async function loadAgents() {
     try {
       const r = await fetch("/api/agents");
       if (r.ok) setAgents((await r.json()).agents ?? []);
     } catch {}
   }
+  async function loadHandles() {
+    try {
+      const r = await fetch("/api/watchlists");
+      if (r.ok) setHandles(((await r.json()).watchlists ?? []).map((w: Watchlist) => w.name));
+    } catch {}
+  }
   useEffect(() => {
     loadAgents();
+    loadHandles();
     (async () => {
       try {
         const r = await fetch("/api/connectors");
@@ -43,6 +56,21 @@ export default function Chat({ name }: { name: string }) {
       } catch {}
     })();
   }, []);
+
+  // @handle autocomplete: when the text ends with "@token", suggest matching groups
+  function onInput(v: string) {
+    setInput(v);
+    const m = v.match(/@([^\s@]*)$/);
+    if (m) {
+      const tok = m[1].toLowerCase();
+      setMention(handles.filter((h) => h.toLowerCase().includes(tok)).slice(0, 6));
+    } else setMention([]);
+  }
+  function pickHandle(h: string) {
+    setInput((v) => v.replace(/@([^\s@]*)$/, `@${h} `));
+    setMention([]);
+    inputRef.current?.focus();
+  }
 
   const selected = agents.find((a) => a.id === agentId) || null;
 
@@ -110,8 +138,9 @@ export default function Chat({ name }: { name: string }) {
   return (
     <div className="app">
       <header className="top">
-        <div className="brand">ValueGraph</div>
+        <div className="brand"><span className="mascot" aria-hidden /> ValueGraph</div>
         <div className="agentbar">
+          <button className="btn ghost sm" onClick={() => setWatchOpen(true)} title="관심 종목 / @그룹">⭐ 관심</button>
           <select className="agentpick" value={agentId} onChange={(e) => setAgentId(e.target.value)} title="에이전트 선택">
             <option value="">기본 에이전트</option>
             {agents.some((a) => a.is_template) && (
@@ -168,8 +197,21 @@ export default function Chat({ name }: { name: string }) {
       </main>
 
       <footer className="composer">
-        <form onSubmit={(e) => { e.preventDefault(); send(input); }}>
-          <input ref={inputRef} className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="메시지를 입력하세요…" disabled={busy} />
+        {mention.length > 0 && (
+          <div className="mention">
+            {mention.map((h, i) => (
+              <div key={h} className={`mention-item ${i === 0 ? "on" : ""}`}
+                onMouseDown={(e) => { e.preventDefault(); pickHandle(h); }}>
+                <span className="h">@{h}</span>
+                <span className="c">관심 그룹</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); if (mention.length) { pickHandle(mention[0]); return; } send(input); }}>
+          <input ref={inputRef} className="input" value={input} onChange={(e) => onInput(e.target.value)}
+            onBlur={() => setTimeout(() => setMention([]), 120)}
+            placeholder="메시지를 입력하거나 @그룹 으로 관심 종목을 호출…" disabled={busy} />
           <button className="btn" disabled={busy || !input.trim()}>보내기</button>
         </form>
         <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
@@ -193,6 +235,10 @@ export default function Chat({ name }: { name: string }) {
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
         />
+      )}
+
+      {watchOpen && (
+        <Watchlists onClose={() => setWatchOpen(false)} onChanged={loadHandles} />
       )}
     </div>
   );

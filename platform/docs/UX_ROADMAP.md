@@ -26,7 +26,7 @@ picker." Everything below converts it into the **research desk** of `UX_SPEC.md`
 
 | # | Milestone | Pillar | Why this order | Subsumes / depends |
 |---|---|---|---|---|
-| **U1** | Watchlists & @groups | Pull→Push | Foundation — personalization unit everything else binds to | new |
+| **U1** ✅ | Watchlists & @groups | Pull→Push | Foundation — personalization unit everything else binds to | new |
 | **U2** | Source-preview cards | Trust | Highest "not-a-chatbot" proof per unit effort; mostly independent | uses existing citations |
 | **U3** | Inline live artifacts + Board | Trust | Makes answers persistent & visual | needs U2 legend |
 | **U4** | Standing analysts (push) | Pull→Push | The reason to come back daily | needs U1; **subsumes F3 messengers** |
@@ -38,7 +38,7 @@ picker." Everything below converts it into the **research desk** of `UX_SPEC.md`
 
 ---
 
-## U1 — Watchlists & @groups  ⬜  (foundation)
+## U1 — Watchlists & @groups  ✅  (foundation)
 **Goal:** the user can **search any listed company, favorite it into a named group**, and `@`-tag that
 group in the composer and the analyst builder.
 
@@ -73,10 +73,13 @@ the agent resolves the group and answers for exactly those names, all sourced.
       prompt, before the turn reaches agent-engine. The original (bare-handle) message is what's
       persisted/shown; only the agent's copy is expanded. Unknown→"알 수 없는 관심 그룹", empty→"빈 그룹".
       +2 studio-api tests → studio-api 30.
-- [ ] **U1-04 · web — search/favorite + 관심 rail + @ composer.** Stock-search modal (autocomplete →
-      ⭐ favorite → pick/create group), the `⭐ 관심` rail screen (groups: rename=re-handle, merge,
-      remove items), `@` autocomplete in the composer. BFF routes `/api/watchlists` (+`[id]`, items) +
-      `/api/company/search`. Web build green; e2e covers create-group → @-reference in a chat turn.
+- [x] **U1-04 · web — search/favorite + 관심 rail + @ composer.** ✅ `Watchlists` modal (create/rename/
+      delete groups, debounced stock search via `/api/company/search` → ⭐ favorite into a group, remove
+      items) + a `⭐ 관심` header button + `@` autocomplete in the composer (suggests group handles,
+      inserts `@handle`). BFF routes `/api/watchlists` (+`[id]`, `[id]/items`, `[id]/items/[itemId]`) +
+      `/api/company/search`. studio-api gained a gateway-proxied `/company/search` (tenant key,
+      entitled). Applied the new visual identity (matte black/gray/white, mono numerics, pixel mascot,
+      trust = only color) in `globals.css`. +1 studio-api test (search proxy) → studio-api 31. Web build green.
 
 ---
 

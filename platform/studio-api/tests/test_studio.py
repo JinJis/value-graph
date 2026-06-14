@@ -407,6 +407,27 @@ def test_watchlist_rename_and_duplicate_handle_blocked(monkeypatch):
 
 
 @respx.mock
+def test_company_search_proxies_gateway_with_tenant_key(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    captured = {}
+
+    def _capture(request):
+        captured["key"] = request.headers.get("X-API-KEY")
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"source": "SEC EDGAR", "query": "app",
+                                         "results": [{"name": "Apple Inc.", "ticker": "AAPL", "market": "US", "cik": "0000320193"}]})
+
+    respx.get("http://cp.test/company/search").mock(side_effect=_capture)
+    r = client.get("/company/search?q=app&market=US", headers=_hdr("search@u.com"))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["ticker"] == "AAPL"
+    assert captured["key"] and captured["key"].startswith("vgk_")  # tenant key, server-side
+    assert "q=app" in captured["url"]
+
+
+@respx.mock
 def test_chat_expands_at_handle_to_tickers(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
