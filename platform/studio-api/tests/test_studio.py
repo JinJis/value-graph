@@ -407,6 +407,58 @@ def test_watchlist_rename_and_duplicate_handle_blocked(monkeypatch):
 
 
 @respx.mock
+def test_chat_expands_at_handle_to_tickers(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "handle@u.com"
+    # build a group with two companies
+    wid = client.post("/watchlists", headers=_hdr(email), json={"name": "반도체바스켓"}).json()["id"]
+    client.post(f"/watchlists/{wid}/items", headers=_hdr(email),
+                json={"market": "KR", "ticker": "005930", "name": "삼성전자"})
+    client.post(f"/watchlists/{wid}/items", headers=_hdr(email),
+                json={"market": "US", "ticker": "NVDA", "name": "NVIDIA"})
+
+    captured = {}
+
+    def _capture(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b'data: {"type":"token","text":"ok"}\n\ndata: {"type":"done","citations":[],"refused":false}\n\n')
+
+    respx.post("http://ae.test/agent/chat").mock(side_effect=_capture)
+
+    r = client.post("/chat/stream", headers=_hdr(email),
+                    json={"messages": [{"role": "user", "content": "@반도체바스켓 시가총액 합?"}]})
+    assert r.status_code == 200
+    sent = captured["body"]["messages"][-1]["content"]
+    # the agent sees concrete tickers, not just the bare handle
+    assert "005930" in sent and "NVDA" in sent and "삼성전자" in sent
+    # but the persisted user message keeps the original handle text
+    conv = client.get("/conversations", headers=_hdr(email)).json()["conversations"][0]
+    msgs = client.get(f"/conversations/{conv['id']}/messages", headers=_hdr(email)).json()["messages"]
+    user_msg = next(m for m in msgs if m["role"] == "user")
+    assert user_msg["content"] == "@반도체바스켓 시가총액 합?" and "005930" not in user_msg["content"]
+
+
+@respx.mock
+def test_chat_unknown_handle_is_graceful(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "handle2@u.com"
+    captured = {}
+
+    def _capture(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b'data: {"type":"token","text":"ok"}\n\ndata: {"type":"done","citations":[],"refused":false}\n\n')
+
+    respx.post("http://ae.test/agent/chat").mock(side_effect=_capture)
+    r = client.post("/chat/stream", headers=_hdr(email),
+                    json={"messages": [{"role": "user", "content": "@없는그룹 알려줘"}]})
+    assert r.status_code == 200
+    sent = captured["body"]["messages"][-1]["content"]
+    assert "알 수 없는 관심 그룹" in sent  # graceful note, not a crash
+
+
+@respx.mock
 def test_watchlists_are_user_scoped(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()

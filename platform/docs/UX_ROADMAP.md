@@ -68,9 +68,11 @@ the agent resolves the group and answers for exactly those names, all sourced.
       `GET/PATCH/DELETE /watchlists/{id}`, `POST /watchlists/{id}/items`,
       `DELETE /watchlists/{id}/items/{item_id}`. Per-user scoped; unique @handle per user (409 on dup);
       add-item idempotent on (market,ticker); a company may be in many groups. +4 tests → studio-api 28.
-- [ ] **U1-03 · @handle resolution.** studio-api expands `@handle` → the group's tickers before sending
-      to agent-engine (chat) and when building an `AgentSpec` (builder targets). Unknown handle →
-      graceful message. Unit test: a chat referencing `@group` resolves to exactly its tickers.
+- [x] **U1-03 · @handle resolution.** ✅ `groups.expand_text` / `resolve_messages` expand `@handle` →
+      `@handle (handle = 삼성전자 [005930, KR], …)` in user chat turns **and** in an analyst's system
+      prompt, before the turn reaches agent-engine. The original (bare-handle) message is what's
+      persisted/shown; only the agent's copy is expanded. Unknown→"알 수 없는 관심 그룹", empty→"빈 그룹".
+      +2 studio-api tests → studio-api 30.
 - [ ] **U1-04 · web — search/favorite + 관심 rail + @ composer.** Stock-search modal (autocomplete →
       ⭐ favorite → pick/create group), the `⭐ 관심` rail screen (groups: rename=re-handle, merge,
       remove items), `@` autocomplete in the composer. BFF routes `/api/watchlists` (+`[id]`, items) +
