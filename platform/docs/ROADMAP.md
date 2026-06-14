@@ -3,10 +3,11 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 152 unit** — datasets 64 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
-> semantic) · agent-engine 27 · studio-api 24 — plus the web build and three docker e2e harnesses:
-> `e2e.sh` (stub, deterministic), `e2e_functional.sh` (real data + MCP + semantic RAG, no key),
-> `e2e_live.sh` (real Gemini, grounded + cited). (Per-milestone counts below are historical.)
+> **Test totals (current): 156 unit** — datasets 64 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> semantic) · agent-engine 31 · studio-api 24 — plus the web build, three docker e2e harnesses
+> (`e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG · `e2e_live.sh` real Gemini), and the
+> **quality eval framework** `eval/run_eval.py` (scenario-driven, scores agent answers; 29/29 checks +
+> judge 4.80/5). (Per-milestone counts below are historical.)
 
 ---
 
