@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 179 unit** — datasets 74 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
-> semantic) · agent-engine 39 · studio-api 31 (+ admin 7) — plus the web build, four docker harnesses
+> **Test totals (current): 183 unit** — datasets 74 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> semantic) · agent-engine 39 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
