@@ -28,9 +28,32 @@ def _find_urls(obj, out: list | None = None) -> list:
     return out
 
 
+def _rag_citations(tool: dict, data) -> list[Citation] | None:
+    """RAG returns passages that each carry their OWN provenance — cite those
+    (the real document source/url), not the connector's generic label."""
+    hits = data.get("hits") if isinstance(data, dict) else None
+    if not hits:
+        return None
+    cites, seen = [], set()
+    for h in hits[:5]:
+        prov = (h or {}).get("provenance") or {}
+        src, url = prov.get("source"), prov.get("url")
+        key = (src, url)
+        if not (src or url) or key in seen:
+            continue
+        seen.add(key)
+        cites.append(Citation(tool=tool["name"], source=src or tool.get("source"), url=url))
+    return cites or None
+
+
 def _citations(tool: dict, result: dict) -> list[Citation]:
+    data = result.get("data")
+    if "search" in tool["name"] or tool.get("connector") == "rag":
+        rag = _rag_citations(tool, data)
+        if rag is not None:
+            return rag
     src = tool.get("source")
-    urls = list(dict.fromkeys(_find_urls(result.get("data"))))[:5]
+    urls = list(dict.fromkeys(_find_urls(data)))[:5]
     if not urls:
         return [Citation(tool=tool["name"], source=src)]
     return [Citation(tool=tool["name"], source=src, url=u) for u in urls]

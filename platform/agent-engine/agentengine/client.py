@@ -37,6 +37,13 @@ class PlatformClient:
         return tools
 
     async def call_tool(self, tool: dict, args: dict) -> dict:
+        args = dict(args or {})
+        # The gateway routes by the `market` query param, so a single-market tool
+        # (e.g. ECOS=KR, FRED=US) must carry its market or it can misroute to the
+        # other market's connector. Force it when the connector serves one market.
+        markets = tool.get("markets")
+        if markets and len(markets) == 1 and any(p.get("name") == "market" for p in tool.get("params", [])):
+            args["market"] = markets[0]
         headers = {"X-API-KEY": self.api_key} if self.api_key else {}
         url = f"{settings.gateway_url}{tool['path']}"
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:

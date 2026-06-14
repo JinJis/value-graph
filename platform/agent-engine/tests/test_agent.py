@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 import respx
 from fastapi.testclient import TestClient
 
 from agentengine import agent as A
 from agentengine import guardrails
+from agentengine import planner as P
 from agentengine.config import settings
 from agentengine.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _force_stub_backend(monkeypatch):
+    """Keep the unit suite deterministic + key-free regardless of the dev .env
+    (which may set AGENT_LLM_BACKEND=gemini)."""
+    monkeypatch.setattr(settings, "llm_backend", "stub")
+    P._build_planner.cache_clear()
+    yield
+    P._build_planner.cache_clear()
 
 CATALOG = {"connectors": [
     {"id": "yahoo", "resources": [{
@@ -64,6 +76,60 @@ def test_citations_fallback_to_source_when_no_url():
     tool = {"name": "yahoo__prices", "source": "Yahoo Finance"}
     cites = A._citations(tool, {"data": {"ticker": "AAPL", "prices": []}})
     assert len(cites) == 1 and cites[0].url is None and cites[0].source == "Yahoo Finance"
+
+
+# --- eval-driven fixes ----------------------------------------------------
+def test_guardrail_refuses_korean_forecast_and_advice():
+    for bad in ["삼성전자 주가 오를까?", "지금 사야 할까요?", "AAPL 목표주가 알려줘",
+                "엔비디아 전망 어때", "매수 추천 종목 알려줘", "테슬라 살까 팔까"]:
+        assert guardrails.check(bad) is not None, bad
+    for ok in ["삼성전자 최근 실적", "AAPL 종가 흐름 알려줘", "한국은행 기준금리 얼마야",
+               "엔비디아 공시 요약", "Fed 금리 추이"]:
+        assert guardrails.check(ok) is None, ok
+
+
+def test_citations_use_per_hit_rag_provenance():
+    # RAG answers must cite each passage's REAL source/url, not the connector's
+    # generic label (the eval caught the agent citing "Platform RAG" instead).
+    tool = {"name": "rag__search", "connector": "rag", "source": "Platform RAG (filings/news)"}
+    result = {"data": {"hits": [
+        {"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/aapl"}},
+        {"text": "...", "provenance": {"source": "OpenDART (FSS)", "url": "https://dart/x"}},
+    ]}}
+    cites = A._citations(tool, result)
+    assert {c.source for c in cites} == {"SEC EDGAR", "OpenDART (FSS)"}
+    assert {c.url for c in cites} == {"https://sec.gov/aapl", "https://dart/x"}
+    assert all(c.source != "Platform RAG (filings/news)" for c in cites)
+
+
+@respx.mock
+async def test_call_tool_forces_single_market_connector(monkeypatch):
+    from agentengine.client import PlatformClient
+
+    monkeypatch.setattr(settings, "gateway_url", "http://gw.test")
+    route = respx.route(method="GET", url__regex=r"http://gw\.test/macro/interest-rates/snapshot").mock(
+        return_value=httpx.Response(200, json={}, headers={"x-connector": "ecos"})
+    )
+    ecos = {"name": "ecos__interest_rates_snapshot", "connector": "ecos", "method": "GET",
+            "path": "/macro/interest-rates/snapshot", "markets": ["KR"],
+            "params": [{"name": "bank"}, {"name": "market"}]}
+    # caller omitted market -> the KR-only connector must still route to KR (not FRED/US)
+    await PlatformClient("k").call_tool(ecos, {"bank": "BOK"})
+    assert "market=KR" in str(route.calls.last.request.url)
+
+
+@respx.mock
+async def test_call_tool_does_not_force_market_for_multi_market_tool(monkeypatch):
+    from agentengine.client import PlatformClient
+
+    monkeypatch.setattr(settings, "gateway_url", "http://gw.test")
+    route = respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={}, headers={"x-connector": "yahoo"})
+    )
+    yahoo = {"name": "yahoo__prices", "connector": "yahoo", "method": "GET", "path": "/prices",
+             "markets": ["US", "KR"], "params": [{"name": "ticker"}, {"name": "market"}]}
+    await PlatformClient("k").call_tool(yahoo, {"ticker": "AAPL"})
+    assert "market=" not in str(route.calls.last.request.url)  # multi-market -> caller decides
 
 
 # --- agent loop -----------------------------------------------------------
