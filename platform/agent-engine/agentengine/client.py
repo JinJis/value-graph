@@ -30,6 +30,7 @@ class PlatformClient:
                     "method": res.get("method", "GET").upper(),
                     "path": res["path"],
                     "params": res.get("params", []),
+                    "markets": res.get("markets") or con.get("markets"),
                     "description": res.get("description", ""),
                     "source": (res.get("provenance") or {}).get("source"),
                 }

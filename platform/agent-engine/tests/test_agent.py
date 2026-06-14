@@ -212,6 +212,68 @@ async def test_chat_stream_respects_allowed_tools(monkeypatch):
     assert tool_ev["name"] == "sec_edgar__company_facts"  # price tool filtered out
 
 
+# --- stub planner robustness (no bad tool calls) --------------------------
+def test_resolve_ticker_names_codes_and_acronyms():
+    from agentengine.planner import _resolve_ticker
+
+    assert _resolve_ticker("삼성전자 최근 실적") == "005930"   # KR name -> code
+    assert _resolve_ticker("엔비디아 공급망") == "NVDA"          # KR alias for a US name
+    assert _resolve_ticker("AAPL 최근 주가") == "AAPL"           # explicit symbol
+    assert _resolve_ticker("005930 공시") == "005930"            # explicit KR code
+    assert _resolve_ticker("what is EPS and PER?") is None       # acronyms are not tickers
+    assert _resolve_ticker("artificial intelligence trends") is None  # 'intel' must not fire
+
+
+_TOOLS = {
+    "yahoo__prices": {"name": "yahoo__prices", "markets": ["US", "KR"], "params": [
+        {"name": "ticker"}, {"name": "interval", "required": True}, {"name": "start_date", "required": True},
+        {"name": "end_date", "required": True}, {"name": "market"}]},
+    "sec_edgar__company_facts": {"name": "sec_edgar__company_facts", "markets": ["US"], "params": [
+        {"name": "ticker"}, {"name": "market"}]},
+    "opendart__income_statements": {"name": "opendart__income_statements", "markets": ["KR"], "params": [
+        {"name": "ticker"}, {"name": "period", "required": True}, {"name": "market"}]},
+    "fred__interest_rates": {"name": "fred__interest_rates", "markets": ["US"], "params": [
+        {"name": "bank", "required": True}, {"name": "market"}]},
+    "rag__search": {"name": "rag__search", "markets": ["US", "KR"], "params": [{"name": "query", "required": True}]},
+}
+
+
+async def _decide(task):
+    from agentengine.planner import StubPlanner
+
+    return await StubPlanner().plan(task, _TOOLS, [], None)
+
+
+async def test_planner_routes_kr_name_to_kr_connector_with_code():
+    d = await _decide("삼성전자 최근 실적")
+    assert d.tool == "opendart__income_statements"  # KR market -> DART, not SEC
+    assert d.args["ticker"] == "005930" and d.args["market"] == "KR" and d.args["period"] == "annual"
+
+
+async def test_planner_price_question_fills_required_args():
+    d = await _decide("AAPL 최근 주가 흐름")
+    assert d.tool == "yahoo__prices"
+    assert d.args["ticker"] == "AAPL" and d.args["interval"] and d.args["start_date"] and d.args["end_date"]
+
+
+async def test_planner_macro_needs_no_ticker():
+    d = await _decide("Fed 기준금리 추이")
+    assert d.tool == "fred__interest_rates" and d.args["bank"] == "FED" and d.args["market"] == "US"
+    assert "ticker" not in d.args
+
+
+async def test_planner_skips_ticker_tools_when_no_ticker_resolvable():
+    # no company/ticker, no macro/search intent -> finalize with guidance, never a 400 call
+    d = await _decide("주식 시장 어때?")
+    assert d.tool is None and d.final and "티커" in d.final
+
+
+async def test_planner_never_calls_us_tool_for_kr_code():
+    d = await _decide("005930 재무제표")
+    assert d.tool == "opendart__income_statements"  # market-filtered to KR
+    assert d.args["market"] == "KR"
+
+
 def test_chat_chunks_reconstruct_text():
     from agentengine.chat import _chunks
 
