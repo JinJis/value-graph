@@ -16,10 +16,22 @@ class PlatformClient:
         self.api_key = api_key
 
     async def fetch_tools(self) -> dict[str, dict]:
+        import asyncio
+
+        last_exc: Exception | None = None
+        connectors = None
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
-            resp = await client.get(f"{settings.gateway_url}/catalog")
-            resp.raise_for_status()
-            connectors = resp.json().get("connectors", [])
+            for attempt in range(3):  # tolerate a transient gateway blip under load
+                try:
+                    resp = await client.get(f"{settings.gateway_url}/catalog")
+                    resp.raise_for_status()
+                    connectors = resp.json().get("connectors", [])
+                    break
+                except Exception as e:  # noqa: BLE001
+                    last_exc = e
+                    await asyncio.sleep(0.5 * (attempt + 1))
+        if connectors is None:
+            raise last_exc if last_exc else RuntimeError("catalog unavailable")
         tools: dict[str, dict] = {}
         for con in connectors:
             for res in con.get("resources", []):

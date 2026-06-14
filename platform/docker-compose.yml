@@ -87,7 +87,9 @@ services:
       # .env, then to the stub planner). Lets `scripts/e2e_live.sh` flip to Gemini.
       AGENT_LLM_BACKEND: "${AGENT_LLM_BACKEND:-stub}"
       AGENT_MODEL: "${AGENT_MODEL:-gemini-flash-latest}"
+      # the genai SDK accepts either GOOGLE_API_KEY or GEMINI_API_KEY
       GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     ports:
       - "8003:8003"
     depends_on:

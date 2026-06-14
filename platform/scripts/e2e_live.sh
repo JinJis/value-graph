@@ -14,7 +14,10 @@ cd "$(dirname "$0")/.."
 
 # --- resolve the key (env wins, else read it from .env) --------------------
 envval() { [ -f .env ] && grep -E "^$1=" .env | tail -1 | cut -d= -f2- | tr -d '"'"'"' ' || true; }
-KEY="${GOOGLE_API_KEY:-$(envval GOOGLE_API_KEY)}"
+# accept GOOGLE_API_KEY or GEMINI_API_KEY (env first, then .env)
+KEY="${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}"
+[ -z "$KEY" ] && KEY="$(envval GOOGLE_API_KEY)"
+[ -z "$KEY" ] && KEY="$(envval GEMINI_API_KEY)"
 MODEL="${AGENT_MODEL:-$(envval AGENT_MODEL)}"
 MODEL="${MODEL:-gemini-flash-latest}"
 

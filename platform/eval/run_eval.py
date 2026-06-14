@@ -17,6 +17,7 @@ Env: STUDIO_URL, RAG_URL, SERVICE_TOKEN, EVAL_USER, GOOGLE_API_KEY, AGENT_MODEL.
 from __future__ import annotations
 
 import datetime
+import http.client
 import json
 import os
 import re
@@ -33,30 +34,47 @@ SVC = os.environ.get("SERVICE_TOKEN", "dev-service-token")
 USER = os.environ.get("EVAL_USER", "eval@valuegraph.local")
 
 
-def _envval(key: str) -> str:
+def _envval(*keys: str) -> str:
     path = os.path.join(os.path.dirname(__file__), "..", ".env")
     if not os.path.exists(path):
         return ""
+    rows = {}
     for line in open(path, encoding="utf-8"):
         line = line.strip()
-        if line.startswith(f"{key}="):
-            return line.split("=", 1)[1].strip().strip("\"'")
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            rows[k.strip()] = v.strip().strip("\"'")
+    for k in keys:
+        if rows.get(k):
+            return rows[k]
     return ""
 
 
-GKEY = os.environ.get("GOOGLE_API_KEY") or _envval("GOOGLE_API_KEY")
+# Accept GOOGLE_API_KEY or GEMINI_API_KEY (the genai SDK reads either).
+GKEY = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        or _envval("GOOGLE_API_KEY", "GEMINI_API_KEY"))
 JUDGE_MODEL = os.environ.get("AGENT_MODEL") or _envval("AGENT_MODEL") or "gemini-flash-latest"
 
 
 # --- HTTP (stdlib) --------------------------------------------------------
-def _request(method: str, url: str, body=None, headers=None, timeout=240) -> tuple[int, bytes]:
+def _request(method: str, url: str, body=None, headers=None, timeout=300) -> tuple[int, bytes]:
+    """Robust request: recovers a truncated streaming body and never raises (a
+    dropped SSE connection should fail the scenario, not abort the whole run)."""
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, resp.read()
+            try:
+                return resp.status, resp.read()
+            except http.client.IncompleteRead as e:
+                return resp.status, e.partial  # keep whatever SSE events arrived
     except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        try:
+            return e.code, e.read()
+        except Exception:
+            return e.code, b""
+    except Exception as e:  # connection reset / timeout / DNS — report, don't crash
+        return 0, f"__ERROR__ {type(e).__name__}: {e}".encode()
 
 
 def studio(method: str, path: str, body=None) -> tuple[int, dict]:
@@ -178,83 +196,133 @@ def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
     return out
 
 
+# --- terminal viz --------------------------------------------------------
+_TTY = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+
+def _c(s, code):
+    return f"\033[{code}m{s}\033[0m" if _TTY else s
+
+
+def green(s): return _c(s, "32")
+def red(s): return _c(s, "31")
+def yellow(s): return _c(s, "33")
+def cyan(s): return _c(s, "36")
+def dim(s): return _c(s, "2")
+def bold(s): return _c(s, "1")
+
+
+def _bar(p, t, width=12):
+    if not t:
+        return ""
+    fill = round(p / t * width)
+    return (green if p == t else (yellow if p else red))("█" * fill) + dim("░" * (width - fill))
+
+
+def _looks_transient(r: dict) -> bool:
+    a = r.get("answer", "")
+    return (not r.get("tools") and not r.get("refused")
+            and (not a or "unavailable" in a or "문제가 발생" in a or a.startswith("__ERROR__")))
+
+
+def _run_scenario_chat(sc: dict, agent_id: str) -> dict:
+    """Run the chat with one retry on a transient blip (a dropped gateway/SSE
+    connection or 'platform unavailable'), so one hiccup doesn't fail a scenario."""
+    import time
+    r = chat_turns(sc["turns"], agent_id) if sc.get("turns") else chat(sc["question"], agent_id)
+    if _looks_transient(r):
+        time.sleep(2)
+        r = chat_turns(sc["turns"], agent_id) if sc.get("turns") else chat(sc["question"], agent_id)
+    return r
+
+
 # --- run ------------------------------------------------------------------
 def main() -> int:
     if not GKEY:
-        print("⏭️  EVAL SKIPPED — no GOOGLE_API_KEY (env or platform/.env).")
+        print("⏭️  EVAL SKIPPED — no GOOGLE_API_KEY / GEMINI_API_KEY (env or platform/.env).")
         print("   The eval builds Gemini-backed agents and grades real natural-language answers, so it")
-        print("   needs a key. Set GOOGLE_API_KEY in platform/.env, then: python3 eval/run_eval.py")
+        print("   needs a key. Set GOOGLE_API_KEY (or GEMINI_API_KEY) in platform/.env, then re-run.")
         return 2
-    print(f"== Quality eval — studio={STUDIO}  judge=on ({JUDGE_MODEL}) ==\n")
+
+    n = len(SCENARIOS)
+    print(bold("Quality eval") + dim(f"  · studio={STUDIO} · judge={JUDGE_MODEL} · {n} scenarios"))
+    print(dim("─" * 70))
     code, _ = studio("POST", "/users/ensure")
     if code != 200:
-        print(f"FATAL: could not provision eval user (studio /users/ensure -> {code}). Is the stack up?")
+        print(red(f"FATAL: could not provision the eval user (studio /users/ensure → {code}). Is the stack up?"))
         return 2
 
-    total_checks = passed_checks = 0
+    total = passed = 0
     judged: list[int] = []
-    scenario_rows: list[tuple[str, int, int, str]] = []
+    rows: list[tuple[str, int, int, str]] = []
 
-    for sc in SCENARIOS:
+    for i, sc in enumerate(SCENARIOS, 1):
         name = sc["name"]
-        print(f"── {name}")
-        if sc.get("rag_docs"):
-            rag_ingest(sc["rag_docs"])
-        ac, agent = studio("POST", "/agents", {
-            "name": sc["agent"]["name"], "model": sc["agent"].get("model", "gemini"),
-            "data_sources": sc["agent"]["data_sources"], "system_prompt": sc["agent"].get("system_prompt"),
-        })
-        if ac != 200 or "id" not in agent:
-            print(f"   ! agent creation failed ({ac}) — skipping\n")
-            scenario_rows.append((name, 0, 1, "agent-create-failed"))
-            total_checks += 1
-            continue
-        if sc.get("turns"):
-            r = chat_turns(sc["turns"], agent["id"])
-            question = sc["turns"][-1]
-            print("   Q (multi-turn): " + " | ".join(sc["turns"]))
-        else:
-            r = chat(sc["question"], agent["id"])
-            question = sc["question"]
-            print(f"   Q: {question}")
-        print(f"   tools={r['tools']} status={r['statuses']} cites={r['citations']} refused={r['refused']}")
-        print(f"   A: {r['answer'][:200]}")
+        tag = cyan(f"[{i:>2}/{n}]")
+        try:
+            if sc.get("rag_docs"):
+                rag_ingest(sc["rag_docs"])
+            ac, agent = studio("POST", "/agents", {
+                "name": sc["agent"]["name"], "model": sc["agent"].get("model", "gemini"),
+                "data_sources": sc["agent"]["data_sources"], "system_prompt": sc["agent"].get("system_prompt"),
+            })
+            if ac != 200 or "id" not in agent:
+                print(f"{tag} {red('✗')} {bold(name)}  {red(f'agent-create-failed ({ac})')}")
+                rows.append((name, 0, 1, "")); total += 1; print(); continue
+            r = _run_scenario_chat(sc, agent["id"])
+            question = sc["turns"][-1] if sc.get("turns") else sc["question"]
+        except Exception as e:  # never let one scenario abort the run
+            print(f"{tag} {red('✗')} {bold(name)}  {red(f'ERROR {type(e).__name__}: {e}')}")
+            rows.append((name, 0, 1, "")); total += 1; print(); continue
 
         results = grade(sc["checks"], r)
+        sp = sum(1 for _, ok, _ in results if ok)
+        total += len(results); passed += sp
+        mark = green("✓") if sp == len(results) else red("✗")
+        print(f"{tag} {mark} {bold(name)}  {dim(f'{sp}/{len(results)} checks')}")
+
+        qshow = " | ".join(sc["turns"]) if sc.get("turns") else question
+        print(dim(f"        Q  {qshow[:100]}"))
+        tools = ", ".join(r["tools"]) or "—"
+        print(dim(f"        ↳  tools=[{tools}] status={r['statuses'] or '—'} refused={r['refused']}"))
+        print(dim(f"        A  {r['answer'][:130].replace(chr(10), ' ')}"))
         for label, ok, detail in results:
-            total_checks += 1
-            passed_checks += 1 if ok else 0
-            print(f"      [{'PASS' if ok else 'FAIL'}] {label}" + ("" if ok else f"   ({detail})"))
+            if ok:
+                print("        " + green("✓") + " " + dim(label))
+            else:
+                print("        " + red("✗") + " " + label + "  " + red(f"({detail[:90]})"))
 
         jtxt = ""
         if sc["checks"].get("judge"):
             j = judge(question, r["answer"], r["citations"])
             if j:
                 judged.append(j["score"])
-                jtxt = f"judge={j['score']}/5 ({j['reason']})"
-                print(f"      · {jtxt}")
-        sp = sum(1 for _, ok, _ in results if ok)
-        scenario_rows.append((name, sp, len(results), jtxt))
+                jtxt = f"{j['score']}/5"
+                col = green if j["score"] >= 4 else (yellow if j["score"] >= 3 else red)
+                print("        " + dim("◆ judge ") + col(jtxt) + dim(f"  {j['reason'][:88]}"))
+        rows.append((name, sp, len(results), jtxt))
         print()
 
-    print("== Summary ==")
-    for name, sp, tot, jtxt in scenario_rows:
-        bar = "✓" if sp == tot else "✗"
-        print(f"  {bar} {name}: {sp}/{tot} checks" + (f" · {jtxt}" if jtxt else ""))
-    pct = (passed_checks / total_checks * 100) if total_checks else 0
-    print(f"\n  Deterministic checks: {passed_checks}/{total_checks} ({pct:.0f}%)")
-    if judged:
-        avg = sum(judged) / len(judged)
-        print(f"  LLM-judge quality:    {avg:.2f}/5 avg over {len(judged)} answers")
-    else:
-        avg = None
-        print("  LLM-judge quality:    (skipped — set GOOGLE_API_KEY to enable)")
+    # --- summary ----------------------------------------------------------
+    print(dim("─" * 70))
+    print(bold("Summary"))
+    w = max((len(name) for name, *_ in rows), default=10)
+    for name, sp, tot, jtxt in rows:
+        mark = green("✓") if sp == tot else red("✗")
+        line = f"  {mark} {name.ljust(w)}  {_bar(sp, tot)} {sp}/{tot}"
+        print(line + (dim(f"   judge {jtxt}") if jtxt else ""))
 
-    det_ok = passed_checks == total_checks
-    judge_ok = avg is None or avg >= 3.5
-    ok = det_ok and judge_ok
-    print(f"\n{'✅ EVAL PASSED' if ok else '❌ EVAL BELOW BAR'} "
-          f"(threshold: all deterministic checks + judge avg ≥ 3.5)")
+    pct = passed / total * 100 if total else 0
+    avg = sum(judged) / len(judged) if judged else None
+    print()
+    print(f"  {bold('Deterministic')}  {_bar(passed, total)} {passed}/{total} {dim(f'({pct:.0f}%)')}")
+    if avg is not None:
+        col = green if avg >= 3.5 else red
+        print(f"  {bold('LLM-judge')}      {col(f'{avg:.2f}/5')} {dim(f'over {len(judged)} answers')}")
+
+    ok = (passed == total) and (avg is None or avg >= 3.5)
+    print()
+    print((green("✅ EVAL PASSED") if ok else red("❌ EVAL BELOW BAR")) + dim("   (all checks pass + judge avg ≥ 3.5)"))
     return 0 if ok else 1
 
 
