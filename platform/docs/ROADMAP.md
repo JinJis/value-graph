@@ -3,7 +3,7 @@
 > Living checklist for the platform. Companion: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > Status: ✅ done · ⬜ todo · 🚧 partial.
 >
-> **Test totals (current): 158 unit** — datasets 64 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> **Test totals (current): 161 unit** — datasets 67 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
 > semantic) · agent-engine 33 · studio-api 24 — plus the web build, three docker e2e harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), the

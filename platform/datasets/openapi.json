@@ -3193,6 +3193,65 @@
           }
         }
       }
+    },
+    "/company/search": {
+      "get": {
+        "tags": [
+          "Company Information"
+        ],
+        "summary": "Search companies by name or ticker",
+        "operationId": "search_companies_company_search_get",
+        "parameters": [
+          {
+            "name": "market",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "US",
+                "KR"
+              ],
+              "default": "US"
+            },
+            "description": "Market to query: US (default) or KR (KOSPI/KOSDAQ)."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Name or ticker query (e.g. '삼성', 'AAPL')."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 10
+            },
+            "description": "Max results."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanySearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6393,6 +6452,59 @@
           "source_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true
+          }
+        }
+      },
+      "CompanySearchResult": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Company name.",
+            "nullable": true
+          },
+          "ticker": {
+            "type": "string",
+            "description": "Ticker symbol (US: AAPL; KR: 005930).",
+            "nullable": true
+          },
+          "market": {
+            "type": "string",
+            "description": "Market (US|KR).",
+            "nullable": true
+          },
+          "cik": {
+            "type": "string",
+            "description": "US SEC CIK / KR OpenDART corp_code.",
+            "nullable": true
+          }
+        }
+      },
+      "CompanySearchResponse": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string",
+            "description": "The resource type identifier.",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "description": "Upstream source of the company index (e.g. SEC EDGAR, OpenDART).",
+            "nullable": true
+          },
+          "query": {
+            "type": "string",
+            "description": "The search query that was run.",
+            "nullable": true
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanySearchResult"
+            },
+            "description": "Matching companies, best match first.",
             "nullable": true
           }
         }

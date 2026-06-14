@@ -322,6 +322,70 @@ def test_us_company_facts_with_mocked_sec():
     assert facts["exchange"] == "Nasdaq"
 
 
+# --- company search (U1-01) ----------------------------------------------
+def test_rank_company_matches_orders_exact_prefix_substring():
+    from app.providers.search_util import rank_company_matches
+
+    rows = [
+        {"ticker": "AAPL", "name": "Apple Inc."},
+        {"ticker": "APP", "name": "Applovin Corp"},
+        {"ticker": "MSFT", "name": "Microsoft (pineapple supplier)"},
+    ]
+    # "app": exact ticker (APP) first, then ticker-prefix (AAPL), then name-substring (MSFT).
+    out = [r["ticker"] for r in rank_company_matches("app", rows)]
+    assert out == ["APP", "AAPL", "MSFT"]
+    # empty query → no matches; non-matching query → dropped.
+    assert rank_company_matches("", rows) == []
+    assert rank_company_matches("zzz", rows) == []
+
+
+@respx.mock
+def test_company_search_us_route():
+    from app.cache import cache
+
+    cache.clear()  # don't inherit a prior test's ticker index
+    respx.get("https://www.sec.gov/files/company_tickers.json").mock(
+        return_value=httpx.Response(200, json={
+            "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+            "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
+            "2": {"cik_str": 1018724, "ticker": "AMZN", "title": "Amazon Com Inc"},
+        })
+    )
+    r = client.get("/company/search?q=app&market=US&limit=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "SEC EDGAR"
+    assert body["query"] == "app"
+    results = body["results"]
+    assert results and results[0]["ticker"] == "AAPL"  # ticker-prefix beats name-substring
+    assert results[0]["market"] == "US"
+    assert results[0]["cik"] == "0000320193"
+    cache.clear()
+
+
+def test_company_search_kr_provider(monkeypatch):
+    import asyncio
+
+    from app.providers.kr import opendart
+
+    async def fake_corp_map():
+        return {
+            "005930": {"corp_code": "00126380", "corp_name": "삼성전자"},
+            "006400": {"corp_code": "00126186", "corp_name": "삼성SDI"},
+            "000660": {"corp_code": "00164779", "corp_name": "SK하이닉스"},
+        }
+
+    monkeypatch.setattr(opendart, "_corp_map", fake_corp_map)
+    results = asyncio.run(opendart.OpenDartProvider().search_companies("삼성", 10))
+    names = [r.name for r in results]
+    assert "삼성전자" in names and "삼성SDI" in names
+    assert all(r.market == "KR" for r in results)
+    assert "SK하이닉스" not in names  # not a 삼성 match
+    # ticker lookup works too
+    by_code = asyncio.run(opendart.OpenDartProvider().search_companies("005930", 10))
+    assert by_code[0].name == "삼성전자"
+
+
 # ==========================================================================
 # Expanded coverage: helpers, providers, store, ops, and app-level integration
 # ==========================================================================

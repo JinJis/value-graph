@@ -59,9 +59,10 @@ group in the composer and the analyst builder.
 the agent resolves the group and answers for exactly those names, all sourced.
 
 **Tasks (one PR each, tag `[U1-…]`):**
-- [ ] **U1-01 · datasets — company search.** `GET /company/search?q=&market=` over a name+ticker index
-      (SEC company_tickers + DART corp list), returns `{name, ticker, market, cik?}`. Manifest entry +
-      catalog route + integrity test passes; unit tests for US & KR lookup and partial match.
+- [x] **U1-01 · datasets — company search.** ✅ `GET /company/search?q=&market=&limit=` over a
+      name+ticker index (SEC company_tickers + DART corp list), returns `{name, ticker, market, cik}`.
+      Shared `rank_company_matches` (exact→prefix→substring) used by both providers; manifest entries on
+      `sec_edgar`+`opendart`, route, openapi schema, coverage.sh matrix. +3 datasets tests → datasets 67.
 - [ ] **U1-02 · studio-api — watchlist model + CRUD.** `Watchlist {id, user_email, name(@handle)}` +
       `WatchlistItem {id, watchlist_id, market, ticker, name}`. Endpoints: `GET/POST /watchlists`,
       `GET/PATCH/DELETE /watchlists/{id}`, `POST/DELETE /watchlists/{id}/items`. Per-user scoped;

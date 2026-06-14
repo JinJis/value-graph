@@ -18,6 +18,7 @@ from app.models.generated import (
     BalanceSheet,
     CashFlowStatement,
     CompanyFacts,
+    CompanySearchResult,
     EarningsRecord,
     Filing,
     FinancialMetricSnapshot,
@@ -36,6 +37,9 @@ from app.symbols import Market, SecurityRef
 class CompanyProvider(Protocol):
     async def company_facts(self, ref: SecurityRef) -> CompanyFacts: ...
     async def list_tickers(self) -> list[str]: ...
+    async def search_companies(
+        self, query: str, limit: int
+    ) -> list[CompanySearchResult]: ...
 
 
 @runtime_checkable
