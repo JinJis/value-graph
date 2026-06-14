@@ -5,13 +5,22 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Request
+from pydantic import BaseModel
 
 from app.deps import ApiKeyDep
 from app.scheduler import scheduler
 from app.selftest import run_selftest
+from app.store.jobs import list_jobs, run_backfill
 from app.store.screener import store_stats
 
 router = APIRouter(tags=["Admin / Ops"], prefix="/admin")
+
+
+class BackfillRequest(BaseModel):
+    market: str = "US"
+    tickers: list[str] | None = None  # required for KR; optional for US (universe)
+    deep: bool = True
+    limit: int | None = None
 
 
 @router.get(
@@ -31,6 +40,27 @@ async def selftest(request: Request) -> dict:
 @router.get("/store/stats", dependencies=[ApiKeyDep], summary="Ingestion store stats")
 async def store_statistics() -> dict:
     return await asyncio.to_thread(store_stats)
+
+
+@router.get("/jobs", dependencies=[ApiKeyDep], summary="Recent ingestion jobs (backfill / scheduled)")
+async def ingestion_jobs(limit: int = 25) -> dict:
+    return {"jobs": await asyncio.to_thread(list_jobs, limit)}
+
+
+@router.post(
+    "/backfill",
+    dependencies=[ApiKeyDep],
+    summary="▶ Trigger a historical backfill (populates the ingestion store)",
+    description=(
+        "Runs in the background and records an `IngestionJob` (see `/admin/jobs`). "
+        "US: `tickers` optional (omit for a broader load). KR: `tickers` required. "
+        "Without this, the store is empty and the screener / historical endpoints return nothing."
+    ),
+)
+async def backfill(body: BackfillRequest) -> dict:
+    # fire-and-forget so the request returns immediately; progress is in /admin/jobs
+    asyncio.create_task(run_backfill(body.market, body.tickers, body.deep, body.limit))
+    return {"started": True, "market": body.market, "tickers": body.tickers, "see": "/admin/jobs"}
 
 
 @router.get("/scheduler", dependencies=[ApiKeyDep], summary="Scheduler status (monitor)")

@@ -294,6 +294,57 @@ def test_screener_over_store():
             db.commit()
 
 
+# --- PH-1: ingestion jobs + backfill operability --------------------------
+async def test_ingestion_job_log_lifecycle_and_list():
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+    jid = J.start_job("backfill", "US", "AAPL · deep")
+    J.finish_job(jid, "success", rows=42)
+    listed = J.list_jobs(50)
+    mine = next(j for j in listed if j["id"] == jid)
+    assert mine["status"] == "success" and mine["rows"] == 42 and mine["market"] == "US"
+    assert mine["started_at"] and mine["ended_at"]
+
+
+async def test_run_backfill_records_job(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+
+    async def fake_us(tickers=None, zip_path=None, limit=None):
+        return {"AAPL": 120, "MSFT": -1}  # one ok, one per-ticker failure
+
+    monkeypatch.setattr(J, "bulk_load_us", fake_us)
+    out = await J.run_backfill("US", ["AAPL", "MSFT"], deep=True, limit=None)
+    assert out["status"] == "success" and out["rows"] == 120 and out["failed"] == ["MSFT"]
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["status"] == "success" and row["rows"] == 120
+
+
+async def test_run_backfill_records_error(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+
+    async def boom(tickers=None, zip_path=None, limit=None):
+        raise RuntimeError("upstream down")
+
+    monkeypatch.setattr(J, "bulk_load_us", boom)
+    out = await J.run_backfill("US", ["AAPL"], deep=True, limit=None)
+    assert out["status"] == "error" and "upstream down" in out["error"]
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["status"] == "error" and "upstream down" in (row["error"] or "")
+
+
+def test_admin_jobs_endpoint():
+    r = client.get("/admin/jobs")
+    assert r.status_code == 200 and "jobs" in r.json()
+
+
 # --- one provider path with mocked upstream -------------------------------
 @respx.mock
 def test_us_company_facts_with_mocked_sec():
