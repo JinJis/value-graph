@@ -10,8 +10,9 @@
 # POSIX shell are required on the host.
 set -u
 cd "$(dirname "$0")/.."
+. "$(dirname "$0")/_viz.sh"   # colors + section()
 FAIL=0
-step() { echo; echo "============================================================"; echo "== $1"; echo "============================================================"; }
+step() { echo; hr; section "$1"; }
 
 UVIMG="ghcr.io/astral-sh/uv:python3.11-bookworm-slim"
 # Run a service's unit tests inside the uv image: source bind-mounted, a per-service
@@ -32,6 +33,9 @@ echo "-- rag (+ real oss-cpu semantic)"; unit rag "--extra oss" || FAIL=1
 step "Web build (docker build)"
 docker compose build web >/dev/null 2>&1 && echo "  web build ok" || { echo "  web build FAILED"; FAIL=1; }
 
+step "Tool coverage — every catalog tool through the gateway (no key)"
+bash scripts/coverage.sh || FAIL=1
+
 step "Docker e2e — stub full stack (deterministic, no key)"
 bash scripts/e2e.sh || FAIL=1
 
@@ -50,6 +54,6 @@ done
 python3 eval/run_eval.py; rc=$?
 if [ "$rc" = 2 ]; then echo "  (skipped — no GOOGLE_API_KEY)"; elif [ "$rc" != 0 ]; then FAIL=1; fi
 
-echo
-if [ "$FAIL" = 0 ]; then echo "✅ ALL TESTS PASSED"; else echo "❌ SOME TESTS FAILED"; fi
+echo; hr
+if [ "$FAIL" = 0 ]; then echo "$(green "✅ ALL TESTS PASSED")"; else echo "$(red "❌ SOME TESTS FAILED")"; fi
 exit "$FAIL"

@@ -107,6 +107,7 @@ Or run a layer on its own — the **docker** harnesses bring the stack up themse
 
 ```bash
 # Docker end-to-end (each spins the stack via docker compose, then tears it down):
+bash scripts/coverage.sh          # EVERY catalog tool (all 29) called through the gateway — coverage matrix
 bash scripts/e2e.sh               # stub planner, whole product chain — deterministic, no key
 bash scripts/e2e_functional.sh    # REAL data + MCP tool calls + semantic RAG (oss-cpu) + entitlement — no key
 GOOGLE_API_KEY=... bash scripts/e2e_live.sh   # REAL Gemini: grounded, cited answers (skips cleanly w/o a key)

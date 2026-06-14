@@ -11,6 +11,7 @@
 #         GOOGLE_API_KEY=... AGENT_MODEL=gemini-flash-latest bash scripts/e2e_live.sh
 set -u
 cd "$(dirname "$0")/.."
+. "$(dirname "$0")/_viz.sh"   # colored ok/fail/has/hasnt/section/result
 
 # --- resolve the key (env wins, else read it from .env) --------------------
 envval() { [ -f .env ] && grep -E "^$1=" .env | tail -1 | cut -d= -f2- | tr -d '"'"'"' ' || true; }
@@ -34,15 +35,10 @@ MSG
 fi
 
 FAILS=0
-ok()   { echo "  ok   $1"; }
-fail() { echo "  FAIL $1"; FAILS=$((FAILS + 1)); }
-has()  { printf '%s' "$2" | grep -q "$3" && ok "$1" || fail "$1"; }
-hasnt(){ printf '%s' "$2" | grep -q "$3" && fail "$1" || ok "$1"; }
-
 AG=http://127.0.0.1:8003; SA=http://127.0.0.1:8004
 J=(-H "Content-Type: application/json")
 
-echo "== bring up stack with the Gemini planner (model: $MODEL) =="
+section "bring up stack with the Gemini planner (model: $MODEL)"
 docker compose down -v >/dev/null 2>&1 || true
 # Inject the LLM backend for this run on top of the shared .env.
 AGENT_LLM_BACKEND=gemini AGENT_MODEL="$MODEL" GOOGLE_API_KEY="$KEY" \
@@ -54,12 +50,12 @@ for _ in $(seq 1 40); do
   [ "$st" = healthy ] && break; sleep 2
 done
 
-echo "== agent-engine is on the gemini backend =="
+section "agent-engine is on the gemini backend"
 INFO=$(curl -s $AG/agent/info)
 has "info reports llm_backend=gemini" "$INFO" '"llm_backend":"gemini"'
 echo "    $INFO"
 
-echo "== studio-api chat — full product chain on the LLM (grounded) =="
+section "studio-api chat — full product chain on the LLM (grounded)"
 SH=(-H "X-Service-Token: dev-service-token" -H "X-User-Email: live@user.com")
 for _ in $(seq 1 20); do [ "$(curl -s -o /dev/null -w '%{http_code}' $SA/health)" = 200 ] && break; sleep 2; done
 
@@ -112,13 +108,12 @@ assert_grounded "US" "$(ask "What was Apple (AAPL) total revenue in its most rec
 assert_grounded "KR" "$(ask "삼성전자(005930)의 가장 최근 연간 매출액을 숫자로 알려줘")" \
   'OpenDART' 'opendart__'
 
-echo "== guardrail still holds on the LLM backend =="
+section "guardrail still holds on the LLM backend"
 RF=$(ask "should I buy AAPL? will it go up?")
 has "forecast/advice refused (refused=true)" "$RF" 'REFUSED=True'
 
-echo "== teardown =="
+section "teardown"
 docker compose down -v >/dev/null 2>&1
 
-echo
-if [ "$FAILS" -eq 0 ]; then echo "✅ LIVE (Gemini) E2E PASSED"; else echo "❌ LIVE E2E FAILED ($FAILS assertions)"; fi
-exit $FAILS
+result "LIVE (Gemini) E2E"
+exit "$FAILS"

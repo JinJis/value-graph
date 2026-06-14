@@ -9,21 +9,16 @@
 # HTTP 200. Run:  cd platform && bash scripts/e2e_functional.sh
 set -u
 cd "$(dirname "$0")/.."
+. "$(dirname "$0")/_viz.sh"   # colored ok/fail/has/num/section/result
 
 DP=http://127.0.0.1:8000; CP=http://127.0.0.1:8010; RAG=http://127.0.0.1:8002; SA=http://127.0.0.1:8004
 A=(-H "X-Admin-Token: dev-admin-token"); J=(-H "Content-Type: application/json")
 
 FAILS=0
-ok()   { echo "  ok   $1"; }
-fail() { echo "  FAIL $1   ${2:+→ $2}"; FAILS=$((FAILS + 1)); }
-has()  { printf '%s' "$2" | grep -q -- "$3" && ok "$1" || fail "$1" "missing '$3' in: $(printf '%s' "$2" | head -c 160)"; }
 jget() { python3 -c "import json,sys;print(json.load(sys.stdin)$1)" 2>/dev/null || true; }
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
-# numeric assertion: $1 label, $2 value, $3 python-bool-expr on x
-num()  { python3 -c "import sys; x=float('${2:-nan}'); sys.exit(0 if ($3) else 1)" 2>/dev/null \
-           && ok "$1 ($2)" || fail "$1" "value=$2 fails: $3"; }
 
-echo "== bring up backend stack with REAL semantic RAG (oss-cpu) =="
+section "bring up backend stack with REAL semantic RAG (oss-cpu)"
 docker compose down -v >/dev/null 2>&1 || true
 RAG_EMBEDDING_BACKEND=oss-cpu RAG_EMBEDDING_MODEL="BAAI/bge-small-en-v1.5" \
   docker compose up --build -d datasets rag control-plane agent-engine studio-api \
@@ -34,7 +29,7 @@ for _ in $(seq 1 60); do
 done
 
 # ---------------------------------------------------------------------------
-echo "== A. DATA PLANE — real upstream numbers =="
+section "A. DATA PLANE — real upstream numbers"
 # SEC: Apple company facts
 AAPL_FACTS=$(curl -s "$DP/company/facts?ticker=AAPL&market=US")
 has "SEC company_facts names Apple" "$AAPL_FACTS" 'Apple'
@@ -62,7 +57,7 @@ BOK=$(curl -s "$DP/macro/interest-rates/snapshot?market=KR&bank=BOK" | jget "['i
 num "ECOS BOK base rate in a sane band" "${BOK:-nan}" "0<=x<=10"
 
 # ---------------------------------------------------------------------------
-echo "== tenant + key + activations =="
+section "tenant + key + activations"
 TID=$(curl -s "${A[@]}" "${J[@]}" -X POST $CP/admin/tenants -d '{"name":"FUNC"}' | jget "['id']")
 PID=$(curl -s "${A[@]}" "${J[@]}" -X POST $CP/admin/tenants/$TID/projects -d '{"name":"p"}' | jget "['id']")
 KEY=$(curl -s "${A[@]}" "${J[@]}" -X POST $CP/admin/projects/$PID/keys -d '{"name":"k"}' | jget "['api_key']")
@@ -72,7 +67,7 @@ for c in yahoo sec_edgar; do
 done
 
 # ---------------------------------------------------------------------------
-echo "== B. MCP — tools from catalog, real calls through the gateway, entitlement (in docker) =="
+section "B. MCP — tools from catalog, real calls through the gateway, entitlement (in docker)"
 MCP_OUT=$(docker compose run --rm -T --build -e MCP_API_KEY="$KEY" mcp python - <<'PY' 2>/dev/null
 import asyncio, json
 from mcpserver.tools import fetch_catalog, build_tools, tool_index, call_tool
@@ -107,7 +102,7 @@ ENT=$(code -H "X-API-KEY: $K3" "$CP/prices?ticker=AAPL&market=US&interval=day&st
 [ "$ENT" = 403 ] && ok "MCP/gateway blocks an unentitled key (403)" || fail "entitlement not enforced" "got $ENT"
 
 # ---------------------------------------------------------------------------
-echo "== C. RAG — REAL semantic retrieval (oss-cpu) + provenance + entitlement =="
+section "C. RAG — REAL semantic retrieval (oss-cpu) + provenance + entitlement"
 INFO=$(curl -s $RAG/rag/info)
 has "RAG runs the real oss-cpu embedder" "$INFO" 'oss-cpu'
 # ingest 3 docs on distinct topics; the target shares NO content word with the query
@@ -130,9 +125,8 @@ RG=$(code -H "X-API-KEY: $K3" "${J[@]}" -X POST "$CP/rag/search" -d '{"query":"a
 RG2=$(curl -s -H "X-API-KEY: $KEY" "${J[@]}" -X POST "$CP/rag/search" -d '{"query":"Federal Reserve interest rate hike","top_k":1}')
 has "RAG via gateway returns the right doc for an entitled key" "$RG2" 'https://x/policy'
 
-echo "== teardown =="
+section "teardown"
 docker compose down -v >/dev/null 2>&1
 
-echo
-if [ "$FAILS" -eq 0 ]; then echo "✅ FUNCTIONAL E2E PASSED (real data, MCP, semantic RAG — no LLM key)"; else echo "❌ FUNCTIONAL E2E FAILED ($FAILS assertions)"; fi
-exit $FAILS
+result "FUNCTIONAL E2E"
+exit "$FAILS"
