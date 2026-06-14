@@ -71,8 +71,8 @@ U=$(curl -s "${A[@]}" $CP/admin/projects/$PID/usage)
 has "usage records yahoo" "$U" 'yahoo'
 has "usage records rag" "$U" '"rag"'
 
-echo "== MCP tools via gateway =="
-MCP_OUT=$(cd mcp && MCP_GATEWAY_URL=$CP MCP_API_KEY=$KEY uv run python - <<'PY' 2>/dev/null
+echo "== MCP tools via gateway (run inside docker — no host uv) =="
+MCP_OUT=$(docker compose run --rm -T --build -e MCP_API_KEY="$KEY" mcp python - <<'PY' 2>/dev/null
 import asyncio
 from mcpserver.tools import fetch_catalog, build_tools, tool_index, call_tool
 async def main():

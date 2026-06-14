@@ -48,6 +48,16 @@ services:
       retries: 3
       start_period: 10s
 
+  # MCP server. Not part of the default stack (stdio); `tools` profile so e2e can
+  # run it as a one-off on the network: `docker compose run --rm -T mcp python ...`.
+  mcp:
+    build: ./mcp
+    image: valuegraph-mcp:latest
+    profiles: ["tools"]
+    env_file: [.env]
+    environment:
+      MCP_GATEWAY_URL: "http://control-plane:8001"
+
   rag:
     build: ./rag
     image: valuegraph-rag:latest

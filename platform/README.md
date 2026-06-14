@@ -95,11 +95,12 @@ Without Docker you can still run any service with `uv run uvicorn <pkg>.main:app
 
 ## Run the tests
 
-**Everything in one command** (unit + web build + all docker e2e + quality eval):
+**Everything in one command — only Docker is required** (no host `uv`/`npm`/`pytest`). Unit tests run in
+the `uv` image, the web build is a docker build, and the e2e + eval drive `docker compose`:
 
 ```bash
 cd platform
-bash scripts/test_all.sh          # GOOGLE_API_KEY in .env enables the live e2e + judge; else they skip/structural
+bash scripts/test_all.sh          # GOOGLE_API_KEY in .env enables the live e2e + eval; else they skip cleanly
 ```
 
 Or run a layer on its own — the **docker** harnesses bring the stack up themselves:
@@ -110,13 +111,13 @@ bash scripts/e2e.sh               # stub planner, whole product chain — determ
 bash scripts/e2e_functional.sh    # REAL data + MCP tool calls + semantic RAG (oss-cpu) + entitlement — no key
 GOOGLE_API_KEY=... bash scripts/e2e_live.sh   # REAL Gemini: grounded, cited answers (skips cleanly w/o a key)
 
-# Quality eval (needs the stack up: `docker compose up -d` first):
+# Quality eval (needs the stack up: `docker compose up -d` first; skips without GOOGLE_API_KEY):
 python3 eval/run_eval.py          # 14 scenarios across every source; scores tool-use, grounding, citations, guardrails
 
-# Per-service unit tests (uv, host):
-for s in datasets control-plane mcp rag agent-engine studio-api; do (cd $s && uv run pytest -q); done
-cd rag && uv run --extra oss pytest tests/test_rag_semantic.py   # real oss-cpu semantic-retrieval proof
-cd web && npm run build                                          # web typecheck/build
+# Unit tests in docker (one service) — no host uv needed:
+docker run --rm -v "$PWD/datasets:/app" -w /app ghcr.io/astral-sh/uv:python3.11-bookworm-slim \
+  sh -lc "uv run --extra dev pytest -q"
+# (host shortcut, only if you have uv: cd datasets && uv run --extra dev pytest -q)
 ```
 
 **156 unit tests** pass + web build. Three docker e2e harnesses + a scenario-based **quality eval**:

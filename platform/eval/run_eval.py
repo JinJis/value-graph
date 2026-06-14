@@ -180,7 +180,12 @@ def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
 
 # --- run ------------------------------------------------------------------
 def main() -> int:
-    print(f"== Quality eval — studio={STUDIO}  judge={'on (' + JUDGE_MODEL + ')' if GKEY else 'OFF (no GOOGLE_API_KEY)'} ==\n")
+    if not GKEY:
+        print("⏭️  EVAL SKIPPED — no GOOGLE_API_KEY (env or platform/.env).")
+        print("   The eval builds Gemini-backed agents and grades real natural-language answers, so it")
+        print("   needs a key. Set GOOGLE_API_KEY in platform/.env, then: python3 eval/run_eval.py")
+        return 2
+    print(f"== Quality eval — studio={STUDIO}  judge=on ({JUDGE_MODEL}) ==\n")
     code, _ = studio("POST", "/users/ensure")
     if code != 200:
         print(f"FATAL: could not provision eval user (studio /users/ensure -> {code}). Is the stack up?")

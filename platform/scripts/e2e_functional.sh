@@ -72,8 +72,8 @@ for c in yahoo sec_edgar; do
 done
 
 # ---------------------------------------------------------------------------
-echo "== B. MCP — tools from catalog, real calls through the gateway, entitlement =="
-MCP_OUT=$(cd mcp && MCP_GATEWAY_URL=$CP MCP_API_KEY=$KEY uv run python - <<'PY' 2>/dev/null
+echo "== B. MCP — tools from catalog, real calls through the gateway, entitlement (in docker) =="
+MCP_OUT=$(docker compose run --rm -T --build -e MCP_API_KEY="$KEY" mcp python - <<'PY' 2>/dev/null
 import asyncio, json
 from mcpserver.tools import fetch_catalog, build_tools, tool_index, call_tool
 async def main():

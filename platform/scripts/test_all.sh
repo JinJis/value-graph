@@ -1,27 +1,36 @@
 #!/usr/bin/env bash
-# One command to run EVERYTHING: per-service unit tests, the web build, all three
-# docker-compose e2e harnesses, and the quality eval. Docker is required (the e2e
-# + eval bring the stack up via `docker compose`).
+# One command to run EVERYTHING in Docker — no host `uv`/`npm`/`pytest` needed.
+# Unit tests run in the uv base image (source mounted, deps cached in volumes); the
+# web build is a docker build; the e2e harnesses + eval drive `docker compose`.
 #
 #   cd platform && bash scripts/test_all.sh
 #
-# The live-Gemini e2e and the eval need GOOGLE_API_KEY (in platform/.env or env);
-# without it the live e2e is skipped and the eval runs structural checks only.
+# GOOGLE_API_KEY (in platform/.env or env) enables the live-Gemini e2e + the quality
+# eval; without it they skip cleanly (not counted as failures). Only `docker` + a
+# POSIX shell are required on the host.
 set -u
 cd "$(dirname "$0")/.."
 FAIL=0
 step() { echo; echo "============================================================"; echo "== $1"; echo "============================================================"; }
 
-step "Unit tests (per service)"
-for d in datasets control-plane mcp rag agent-engine studio-api; do
-  echo "-- $d"
-  ( cd "$d" && rm -f studio.db; uv run pytest -q ) || FAIL=1
-done
-echo "-- rag semantic (real oss-cpu embeddings)"
-( cd rag && uv run --extra oss pytest -q tests/test_rag_semantic.py ) || FAIL=1
+UVIMG="ghcr.io/astral-sh/uv:python3.11-bookworm-slim"
+# Run a service's unit tests inside the uv image: source bind-mounted, a per-service
+# .venv volume + a shared uv cache so repeat runs are fast. $2 = extra `uv run` args.
+unit() {
+  docker run --rm \
+    -v "$PWD/$1:/app" -v "vg_uvcache:/root/.cache/uv" -v "vg_venv_${1//[^a-zA-Z0-9]/_}:/app/.venv" \
+    -w /app -e UV_COMPILE_BYTECODE=0 -e UV_LINK_MODE=copy "$UVIMG" \
+    sh -lc "rm -f studio.db; uv run --extra dev ${2:-} pytest -q"
+}
 
-step "Web build"
-( cd web && npm run build >/dev/null 2>&1 ) && echo "  web build ok" || { echo "  web build FAILED"; FAIL=1; }
+step "Unit tests (in docker — uv image, no host uv)"
+for d in datasets control-plane mcp agent-engine studio-api; do
+  echo "-- $d"; unit "$d" "" || FAIL=1
+done
+echo "-- rag (+ real oss-cpu semantic)"; unit rag "--extra oss" || FAIL=1
+
+step "Web build (docker build)"
+docker compose build web >/dev/null 2>&1 && echo "  web build ok" || { echo "  web build FAILED"; FAIL=1; }
 
 step "Docker e2e — stub full stack (deterministic, no key)"
 bash scripts/e2e.sh || FAIL=1
@@ -33,12 +42,13 @@ step "Docker e2e — live Gemini (skips cleanly without GOOGLE_API_KEY)"
 bash scripts/e2e_live.sh; rc=$?
 if [ "$rc" = 2 ]; then echo "  (skipped — no GOOGLE_API_KEY)"; elif [ "$rc" != 0 ]; then FAIL=1; fi
 
-step "Quality eval (brings the stack up, scores answers)"
+step "Quality eval (skips cleanly without GOOGLE_API_KEY)"
 docker compose up -d >/dev/null 2>&1
 for _ in $(seq 1 40); do
   [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8004/health 2>/dev/null)" = 200 ] && break; sleep 2
 done
-python3 eval/run_eval.py || FAIL=1
+python3 eval/run_eval.py; rc=$?
+if [ "$rc" = 2 ]; then echo "  (skipped — no GOOGLE_API_KEY)"; elif [ "$rc" != 0 ]; then FAIL=1; fi
 
 echo
 if [ "$FAIL" = 0 ]; then echo "✅ ALL TESTS PASSED"; else echo "❌ SOME TESTS FAILED"; fi
