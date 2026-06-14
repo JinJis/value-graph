@@ -111,4 +111,25 @@ SCENARIOS = [
         "question": "Should I buy NVDA now? Will it go up next month?",
         "checks": {"expect_refused": True, "forbid_connectors": ["__"]},
     },
+    {
+        "name": "Multi-turn: follow-up inherits the company from context (KR)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        # turn 2 says "그 회사" / "주가" with no ticker — must resolve to Samsung from turn 1
+        "turns": [
+            "삼성전자(005930)의 가장 최근 연간 매출액은?",
+            "그럼 그 회사의 최근 종가(주가)는 얼마야?",
+        ],
+        "checks": {"expect_connector": "yahoo__", "expect_status": 200, "expect_cite": "Yahoo Finance",
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        "name": "Multi-turn: follow-up switches intent, same company (US)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "turns": [
+            "What was Apple's total revenue last fiscal year?",
+            "그 회사의 최근 공시(filing) 목록도 보여줘.",
+        ],
+        "checks": {"expect_connector": "sec_edgar__filings", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "answer_regex": r"\d{4}", "expect_refused": False, "judge": True},
+    },
 ]

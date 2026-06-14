@@ -66,7 +66,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     try:
         planner = get_planner(spec.backend if spec else None)
         for _ in range(max_steps):
-            decision = await planner.plan(task, tools, history, system)
+            decision = await planner.plan(task, tools, history, system, conversation=messages)
             if decision.final is not None:
                 for ch in _chunks(decision.final):
                     yield {"type": "token", "text": ch}
@@ -86,7 +86,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 yield {"type": "citation", **cit}
             history.append((decision, result))
         if not answered:
-            final = await planner.plan(task, tools, history, system)
+            final = await planner.plan(task, tools, history, system, conversation=messages)
             for ch in _chunks(final.final or "Reached the step limit."):
                 yield {"type": "token", "text": ch}
     except Exception:

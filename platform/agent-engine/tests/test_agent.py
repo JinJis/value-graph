@@ -340,6 +340,38 @@ async def test_planner_never_calls_us_tool_for_kr_code():
     assert d.args["market"] == "KR"
 
 
+async def test_planner_resolves_ticker_from_prior_turn():
+    # follow-up "그럼 주가는?" has no ticker — it must inherit 삼성전자 from turn 1
+    from agentengine.planner import StubPlanner
+
+    conversation = [
+        {"role": "user", "content": "삼성전자 최근 실적 알려줘"},
+        {"role": "assistant", "content": "..."},
+        {"role": "user", "content": "그럼 최근 주가는?"},
+    ]
+    d = await StubPlanner().plan("그럼 최근 주가는?", _TOOLS, [], None, conversation=conversation)
+    assert d.tool == "yahoo__prices" and d.args["ticker"] == "005930" and d.args["market"] == "KR"
+
+
+@respx.mock
+async def test_chat_stream_multi_turn_inherits_context(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": []}, headers={"x-connector": "yahoo"})
+    )
+    messages = [
+        {"role": "user", "content": "Apple 최근 실적 알려줘"},
+        {"role": "assistant", "content": "..."},
+        {"role": "user", "content": "그럼 주가 흐름은?"},  # no ticker -> inherits Apple/AAPL
+    ]
+    events = [e async for e in stream_chat(messages, "vgk_x")]
+    tool_ev = next(e for e in events if e["type"] == "tool")
+    assert tool_ev["name"] == "yahoo__prices" and tool_ev["args"].get("ticker") == "AAPL"
+
+
 def test_chat_chunks_reconstruct_text():
     from agentengine.chat import _chunks
 

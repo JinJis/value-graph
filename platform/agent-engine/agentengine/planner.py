@@ -179,13 +179,24 @@ def _no_tool_message(task: str, has_tools: bool) -> str:
     )
 
 
+def _user_text(conversation: list | None) -> str:
+    """Concatenate the user turns of a conversation (for cross-turn context)."""
+    return " ".join(
+        m.get("content", "") for m in (conversation or [])
+        if m.get("role") == "user" and m.get("content")
+    )
+
+
 class StubPlanner:
-    async def plan(self, task: str, tools: dict, history: list, system: str | None = None) -> Decision:
+    async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
+                   conversation: list | None = None) -> Decision:
         if history:  # already observed a tool result -> finalize
             return Decision(final=_summarize(task, history))
         if not tools:
             return Decision(final=_no_tool_message(task, has_tools=False))
-        ticker = _resolve_ticker(task)
+        # resolve the company from THIS turn, else from earlier turns (follow-ups like
+        # "그럼 그 회사 주가는?" inherit the ticker named earlier in the conversation).
+        ticker = _resolve_ticker(task) or _resolve_ticker(_user_text(conversation))
         market = _market_of(ticker)
         # keyword intent first; only fall back to ticker tools when a ticker is known
         # (a vague question with no intent/ticker gets guidance, never a doomed call).
@@ -212,7 +223,8 @@ class GeminiPlanner:
         self._client = genai.Client()
         self.model = model
 
-    async def plan(self, task: str, tools: dict, history: list, system: str | None = None) -> Decision:
+    async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
+                   conversation: list | None = None) -> Decision:
         import asyncio
 
         from google.genai import types
@@ -231,18 +243,35 @@ class GeminiPlanner:
         ]
         base = (
             "You are a financial-data agent. Use the tools to fetch sourced facts. "
+            "Resolve follow-up references (e.g. 'that company') from the conversation so far. "
             "Never predict prices or give buy/sell advice; this is not investment advice."
         )
         config = types.GenerateContentConfig(
             tools=[types.Tool(function_declarations=decls)],
             system_instruction=f"{base}\n\n{system.strip()}" if system and system.strip() else base,
         )
-        resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=task, config=config)
+        # pass the full conversation so the model can resolve cross-turn references
+        contents = _to_contents(conversation) or task
+        resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
         calls = getattr(resp, "function_calls", None)
         if calls:
             call = calls[0]
             return Decision(tool=call.name, args=dict(call.args or {}))
         return Decision(final=resp.text)
+
+
+def _to_contents(conversation: list | None):
+    """Map a [{role, content}] conversation to the genai `contents` format."""
+    if not conversation:
+        return None
+    out = []
+    for m in conversation:
+        c = m.get("content")
+        if not c:
+            continue
+        role = "model" if m.get("role") == "assistant" else "user"
+        out.append({"role": role, "parts": [{"text": c}]})
+    return out or None
 
 
 def _schema(tool: dict) -> dict:

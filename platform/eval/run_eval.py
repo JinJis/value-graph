@@ -68,11 +68,11 @@ def studio(method: str, path: str, body=None) -> tuple[int, dict]:
         return code, {"_raw": raw.decode("utf-8", "replace")}
 
 
-def chat(question: str, agent_id: str) -> dict:
-    """POST /chat/stream and fold the SSE into a structured result."""
+def chat_messages(messages: list[dict], agent_id: str) -> dict:
+    """POST /chat/stream with a full conversation and fold the SSE into a result."""
     headers = {"X-Service-Token": SVC, "X-User-Email": USER, "Content-Type": "application/json"}
     code, raw = _request("POST", f"{STUDIO}/chat/stream",
-                         {"messages": [{"role": "user", "content": question}], "agent_id": agent_id}, headers)
+                         {"messages": messages, "agent_id": agent_id}, headers)
     tools, statuses, cites, ans = [], [], [], []
     refused = None
     for line in raw.decode("utf-8", "replace").splitlines():
@@ -97,6 +97,22 @@ def chat(question: str, agent_id: str) -> dict:
             refused = ev.get("refused")
     return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
             "answer": "".join(ans).strip(), "refused": bool(refused)}
+
+
+def chat(question: str, agent_id: str) -> dict:
+    return chat_messages([{"role": "user", "content": question}], agent_id)
+
+
+def chat_turns(turns: list[str], agent_id: str) -> dict:
+    """Run a multi-turn conversation, feeding each real assistant answer back in.
+    Returns the LAST turn's result (what the checks grade)."""
+    messages: list[dict] = []
+    result: dict = {}
+    for q in turns:
+        messages.append({"role": "user", "content": q})
+        result = chat_messages(messages, agent_id)
+        messages.append({"role": "assistant", "content": result["answer"]})
+    return result
 
 
 def rag_ingest(docs: list[dict]) -> None:
@@ -188,8 +204,14 @@ def main() -> int:
             scenario_rows.append((name, 0, 1, "agent-create-failed"))
             total_checks += 1
             continue
-        r = chat(sc["question"], agent["id"])
-        print(f"   Q: {sc['question']}")
+        if sc.get("turns"):
+            r = chat_turns(sc["turns"], agent["id"])
+            question = sc["turns"][-1]
+            print("   Q (multi-turn): " + " | ".join(sc["turns"]))
+        else:
+            r = chat(sc["question"], agent["id"])
+            question = sc["question"]
+            print(f"   Q: {question}")
         print(f"   tools={r['tools']} status={r['statuses']} cites={r['citations']} refused={r['refused']}")
         print(f"   A: {r['answer'][:200]}")
 
@@ -201,7 +223,7 @@ def main() -> int:
 
         jtxt = ""
         if sc["checks"].get("judge"):
-            j = judge(sc["question"], r["answer"], r["citations"])
+            j = judge(question, r["answer"], r["citations"])
             if j:
                 judged.append(j["score"])
                 jtxt = f"judge={j['score']}/5 ({j['reason']})"

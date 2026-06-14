@@ -62,54 +62,73 @@ platform/
 P0–P3 are built (see the status table above). **Next: P4 Agent Engine**, then the **value-chain**
 flagship. Full task tracker in [`docs/ROADMAP.md`](./docs/ROADMAP.md).
 
-## Run the whole stack (one command)
+## Run the whole stack (Docker — recommended)
 
-A single `docker compose` brings up the data plane + control plane, both reading **one shared
-`platform/.env`** (copy from `.env.example`):
+A single `docker compose` brings up **all six services** from one shared `platform/.env`:
 
 ```bash
 cd platform
-cp .env.example .env          # fill in free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true for local login
-docker compose up --build     # whole stack: datasets :8000 · gateway :8010 · web UI :3000
-docker compose down
+cp .env.example .env          # free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true; GOOGLE_API_KEY for Gemini
+docker compose up --build     # datasets :8000 · gateway :8010 · rag :8002 · agent :8003 · studio :8004 · web :3000
+docker compose ps             # health of each service
+docker compose logs -f web    # follow a service's logs
+docker compose down           # stop  (add -v to also wipe the SQLite/volume state)
 ```
 
-Then drive it through the gateway (control-plane on host `:8010`):
+| Service | Port | What |
+|---|---|---|
+| `datasets` | 8000 | data plane (US+KR financial API, `/docs`) |
+| `control-plane` | 8010 | tenant gateway (auth · entitlement · metering) |
+| `rag` | 8002 | retrieval (hash default; `RAG_EMBEDDING_BACKEND=oss-cpu` for real embeddings) |
+| `agent-engine` | 8003 | agent loop (`AGENT_LLM_BACKEND=stub|gemini`) |
+| `studio-api` | 8004 | provisioning · conversations · chat BFF |
+| `web` | 3000 | chat UI (open <http://localhost:3000>) |
+
+Rebuild one service after a code change: `docker compose up -d --build agent-engine`.
+Drive the data plane through the gateway:
 ```bash
 A='-H X-Admin-Token:dev-admin-token'
-PRJ=...   # POST /admin/tenants -> /projects -> /keys -> /activations (connector_id)
+# POST /admin/tenants -> /projects -> /keys -> /activations (connector_id), then:
 curl -H "X-API-KEY: vgk_..." "http://127.0.0.1:8010/company/facts?ticker=AAPL&market=US"
 ```
+Without Docker you can still run any service with `uv run uvicorn <pkg>.main:app --port <p>` (each reads `../.env`).
 
-Local (no docker): run each with `uv run uvicorn ...`; both still read the shared `../.env`.
+## Run the tests
 
-## Run / test each service
-
-Each service is a `uv` project with its own README and tests:
+**Everything in one command** (unit + web build + all docker e2e + quality eval):
 
 ```bash
-cd datasets      && uv sync --extra dev && uv run pytest -q   # data plane (:8000, /docs)
-cd control-plane && uv sync --extra dev && uv run pytest -q   # gateway (:8001/:8010)
-cd mcp           && uv sync --extra dev && uv run pytest -q   # MCP server (stdio)
-cd rag           && uv sync --extra dev && uv run pytest -q   # RAG (:8002); flip backend in .env
-cd agent-engine  && uv sync --extra dev && uv run pytest -q   # Agent Engine (:8003); stub|gemini planner
-cd studio-api    && uv sync --extra dev && uv run pytest -q   # Studio API / chat BFF (:8004)
-cd web           && npm install && npm run build              # Web UI (:3000)
-cd rag && uv run --extra oss pytest tests/test_rag_semantic.py   # REAL oss-cpu semantic retrieval proof
-bash scripts/e2e.sh                                           # full-stack stub e2e (no key)
-bash scripts/e2e_functional.sh                               # functional e2e: real data + MCP + semantic RAG (no key)
-GOOGLE_API_KEY=... bash scripts/e2e_live.sh                   # live e2e: real Gemini answers, grounded + cited
+cd platform
+bash scripts/test_all.sh          # GOOGLE_API_KEY in .env enables the live e2e + judge; else they skip/structural
 ```
 
-All **152 unit tests** pass (web verified via build). Three docker-compose end-to-end harnesses:
-- **`scripts/e2e.sh`** — stub planner, the whole product chain (catalog → tenant → entitlement → data plane
-  + RAG via gateway → metering → MCP → studio chat → agent builder → prompt import). Deterministic, no key.
-- **`scripts/e2e_functional.sh`** — proves it actually *works*: real upstream numbers (Apple facts, a live
-  AAPL close, Samsung's KRW revenue, the BOK rate), MCP real tool calls + schema + entitlement, and **real
-  semantic RAG** (oss-cpu; a zero-keyword-overlap query retrieves the right doc) with provenance. No key.
-- **`scripts/e2e_live.sh`** — the real Gemini planner answering grounded, cited questions end-to-end
-  (verified: Apple FY2025 revenue $416.161B cited to SEC EDGAR; Samsung ₩333.6T cited to OpenDART; a
-  "should I buy?" prompt refused). Needs `GOOGLE_API_KEY`; skips cleanly without one.
+Or run a layer on its own — the **docker** harnesses bring the stack up themselves:
+
+```bash
+# Docker end-to-end (each spins the stack via docker compose, then tears it down):
+bash scripts/e2e.sh               # stub planner, whole product chain — deterministic, no key
+bash scripts/e2e_functional.sh    # REAL data + MCP tool calls + semantic RAG (oss-cpu) + entitlement — no key
+GOOGLE_API_KEY=... bash scripts/e2e_live.sh   # REAL Gemini: grounded, cited answers (skips cleanly w/o a key)
+
+# Quality eval (needs the stack up: `docker compose up -d` first):
+python3 eval/run_eval.py          # 14 scenarios across every source; scores tool-use, grounding, citations, guardrails
+
+# Per-service unit tests (uv, host):
+for s in datasets control-plane mcp rag agent-engine studio-api; do (cd $s && uv run pytest -q); done
+cd rag && uv run --extra oss pytest tests/test_rag_semantic.py   # real oss-cpu semantic-retrieval proof
+cd web && npm run build                                          # web typecheck/build
+```
+
+**156 unit tests** pass + web build. Three docker e2e harnesses + a scenario-based **quality eval**:
+- **`e2e.sh`** — stub, the whole chain (catalog → tenant → entitlement → data plane + RAG via gateway →
+  metering → MCP → studio chat → agent builder → prompt import). Deterministic, no key.
+- **`e2e_functional.sh`** — real upstream numbers (Apple facts, a live AAPL close, Samsung's KRW revenue,
+  the BOK rate), MCP real tool calls + schema + entitlement, and **real semantic RAG** (oss-cpu) with provenance.
+- **`e2e_live.sh`** — the real Gemini planner answering grounded, cited questions (Apple FY2025 rev cited
+  to SEC EDGAR; Samsung ₩333.6T to OpenDART; a "should I buy?" prompt refused).
+- **`eval/run_eval.py`** — builds agents with chosen data sources and scores answer quality across 14
+  scenarios (right source called · grounded figure · correct citation · restriction honoured · guardrail ·
+  multi-turn context) + an optional Gemini judge. Latest: 59/59 checks · judge 5.00/5. See [`eval/README.md`](./eval/README.md).
 
 ## The product (chat UI)
 
