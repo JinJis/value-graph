@@ -578,6 +578,26 @@ class CiksResponse(BaseModel):
     ciks: list[str] | None = Field(None, description='List of available CIK codes.')
 
 
+class CompanySearchResult(BaseModel):
+    name: str | None = Field(None, description='Company name.')
+    ticker: str | None = Field(None, description='Ticker symbol (US: AAPL; KR: 005930).')
+    market: str | None = Field(None, description='Market (US|KR).')
+    cik: str | None = Field(
+        None, description='US SEC CIK / KR OpenDART corp_code.'
+    )
+
+
+class CompanySearchResponse(BaseModel):
+    resource: str | None = Field(None, description='The resource type identifier.')
+    source: str | None = Field(
+        None, description='Upstream source of the company index (e.g. SEC EDGAR, OpenDART).'
+    )
+    query: str | None = Field(None, description='The search query that was run.')
+    results: list[CompanySearchResult] | None = Field(
+        None, description='Matching companies, best match first.'
+    )
+
+
 class FinancialMetricSnapshot(BaseModel):
     ticker: str | None = Field(None, description='The ticker symbol of the company.')
     market_cap: float | None = Field(

@@ -14,6 +14,7 @@ import httpx
 from studioapi.agents import agent_to_spec, load_agent
 from studioapi.config import settings
 from studioapi.db import SessionLocal
+from studioapi.groups import expand_text, resolve_messages
 from studioapi.models import Conversation, Message, User
 
 
@@ -34,8 +35,13 @@ async def stream_and_persist(
             agent = load_agent(db, agent_id, user.email)
             if agent is not None:
                 spec = agent_to_spec(agent)
+                if spec.get("system"):  # expand any @handle the analyst's prompt references
+                    spec["system"] = expand_text(db, user.email, spec["system"])
             else:
                 agent_id = None  # unknown/forbidden agent -> default behaviour
+        # expand @handles in the user's turns to concrete tickers for the planner
+        # (we persist the original message below, not this expanded copy)
+        resolved_messages = resolve_messages(db, user.email, messages)
 
     # ensure conversation + persist the latest user message
     with SessionLocal() as db:
@@ -50,7 +56,7 @@ async def stream_and_persist(
         db.add(Message(conversation_id=conv_id, role=last.get("role", "user"), content=last.get("content", "")))
         db.commit()
 
-    payload: dict = {"messages": messages}
+    payload: dict = {"messages": resolved_messages}
     if spec is not None:
         payload["spec"] = spec
 

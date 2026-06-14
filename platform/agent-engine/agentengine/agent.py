@@ -7,11 +7,14 @@ answers are sourced.
 
 from __future__ import annotations
 
+import logging
 from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.models import AgentSpec, Citation, RunResult, Step
 from agentengine.planner import get_planner
+
+logger = logging.getLogger(__name__)
 
 
 def _find_urls(obj, out: list | None = None) -> list:
@@ -59,6 +62,20 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
     return [Citation(tool=tool["name"], source=src, url=u) for u in urls]
 
 
+def dedup_citations(cites: list[Citation]) -> list[Citation]:
+    """Collapse repeats — the same (source, url) cited by several tool calls should
+    appear once (fixes the '📎 OpenDART · 📎 OpenDART · …' repetition)."""
+    seen: set = set()
+    out: list[Citation] = []
+    for c in cites:
+        key = (c.source, c.url)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+    return out
+
+
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
     """Restrict ``tools`` to ``allowed`` — entries match a full tool name
     (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
@@ -69,7 +86,8 @@ def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
 
 
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:
-    refusal = guardrails.check(task)
+    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
+    refusal = await guardrailer.check(task)
     if refusal:
         return RunResult(answer=refusal, refused=True, usage={"steps": 0})
 
@@ -91,6 +109,14 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             if decision.final is not None:
                 answer = decision.final
                 break
+            
+            # Auto-resolve ticker from company name/alias
+            if decision.tool and decision.args and "ticker" in decision.args:
+                from agentengine.planner import resolve_ticker
+                resolved = resolve_ticker(decision.args["ticker"])
+                if resolved:
+                    decision.args["ticker"] = resolved
+
             tool = tools.get(decision.tool)
             if tool is None:
                 answer = f"Planner selected an unavailable tool '{decision.tool}'."
@@ -100,10 +126,11 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             citations.extend(_citations(tool, result))
             history.append((decision, result))
         if not answer:
-            final = await planner.plan(task, tools, history, system)
+            final = await planner.plan(task, tools, history, system, force_final=True)
             answer = final.final or "Reached the step limit without a final answer."
-    except Exception:
+    except Exception as e:
+        logger.exception("Error in run_agent loop")
         # Honest degrade on a planner/LLM error rather than a 500.
-        answer = answer or "답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요."
+        answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
 
-    return RunResult(answer=answer, steps=steps, citations=citations, usage={"steps": len(steps)})
+    return RunResult(answer=answer, steps=steps, citations=dedup_citations(citations), usage={"steps": len(steps)})

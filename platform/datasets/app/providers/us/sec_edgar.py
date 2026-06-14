@@ -22,6 +22,7 @@ from app.models.generated import (
     BalanceSheet,
     CashFlowStatement,
     CompanyFacts,
+    CompanySearchResult,
     EarningsRecord,
     EarningsTimeDimension,
     Filing,
@@ -32,6 +33,7 @@ from app.models.generated import (
     Price,
     PriceSnapshot,
 )
+from app.providers.search_util import rank_company_matches
 from app.symbols import SecurityRef
 
 # SEC Form 4 transaction codes -> human-readable description.
@@ -384,6 +386,18 @@ class SecEdgarProvider:
     async def list_tickers(self) -> list[str]:
         idx = await _ticker_index()
         return sorted(idx.keys())
+
+    async def search_companies(self, query: str, limit: int) -> list[CompanySearchResult]:
+        idx = await _ticker_index()
+        rows = (
+            {"ticker": tk, "name": row.get("title"), "cik": _cik10(row["cik_str"])}
+            for tk, row in idx.items()
+        )
+        ranked = rank_company_matches(query, rows)
+        return [
+            CompanySearchResult(name=r["name"], ticker=r["ticker"], market="US", cik=r["cik"])
+            for r in ranked[:limit]
+        ]
 
     # --- financial statements -------------------------------------------
     async def income_statements(self, ref: SecurityRef, period: str, limit: int) -> list[IncomeStatement]:

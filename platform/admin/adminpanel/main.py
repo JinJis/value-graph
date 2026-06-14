@@ -146,6 +146,8 @@ async def dashboard(request: Request, msg: str = ""):
     async with httpx.AsyncClient() as c:
         sched = await _safe_get(c, f"{settings.datasets_url}/admin/scheduler")
         stats = await _safe_get(c, f"{settings.datasets_url}/admin/store/stats")
+        jobs = await _safe_get(c, f"{settings.datasets_url}/admin/jobs")
+        universes = await _safe_get(c, f"{settings.datasets_url}/admin/universes")
         raginfo = await _safe_get(c, f"{settings.rag_url}/rag/info")
         catalog = await _safe_get(c, f"{settings.gateway_url}/catalog")
 
@@ -168,15 +170,60 @@ async def dashboard(request: Request, msg: str = ""):
     tool_count = catalog.get("count", "?")
     rag_backend = raginfo.get("embedding_backend", raginfo.get("_error", "?"))
     sched_state = sched.get("state", sched.get("_error", "?"))
-    fact_rows = stats.get("financial_facts", stats.get("rows", stats.get("_error", "?")))
+    fact_rows = stats.get("total_facts", stats.get("_error", "?"))
+
+    # per-market store breakdown + an explicit empty-state warning (the store is
+    # empty until someone backfills — make that obvious instead of silent).
+    by_market = stats.get("by_market") or []
+    if by_market:
+        store_rows = "".join(
+            f"<tr><td>{_esc(m['market'])}</td><td>{_esc(m['tickers'])}</td><td>{_esc(m['facts'])}</td>"
+            f"<td>{_esc(m.get('earliest_report_period'))} → {_esc(m.get('latest_report_period'))}</td></tr>"
+            for m in by_market
+        )
+        store_html = f"<table><tr><th>market</th><th>tickers</th><th>facts</th><th>report-period range</th></tr>{store_rows}</table>"
+    else:
+        store_html = ("<div class=warn>The ingestion store is <b>empty</b>. Trigger a backfill below "
+                      "(or enable the scheduler) — otherwise the screener / historical / 13F-ticker "
+                      "endpoints return nothing.</div>")
+
+    # recent ingestion jobs (with live progress) + auto-refresh while one runs
+    job_list = jobs.get("jobs") if isinstance(jobs, dict) else None
+    running = any(j.get("status") == "running" for j in (job_list or []))
+    if job_list:
+        def _prog(j):
+            tot, dn = j.get("total") or 0, j.get("done") or 0
+            return f"{dn}/{tot}" if tot else "—"
+        job_rows = "".join(
+            f"<tr><td>{_esc(j['id'])}</td><td>{_esc(j['kind'])}</td><td>{_esc(j.get('market'))}</td>"
+            f"<td>{_esc(j.get('spec'))}</td><td class={_esc(j['status'])}>{_esc(j['status'])}</td>"
+            f"<td>{_esc(_prog(j))}</td><td>{_esc(j.get('rows'))}</td>"
+            f"<td>{_esc((j.get('started_at') or '')[:19])}</td>"
+            f"<td class=err>{_esc(j.get('error') or '')}</td></tr>"
+            for j in job_list
+        )
+        jobs_html = (f"<table><tr><th>#</th><th>kind</th><th>mkt</th><th>spec</th><th>status</th>"
+                     f"<th>progress</th><th>rows</th><th>started</th><th>error</th></tr>{job_rows}</table>")
+    else:
+        jobs_html = "<p class=muted>No ingestion jobs yet.</p>"
+
+    # universe preset dropdown for the backfill form
+    preset_opts = "".join(
+        f"<option value='{_esc(u['id'])}'>{_esc(u['label'])} · {_esc(u['market'])}</option>"
+        for u in (universes.get("universes") or [])
+    ) or "<option value=''>(presets unavailable)</option>"
+
+    # while a backfill runs, refresh every 4s so progress advances on screen
+    refresh = "<meta http-equiv=refresh content=4>" if running else ""
 
     body = _DASH_BODY.format(
         msg=f"<div class=flash>{_esc(msg)}</div>" if msg else "",
         dbcards=dbcards,
         tool_count=_esc(tool_count), rag_backend=_esc(rag_backend),
         sched_state=_esc(sched_state), fact_rows=_esc(fact_rows),
+        store_html=store_html, jobs_html=jobs_html, preset_opts=preset_opts,
     )
-    return _HEAD + _STYLE + body
+    return _HEAD + refresh + _STYLE + body
 
 
 @app.post("/ops/scheduler/{action}")
@@ -184,6 +231,24 @@ async def ops_scheduler(request: Request, action: str):
     async with httpx.AsyncClient() as c:
         await c.post(f"{settings.datasets_url}/admin/scheduler/{action}", timeout=20)
     return RedirectResponse(f"/?msg=scheduler+{action}+requested", status_code=303)
+
+
+@app.post("/ops/backfill")
+async def ops_backfill(request: Request, preset: str = Form(""), market: str = Form("US"),
+                       tickers: str = Form("")):
+    tick = [t.strip() for t in tickers.replace(",", " ").split() if t.strip()] or None
+    if preset:
+        payload = {"preset": preset, "deep": True}
+        label = preset
+    else:
+        payload = {"market": market, "tickers": tick, "deep": True}
+        label = f"{market}+{'+'.join(tick) if tick else '(no+tickers)'}"
+    async with httpx.AsyncClient() as c:
+        r = await c.post(f"{settings.datasets_url}/admin/backfill", json=payload, timeout=20)
+        ok = r.status_code == 200
+    return RedirectResponse(
+        f"/?msg=backfill+{'started' if ok else 'failed'}+{label}+(watch+progress+below)", status_code=303
+    )
 
 
 @app.post("/ops/selftest")
@@ -333,6 +398,8 @@ h3{font-size:14px;margin:0 0 8px}.muted{color:#93a0b4;font-weight:400;font-size:
 form.ops{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}input,button,textarea{background:#0b0e14;border:1px solid #232b3a;color:#e7ecf3;border-radius:8px;padding:7px 9px}
 button{background:#1b2230;cursor:pointer}button.p{background:#4f8cff;color:#fff;border:0}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #232b3a;padding:6px;text-align:left;vertical-align:top}
 .top{display:flex;justify-content:space-between;align-items:center}
+.warn{background:#3a2a16;border:1px solid #6b4e2e;color:#e8c79b;padding:10px 12px;border-radius:8px;margin:6px 0}
+td.success{color:#9be8a8}td.error{color:#ff8a8a}td.running{color:#e0c060}
 .cnt{background:#0b0e14;border:1px solid #232b3a;border-radius:6px;padding:0 5px;margin-left:3px;font-size:11px;color:#93a0b4}
 .rowlink{cursor:pointer}.rowlink:hover td{background:#1b2230}
 .pg{background:#1b2230;border:1px solid #232b3a;border-radius:8px;padding:5px 10px;margin-right:10px}
@@ -353,8 +420,25 @@ _DASH_BODY = """
 <h2>Databases — browse &amp; edit every table</h2>
 <div class=grid>{dbcards}</div>
 
-<h2>Data pipeline</h2>
-<form class=ops method=post action=/ops/scheduler/run><button class=p>Run ingestion now</button></form>
+<h2>Ingestion store</h2>
+{store_html}
+<form class=ops method=post action=/ops/backfill>
+  <label class=muted>universe</label>
+  <select name=preset>{preset_opts}</select>
+  <button class=p>Backfill universe</button>
+</form>
+<form class=ops method=post action=/ops/backfill>
+  <label class=muted>or custom</label>
+  <select name=market><option>US</option><option>KR</option></select>
+  <input name=tickers placeholder="explicit tickers e.g. AAPL MSFT / 005930" size=34>
+  <button>Backfill tickers</button>
+</form>
+
+<h2>Recent ingestion jobs</h2>
+{jobs_html}
+
+<h2>Data pipeline (scheduler)</h2>
+<form class=ops method=post action=/ops/scheduler/run><button class=p>Run scheduled ingestion now</button></form>
 <form class=ops method=post action=/ops/scheduler/pause><button>Pause</button></form>
 <form class=ops method=post action=/ops/scheduler/resume><button>Resume</button></form>
 <form class=ops method=post action=/ops/selftest><button>Run self-test</button></form>

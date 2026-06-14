@@ -294,6 +294,110 @@ def test_screener_over_store():
             db.commit()
 
 
+# --- PH-1: ingestion jobs + backfill operability --------------------------
+async def test_ingestion_job_log_lifecycle_and_list():
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+    jid = J.start_job("backfill", "US", "AAPL · deep")
+    J.finish_job(jid, "success", rows=42)
+    listed = J.list_jobs(50)
+    mine = next(j for j in listed if j["id"] == jid)
+    assert mine["status"] == "success" and mine["rows"] == 42 and mine["market"] == "US"
+    assert mine["started_at"] and mine["ended_at"]
+
+
+async def test_run_backfill_records_job(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+
+    async def fake_us(tickers=None, zip_path=None, limit=None, on_progress=None):
+        return {"AAPL": 120, "MSFT": -1}  # one ok, one per-ticker failure
+
+    monkeypatch.setattr(J, "bulk_load_us", fake_us)
+    out = await J.run_backfill("US", ["AAPL", "MSFT"], deep=True, limit=None)
+    assert out["status"] == "success" and out["rows"] == 120 and out["failed"] == ["MSFT"]
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["status"] == "success" and row["rows"] == 120
+
+
+async def test_run_backfill_records_error(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+
+    async def boom(tickers=None, zip_path=None, limit=None, on_progress=None):
+        raise RuntimeError("upstream down")
+
+    monkeypatch.setattr(J, "bulk_load_us", boom)
+    out = await J.run_backfill("US", ["AAPL"], deep=True, limit=None)
+    assert out["status"] == "error" and "upstream down" in out["error"]
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["status"] == "error" and "upstream down" in (row["error"] or "")
+
+
+def test_admin_jobs_endpoint():
+    r = client.get("/admin/jobs")
+    assert r.status_code == 200 and "jobs" in r.json()
+
+
+def test_universe_presets_listed_and_endpoint():
+    from app.store.universes import get_preset, list_presets
+    ids = {u["id"] for u in list_presets()}
+    assert {"us_mega", "us_large", "kr_large"} <= ids
+    assert get_preset("us_mega")["market"] == "US" and "AAPL" in get_preset("us_mega")["tickers"]
+    assert get_preset("nope") is None
+    r = client.get("/admin/universes")
+    assert r.status_code == 200 and any(u["id"] == "kr_large" for u in r.json()["universes"])
+
+
+async def test_run_backfill_by_preset_sets_progress(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+    seen_progress = []
+
+    async def fake_us(tickers=None, zip_path=None, limit=None, on_progress=None):
+        for i, _t in enumerate(tickers, 1):
+            if on_progress:
+                on_progress(i, len(tickers))
+        return {t: 10 for t in tickers}
+
+    monkeypatch.setattr(J, "bulk_load_us", fake_us)
+    out = await J.run_backfill(preset="us_mega")
+    assert out["status"] == "success" and out["rows"] > 0
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["total"] == row["done"] and row["total"] >= 15  # progressed to completion
+    assert row["spec"].startswith("universe:us_mega")
+    # unknown preset is rejected
+    assert (await J.run_backfill(preset="bogus"))["status"] == "error"
+
+
+async def test_backfill_guard_blocks_concurrent(monkeypatch):
+    from app.store.db import SessionLocal, init_db
+    from app.store import jobs as J
+    from app.store.models import IngestionJob
+
+    init_db()
+    # simulate an in-flight backfill
+    with SessionLocal() as db:
+        db.add(IngestionJob(kind="backfill", market="US", status="running", total=5, done=1))
+        db.commit()
+    assert J.backfill_running() is True
+    out = await J.run_backfill(market="US", tickers=["AAPL"])
+    assert out["status"] == "busy"
+    # clean up
+    with SessionLocal() as db:
+        from sqlalchemy import delete
+        db.execute(delete(IngestionJob).where(IngestionJob.status == "running"))
+        db.commit()
+
+
 # --- one provider path with mocked upstream -------------------------------
 @respx.mock
 def test_us_company_facts_with_mocked_sec():
@@ -320,6 +424,70 @@ def test_us_company_facts_with_mocked_sec():
     assert facts["name"] == "Apple Inc."
     assert facts["cik"] == "0000320193"
     assert facts["exchange"] == "Nasdaq"
+
+
+# --- company search (U1-01) ----------------------------------------------
+def test_rank_company_matches_orders_exact_prefix_substring():
+    from app.providers.search_util import rank_company_matches
+
+    rows = [
+        {"ticker": "AAPL", "name": "Apple Inc."},
+        {"ticker": "APP", "name": "Applovin Corp"},
+        {"ticker": "MSFT", "name": "Microsoft (pineapple supplier)"},
+    ]
+    # "app": exact ticker (APP) first, then ticker-prefix (AAPL), then name-substring (MSFT).
+    out = [r["ticker"] for r in rank_company_matches("app", rows)]
+    assert out == ["APP", "AAPL", "MSFT"]
+    # empty query → no matches; non-matching query → dropped.
+    assert rank_company_matches("", rows) == []
+    assert rank_company_matches("zzz", rows) == []
+
+
+@respx.mock
+def test_company_search_us_route():
+    from app.cache import cache
+
+    cache.clear()  # don't inherit a prior test's ticker index
+    respx.get("https://www.sec.gov/files/company_tickers.json").mock(
+        return_value=httpx.Response(200, json={
+            "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+            "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
+            "2": {"cik_str": 1018724, "ticker": "AMZN", "title": "Amazon Com Inc"},
+        })
+    )
+    r = client.get("/company/search?q=app&market=US&limit=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "SEC EDGAR"
+    assert body["query"] == "app"
+    results = body["results"]
+    assert results and results[0]["ticker"] == "AAPL"  # ticker-prefix beats name-substring
+    assert results[0]["market"] == "US"
+    assert results[0]["cik"] == "0000320193"
+    cache.clear()
+
+
+def test_company_search_kr_provider(monkeypatch):
+    import asyncio
+
+    from app.providers.kr import opendart
+
+    async def fake_corp_map():
+        return {
+            "005930": {"corp_code": "00126380", "corp_name": "삼성전자"},
+            "006400": {"corp_code": "00126186", "corp_name": "삼성SDI"},
+            "000660": {"corp_code": "00164779", "corp_name": "SK하이닉스"},
+        }
+
+    monkeypatch.setattr(opendart, "_corp_map", fake_corp_map)
+    results = asyncio.run(opendart.OpenDartProvider().search_companies("삼성", 10))
+    names = [r.name for r in results]
+    assert "삼성전자" in names and "삼성SDI" in names
+    assert all(r.market == "KR" for r in results)
+    assert "SK하이닉스" not in names  # not a 삼성 match
+    # ticker lookup works too
+    by_code = asyncio.run(opendart.OpenDartProvider().search_companies("005930", 10))
+    assert by_code[0].name == "삼성전자"
 
 
 # ==========================================================================

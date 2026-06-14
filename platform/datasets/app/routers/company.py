@@ -5,7 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
-from app.models.generated import CompanyFactsResponse, TickersResponse
+from app.models.generated import (
+    CompanyFactsResponse,
+    CompanySearchResponse,
+    TickersResponse,
+)
 from app.providers.registry import get_company_provider
 from app.symbols import Market, build_ref
 
@@ -27,3 +31,21 @@ async def get_company_facts(
 async def get_company_facts_tickers(market: MarketParam = Market.US) -> TickersResponse:
     tickers = await get_company_provider(market).list_tickers()
     return TickersResponse(resource="company_facts", tickers=tickers)
+
+
+_SEARCH_SOURCE = {Market.US: "SEC EDGAR", Market.KR: "OpenDART (FSS)"}
+
+
+@router.get("/company/search", response_model=CompanySearchResponse, dependencies=[ApiKeyDep])
+async def search_companies(
+    market: MarketParam = Market.US,
+    q: str = Query(..., min_length=1, description="Name or ticker query (e.g. '삼성', 'AAPL')."),
+    limit: int = Query(10, ge=1, le=50, description="Max results."),
+) -> CompanySearchResponse:
+    results = await get_company_provider(market).search_companies(q, limit)
+    return CompanySearchResponse(
+        resource="company_search",
+        source=_SEARCH_SOURCE.get(market),
+        query=q,
+        results=results,
+    )

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool coverage — calls EVERY catalog tool (all 29) through the metered gateway with
+# Tool coverage — calls EVERY catalog tool (all 31) through the metered gateway with
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
@@ -58,8 +58,9 @@ tool() {
 
 US='ticker=AAPL&market=US'; KR='ticker=005930&market=KR'; ANN='period=annual'
 
-section "SEC EDGAR — US fundamentals (10 tools)"
+section "SEC EDGAR — US fundamentals (11 tools)"
 tool "company_facts"          GET "/company/facts?$US"                          "" 'company_facts'
+tool "company_search"         GET "/company/search?q=apple&market=US"           "" 'results'
 tool "income_statements"      GET "/financials/income-statements?$US&$ANN"      "" 'income_statements'
 tool "balance_sheets"         GET "/financials/balance-sheets?$US&$ANN"         "" 'balance_sheets'
 tool "cash_flow_statements"   GET "/financials/cash-flow-statements?$US&$ANN"   "" 'cash_flow'
@@ -78,8 +79,9 @@ section "FRED — US macro (2 tools · bot-walled from this IP)"
 tool "interest_rates"          GET "/macro/interest-rates?bank=FED&market=US"          "" 'interest'
 tool "interest_rates_snapshot" GET "/macro/interest-rates/snapshot?bank=FED&market=US" "" 'interest'
 
-section "OpenDART — KR fundamentals (9 tools)"
+section "OpenDART — KR fundamentals (10 tools)"
 tool "company_facts"        GET "/company/facts?$KR"                            "" 'company_facts'
+tool "company_search"       GET "/company/search?q=005930&market=KR"           "" 'results'
 tool "income_statements"    GET "/financials/income-statements?$KR&$ANN"        "" 'income_statements'
 tool "balance_sheets"       GET "/financials/balance-sheets?$KR&$ANN"           "" 'balance_sheets'
 tool "cash_flow_statements" GET "/financials/cash-flow-statements?$KR&$ANN"     "" 'cash_flow'

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, Index, String, UniqueConstraint, func
+from sqlalchemy import DateTime, Float, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.store.db import Base
@@ -44,6 +44,26 @@ class FinancialFact(Base):
         Index("ix_fact_screen", "line_item", "period", "report_period"),
         Index("ix_fact_lookup", "market", "ticker", "line_item", "period"),
     )
+
+
+class IngestionJob(Base):
+    """One ingestion run (manual backfill or a scheduled refresh) — so operators can
+    see what was loaded, when, how many rows, and any error, instead of guessing
+    why the store is empty. Surfaced in the admin ops console (PH-1)."""
+
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16))  # backfill | scheduled
+    market: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    spec: Mapped[str | None] = mapped_column(String(256), nullable=True)  # tickers / universe / "deep"
+    status: Mapped[str] = mapped_column(String(12), index=True)  # running | success | error
+    rows: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)  # tickers to process
+    done: Mapped[int] = mapped_column(Integer, default=0)   # tickers processed (live progress)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Company(Base):

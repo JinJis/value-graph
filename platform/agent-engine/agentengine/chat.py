@@ -14,6 +14,7 @@ key, so entitlement + metering apply to chat too.
 
 from __future__ import annotations
 
+import logging
 from typing import AsyncIterator
 
 from agentengine import guardrails
@@ -22,6 +23,8 @@ from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.models import AgentSpec
 from agentengine.planner import get_planner
+
+logger = logging.getLogger(__name__)
 
 
 def _last_user(messages: list[dict]) -> str:
@@ -41,7 +44,8 @@ def _chunks(text: str, size: int = 6) -> list[str]:
 async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec | None = None) -> AsyncIterator[dict]:
     task = _last_user(messages)
 
-    refusal = guardrails.check(task)
+    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
+    refusal = await guardrailer.check(task)
     if refusal:
         for ch in _chunks(refusal):
             yield {"type": "token", "text": ch}
@@ -62,6 +66,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
     history: list = []
     citations: list[dict] = []
+    seen_cites: set = set()
     answered = False
     try:
         planner = get_planner(spec.backend if spec else None)
@@ -72,26 +77,39 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                     yield {"type": "token", "text": ch}
                 answered = True
                 break
+
+            # Auto-resolve ticker from company name/alias
+            if decision.tool and decision.args and "ticker" in decision.args:
+                from agentengine.planner import resolve_ticker
+                resolved = resolve_ticker(decision.args["ticker"])
+                if resolved:
+                    decision.args["ticker"] = resolved
+
             tool = tools.get(decision.tool)
             if tool is None:
                 yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
                 answered = True
                 break
-            yield {"type": "tool", "name": decision.tool, "args": decision.args or {}}
+            yield {"type": "tool", "name": decision.tool, "label": tool.get("friendly") or tool.get("connector_name"), "args": decision.args or {}}
             result = await client.call_tool(tool, decision.args or {})
             yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
             for c in _citations(tool, result):
                 cit = c.model_dump()
+                key = (cit.get("source"), cit.get("url"))
+                if key in seen_cites:  # de-dup repeated sources across tool calls
+                    continue
+                seen_cites.add(key)
                 citations.append(cit)
                 yield {"type": "citation", **cit}
             history.append((decision, result))
         if not answered:
-            final = await planner.plan(task, tools, history, system, conversation=messages)
+            final = await planner.plan(task, tools, history, system, conversation=messages, force_final=True)
             for ch in _chunks(final.final or "Reached the step limit."):
                 yield {"type": "token", "text": ch}
-    except Exception:
+    except Exception as e:
+        logger.exception("Error in stream_chat loop")
         # A planner/LLM error (e.g. bad model id, missing key, upstream outage)
         # degrades to an honest message instead of breaking the stream.
-        yield {"type": "token", "text": "답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요."}
+        yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
 
     yield {"type": "done", "citations": citations, "refused": False}

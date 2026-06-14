@@ -49,18 +49,20 @@ def _catalog():
 
 
 # --- guardrails -----------------------------------------------------------
-def test_guardrail_refuses_forecast_and_advice():
-    assert guardrails.check("predict the AAPL price next month") is not None
-    assert guardrails.check("should I buy TSLA?") is not None
-    assert guardrails.check("what was AAPL revenue last year?") is None
+async def test_guardrail_refuses_forecast_and_advice():
+    gd = guardrails.get_guardrailer()
+    assert await gd.check("predict the AAPL price next month") is not None
+    assert await gd.check("should I buy TSLA?") is not None
+    assert await gd.check("what was AAPL revenue last year?") is None
 
 
-def test_guardrail_covers_price_targets_and_directional_bets():
+async def test_guardrail_covers_price_targets_and_directional_bets():
+    gd = guardrails.get_guardrailer()
     for bad in ["what's the price target for NVDA", "forecast TSLA earnings",
                 "will AAPL go up next week", "is MSFT worth buying"]:
-        assert guardrails.check(bad) is not None, bad
+        assert await gd.check(bad) is not None, bad
     for ok in ["삼성전자 최근 실적", "show me AAPL filings", "what is the Fed funds rate"]:
-        assert guardrails.check(ok) is None, ok
+        assert await gd.check(ok) is None, ok
 
 
 def test_citations_extract_urls_from_nested_result():
@@ -78,14 +80,42 @@ def test_citations_fallback_to_source_when_no_url():
     assert len(cites) == 1 and cites[0].url is None and cites[0].source == "Yahoo Finance"
 
 
+def test_dedup_citations_collapses_repeats():
+    from agentengine.models import Citation
+    cites = [
+        Citation(tool="opendart__income_statements", source="OpenDART (FSS)", url=None),
+        Citation(tool="opendart__balance_sheets", source="OpenDART (FSS)", url=None),  # dup (src,url)
+        Citation(tool="opendart__filings", source="OpenDART (FSS)", url="https://dart/x"),
+    ]
+    out = A.dedup_citations(cites)
+    assert len(out) == 2  # the two same (source=None-url) collapse to one; the url'd one stays
+    assert {(c.source, c.url) for c in out} == {("OpenDART (FSS)", None), ("OpenDART (FSS)", "https://dart/x")}
+
+
+@respx.mock
+async def test_fetch_tools_attaches_friendly_connector_name(monkeypatch):
+    from agentengine.client import PlatformClient
+    _gw(monkeypatch)
+    catalog = {"connectors": [{"id": "opendart", "name": "OpenDART (KR)", "markets": ["KR"], "resources": [
+        {"name": "income_statements", "method": "GET", "path": "/financials/income-statements",
+         "description": "Income statements.", "params": [], "provenance": {"source": "OpenDART (FSS)"}}]}]}
+    respx.get("http://gw.test/catalog").mock(return_value=httpx.Response(200, json=catalog))
+    tools = await PlatformClient("k").fetch_tools()
+    t = tools["opendart__income_statements"]
+    # no raw id leaks into the human-facing fields
+    assert t["connector_name"] == "OpenDART (KR)"
+    assert t["friendly"] == "OpenDART (KR) · Income statements" and "__" not in t["friendly"]
+
+
 # --- eval-driven fixes ----------------------------------------------------
-def test_guardrail_refuses_korean_forecast_and_advice():
+async def test_guardrail_refuses_korean_forecast_and_advice():
+    gd = guardrails.get_guardrailer()
     for bad in ["삼성전자 주가 오를까?", "지금 사야 할까요?", "AAPL 목표주가 알려줘",
                 "엔비디아 전망 어때", "매수 추천 종목 알려줘", "테슬라 살까 팔까"]:
-        assert guardrails.check(bad) is not None, bad
+        assert await gd.check(bad) is not None, bad
     for ok in ["삼성전자 최근 실적", "AAPL 종가 흐름 알려줘", "한국은행 기준금리 얼마야",
                "엔비디아 공시 요약", "Fed 금리 추이"]:
-        assert guardrails.check(ok) is None, ok
+        assert await gd.check(ok) is None, ok
 
 
 def test_citations_use_per_hit_rag_provenance():
@@ -144,7 +174,9 @@ async def test_run_uses_tool_and_cites(monkeypatch):
     assert res.refused is False
     assert res.steps and res.steps[0].tool == "yahoo__prices" and res.steps[0].status == 200
     assert res.citations and res.citations[0].source == "Yahoo Finance"
-    assert "yahoo__prices" in res.answer and res.usage["steps"] == 1
+    # PH-3: the raw tool id must NOT leak into the human-facing answer
+    assert "yahoo__prices" not in res.answer and "`" not in res.answer
+    assert res.usage["steps"] == 1
 
 
 @respx.mock
@@ -280,14 +312,14 @@ async def test_chat_stream_respects_allowed_tools(monkeypatch):
 
 # --- stub planner robustness (no bad tool calls) --------------------------
 def test_resolve_ticker_names_codes_and_acronyms():
-    from agentengine.planner import _resolve_ticker
+    from agentengine.planner import resolve_ticker
 
-    assert _resolve_ticker("삼성전자 최근 실적") == "005930"   # KR name -> code
-    assert _resolve_ticker("엔비디아 공급망") == "NVDA"          # KR alias for a US name
-    assert _resolve_ticker("AAPL 최근 주가") == "AAPL"           # explicit symbol
-    assert _resolve_ticker("005930 공시") == "005930"            # explicit KR code
-    assert _resolve_ticker("what is EPS and PER?") is None       # acronyms are not tickers
-    assert _resolve_ticker("artificial intelligence trends") is None  # 'intel' must not fire
+    assert resolve_ticker("삼성전자 최근 실적") == "005930"   # KR name -> code
+    assert resolve_ticker("엔비디아 공급망") == "NVDA"          # KR alias for a US name
+    assert resolve_ticker("AAPL 최근 주가") == "AAPL"           # explicit symbol
+    assert resolve_ticker("005930 공시") == "005930"            # explicit KR code
+    assert resolve_ticker("what is EPS and PER?") is None       # acronyms are not tickers
+    assert resolve_ticker("artificial intelligence trends") is None  # 'intel' must not fire
 
 
 _TOOLS = {
@@ -438,3 +470,87 @@ def test_chat_endpoint_sse(monkeypatch):
         r = client.post("/agent/chat", json={"messages": [{"role": "user", "content": "AAPL price?"}]}, headers={"X-API-KEY": "vgk_x"})
         assert r.status_code == 200 and "text/event-stream" in r.headers["content-type"]
         assert '"type": "tool"' in r.text and '"type": "done"' in r.text
+
+
+async def test_gemini_guardrailer_violates(monkeypatch):
+    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
+    from unittest.mock import MagicMock
+    from agentengine.guardrails import GeminiGuardrailer
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = '{"violates": true}'
+    mock_client.models.generate_content.return_value = mock_response
+
+    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: mock_client)
+
+    g = GeminiGuardrailer("model-id")
+    refusal = await g.check("should I buy Apple stock?")
+    assert refusal is not None
+
+    mock_response.text = '{"violates": false}'
+    refusal = await g.check("what is Apple's revenue?")
+    assert refusal is None
+
+
+def test_get_guardrailer_factory(monkeypatch):
+    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
+    from unittest.mock import MagicMock
+    import google.genai
+    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: MagicMock())
+
+    from agentengine.guardrails import GeminiGuardrailer, StubGuardrailer, get_guardrailer
+
+    assert isinstance(get_guardrailer("stub"), StubGuardrailer)
+    assert isinstance(get_guardrailer("gemini"), GeminiGuardrailer)
+
+
+def test_to_gemini_contents_mapping():
+    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
+    from agentengine.planner import _to_gemini_contents, Decision
+    from google.genai import types
+
+    conversation = [
+        {"role": "user", "content": "What is AAPL price?"},
+        {"role": "assistant", "content": "Let me look up the price."}
+    ]
+    history = [
+        (Decision(tool="yahoo__prices", args={"ticker": "AAPL"}, thought_signature=b"sig_data"), {"status": 200, "data": {"close": 180.5}})
+    ]
+    task = "Is it higher than last week?"
+
+    contents = _to_gemini_contents(conversation, history, task)
+    assert len(contents) == 4
+    # Turn 0: User message "What is AAPL price?"
+    assert contents[0].role == "user"
+    assert contents[0].parts[0].text == "What is AAPL price?"
+    # Turn 1: Assistant message "Let me look up the price."
+    assert contents[1].role == "model"
+    assert contents[1].parts[0].text == "Let me look up the price."
+    # Turn 2: Model function call + thought signature
+    assert contents[2].role == "model"
+    assert contents[2].parts[0].function_call.name == "yahoo__prices"
+    assert contents[2].parts[0].function_call.args == {"ticker": "AAPL"}
+    assert contents[2].parts[0].thought_signature == b"sig_data"
+    # Turn 3: Tool response
+    assert contents[3].role == "tool"
+    assert contents[3].parts[0].function_response.name == "yahoo__prices"
+    assert contents[3].parts[0].function_response.response == {"close": 180.5}
+
+
+def test_schema_maps_param_descriptions():
+    from agentengine.planner import _schema
+
+    tool = {
+        "name": "test_tool",
+        "params": [
+            {"name": "ticker", "required": True, "description": "Stock symbol (e.g. AAPL)"},
+            {"name": "interval", "enum": ["day", "week"]}
+        ]
+    }
+    schema = _schema(tool)
+    assert schema["properties"]["ticker"]["description"] == "Stock symbol (e.g. AAPL)"
+    assert "description" not in schema["properties"]["interval"]
+
+

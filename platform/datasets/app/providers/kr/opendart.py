@@ -24,6 +24,7 @@ from app.models.generated import (
     BalanceSheet,
     CashFlowStatement,
     CompanyFacts,
+    CompanySearchResult,
     EarningsRecord,
     EarningsTimeDimension,
     Filing,
@@ -31,6 +32,7 @@ from app.models.generated import (
     IncomeStatement,
     InsiderTrade,
 )
+from app.providers.search_util import rank_company_matches
 from app.symbols import SecurityRef
 
 _BASE = "https://opendart.fss.or.kr/api"
@@ -199,6 +201,18 @@ class OpenDartProvider:
     async def list_tickers(self) -> list[str]:
         cmap = await _corp_map()
         return sorted(cmap.keys())
+
+    async def search_companies(self, query: str, limit: int) -> list[CompanySearchResult]:
+        cmap = await _corp_map()
+        rows = (
+            {"ticker": stock, "name": row.get("corp_name"), "cik": row.get("corp_code")}
+            for stock, row in cmap.items()
+        )
+        ranked = rank_company_matches(query, rows)
+        return [
+            CompanySearchResult(name=r["name"], ticker=r["ticker"], market="KR", cik=r["cik"])
+            for r in ranked[:limit]
+        ]
 
     async def _statements(self, ref, period, limit, field_map, sj_divs, model):
         corp = await _corp_code(ref)

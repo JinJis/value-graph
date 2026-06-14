@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     model: str = "gemini-flash-latest"  # an evergreen alias (2.0/1.5 ids get retired)
     # The control-plane gateway the agent's tools are called through.
     gateway_url: str = "http://127.0.0.1:8010"
-    max_steps: int = 4
+    max_steps: int = 8
     http_timeout_seconds: float = 60.0
 
 

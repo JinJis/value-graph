@@ -19,6 +19,8 @@ from studioapi.deps import current_user, require_service
 from studioapi.models import Conversation, Message, User
 from studioapi.prompts import router as prompts_router
 from studioapi.prompts import seed_community_prompts
+from studioapi.search import router as search_router
+from studioapi.watchlists import router as watchlists_router
 
 
 @asynccontextmanager
@@ -80,3 +82,5 @@ async def chat_stream(body: ChatIn, user: User = Depends(current_user)) -> Strea
 app.include_router(agents_router)
 app.include_router(connectors_router)
 app.include_router(prompts_router)
+app.include_router(watchlists_router)
+app.include_router(search_router)
