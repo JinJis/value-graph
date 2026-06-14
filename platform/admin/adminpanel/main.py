@@ -16,7 +16,7 @@ import httpx
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqladmin import Admin, ModelView
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.automap import automap_base
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,19 +26,26 @@ from adminpanel.config import DATABASES, settings
 app = FastAPI(title="ValueGraph Admin")
 
 _MODELVIEW_META = type(ModelView)
-DB_STATUS: dict[str, dict] = {}  # key -> {title, tables:[...], error}
+DB_STATUS: dict[str, dict] = {}  # key -> {title, tables:[...], error, meta:{table->{columns,pk}}}
+ENGINES: dict[str, object] = {}  # key -> sqlalchemy Engine (for the read-only browser)
 
 
 def _mount_database(key: str, title: str, url: str) -> None:
-    """Reflect a service DB and register a sqladmin CRUD view per table."""
+    """Reflect a service DB and register a sqladmin CRUD view per table.
+
+    Also captures real table/column/pk metadata + the live engine so the
+    self-contained DB browser (``/db/...``) can page rows without depending on
+    sqladmin's (proxy-fragile, absolute-URL) static assets.
+    """
     try:
         engine = create_engine(url, connect_args={"check_same_thread": False} if url.startswith("sqlite") else {})
         base = automap_base()
         base.prepare(autoload_with=engine)
     except Exception as e:  # DB missing / unreachable — note it, keep the panel up
-        DB_STATUS[key] = {"title": title, "tables": [], "error": str(e)[:200]}
+        DB_STATUS[key] = {"title": title, "tables": [], "error": str(e)[:200], "meta": {}}
         return
 
+    ENGINES[key] = engine
     admin = Admin(app, engine, base_url=f"/{key}", title=f"VG Admin · {title}")
     tables: list[str] = []
     for cls in sorted(base.classes, key=lambda c: c.__name__):
@@ -54,7 +61,14 @@ def _mount_database(key: str, title: str, url: str) -> None:
         )
         admin.add_view(view)
         tables.append(cls.__name__)
-    DB_STATUS[key] = {"title": title, "tables": tables, "error": None}
+
+    meta: dict[str, dict] = {}
+    for tname, tbl in sorted(base.metadata.tables.items()):
+        meta[tname] = {
+            "columns": [c.name for c in tbl.columns],
+            "pk": [c.name for c in tbl.primary_key.columns],
+        }
+    DB_STATUS[key] = {"title": title, "tables": tables, "error": None, "meta": meta}
 
 
 for _k, _t, _u in DATABASES:
@@ -137,16 +151,20 @@ async def dashboard(request: Request, msg: str = ""):
         raginfo = await _safe_get(c, f"{settings.rag_url}/rag/info")
         catalog = await _safe_get(c, f"{settings.gateway_url}/catalog")
 
-    # database cards
+    # database cards — each table links into the self-contained browser (/db/...)
     dbcards = ""
     for key, info in DB_STATUS.items():
         if info["error"]:
             body = f"<div class=err>unavailable: {_esc(info['error'])}</div>"
         else:
+            meta = info.get("meta", {})
+            counts = _table_counts(key)
             links = " ".join(
-                f"<a class=tbl href='/{key}/{t.lower()}/list'>{_esc(t)}</a>" for t in info["tables"]
+                f"<a class=tbl href='/db/{key}/{tname}'>{_esc(tname)} "
+                f"<span class=cnt>{_esc(counts.get(tname, '?'))}</span></a>"
+                for tname in meta
             ) or "<span class=muted>(no tables)</span>"
-            body = f"<div class=tbls>{links}</div><a class=open href='/{key}'>open admin →</a>"
+            body = f"<div class=tbls>{links}</div><a class=open href='/{key}'>open CRUD editor →</a>"
         dbcards += f"<div class=card><h3>{_esc(info['title'])} <span class=muted>{key}</span></h3>{body}</div>"
 
     tool_count = catalog.get("count", "?")
@@ -268,6 +286,108 @@ async def ops_rag_search(request: Request, query: str = Form(...)):
     return _HEAD + _STYLE + _SEARCH_BODY.format(query=_esc(query), rows=rows)
 
 
+# --- self-contained DB browser (no sqladmin static deps; relative URLs only) ---
+_PAGE_SIZE = 50
+
+
+def _table_counts(key: str) -> dict[str, int]:
+    """Row count per table (best-effort; '?' for any that error)."""
+    out: dict[str, int] = {}
+    engine = ENGINES.get(key)
+    meta = DB_STATUS.get(key, {}).get("meta", {})
+    if engine is None:
+        return out
+    with engine.connect() as conn:
+        for tname in meta:
+            try:
+                out[tname] = conn.execute(text(f'SELECT COUNT(*) FROM "{tname}"')).scalar()
+            except Exception:
+                out[tname] = "?"
+    return out
+
+
+def _cell(v, limit: int = 0) -> str:
+    if v is None:
+        return "<span class=muted>NULL</span>"
+    s = str(v)
+    if limit and len(s) > limit:
+        s = s[:limit] + "…"
+    return _esc(s)
+
+
+@app.get("/db/{key}/{table}", response_class=HTMLResponse)
+async def browse_table(request: Request, key: str, table: str, page: int = 0):
+    info = DB_STATUS.get(key)
+    meta = (info or {}).get("meta", {})
+    if not info or table not in meta:
+        return HTMLResponse(_HEAD + _STYLE + "<h1>unknown table</h1><a href=/>← back</a>", status_code=404)
+    engine = ENGINES[key]
+    cols = meta[table]["columns"]
+    pk = meta[table]["pk"]
+    order = f'"{pk[0]}"' if pk else f'"{cols[0]}"'
+    page = max(page, 0)
+    offset = page * _PAGE_SIZE
+    with engine.connect() as conn:
+        total = conn.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar() or 0
+        rows = conn.execute(
+            text(f'SELECT * FROM "{table}" ORDER BY {order} LIMIT :lim OFFSET :off'),
+            {"lim": _PAGE_SIZE, "off": offset},
+        ).fetchall()
+
+    head = "".join(f"<th>{_esc(c)}</th>" for c in cols)
+    trs = ""
+    for i, row in enumerate(rows):
+        cells = "".join(f"<td>{_cell(v, 90)}</td>" for v in row)
+        trs += f"<tr class=rowlink onclick=\"location='/db/{key}/{table}/row/{offset + i}'\">{cells}</tr>"
+    if not rows:
+        trs = f"<tr><td colspan={len(cols)} class=muted>no rows</td></tr>"
+
+    last = max((total - 1) // _PAGE_SIZE, 0)
+    nav = ""
+    if page > 0:
+        nav += f"<a class=pg href='/db/{key}/{table}?page={page - 1}'>← prev</a>"
+    nav += f"<span class=muted>rows {offset + 1 if total else 0}–{min(offset + _PAGE_SIZE, total)} of {total}</span>"
+    if page < last:
+        nav += f"<a class=pg href='/db/{key}/{table}?page={page + 1}'>next →</a>"
+
+    body = _BROWSE_BODY.format(
+        title=info["title"], key=_esc(key), table=_esc(table),
+        head=head, rows=trs, nav=nav,
+    )
+    return _HEAD + _STYLE + body
+
+
+@app.get("/db/{key}/{table}/row/{offset}", response_class=HTMLResponse)
+async def row_detail(request: Request, key: str, table: str, offset: int):
+    info = DB_STATUS.get(key)
+    meta = (info or {}).get("meta", {})
+    if not info or table not in meta:
+        return HTMLResponse(_HEAD + _STYLE + "<h1>unknown table</h1><a href=/>← back</a>", status_code=404)
+    engine = ENGINES[key]
+    cols = meta[table]["columns"]
+    pk = meta[table]["pk"]
+    order = f'"{pk[0]}"' if pk else f'"{cols[0]}"'
+    offset = max(offset, 0)
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f'SELECT * FROM "{table}" ORDER BY {order} LIMIT 1 OFFSET :off'),
+            {"off": offset},
+        ).fetchone()
+    if row is None:
+        return HTMLResponse(_HEAD + _STYLE + "<h1>row not found</h1>"
+                            f"<a href='/db/{key}/{table}'>← back</a>", status_code=404)
+    back_page = offset // _PAGE_SIZE
+    kv = "".join(
+        f"<tr><th class=kvk>{_esc(c)}</th><td class=kvv>{_cell(v)}</td></tr>"
+        for c, v in zip(cols, row)
+    )
+    body = _ROW_BODY.format(
+        title=info["title"], key=_esc(key), table=_esc(table),
+        offset=offset, back_page=back_page, kv=kv,
+    )
+    return _HEAD + _STYLE + body
+
+
 _STYLE = """<style>body{background:#0b0e14;color:#e7ecf3;font-family:system-ui;margin:0;padding:24px;max-width:1100px;margin:auto}
 a{color:#4f8cff;text-decoration:none}h1{font-size:20px}h2{font-size:15px;color:#93a0b4;margin-top:28px;border-bottom:1px solid #232b3a;padding-bottom:6px}
 h3{font-size:14px;margin:0 0 8px}.muted{color:#93a0b4;font-weight:400;font-size:12px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
@@ -279,7 +399,13 @@ form.ops{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}inp
 button{background:#1b2230;cursor:pointer}button.p{background:#4f8cff;color:#fff;border:0}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #232b3a;padding:6px;text-align:left;vertical-align:top}
 .top{display:flex;justify-content:space-between;align-items:center}
 .warn{background:#3a2a16;border:1px solid #6b4e2e;color:#e8c79b;padding:10px 12px;border-radius:8px;margin:6px 0}
-td.success{color:#9be8a8}td.error{color:#ff8a8a}td.running{color:#e0c060}</style>"""
+td.success{color:#9be8a8}td.error{color:#ff8a8a}td.running{color:#e0c060}
+.cnt{background:#0b0e14;border:1px solid #232b3a;border-radius:6px;padding:0 5px;margin-left:3px;font-size:11px;color:#93a0b4}
+.rowlink{cursor:pointer}.rowlink:hover td{background:#1b2230}
+.pg{background:#1b2230;border:1px solid #232b3a;border-radius:8px;padding:5px 10px;margin-right:10px}
+.nav{display:flex;gap:12px;align-items:center;margin:14px 0}
+.kvk{width:220px;color:#93a0b4;font-weight:500;white-space:nowrap}.kvv{white-space:pre-wrap;word-break:break-word}
+.crumb{font-size:13px;margin-bottom:6px}</style>"""
 
 _HEAD = "<!doctype html><meta charset=utf-8><title>ValueGraph Admin</title>"
 
@@ -336,3 +462,17 @@ _SEARCH_BODY = """
 <div class=top><h1>RAG search</h1><a href=/>← back</a></div>
 <p class=muted>query: <b>{query}</b></p>
 <table><tr><th>score</th><th>source</th><th>text</th></tr>{rows}</table>"""
+
+_BROWSE_BODY = """
+<div class=crumb><a href=/>ValueGraph Admin</a> / {title} <span class=muted>({key})</span></div>
+<div class=top><h1>{table}</h1><a href='/{key}'>open CRUD editor →</a></div>
+<div class=nav>{nav}</div>
+<table><tr>{head}</tr>{rows}</table>
+<p class=muted>Click any row to see its full detail.</p>"""
+
+_ROW_BODY = """
+<div class=crumb><a href=/>ValueGraph Admin</a> / {title} <span class=muted>({key})</span> /
+<a href='/db/{key}/{table}'>{table}</a> / row #{offset}</div>
+<div class=top><h1>{table} <span class=muted>row #{offset}</span></h1>
+<a href='/db/{key}/{table}?page={back_page}'>← back to list</a></div>
+<table>{kv}</table>"""

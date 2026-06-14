@@ -131,5 +131,38 @@ def test_ops_backfill_posts_to_datasets(monkeypatch):
     assert r2.status_code == 303 and captured["json"] == {"preset": "us_mega", "deep": True}
 
 
+def test_db_browser_lists_rows_and_relative_urls():
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    # the self-contained browser pages the real rows (no sqladmin statics)
+    r = client.get("/db/controlplane/tenants")
+    assert r.status_code == 200 and "Acme Capital" in r.text
+    # every internal link is relative (works behind a proxy/tunnel)
+    assert "http://localhost" not in r.text
+    # rows link into the per-row detail by offset
+    assert "/db/controlplane/tenants/row/0" in r.text
+
+
+def test_db_browser_row_detail():
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    r = client.get("/db/studio/users/row/0")
+    assert r.status_code == 200
+    # vertical key/value view shows the seeded user's fields
+    assert "a@b.com" in r.text and "tenant_id" in r.text and "ten_1" in r.text
+
+
+def test_db_browser_unknown_table_404():
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    assert client.get("/db/controlplane/nope").status_code == 404
+    assert client.get("/db/controlplane/tenants/row/9999").status_code == 404
+
+
+def test_dashboard_links_into_browser():
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    r = client.get("/")
+    # dashboard table chips point at the browser, not sqladmin's /list pages
+    assert "/db/controlplane/tenants" in r.text
+    assert "open CRUD editor" in r.text
+
+
 def test_healthz_open():
     assert client.get("/healthz").json() == {"status": "ok"}
