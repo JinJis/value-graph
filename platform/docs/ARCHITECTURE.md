@@ -25,22 +25,76 @@ schema) and otherwise start fresh from `platform/datasets/`.
 
 ---
 
-## 2. Layered architecture
+## 2. System architecture — one picture
+
+Six services run together (one `docker compose`, one shared `.env`). Every request fans **down** through
+the gateway (which enforces auth · entitlement · metering on every hop) and real data flows **up** carrying
+its provenance, which becomes the citations the user sees.
 
 ```
-                       platform/  (this workspace)
-   Builders / Agents ─▶  REST · MCP · RAG · Agent Engine(P4)
-                         ─────────────────────────────────────────────────
-   control-plane/        Tenants · Projects · scoped API keys · Source catalog
-                         Activations/entitlements · metering · audit · rate-limit
-                         gateway (auth → entitle → meter → proxy)
-                              │
-   datasets/ (DATA PLANE)     │            rag/ (RAG SERVICE)
-   connectors + ingestion store            chunk→embed→store→retrieve→rerank
-   (SEC/DART/Yahoo/FRED/ECOS/news)          pluggable backends (CPU-OSS/GCP/GPU)
-                              └──────── shared infra: Postgres · Redis · Vector DB ────────┘
-   (legacy services/engine + apps/* = separate existing product, NOT a dependency)
+                                    ┌──────────────┐
+                          Browser ──▶│  web :3000   │  Next.js + Auth.js (Google / dev-login)
+                           ◀── SSE  └──────┬───────┘  chat UI · agent builder · prompt library
+                                           │ ① POST /api/chat   (BFF — browser never holds the platform key)
+                                           │    headers: X-Service-Token + the signed-in user's email
+                                    ┌──────▼────────────┐
+                                    │  studio-api :8004 │  user ↔ tenant map · conversations · chat BFF
+                                    └───┬───────────┬───┘  holds the tenant API key (server-side only)
+                       first login ②    │           │ ③ POST /agent/chat  (SSE: token/tool/citation/done)
+              ┌──── provision ──────────┘           ▼
+              │  (tenant·project·key·         ┌──────────────────────┐
+              │   default activations)        │  agent-engine :8003  │  guardrail → plan(stub|gemini)
+              │                               │                      │  → call each tool → collect citations
+              │                               └──────────┬───────────┘
+              │                       ④ X-API-KEY (tenant key)  │
+              ▼                                          ▼               ⑇ external agents reach the SAME
+    ┌────────────────────┐               ┌──────────────────────────┐     gateway via the MCP server
+    │ control-plane :8010│◀──────────────│  control-plane gateway   │◀────  (mcp/ — one tool per catalog
+    │  admin (provision) │               │  auth → entitle → rate-  │       resource, tenant-scoped)
+    └────────────────────┘               │  limit → meter+audit →   │
+                                         │  proxy  (routes by       │
+                                         │   path · market · service)│
+                                         └────┬────────────────┬─────┘
+                                  ⑤ datasets   │                │  ⑤ rag
+                                    ┌──────────▼──────┐   ┌─────▼──────────┐
+                                    │  datasets :8000 │   │   rag :8002    │  chunk→embed→retrieve→rerank
+                                    │  REST data plane│   │  provenance per│  backend: hash|oss-cpu|gcp|gpu
+                                    │  + ingest store │   │  chunk         │  store: memory | pgvector
+                                    └──────────┬──────┘   └────────────────┘
+                                  ⑥ provider adapters
+        SEC EDGAR · Yahoo Finance · FRED · OpenDART · Bank of Korea ECOS · Google News
+        (point-in-time ingestion store: SQLite | Postgres — restatement-aware history)
 ```
+
+**Request flow (a chat turn).** ① the browser POSTs to the web BFF, which attaches the Auth.js session;
+② on first login studio-api provisions a tenant/project/key + default activations via the control-plane
+admin API; ③ studio-api streams the conversation to the agent engine with the **server-side tenant key**;
+④ the agent plans (stub or Gemini) and calls each tool **through the gateway** with that key; ⑤ the gateway
+authenticates, checks the project activated the connector, rate-limits, meters, and proxies to `datasets`
+or `rag` (chosen by path · market · `service`); ⑥ the provider adapter fetches from the real upstream (or
+the ingestion store). ⑇ External MCP clients hit the exact same gateway, so entitlement + metering are
+identical no matter who calls.
+
+**Response / data flow.** Each datum and RAG chunk carries `source · as_of · url`; the agent turns those
+into **citations**, the gateway stamps `x-connector` / `x-cost-units`, studio-api persists the assistant
+message + citations, and the answer streams back to the browser as SSE (`token` → `tool` → `citation` →
+`done`). A number never reaches the user without a source.
+
+### What each service does · ports · dependencies
+
+| Service | Port | Function | Depends on |
+|---|---|---|---|
+| **web** | 3000 | Next.js chat UI + agent builder + prompt library; `/api/*` BFF holds only an Auth.js session | studio-api |
+| **studio-api** | 8004 | Google user → tenant provisioning, conversations, chat BFF (**holds the tenant key**) | control-plane (admin), agent-engine |
+| **agent-engine** | 8003 | guardrail → plan (stub\|gemini) → tool-calling loop → provenance citations; `/agent/run`, `/agent/chat` (SSE) | control-plane (gateway) |
+| **control-plane** | 8010 | the **gateway**: auth → entitlement → rate-limit → meter/audit → proxy; tenants/keys/activations admin | datasets, rag |
+| **datasets** | 8000 | REST data plane: connectors (SEC/Yahoo/FRED/DART/ECOS/News) + point-in-time ingestion store + `/catalog` | upstream APIs, (Postgres) |
+| **rag** | 8002 | provenance-first retrieval: chunk→embed→store→retrieve→rerank; pluggable backends | (vector store, embed backend) |
+| *mcp* | stdio | one tool per catalog resource, routed through the gateway with the tenant key (entitled + metered) | control-plane |
+
+The **catalog** (`datasets/app/connectors/`) is the keystone: each connector's manifest (resources, params,
+provenance, license, `service`) is what the gateway entitles against, what the MCP server turns into tools,
+and what the agent engine resolves tools from — so REST, MCP, and the agent all see one consistent surface.
 
 ---
 
@@ -60,7 +114,7 @@ schema) and otherwise start fresh from `platform/datasets/`.
 ## 4. Components (current state)
 
 ### 4.1 Data plane — `platform/datasets/`  ✅
-A financialdatasets.ai-compatible API extended to Korea. Market chosen with `market=US|KR`.
+A financial datasets API covering the US and Korean markets. Market chosen with `market=US|KR`.
 
 - **Connectors (provider adapters + registry):** SEC EDGAR (US fundamentals/filings/earnings/insider/13F),
   Yahoo Finance (US+KR prices), FRED (US macro), OpenDART (KR fundamentals/filings/earnings/insider),

@@ -15,7 +15,7 @@
 ## Done ✅
 
 ### Data plane (`platform/datasets/`)
-- ✅ US+KR financial API (financialdatasets.ai-compatible): company facts, prices+snapshot, 3 financial
+- ✅ US+KR financial API: company facts, prices+snapshot, 3 financial
   statements (+combined), filings, macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer)
 - ✅ Point-in-time ingestion store (SQLite/Postgres), screener + line-items search
 - ✅ Bulk / deep-history backfill (companyfacts.zip stream; AAPL → 2007; KR via DART)

@@ -1,7 +1,7 @@
 [project]
 name = "valuegraph-datasets"
 version = "0.1.0"
-description = "US + Korea financial datasets API (a financialdatasets.ai-compatible service extended to KOSPI/KOSDAQ)."
+description = "US + Korea financial datasets API (KOSPI/KOSDAQ)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

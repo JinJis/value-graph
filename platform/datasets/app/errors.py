@@ -1,9 +1,9 @@
-"""Spec-compatible error envelope and exception helpers.
+"""Error envelope and exception helpers.
 
-Every error response is ``{"error": ..., "message": ...}`` (the spec's
-``ErrorResponse``). Endpoints that are part of the published surface but not yet
-backed by a real provider raise ``not_implemented()`` → HTTP 501, so the gap is
-honest and visible rather than disguised as empty data.
+Every error response is ``{"error": ..., "message": ...}`` (the ``ErrorResponse``
+model). Endpoints that are defined in the API surface but not yet backed by a real
+provider raise ``not_implemented()`` → HTTP 501, so the gap is honest and visible
+rather than disguised as empty data.
 """
 
 from __future__ import annotations

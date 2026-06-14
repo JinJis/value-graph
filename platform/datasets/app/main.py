@@ -1,6 +1,6 @@
 """FastAPI application entrypoint.
 
-A financialdatasets.ai-compatible API extended to the Korean market. Select the
+A financial datasets API covering the US and Korean markets. Select the
 market with the ``market`` query parameter (US default, KR for KOSPI/KOSDAQ).
 """
 
@@ -45,7 +45,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
     description=(
-        "Financial datasets API modeled on financialdatasets.ai and extended to "
+        "Financial datasets API covering the US market and extended to "
         "the Korean equity market (KOSPI/KOSDAQ). Use the `market` query parameter "
         "(`US` default, `KR`). **Not investment advice.**\n\n"
         "**Implementation status:** endpoints grouped under the "
@@ -57,7 +57,7 @@ app = FastAPI(
         {
             "name": NOT_IMPLEMENTED_TAG,
             "description": (
-                "These endpoints are part of the published financialdatasets.ai surface "
+                "These endpoints are defined in the API surface "
                 "but are **not implemented yet** — every one returns **HTTP 501**. "
                 "Use this section to see at a glance what is not testable yet."
             ),

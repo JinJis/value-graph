@@ -1,7 +1,7 @@
 # ValueGraph Datasets API — US + Korea
 
-A self-hosted financial-data API modeled on the [financialdatasets.ai](https://financialdatasets.ai)
-spec (`openapi.json` in this folder) and **extended to the Korean equity market (KOSPI / KOSDAQ)**.
+A self-hosted financial-data API for the **US and Korean equity markets (KOSPI / KOSDAQ)**.
+Request/response shapes are defined by `openapi.json` in this folder.
 
 One API surface, two markets, selected with a `market` query parameter (default `US`, so requests
 written against the original spec keep working):

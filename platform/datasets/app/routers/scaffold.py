@@ -1,6 +1,6 @@
 """Scaffolded endpoints.
 
-These paths are part of the published financialdatasets.ai surface but are not
+These paths are defined in the API surface but are not
 yet backed by a real provider in this build. They are registered (so they appear
 in ``/docs`` and the generated OpenAPI) and return a clear HTTP 501 rather than
 fabricated data. As each provider lands, move its path out of this module into a
