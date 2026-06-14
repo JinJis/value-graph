@@ -83,6 +83,17 @@ the agent resolves the group and answers for exactly those names, all sourced.
 
 ---
 
+## U-SHELL — Desk app shell (IA / page layout)  🚧  (makes the product look like `UX_SPEC` §4 now)
+**Goal:** replace the single-column chat with the **desk shell**: slim left rail (데스크 · 보드 · 분석가 ·
+관심 · 브리프 · 갤러리) + center desk + right **Live Context** pane. Tabs whose milestone isn't built yet
+(보드/분석가/브리프/갤러리) render as disabled "곧" placeholders; 관심 is promoted from a modal to a rail
+screen. This is a layout pass, not new data — features fill their rail destinations in U2–U5.
+- [x] **U-SHELL-01 · web shell.** 3-pane grid (rail · main · right), rail nav with active/소ON state +
+      "곧" placeholders, 관심 as an embedded rail screen, desk top-bar keeps the analyst picker/builder/
+      프롬프트, right pane = first-cut Live Context (current turn's sources + guardrail label). Web build green.
+
+---
+
 ## U2 — Source-preview cards  ⬜  (the signature; build right after U1, can parallelise)
 **Goal:** every inline citation `[n]` opens a **type-aware preview** — filing (verbatim highlighted
 span), price/metric (computation + next refresh), news (snippet + "context only") — each with a

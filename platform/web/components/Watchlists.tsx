@@ -8,7 +8,10 @@ type SearchResult = { name?: string; ticker?: string; market?: string; cik?: str
 
 /** 관심 — search any listed company, ⭐ it into a named @group. Groups are what
  *  the composer and the analyst builder tag with @handle. */
-export default function Watchlists({ onClose, onChanged }: { onClose: () => void; onChanged?: () => void }) {
+export default function Watchlists(
+  { onClose, onChanged, embedded = false }:
+  { onClose?: () => void; onChanged?: () => void; embedded?: boolean },
+) {
   const [lists, setLists] = useState<Watchlist[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [newName, setNewName] = useState("");
@@ -87,13 +90,16 @@ export default function Watchlists({ onClose, onChanged }: { onClose: () => void
     changed();
   }
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3><span className="mascot" aria-hidden /> 관심 종목</h3>
-          <button className="x" onClick={onClose}>✕</button>
-        </div>
+  const body = (
+      <>
+        {embedded ? (
+          <div className="embed-head"><h3><span className="mascot" aria-hidden /> 관심 종목</h3></div>
+        ) : (
+          <div className="modal-head">
+            <h3><span className="mascot" aria-hidden /> 관심 종목</h3>
+            <button className="x" onClick={onClose}>✕</button>
+          </div>
+        )}
         {err && <div className="err">{err}</div>}
 
         <div className="newprompt" style={{ display: "flex", gap: 8 }}>
@@ -163,7 +169,13 @@ export default function Watchlists({ onClose, onChanged }: { onClose: () => void
           </div>
         )}
         <p className="disclaimer">그룹 이름은 채팅과 분석가 빌더에서 <span className="mono">@핸들</span> 로 사용됩니다.</p>
-      </div>
+      </>
+  );
+
+  if (embedded) return <div className="embed">{body}</div>;
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal wide" onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
   );
 }
