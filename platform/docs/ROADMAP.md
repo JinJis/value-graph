@@ -53,6 +53,13 @@
 - ⬜ **PH-7 · XBRL depth.** #20 **segments** + **as-reported** financials (XBRL direct parse, US+KR). *(L)*
 - ⬜ **PH-8 · #19 Index/ETF holdings** (US SEC N-PORT; KR KRX/DART later). *(M)*
 - ⬜ **PH-9 · #22 KPIs via Gemini** from earnings text (needs text ingestion + Gemini + metering). *(depends PH-2)*
+- ⬜ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfed.org` serves a
+  **JS bot-wall (not JSON) from datacenter IPs** even with a valid key (confirmed: `coverage.sh` shows
+  FRED `503 · datacenter IP wall`) → US macro breaks in cloud. Add a `macro_provider_us` selection (mirror
+  the `prices_provider_*` pattern) with a **keyless, cloud-safe** backend — **DBnomics** (`api.db.nomics.world`,
+  mirrors FRED series ids → drop-in for FED/ECB/BOE/BOJ rates) and/or **US Treasury FiscalData** (par
+  yields) — and fall back FRED→DBnomics automatically. Keeps series semantics + the connector manifest;
+  same trust envelope. *(datasets; S–M)* — ties to PH-11 (cloud deploy). KR ECOS is unaffected.
 - ⬜ **PH-DEFER · #24 paid adapters** (Polygon/Tiingo/FMP/KIS) — needs keys; tie to BYO-key/governance (PH-12).
 
 **Tier 3 — production hardening**
