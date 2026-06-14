@@ -33,3 +33,7 @@ packages = ["app"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # Starlette's TestClient nags about httpx2; harmless, silence the noise.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
