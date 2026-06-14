@@ -215,6 +215,16 @@ class StubPlanner:
         return Decision(final=_no_tool_message(task, has_tools=True))
 
 
+def _get_text_from_response(resp) -> str | None:
+    if not resp.candidates or not resp.candidates[0].content or not resp.candidates[0].content.parts:
+        return None
+    texts = []
+    for part in resp.candidates[0].content.parts:
+        if part.text:
+            texts.append(part.text)
+    return "".join(texts) if texts else None
+
+
 class GeminiPlanner:
     """Real Gemini planner (function calling). Untested without GOOGLE_API_KEY."""
 
@@ -266,7 +276,7 @@ class GeminiPlanner:
                 temperature=0.2,
             )
             resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
-            return Decision(final=resp.text)
+            return Decision(final=_get_text_from_response(resp))
 
         decls = [
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=_schema(t))
@@ -289,7 +299,7 @@ class GeminiPlanner:
                         thought_sig = part.thought_signature
                         break
             return Decision(tool=call.name, args=dict(call.args or {}), thought_signature=thought_sig)
-        return Decision(final=resp.text)
+        return Decision(final=_get_text_from_response(resp))
 
 
 def _to_gemini_contents(conversation: list | None, history: list, task: str):
