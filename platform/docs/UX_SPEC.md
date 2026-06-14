@@ -2,7 +2,7 @@
 
 > **What the product *feels* like, screen by screen, and the user journey that ties it together.**
 > Companions: [`ARCHITECTURE.md`](./ARCHITECTURE.md) (how the services work) ·
-> [`UX_ROADMAP.md`](./UX_ROADMAP.md) (what to build, in order) · [`ROADMAP.md`](./ROADMAP.md) (technical backlog).
+> [`ROADMAP.md`](./ROADMAP.md) (the single prioritised plan — what to build, in order).
 > Engineering rules: [`../CLAUDE.md`](../CLAUDE.md).
 >
 > User-facing copy in this doc is illustrative Korean (the Terminal is KR-localized); keep all
@@ -167,7 +167,7 @@ connector (not a snapshot).
 - **Agent picks the visual** from the data shape (time series · small-multiples · comparison · mini
   value-chain graph). A refused request (forecast/advice) renders **no** artifact — just the refusal.
 - Artifact is a **typed spec** the agent emits (`{kind, series, provenance[]}`), the web renders it; this
-  keeps rendering deterministic and the provenance attached. See `UX_ROADMAP.md` U3.
+  keeps rendering deterministic and the provenance attached. See `ROADMAP.md` U3.
 
 ### 5.3 Source-preview card (THE signature trust moment — build first)
 An inline citation chip `[1]` on hover (desktop) / tap (mobile) opens a **type-specific** popover;
@@ -223,7 +223,7 @@ This is what beats Perplexity-style citations: **point-in-time**, **verbatim-spa
   the unit that `@` tags in the composer and that a standing analyst's `targets` slot binds to.
 - **Data needs:** a company **search/autocomplete** endpoint in `datasets` (today there's only
   `/company/facts/tickers`; a name-indexed search is a new task) + new `Watchlist`/`WatchlistItem`
-  tables in `studio-api`. See `UX_ROADMAP.md` U1.
+  tables in `studio-api`. See `ROADMAP.md` U1.
 
 ### 5.5 Standing-analyst builder ("hire a person", not "configure a bot")
 Extends today's builder modal (name/model/system/data-source checkboxes) with **target group, schedule,
@@ -392,4 +392,4 @@ It must *not* read as a generic "AI app"; it should look like a top-tier designe
 | (none) | Watchlists/@groups screen with stock search + favorite |
 | (none) | Brief inbox (`🔔`) + Telegram channel |
 
-Sequencing, dependencies, and per-service tasks: **[`UX_ROADMAP.md`](./UX_ROADMAP.md)**.
+Sequencing, dependencies, and per-service tasks: **[`ROADMAP.md`](./ROADMAP.md)**.

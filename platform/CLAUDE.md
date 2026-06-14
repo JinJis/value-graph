@@ -7,13 +7,13 @@
 >
 > **Docs map (read before building):**
 > - **What we're building / why it's not a chatbot, screen by screen:** [`docs/UX_SPEC.md`](./docs/UX_SPEC.md)
-> - **Build order, prioritised, with per-service tasks:** [`docs/UX_ROADMAP.md`](./docs/UX_ROADMAP.md) ← *pull your next task here*
+> - **The plan — one prioritised, dependency-ordered task list + test totals (source of truth):**
+>   [`docs/ROADMAP.md`](./docs/ROADMAP.md) ← *pull your next task here*
 > - **How the services fit together (current state):** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
-> - **Technical backlog + test totals (source of truth):** [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 >
-> **Always pull your next task from `docs/UX_ROADMAP.md`** (it sequences product milestones and names the
-> `ROADMAP.md` technical items each pulls in). One milestone at a time, **one task per PR**; tag the
-> milestone in branch/commits/PR (e.g. `[U1-WATCHLIST-02]`). Don't mark done until every acceptance
+> **Always pull your next task from `docs/ROADMAP.md`** (it merges the old technical + UX roadmaps into one
+> phased plan: PH hardening first, then U2–U5 UX). One task at a time, **one task per PR**; tag the
+> task id in branch/commits/PR (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Don't mark done until every acceptance
 > criterion + the Definition of Done (§7) passes.
 
 ---
@@ -96,7 +96,7 @@ python3 eval/run_eval.py             # quality eval (stack up first; skips witho
 ```
 **Definition of Done for a task:** its acceptance criteria pass · unit tests added/updated for the
 service(s) touched · the relevant e2e/coverage harness still green · `docs/ROADMAP.md` test totals + the
-milestone status in `docs/UX_ROADMAP.md` updated in the same PR.
+task status updated in the same PR.
 
 ## 6. Environment (Gemini only; never commit secrets — document new keys in `.env.example`)
 ```
@@ -114,13 +114,13 @@ Model IDs are env-overridable and Gemini-only; verify exact IDs/SDK details agai
 not memory.
 
 ## 7. Working style
-- **Pull the next task from `docs/UX_ROADMAP.md`**; read the `UX_SPEC.md` section it implements and the
-  `ROADMAP.md` technical item it pulls in. Match terminology exactly (Desk/analyst/watchlist/@group,
+- **Pull the next task from `docs/ROADMAP.md`**; read the `UX_SPEC.md` section it implements. Match
+  terminology exactly (Desk/analyst/watchlist/@group,
   brief, Live Context Feed, source-preview card, freshness/confidence, Disclosure Calendar, template↔
   instance/clone, Staging-free — everything is gateway-entitled production data).
 - **One task per PR.** Prefer iterative refinement over rewrites; preserve working code and tests.
 - **Keep docs in sync in the same PR:** if architecture drifts, update `docs/ARCHITECTURE.md`; if you
-  finish/advance a milestone, update `docs/UX_ROADMAP.md` and `docs/ROADMAP.md` (incl. test totals).
+  finish/advance a task, update its status + test totals in `docs/ROADMAP.md`.
 - **Do:** tag every figure (source+as_of+next_update+freshness+confidence) · route all data through the
   gateway · draw gaps & show freshness · show the guardrail label · reuse the manifest/catalog and the
   prompt-import clone pattern.
