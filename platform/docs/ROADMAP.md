@@ -12,7 +12,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 187 unit** — datasets 74 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 191 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 39 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
@@ -136,9 +136,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     when proxying the RAG service (client-supplied values stripped — no spoofing); RAG ingest stamps it,
     search filters **own-tenant OR global (unscoped)** docs so the shared corpus stays visible. *(rag +
     control-plane)* +3 rag, +1 control-plane.
-  - ⬜ **PH-2b · news ingestion pipeline.** Pull Google News per watchlist ticker → chunk → embed → index
-    **scoped to the tenant**; triggerable (admin/endpoint) + a scheduler tick. Makes `rag__search` return
-    real news data. *(rag/pipeline + scheduler)*
+  - ✅ **PH-2b · news ingestion pipeline.** `datasets/app/store/news_ingest.py`: pull Google News per
+    ticker → map headlines → IngestDocs (source=publisher, doc_type=news, ticker, as_of, url) → index into
+    RAG as a **global corpus** (news is public/identical per tenant → visible to all via PH-2a's
+    own-or-global rule, not copied per tenant). `POST /admin/news/ingest` (background, serialized, recorded
+    as an `IngestionJob` kind `news`) + admin ops-console form + an optional scheduler tick
+    (`SCHEDULER_NEWS`). **Verified live:** AAPL → 8 headlines indexed, `rag/search "Apple news"` returns
+    real sourced hits (Trefis/Finviz/Motley Fool, with as_of + url). *(datasets + admin)* +4 datasets.
   - ⬜ **PH-2c · filing-text ingestion.** Index filing text once PH-5 ships `/filings/items`. *(depends PH-5)*
   - ⬜ **PH-2d · persistent + real-embedding defaults.** Default `oss-cpu` + `pgvector` — lands with
     **PH-11** (no Postgres in compose until then); until then the `e2e_functional` oss-cpu path validates

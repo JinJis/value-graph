@@ -87,6 +87,16 @@ class Scheduler:
             else:
                 for market, tickers in self.universe:
                     summary[market.value] = await ingest_universe(market, tickers)
+            # PH-2b: optionally also pull fresh news into the RAG index for the universe
+            # so rag__search has recent context (best-effort — never fail the facts run).
+            if settings.scheduler_news:
+                from app.store.news_ingest import run_news_ingest
+
+                for market, tickers in self.universe:
+                    try:
+                        summary[f"{market.value}_news"] = await run_news_ingest(market.value, tickers)
+                    except Exception as exc:  # noqa: BLE001
+                        summary[f"{market.value}_news"] = {"status": "error", "error": str(exc)}
             self.last_summary, self.last_status, self.last_error = summary, "ok", None
         except Exception as exc:
             self.last_status, self.last_error = "error", str(exc)

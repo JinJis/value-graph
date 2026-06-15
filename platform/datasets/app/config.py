@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     # When true, periodic runs do a deep/full-history backfill instead of the
     # latest few periods.
     scheduler_deep: bool = False
+    # When true, each scheduler tick also pulls fresh news for the universe into
+    # the RAG index (PH-2b) so rag__search has recent context.
+    scheduler_news: bool = False
+
+    # --- RAG news-ingestion pipeline (PH-2b) ------------------------------
+    # The RAG service the news pipeline indexes into.
+    rag_url: str = "http://rag:8002"
+    # Headlines fetched per ticker per news-ingest run.
+    news_ingest_limit: int = 8
 
     @property
     def accepted_api_keys(self) -> set[str]:

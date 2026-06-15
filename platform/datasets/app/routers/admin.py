@@ -11,6 +11,7 @@ from app.deps import ApiKeyDep
 from app.scheduler import scheduler
 from app.selftest import run_selftest
 from app.store.jobs import backfill_running, list_jobs, run_backfill
+from app.store.news_ingest import news_ingest_running, run_news_ingest
 from app.store.screener import store_stats
 from app.store.universes import list_presets
 
@@ -22,6 +23,12 @@ class BackfillRequest(BaseModel):
     market: str = "US"
     tickers: list[str] | None = None  # explicit tickers (required for US/KR without a preset)
     deep: bool = True
+    limit: int | None = None
+
+
+class NewsIngestRequest(BaseModel):
+    market: str = "US"
+    tickers: list[str] | None = None  # omit for broad market news
     limit: int | None = None
 
 
@@ -74,6 +81,24 @@ async def backfill(body: BackfillRequest) -> dict:
         market=body.market, tickers=body.tickers, deep=body.deep, limit=body.limit, preset=body.preset,
     ))
     target = body.preset or f"{body.market}:{body.tickers}"
+    return {"started": True, "target": target, "see": "/admin/jobs"}
+
+
+@router.post(
+    "/news/ingest",
+    dependencies=[ApiKeyDep],
+    summary="▶ Pull news into the RAG index (makes rag__search return real context)",
+    description=(
+        "Fetches Google News headlines for the given tickers (or broad market news) and "
+        "indexes them into RAG as a global corpus. Runs in the background; records an "
+        "`IngestionJob` (kind `news`) visible in `/admin/jobs`."
+    ),
+)
+async def news_ingest(body: NewsIngestRequest) -> dict:
+    if await asyncio.to_thread(news_ingest_running):
+        return {"started": False, "busy": True, "detail": "A news ingestion is already running.", "see": "/admin/jobs"}
+    asyncio.create_task(run_news_ingest(market=body.market, tickers=body.tickers, limit=body.limit))
+    target = f"{body.market}:{body.tickers or '(market)'}"
     return {"started": True, "target": target, "see": "/admin/jobs"}
 
 
