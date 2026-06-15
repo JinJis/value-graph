@@ -1836,6 +1836,32 @@ class FinancialMetricsHistoryResponse(BaseModel):
     metrics: list[FinancialMetricsResponse] | None = None
 
 
+class AsReportedItem(BaseModel):
+    """One XBRL concept exactly as filed (PH-7)."""
+
+    concept: str | None = None
+    label: str | None = None
+    value: float | None = None
+    unit: str | None = None
+    form: str | None = None
+    accession_number: str | None = None
+    filed: str | None = None
+
+
+class AsReportedPeriod(BaseModel):
+    report_period: str | None = None
+    period: str | None = None
+    line_items: list[AsReportedItem] | None = None
+
+
+class AsReportedResponse(BaseModel):
+    """Financials exactly as reported in XBRL (raw us-gaap concepts; PH-7)."""
+
+    ticker: str | None = None
+    period: str | None = None
+    periods: list[AsReportedPeriod] | None = None
+
+
 class InterestRatesResponse(BaseModel):
     interest_rates: list[InterestRate] | None = None
 

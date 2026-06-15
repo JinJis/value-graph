@@ -207,6 +207,10 @@ class OpenDartProvider:
         cmap = await _corp_map()
         return sorted({row.get("corp_code") for row in cmap.values() if row.get("corp_code")})
 
+    async def as_reported(self, ref, period: str = "annual", limit: int = 4) -> list[dict]:
+        # KR as-reported (raw DART XBRL) is a separate, heavier parse — deferred to PH-7b.
+        return []
+
     async def search_companies(self, query: str, limit: int) -> list[CompanySearchResult]:
         cmap = await _corp_map()
         rows = (

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool coverage — calls EVERY catalog tool (all 32) through the metered gateway with
+# Tool coverage — calls EVERY catalog tool (all 33) through the metered gateway with
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
@@ -65,6 +65,7 @@ tool "income_statements"      GET "/financials/income-statements?$US&$ANN"      
 tool "balance_sheets"         GET "/financials/balance-sheets?$US&$ANN"         "" 'balance_sheets'
 tool "cash_flow_statements"   GET "/financials/cash-flow-statements?$US&$ANN"   "" 'cash_flow'
 tool "all_financials"         GET "/financials?$US&$ANN"                        "" 'income'
+tool "as_reported"            GET "/financials/as-reported?ticker=AAPL&market=US&period=annual" "" 'periods'
 tool "filings"                GET "/filings?$US"                                "" 'filings'
 tool "earnings"               GET "/earnings?ticker=AAPL"                       "" 'earnings'
 tool "insider_trades"         GET "/insider-trades?$US"                         "" 'insider'

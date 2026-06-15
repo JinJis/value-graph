@@ -391,6 +391,39 @@ class SecEdgarProvider:
         idx = await _ticker_index()
         return sorted({_cik10(row["cik_str"]) for row in idx.values()})
 
+    async def as_reported(self, ref: SecurityRef, period: str = "annual", limit: int = 4) -> list[dict]:
+        """Financials EXACTLY as filed in XBRL — every us-gaap concept for each of the
+        most recent ``limit`` report periods (not normalised to our model). Keeps the
+        latest-filed value per concept; gaps stay absent, never fabricated (PH-7)."""
+        cik10 = await _resolve_cik(ref)
+        raw = await _company_facts_raw(cik10)
+        gaap = (raw.get("facts") or {}).get("us-gaap") or {}
+        periods: dict[str, dict] = {}
+        for concept, node in gaap.items():
+            label = node.get("label")
+            for unit, rows in (node.get("units") or {}).items():
+                for row in rows:
+                    if not isinstance(row.get("val"), (int, float)):
+                        continue
+                    if not _period_ok(row, period, instant="start" not in row):
+                        continue
+                    end = row.get("end")
+                    if not end:
+                        continue
+                    bucket = periods.setdefault(end, {})
+                    prev = bucket.get(concept)
+                    if prev is None or (row.get("filed") or "") > (prev.get("filed") or ""):
+                        bucket[concept] = {
+                            "concept": concept, "label": label, "value": float(row["val"]),
+                            "unit": unit, "form": row.get("form"),
+                            "accession_number": row.get("accn"), "filed": row.get("filed"),
+                        }
+        out: list[dict] = []
+        for end in sorted(periods, reverse=True)[:limit]:
+            items = sorted(periods[end].values(), key=lambda x: x["concept"])
+            out.append({"report_period": end, "period": period, "line_items": items})
+        return out
+
     async def search_companies(self, query: str, limit: int) -> list[CompanySearchResult]:
         idx = await _ticker_index()
         rows = (

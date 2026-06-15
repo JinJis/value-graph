@@ -100,6 +100,10 @@ CONNECTORS: list[ConnectorManifest] = [
             Resource(name="metrics_snapshot", description="Derived valuation metrics snapshot.", path="/financial-metrics/snapshot",
                      output_model="FinancialMetricSnapshotResponse", markets=["US"], cost_tier=CostTier.free,
                      params=[P_TICKER_REQ, P_MARKET], provenance=PROV_SEC),
+            Resource(name="as_reported", description="Financials exactly as reported in XBRL (raw us-gaap concepts, per period).",
+                     path="/financials/as-reported", output_model="AsReportedResponse", markets=["US"], cost_tier=CostTier.free,
+                     params=[P_TICKER_REQ, ResourceParam(name="period", enum=["annual", "quarterly", "ttm"]), P_LIMIT, P_MARKET],
+                     provenance=PROV_SEC),
         ],
     ),
     ConnectorManifest(

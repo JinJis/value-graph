@@ -588,6 +588,31 @@ def test_ph6_metrics_history_derives_ratios_and_growth():
         db.commit()
 
 
+@respx.mock
+def test_ph7_as_reported_returns_raw_xbrl():
+    from app.cache import cache
+    cache.clear()
+    respx.get("https://www.sec.gov/files/company_tickers.json").mock(
+        return_value=httpx.Response(200, json={"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}))
+    respx.get("https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json").mock(
+        return_value=httpx.Response(200, json={"facts": {"us-gaap": {
+            "Revenues": {"label": "Revenues", "units": {"USD": [
+                {"end": "2024-09-28", "start": "2023-10-01", "val": 391035000000, "form": "10-K",
+                 "fy": 2024, "fp": "FY", "filed": "2024-11-01", "accn": "acc-1"}]}},
+            "Assets": {"label": "Assets", "units": {"USD": [
+                {"end": "2024-09-28", "val": 352755000000, "form": "10-K",
+                 "fy": 2024, "fp": "FY", "filed": "2024-11-01", "accn": "acc-1"}]}},
+        }}}))
+    r = client.get("/financials/as-reported?ticker=AAPL&market=US&period=annual")
+    assert r.status_code == 200  # was a scaffolded 501
+    body = r.json()
+    assert body["ticker"] == "AAPL" and body["periods"]
+    p = body["periods"][0]
+    assert p["report_period"] == "2024-09-28"
+    concepts = {it["concept"]: it["value"] for it in p["line_items"]}
+    assert concepts["Revenues"] == 391035000000.0 and concepts["Assets"] == 352755000000.0  # raw, as filed
+
+
 def test_ph6_metrics_history_endpoint_no_longer_501(monkeypatch):
     import app.routers.metrics as M
     from app.models.generated import FinancialMetricsResponse
@@ -989,7 +1014,7 @@ def test_institutional_requires_exactly_one_arg():
 
 
 def test_more_scaffold_501s():
-    for path in ("/index-funds?ticker=SPY", "/kpi/metrics", "/financials/as-reported?ticker=AAPL&period=annual"):
+    for path in ("/index-funds?ticker=SPY", "/kpi/metrics", "/financials/segments?ticker=AAPL"):
         assert client.get(path).status_code == 501
 
 

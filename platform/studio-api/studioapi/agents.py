@@ -195,6 +195,14 @@ async def list_connectors() -> dict:
     except httpx.HTTPError:
         return {"connectors": []}
     return {"connectors": [
-        {"id": c["id"], "name": c.get("name", c["id"]), "description": c.get("description")}
+        {
+            "id": c["id"], "name": c.get("name", c["id"]), "description": c.get("description"),
+            # surface the tools inside each connector so the builder can show what an
+            # analyst can actually touch (U-BUILDER-01 — transparency, not selection).
+            "tools": [
+                {"name": r.get("name"), "description": r.get("description")}
+                for r in (c.get("resources") or [])
+            ],
+        }
         for c in connectors
     ]}
