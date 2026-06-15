@@ -175,9 +175,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     per-hit provenance; datasets citations get a `kind`; `freshness.py` computes fresh/aging/stale from
     `as_of`. Carried through the SSE `citation` event + `done` list + `RunResult` (studio-api persists
     citations as schema-less JSON → backward-compatible). *(agent-engine)* +4 tests → 43.
-  - ⬜ **PH-4b · web source-preview cards + legend.** Three type-aware cards (filing verbatim-span /
-    metric computation / news snippet) keyed by `kind`, a freshness dot, inline `[n]` chips, and **one**
-    reused trust-legend component. *(web)*
+  - ✅ **PH-4b · web source-preview cards + legend.** `SourceCard.tsx`: type-aware cards (filing
+    verbatim-span / metric / news snippet + "맥락 정보 — 전망 아님") keyed by `kind`, with a freshness
+    dot; `CiteChip` compact inline `[n]` chips under each message; one reused `TrustLegend`. Chat captures
+    the enriched citation fields; right Live Context pane renders full cards, matte palette (freshness =
+    the only color). *(web)*
   - ⬜ **PH-4c · true inline `[n]` anchoring in prose.** Planner/synth prompt places `[n]` markers tied to
     citation indices; stub fallback appends them. *(agent-engine)* **Full milestone detail under Phase 2 → U2.**
 
