@@ -15,8 +15,9 @@
 > **Test totals (current): 210 unit** — datasets 82 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
-> 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (17 scenarios incl. multi-turn,
+> graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
+> `scripts/test_all.sh` runs everything.
 
 ---
 
