@@ -209,18 +209,29 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 2. **PH-MACRO** — cloud-safe macro (DBnomics / Treasury).  ← **next**
 > 3. ✅ **PH-6a** — historical financial-metrics (store-backed ratios) → MCP tool.  · **PH-6b** (13F
 >    ticker-mode / reverse-CUSIP) deferred — needs a 13F-holdings index, not the facts store.
-> 4. **PH-8** — index / ETF holdings (SEC N-PORT).
+> 4. **PH-8** — index / ETF holdings (US = SEC N-PORT; KR = KIS-ETF below).
 > 5. 🚧 **PH-7a** — XBRL as-reported (US) → MCP tool `sec_edgar__as_reported`.  · **PH-7b** (segments +
 >    statement-specific as-reported + KR DART XBRL) deferred (dimensional/heavier parse).
 > 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
 >    segment/MD&A from PH-7, transcripts, … + news ✅) → chunk·embed·index.  ↳ PH-5 / PH-7 text  *(was PH-2c)*
 > 7. **PH-9** — KPIs via Gemini from filings/earnings text.  ↳ PH-RAG
+> 8. **PH-SOURCES** *(later)* — alt-data corpus: brokerage/market reports, investor blogs, Threads/Reddit,
+>    finance books → into PH-RAG.  ↳ PH-RAG + **per-source legal/licensing clearance**
+>
+> **KR killer features (KIS — 한국투자증권; platform-held key, subscription-metered — NOT BYO-key)**
+> All ↳ **platform KIS app key/secret (being issued)** + gateway metering. Approved 2026-06-15.
+> - **KIS-0** — KIS client/auth foundation (app key/secret → token, KR-market REST client, rate-limit-aware).
+> - **KIS-FLOW** — investor-flow connector (개인/외국인/기관 순매수) → MCP tool. *KR-unique killer signal.*
+> - **KIS-RANK** — KR rankings/screeners (거래량·등락·시총·52주·공매도) → MCP tool(s).
+> - **KIS-ETF** — KR ETF holdings + NAV → MCP tool (this is the **KR half of PH-8**).
+> - **KIS-PRICES** — `prices_provider_kr=kis` (real-time / intraday KR prices + indices) — upgrades the
+>   existing provider slot beyond delayed Yahoo.
 >
 > **Make it deployable**
 > 8. **PH-10** — admin → real ops console.
 > 9. **PH-11** — productionization: Postgres + Redis + Alembic + job queue + CI + observability  *(the infra gate)*.
 > 10. **PH-2d** — `oss-cpu` + `pgvector` as defaults.  ↳ PH-11
-> 11. **PH-12** — governance / licensing + BYO-key.
+> 11. **PH-12** — governance / licensing + subscription metering (BYO-key only as a license fallback).
 > 12. **PH-DEFER** — paid adapters (Polygon / Tiingo / FMP / KIS).  ↳ PH-12
 >
 > **Research-desk UX (differentiators)**
@@ -256,7 +267,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   - ⬜ **PH-7b · segments + statement-specific as-reported + KR.** Business/geographic **segments** are
     dimensional XBRL (not in company-facts → needs the filing's R-files/frames); the 3 statement-specific
     `…/as-reported` splits; and **KR DART XBRL** as-reported. Heavier parse — deferred. *(datasets; L)*
-- ⬜ **PH-8 · Index/ETF holdings (#19).** US SEC N-PORT; KR KRX/DART later. *(M)*
+- ⬜ **PH-8 · Index/ETF holdings (#19).** **US** = SEC N-PORT; **KR** = `KIS-ETF` (component stocks + NAV
+  via the KIS connector). *(M)*
 - ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then
   done once.)* When the text-bearing endpoints land (filing text via PH-5 `/filings/items`, segment/MD&A
   text via PH-7, earnings-call transcripts, …), ingest them **all** through one pipeline → chunk → embed →
@@ -270,8 +282,35 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   mirrors FRED series ids → drop-in for FED/ECB/BOE/BOJ rates) and/or **US Treasury FiscalData** (par
   yields) — and fall back FRED→DBnomics automatically. Keeps series semantics + the manifest; same trust
   envelope. *(datasets; S–M)* — ties to PH-11 (cloud deploy). KR ECOS unaffected.
-- ⬜ **PH-DEFER · Paid adapters (#24)** (Polygon/Tiingo/FMP/KIS realtime; KR majorstock 5%) — needs keys;
-  tie to BYO-key / governance (PH-12).
+- ⬜ **PH-DEFER · Paid adapters (#24)** (Polygon/Tiingo/FMP; KR majorstock 5%) — needs keys; platform-held
+  + subscription-metered (KIS realtime is now its own `KIS-PRICES`, below).
+
+#### KIS — Korea Investment & Securities (KR killer data) *(approved 2026-06-15)*
+> **Platform-held key model:** the KIS app key/secret live **server-side** (the user is issuing the KIS
+> account) — we provide the data and **charge by subscription**, NOT BYO-key (see memory
+> *monetization-subscription*). All KIS-* ↳ that platform key + gateway metering. Trade execution /
+> backtester / strategy-builder and **analyst opinions/targets** are **excluded** (out of scope / clash
+> with the no-forecast guardrail). `config` already has `kis_app_key`/`kis_app_secret` + a
+> `prices_provider_kr=kis` slot.
+- ⬜ **KIS-0 · client/auth foundation.** App key/secret → token (24h, cached), KR-market REST client,
+  rate-limit-aware (prod vs paper domains). The base every other KIS resource builds on. *(datasets; S–M)*
+- ⬜ **KIS-FLOW · investor-flow.** 개인/외국인/기관 net buy/sell (daily + intraday) → catalog resource →
+  **MCP tool**. KR-unique signal nobody else exposes. *(datasets; ↳ KIS-0)*
+- ⬜ **KIS-RANK · KR rankings/screeners.** 거래량·등락률·시가총액·52주 고저·공매도 순위 → MCP tool(s).
+  *(datasets; ↳ KIS-0)*
+- ⬜ **KIS-ETF · KR ETF holdings + NAV.** Component stocks + NAV-vs-market → MCP tool. **= the KR half of
+  PH-8.** *(datasets; ↳ KIS-0)*
+- ⬜ **KIS-PRICES · `prices_provider_kr=kis`.** Real-time / intraday KR prices + index data — upgrades the
+  existing provider slot beyond delayed Yahoo. *(datasets; ↳ KIS-0; real-time licensing per governance)*
+
+#### Future — data-source expansion (unstructured / alternative) *(approved to add 2026-06-15; later)*
+- ⬜ **PH-SOURCES · Alt-data corpus expansion.** Massively widen what `rag__search` covers beyond
+  filings/news: **brokerage & market-analysis reports, notable-investor blogs, Threads/Reddit chatter
+  (찌라시), investment/economy/finance books**. All unstructured text → flows through the **PH-RAG**
+  pipeline (chunk·embed·index, per-tenant, full provenance + freshness). **Hard gate: legal/licensing
+  review per source** (copyright, site ToS/robots, redistribution — books & social especially) before any
+  ingestion; store extracted text + source link, minimal quoting (CLAUDE.md compliance). *(rag/pipeline +
+  legal; L)* — ↳ PH-RAG + per-source legal clearance.
 
 - ⬜ **PH-10 · Admin → real ops console.** Harden auth (hash/secret + rate-limit, drop `admin`/`admin`);
   styled dashboard (not raw HTML); job-history + RAG-index-stats + per-market store + per-tenant usage
@@ -281,9 +320,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   observability/metrics. *(the infra gate — PH-2d, U4 scheduler, and cost quotas all sit on this.)*
 - ⬜ **PH-2d · Persistent + real-embedding defaults.** Default `oss-cpu` embedder + `pgvector` store (the
   RAG corpus survives restarts; semantic search is real, not lexical). *(↳ PH-11 brings Postgres.)*
-- ⬜ **PH-12 · Governance / licensing enforcement + BYO-key.** Redistribution rules, BYO-key fallback for
-  restricted feeds (`license.redistribution=false` → yahoo/news) — also unblocks U5 clone of yahoo/news
-  and PH-DEFER paid adapters.
+- ⬜ **PH-12 · Governance / licensing + subscription metering.** The model is **platform provides all data
+  (server-side keys) + subscription billing**, NOT BYO-key (memory *monetization-subscription*). So this is
+  primarily **per-source redistribution/licensing rules + subscription tiers/quotas** (metering already
+  exists; quotas need PH-11 Redis). **BYO-key stays only as a fallback** for feeds whose license forbids
+  platform redistribution. Also gates U5 clone of restricted feeds + per-source clearance for PH-SOURCES.
 
 ---
 
