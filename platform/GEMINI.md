@@ -101,8 +101,10 @@ GOOGLE_API_KEY=... bash scripts/e2e_live.sh   # real Gemini, grounded+cited
 python3 eval/run_eval.py             # quality eval (stack up first; skips without GOOGLE_API_KEY)
 ```
 **Definition of Done for a task:** its acceptance criteria pass · unit tests added/updated for the
-service(s) touched · the relevant e2e/coverage harness still green · `docs/ROADMAP.md` test totals + the
-task status updated in the same PR.
+service(s) touched · the relevant e2e/coverage harness still green · **the quality eval
+(`python3 eval/run_eval.py`, deep-model rubric — see `eval/RUBRIC.md`) run before push and still above the
+bar; if the task adds a tool / endpoint / feature, add an eval scenario (with `criteria`) for it** ·
+`docs/ROADMAP.md` test totals + the task status updated in the same PR.
 
 ## 6. Environment (Gemini only; never commit secrets — document new keys in `.env.example`)
 ```

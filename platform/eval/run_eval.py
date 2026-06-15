@@ -53,7 +53,12 @@ def _envval(*keys: str) -> str:
 # Accept GOOGLE_API_KEY or GEMINI_API_KEY (the genai SDK reads either).
 GKEY = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
         or _envval("GOOGLE_API_KEY", "GEMINI_API_KEY"))
-JUDGE_MODEL = os.environ.get("AGENT_MODEL") or _envval("AGENT_MODEL") or "gemini-flash-latest"
+# The judge is a DEEP model (rubric grading needs strong reasoning) — decoupled from
+# the agent's fast model. Override with EVAL_JUDGE_MODEL (e.g. gemini-3.5-pro-preview).
+JUDGE_MODEL = (os.environ.get("EVAL_JUDGE_MODEL") or _envval("EVAL_JUDGE_MODEL")
+               or "gemini-pro-latest")
+# Pass bar: rubric overall average must clear this (per-dimension shown in the summary).
+JUDGE_BAR = float(os.environ.get("EVAL_JUDGE_BAR") or _envval("EVAL_JUDGE_BAR") or "3.8")
 
 
 # --- HTTP (stdlib) --------------------------------------------------------
@@ -137,32 +142,51 @@ def rag_ingest(docs: list[dict]) -> None:
     _request("POST", f"{RAG}/rag/ingest", {"documents": docs}, {"Content-Type": "application/json"})
 
 
-# --- LLM judge (Gemini REST; optional) ------------------------------------
-def judge(question: str, answer: str, citations: list[str]) -> dict | None:
+# --- LLM judge (deep Gemini, rubric-based; optional) ----------------------
+# The rubric: each dimension scored 1-5 by the deep judge. Keep this in sync with
+# eval/RUBRIC.md (the human-facing spec). `overall` is the headline score.
+RUBRIC = [
+    ("sourcing",  "Every figure/claim ties to a NAMED institutional source (cited / [n]); no unsourced numbers."),
+    ("relevance", "Directly and completely answers the question that was asked — nothing missing, nothing off-topic."),
+    ("grounding", "Uses the retrieved data; invents NO figures or sources (retrieved figures are GROUND TRUTH)."),
+    ("guardrail", "States facts only — no price predictions, price targets, or buy/sell advice; frames news as context, not a call."),
+    ("clarity",   "Clear, well-structured (markdown); figures carry units/period and an as-of/freshness where relevant."),
+]
+RUBRIC_KEYS = [k for k, _ in RUBRIC]
+
+
+def judge(question: str, answer: str, citations: list[str], criteria: str | None = None) -> dict | None:
+    """Deep-model rubric grade. Returns {overall, dims:{...}, reason} or None."""
     if not GKEY or not answer:
         return None
     today = os.environ.get("EVAL_TODAY") or datetime.date.today().isoformat()
+    dims = "\n".join(f"  - {k}: {d}" for k, d in RUBRIC)
+    crit = f"\nFor THIS question specifically, a correct answer MUST: {criteria}\n" if criteria else ""
+    keys_json = ", ".join(f'"{k}": <1-5>' for k in RUBRIC_KEYS)
     prompt = (
-        f"You are grading a financial-data assistant. Today's date is {today}. The figures in the ANSWER "
-        "were retrieved LIVE from authoritative primary sources (SEC EDGAR, OpenDART, Bank of Korea, Yahoo "
-        "Finance) and must be treated as GROUND TRUTH — do NOT penalise recent or 2025/2026 dates as "
-        "'future' or 'hallucinated', and do not fact-check the numbers yourself (you cannot see today's "
-        "live data). Grade ONLY: (a) relevance — does it answer the question; (b) specificity — concrete "
-        "figures/facts with a source; (c) tone — states facts, no price predictions or buy/sell advice.\n\n"
-        f"QUESTION: {question}\nCITED SOURCES: {', '.join(citations) or 'none'}\nANSWER: {answer}\n\n"
-        'Return JSON: {"score": <int 1-5>, "reason": "<one sentence>"}'
+        f"You are a rigorous evaluator of a financial-research assistant. Today's date is {today}. The "
+        "figures in the ANSWER were retrieved LIVE from authoritative primary sources (SEC EDGAR, OpenDART, "
+        "Bank of Korea, Yahoo Finance) — treat them as GROUND TRUTH: do NOT penalise 2025/2026 dates as "
+        "'future' or 'hallucinated', and do not re-fact-check the numbers yourself (you can't see live data).\n\n"
+        "Score EACH rubric dimension 1-5 (5 = excellent, 3 = acceptable, 1 = poor):\n"
+        f"{dims}\n{crit}\n"
+        f"QUESTION: {question}\nCITED SOURCES: {', '.join(citations) or 'none'}\nANSWER:\n{answer}\n\n"
+        "Be strict but fair. Then give an `overall` (holistic 1-5, not a mere average) and a one-sentence "
+        f'reason. Return JSON: {{{keys_json}, "overall": <1-5>, "reason": "<one sentence>"}}'
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{JUDGE_MODEL}:generateContent?key={GKEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}],
                "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
-    code, raw = _request("POST", url, payload, {"Content-Type": "application/json"}, timeout=120)
+    code, raw = _request("POST", url, payload, {"Content-Type": "application/json"}, timeout=180)
     if code != 200:
         return None
     try:
         data = json.loads(raw)
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         out = json.loads(text)
-        return {"score": int(out.get("score", 0)), "reason": str(out.get("reason", ""))[:160]}
+        dim_scores = {k: int(out[k]) for k in RUBRIC_KEYS if k in out}
+        overall = int(out.get("overall") or (round(sum(dim_scores.values()) / len(dim_scores)) if dim_scores else 0))
+        return {"overall": overall, "dims": dim_scores, "reason": str(out.get("reason", ""))[:160]}
     except Exception:
         return None
 
@@ -254,6 +278,8 @@ def main() -> int:
 
     total = passed = 0
     judged: list[int] = []
+    dim_sums = {k: 0 for k in RUBRIC_KEYS}
+    dim_n = {k: 0 for k in RUBRIC_KEYS}
     rows: list[tuple[str, int, int, str]] = []
 
     for i, sc in enumerate(SCENARIOS, 1):
@@ -294,12 +320,16 @@ def main() -> int:
 
         jtxt = ""
         if sc["checks"].get("judge"):
-            j = judge(question, r["answer"], r["citations"])
+            j = judge(question, r["answer"], r["citations"], sc.get("criteria"))
             if j:
-                judged.append(j["score"])
-                jtxt = f"{j['score']}/5"
-                col = green if j["score"] >= 4 else (yellow if j["score"] >= 3 else red)
-                print("        " + dim("◆ judge ") + col(jtxt) + dim(f"  {j['reason'][:88]}"))
+                judged.append(j["overall"])
+                for k, v in j["dims"].items():
+                    dim_sums[k] += v
+                    dim_n[k] += 1
+                jtxt = f"{j['overall']}/5"
+                dimstr = " ".join(f"{k[:4]}{v}" for k, v in j["dims"].items())
+                col = green if j["overall"] >= 4 else (yellow if j["overall"] >= 3 else red)
+                print("        " + dim("◆ judge ") + col(jtxt) + dim(f"  [{dimstr}]  {j['reason'][:64]}"))
         rows.append((name, sp, len(results), jtxt))
         print()
 
@@ -317,12 +347,21 @@ def main() -> int:
     print()
     print(f"  {bold('Deterministic')}  {_bar(passed, total)} {passed}/{total} {dim(f'({pct:.0f}%)')}")
     if avg is not None:
-        col = green if avg >= 3.5 else red
-        print(f"  {bold('LLM-judge')}      {col(f'{avg:.2f}/5')} {dim(f'over {len(judged)} answers')}")
+        col = green if avg >= JUDGE_BAR else red
+        print(f"  {bold('LLM-judge')}      {col(f'{avg:.2f}/5')} {dim(f'overall · over {len(judged)} answers · judge={JUDGE_MODEL}')}")
+        # per-rubric-dimension averages — where quality is strong vs weak
+        parts = []
+        for k in RUBRIC_KEYS:
+            if dim_n[k]:
+                d = dim_sums[k] / dim_n[k]
+                parts.append((green if d >= JUDGE_BAR else (yellow if d >= 3 else red))(f"{k} {d:.1f}"))
+        if parts:
+            print(f"  {bold('Rubric')}         " + dim(" · ").join(parts))
 
-    ok = (passed == total) and (avg is None or avg >= 3.5)
+    ok = (passed == total) and (avg is None or avg >= JUDGE_BAR)
     print()
-    print((green("✅ EVAL PASSED") if ok else red("❌ EVAL BELOW BAR")) + dim("   (all checks pass + judge avg ≥ 3.5)"))
+    print((green("✅ EVAL PASSED") if ok else red("❌ EVAL BELOW BAR"))
+          + dim(f"   (all checks pass + judge overall ≥ {JUDGE_BAR})"))
     return 0 if ok else 1
 
 
