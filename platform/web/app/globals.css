@@ -147,6 +147,22 @@ select.input { appearance: none; }
   border-radius: 9px; padding: 8px 10px; font-size: 13px; cursor: pointer; }
 .src.on { border-color: var(--text); }
 .muted-note { color: var(--muted); font-size: 13px; }
+
+/* U-BUILDER-01: expandable data-source rows → the tools inside each */
+.hint-inline { color: var(--muted); font-weight: 400; font-size: 12px; }
+.sources-list { display: flex; flex-direction: column; gap: 6px; }
+.src-row { border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); overflow: hidden; }
+.src-row.on { border-color: var(--text); }
+.src-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; }
+.src-pick { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+.src-expand { background: none; border: 1px solid var(--line); border-radius: 999px; color: var(--muted);
+  font-size: 11px; font-family: var(--mono); padding: 1px 8px; cursor: pointer; }
+.src-expand:hover { color: var(--text); }
+.tool-list { list-style: none; margin: 0; padding: 2px 10px 10px 28px; display: flex; flex-direction: column; gap: 5px;
+  border-top: 1px solid var(--line); }
+.tool-list li { display: flex; flex-direction: column; gap: 1px; }
+.tool-name { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+.tool-desc { font-size: 12px; color: var(--muted); line-height: 1.35; }
 .err { color: var(--danger); font-size: 13px; margin-bottom: 10px; }
 .modal-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .modal-foot .grow { flex: 1; }

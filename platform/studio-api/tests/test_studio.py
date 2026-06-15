@@ -255,11 +255,17 @@ def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
     respx.get("http://cp.test/catalog").mock(return_value=httpx.Response(200, json={"connectors": [
-        {"id": "yahoo", "name": "Yahoo Finance", "description": "prices"},
-        {"id": "sec_edgar", "name": "SEC EDGAR", "description": "filings"},
+        {"id": "yahoo", "name": "Yahoo Finance", "description": "prices", "resources": [
+            {"name": "prices", "description": "Historical EOD OHLCV."},
+            {"name": "price_snapshot", "description": "Latest price snapshot."}]},
+        {"id": "sec_edgar", "name": "SEC EDGAR", "description": "filings", "resources": []},
     ]}))
     cons = client.get("/connectors", headers=_hdr("c@u.com")).json()["connectors"]
     assert {c["id"] for c in cons} == {"yahoo", "sec_edgar"}
+    # U-BUILDER-01: each connector surfaces the tools inside it (name + description)
+    yahoo = next(c for c in cons if c["id"] == "yahoo")
+    assert {t["name"] for t in yahoo["tools"]} == {"prices", "price_snapshot"}
+    assert any(t["description"] for t in yahoo["tools"])
 
 
 @respx.mock

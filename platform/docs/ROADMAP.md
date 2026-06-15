@@ -236,7 +236,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 >
 > **Research-desk UX (differentiators)**
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
-> 13b. **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder  *(pull anytime; small)*.
+> 13b. ✅ **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder.
 > 14. **U3** — inline live artifacts + Board.  ↳ U2 ✅
 > 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
 > 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
@@ -423,14 +423,13 @@ of active tool calls (e.g. "삼성전자 공시를 분석하는 중…", "Yahoo 
 from the SSE `tool`/`tool_result` events. Independent of the other U milestones — pair it with PH answer-
 quality work for perceived-quality lift. *(web)*
 
-#### U-BUILDER-01 — Expandable data-source → tool transparency  ⬜  *(pull-anytime; small)*
-In the agent/analyst builder, each data-source (connector) row **expands (▸) to list the tools inside it
-with a plain-language description of what each does** — selection stays connector-level, the expansion is
-for transparency (showing *exactly* what an analyst can touch = trust-by-construction). Data already
-exists: the gateway `/catalog` returns each connector's `resources` (name + description). Surface it via
-`studio-api /connectors` (include `resources`) → `web/AgentBuilder.tsx` (collapsible connector with a tool
-sub-list). See `UX_SPEC.md` §5.5. *(studio-api + web; S)* — per-tool *selection* is a possible later
-refinement. *(motivated by the metrics_history tool being invisible behind the datasets_store connector.)*
+#### U-BUILDER-01 — Expandable data-source → tool transparency  ✅
+`studio-api /connectors` now includes each connector's `tools` (name + description, from the catalog
+`resources`); `web/AgentBuilder.tsx` renders each data-source as an expandable row (▸ 툴 N) revealing the
+tools inside with a plain-language "what it does" — selection stays connector-level, the expansion is for
+transparency (showing *exactly* what an analyst can touch = trust-by-construction). Now e.g. expanding
+`datasets_store` shows `metrics_history` "기간별 재무비율 추이". *(studio-api + web)* +0 (extended the
+existing `/connectors` test); web build green. See `UX_SPEC.md` §5.5. Per-tool *selection* is a later option.
 
 ---
 
