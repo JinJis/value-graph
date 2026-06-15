@@ -18,7 +18,7 @@ import logging
 from typing import AsyncIterator
 
 from agentengine import guardrails
-from agentengine.agent import _citations, filter_tools
+from agentengine.agent import _citations, anchor_markers, filter_tools, has_anchors
 from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.models import AgentSpec
@@ -68,11 +68,13 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     citations: list[dict] = []
     seen_cites: set = set()
     answered = False
+    final_text = ""
     try:
         planner = get_planner(spec.backend if spec else None)
         for _ in range(max_steps):
             decision = await planner.plan(task, tools, history, system, conversation=messages)
             if decision.final is not None:
+                final_text = decision.final
                 for ch in _chunks(decision.final):
                     yield {"type": "token", "text": ch}
                 answered = True
@@ -105,7 +107,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             history.append((decision, result))
         if not answered:
             final = await planner.plan(task, tools, history, system, conversation=messages, force_final=True)
-            for ch in _chunks(final.final or "Reached the step limit."):
+            final_text = final.final or "Reached the step limit."
+            for ch in _chunks(final_text):
                 yield {"type": "token", "text": ch}
     except Exception as e:
         logger.exception("Error in stream_chat loop")
@@ -113,4 +116,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # degrades to an honest message instead of breaking the stream.
         yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
 
+    # PH-4c: if the prose carries no inline [n] markers, stream a trailing anchor
+    # group so the answer ties to the citation chips (deterministic floor).
+    if citations and final_text and not has_anchors(final_text):
+        yield {"type": "token", "text": " " + anchor_markers([c.get("index") for c in citations])}
     yield {"type": "done", "citations": citations, "refused": False}

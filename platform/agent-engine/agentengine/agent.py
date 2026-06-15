@@ -8,6 +8,7 @@ answers are sourced.
 from __future__ import annotations
 
 import logging
+import re
 from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
@@ -104,6 +105,21 @@ def dedup_citations(cites: list[Citation]) -> list[Citation]:
     return out
 
 
+# --- PH-4c: inline [n] source anchors -----------------------------------------
+_ANCHOR_RE = re.compile(r"\[\d+\]")
+
+
+def has_anchors(text: str | None) -> bool:
+    """True if the prose already carries inline [n] markers (e.g. gemini wrote them)."""
+    return bool(_ANCHOR_RE.search(text or ""))
+
+
+def anchor_markers(indices) -> str:
+    """Compact trailing anchor group: [1][2][3] (the deterministic floor when the
+    model didn't place markers inline — keeps every answer source-anchored)."""
+    return "".join(f"[{i}]" for i in indices if i)
+
+
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
     """Restrict ``tools`` to ``allowed`` — entries match a full tool name
     (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
@@ -161,4 +177,9 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         # Honest degrade on a planner/LLM error rather than a 500.
         answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
 
-    return RunResult(answer=answer, steps=steps, citations=dedup_citations(citations), usage={"steps": len(steps)})
+    cites = dedup_citations(citations)
+    # Ensure the answer is source-anchored: if the planner didn't write inline [n]
+    # markers, append a trailing anchor group so every claim ties to the citations.
+    if cites and answer and not has_anchors(answer):
+        answer = answer.rstrip() + " " + anchor_markers([c.index for c in cites])
+    return RunResult(answer=answer, steps=steps, citations=cites, usage={"steps": len(steps)})

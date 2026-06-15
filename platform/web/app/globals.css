@@ -84,6 +84,11 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .scard-foot .slink { color: var(--text); text-decoration-color: var(--muted); margin-left: auto; }
 .snote { margin-top: 7px; font-size: 10.5px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px; }
 
+/* inline [n] anchors inside the prose */
+.anch { font-family: var(--mono); font-size: 9px; color: var(--muted); cursor: help;
+  padding: 0 1px; vertical-align: super; line-height: 0; }
+.anch:hover { color: var(--text); }
+
 /* compact inline cite chips (under a message) */
 .cite-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .cite-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text);

@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 195 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 43 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 198 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 46 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
@@ -166,9 +166,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   (default already raised to 8); **force-finalize at `step = max_steps − 1`** (no wasted +1 call), handle
   intermediate tool failures gracefully, and prevent infinite looping by detecting identical consecutive
   calls. *(agent-engine)*
-- 🚧 **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
+- ✅ **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
   trust feature — folded here from UX.* Depends on PH-3 + citation metadata; sits at the Phase 1↔2 seam.
-  Broken into:
+  Delivered in 4a/4b/4c:
   - ✅ **PH-4a · enriched citation model (agent-engine).** `Citation` gains `index` (1-based [n] anchor),
     `kind` (filing\|news\|metric\|data — named `kind` not `type` to avoid the SSE envelope collision),
     `doc_type`, `as_of`, `freshness`, `snippet`, `ticker`, `page`. RAG citations populate all of it from
@@ -180,8 +180,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     dot; `CiteChip` compact inline `[n]` chips under each message; one reused `TrustLegend`. Chat captures
     the enriched citation fields; right Live Context pane renders full cards, matte palette (freshness =
     the only color). *(web)*
-  - ⬜ **PH-4c · true inline `[n]` anchoring in prose.** Planner/synth prompt places `[n]` markers tied to
-    citation indices; stub fallback appends them. *(agent-engine)* **Full milestone detail under Phase 2 → U2.**
+  - ✅ **PH-4c · inline `[n]` anchoring in prose.** Gemini final-answer prompt instructs inline `[n]` in
+    source-appearance order; a deterministic floor appends a trailing `[n]` anchor group when the model
+    emitted none (covers stub + streaming), matching the citation indices. Web renders `[n]` as superscript
+    anchors titled with the cited source. *(agent-engine + web)* +3 agent-engine tests → 46.
 
 #### Tier 2 — more tools *(depth; several need a populated store)*
 - ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,

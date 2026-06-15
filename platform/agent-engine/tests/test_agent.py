@@ -225,6 +225,42 @@ async def test_run_uses_tool_and_cites(monkeypatch):
     assert res.usage["steps"] == 1
 
 
+# --- PH-4c: inline [n] source anchors -----------------------------------------
+def test_anchor_helpers():
+    assert A.has_anchors("revenue grew [1].") is True
+    assert A.has_anchors("no markers here") is False
+    assert A.anchor_markers([1, 2, None, 3]) == "[1][2][3]"  # skips falsy index
+
+
+@respx.mock
+async def test_run_agent_anchors_answer_when_model_omits(monkeypatch):
+    # stub summary carries no [n]; with one citation the answer must end source-anchored
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 185.6}]}, headers={"x-connector": "yahoo"})
+    )
+    res = await A.run_agent("What is AAPL's price?", "vgk_x")
+    assert A.has_anchors(res.answer) and res.answer.rstrip().endswith("[1]")
+    assert res.citations[0].index == 1  # anchor matches the citation index
+
+
+@respx.mock
+async def test_chat_stream_emits_trailing_anchor(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 185.6}]}, headers={"x-connector": "yahoo"})
+    )
+    events = [e async for e in stream_chat([{"role": "user", "content": "What is AAPL price?"}], "vgk_x")]
+    prose = "".join(e["text"] for e in events if e["type"] == "token")
+    assert A.has_anchors(prose) and "[1]" in prose
+    cite = next(e for e in events if e["type"] == "citation")
+    assert cite["index"] == 1
+
+
 @respx.mock
 async def test_run_refuses_forecast(monkeypatch):
     _gw(monkeypatch)

@@ -259,6 +259,8 @@ class GeminiPlanner:
             "- 'ticker': Stock tickers MUST be official symbols (e.g., 'AAPL' for Apple, '005930' for Samsung Electronics). NEVER pass company names (e.g., 'Apple', '삼성전자') as the ticker parameter.\n"
             "- Always identify the correct market ('US' or 'KR') based on the company or central bank mentioned.\n"
             "- Resolve follow-up references (e.g. 'that company') from the conversation so far.\n"
+            "When you write the final answer, cite the sources you used inline as [1], [2], … in the "
+            "order they first appear, so each claim is anchored to a source.\n"
             "Never predict prices or give buy/sell advice; this is not investment advice."
         )
 
@@ -270,6 +272,7 @@ class GeminiPlanner:
             prompt = (
                 "위 데이터에만 근거해 핵심을 간결하고 자연스럽게 답하세요(질문과 같은 언어로). "
                 "수치는 단위·기간과 함께 제시하고, 출처는 기관 이름(예: OpenDART, SEC EDGAR)으로 자연스럽게 언급하세요. "
+                "근거가 된 출처는 해당 문장 끝에 [1], [2]처럼 등장 순서대로 번호를 붙여 인용하세요. "
                 "내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 절대 노출하지 마세요. "
                 "가격 예측이나 매수/매도 의견은 금지하며, 별도의 면책 문구는 덧붙이지 마세요."
             )

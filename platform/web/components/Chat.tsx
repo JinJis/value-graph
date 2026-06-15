@@ -9,6 +9,21 @@ import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
 type ToolUse = { name: string; label?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[] };
 
+// PH-4c: render inline [n] markers in the prose as superscript anchors, titled
+// with the cited source (so each claim ties to a source-preview card).
+function renderContent(content: string, citations?: Citation[]) {
+  return content.split(/(\[\d+\])/).map((part, i) => {
+    const m = /^\[(\d+)\]$/.exec(part);
+    if (!m) return part;
+    const c = citations?.find((x) => x.index === Number(m[1]));
+    return (
+      <sup key={i} className="anch" title={c ? `${c.source || "출처"}${c.snippet ? " — " + c.snippet : ""}` : undefined}>
+        {part}
+      </sup>
+    );
+  });
+}
+
 const EXAMPLES = [
   "삼성전자 최근 실적 알려줘",
   "AAPL 최근 주가 흐름",
@@ -210,7 +225,11 @@ export default function Chat({ name }: { name: string }) {
 
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
-                  <div className="bubble">{m.content || (m.role === "assistant" && busy ? "…" : "")}</div>
+                  <div className="bubble">
+                    {m.content
+                      ? (m.role === "assistant" ? renderContent(m.content, m.citations) : m.content)
+                      : (m.role === "assistant" && busy ? "…" : "")}
+                  </div>
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
                     <details className="sources">
                       <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
