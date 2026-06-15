@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
 from app.models.generated import (
+    CiksResponse,
     CompanyFactsResponse,
     CompanySearchResponse,
     TickersResponse,
@@ -31,6 +32,12 @@ async def get_company_facts(
 async def get_company_facts_tickers(market: MarketParam = Market.US) -> TickersResponse:
     tickers = await get_company_provider(market).list_tickers()
     return TickersResponse(resource="company_facts", tickers=tickers)
+
+
+@router.get("/company/facts/ciks", response_model=CiksResponse)
+async def get_company_facts_ciks(market: MarketParam = Market.US) -> CiksResponse:
+    ciks = await get_company_provider(market).list_ciks()
+    return CiksResponse(resource="company_facts", ciks=ciks)
 
 
 _SEARCH_SOURCE = {Market.US: "SEC EDGAR", Market.KR: "OpenDART (FSS)"}

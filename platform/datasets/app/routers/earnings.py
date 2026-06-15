@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
-from app.models.generated import EarningsResponse
-from app.providers.registry import get_earnings_provider
+from app.models.generated import EarningsResponse, TickersResponse
+from app.providers.registry import get_company_provider, get_earnings_provider
 from app.symbols import Market, build_ref
 
 router = APIRouter(tags=["Earnings"])
@@ -21,3 +21,10 @@ async def get_earnings(
     ref = build_ref(market, ticker)
     records = await get_earnings_provider(market).earnings(ref, limit)
     return EarningsResponse(earnings=records)
+
+
+@router.get("/earnings/tickers", response_model=TickersResponse)
+async def get_earnings_tickers(market: MarketParam = Market.US) -> TickersResponse:
+    """Tickers the earnings endpoint can serve (the public-company universe)."""
+    tickers = await get_company_provider(market).list_tickers()
+    return TickersResponse(resource="earnings", tickers=tickers)

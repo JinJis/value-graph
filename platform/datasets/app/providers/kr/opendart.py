@@ -202,6 +202,11 @@ class OpenDartProvider:
         cmap = await _corp_map()
         return sorted(cmap.keys())
 
+    async def list_ciks(self) -> list[str]:
+        # KR's "CIK" equivalent is the OpenDART corp_code.
+        cmap = await _corp_map()
+        return sorted({row.get("corp_code") for row in cmap.values() if row.get("corp_code")})
+
     async def search_companies(self, query: str, limit: int) -> list[CompanySearchResult]:
         cmap = await _corp_map()
         rows = (

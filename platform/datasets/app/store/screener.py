@@ -43,6 +43,19 @@ def store_stats() -> dict:
         ],
     }
 
+def store_tickers(market: str, limit: int = 50) -> list[str]:
+    """Distinct tickers actually ingested for a market (bounded) — the universe a
+    market-wide snapshot ranges over, so it never fans out to the whole exchange."""
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(func.distinct(FinancialFact.ticker))
+            .where(FinancialFact.market == market.upper())
+            .order_by(FinancialFact.ticker)
+            .limit(limit)
+        ).scalars().all()
+    return list(rows)
+
+
 _OPS = {
     "gt": lambda a, b: a > b,
     "lt": lambda a, b: a < b,

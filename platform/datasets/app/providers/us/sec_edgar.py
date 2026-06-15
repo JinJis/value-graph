@@ -387,6 +387,10 @@ class SecEdgarProvider:
         idx = await _ticker_index()
         return sorted(idx.keys())
 
+    async def list_ciks(self) -> list[str]:
+        idx = await _ticker_index()
+        return sorted({_cik10(row["cik_str"]) for row in idx.values()})
+
     async def search_companies(self, query: str, limit: int) -> list[CompanySearchResult]:
         idx = await _ticker_index()
         rows = (
