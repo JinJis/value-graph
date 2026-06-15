@@ -18,9 +18,11 @@ import logging
 from typing import AsyncIterator
 
 from agentengine import guardrails
-from agentengine.agent import _citations, filter_tools
+from agentengine.agent import (
+    _citations, anchor_markers, assess_budget, call_sig, fallback_answer,
+    filter_tools, has_anchors, number_sources,
+)
 from agentengine.client import PlatformClient
-from agentengine.config import settings
 from agentengine.models import AgentSpec
 from agentengine.planner import get_planner
 
@@ -63,17 +65,30 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         tools = filter_tools(tools, spec.allowed_tools)
 
     system = spec.system if spec else None
-    max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
+    # PH-15: a light model assesses the step budget unless the spec pins it.
+    max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
     history: list = []
     citations: list[dict] = []
     seen_cites: set = set()
     answered = False
+    final_text = ""
+    last_sig = None
+
+    async def _finalize(force: bool):
+        # one synthesis call; never leak an empty/limit message to the user.
+        dec = await planner.plan(task, tools, history, system, conversation=messages,
+                                 force_final=force, sources=number_sources(citations))
+        return dec.final or fallback_answer(citations)
+
     try:
         planner = get_planner(spec.backend if spec else None)
-        for _ in range(max_steps):
-            decision = await planner.plan(task, tools, history, system, conversation=messages)
-            if decision.final is not None:
-                for ch in _chunks(decision.final):
+        for step in range(max_steps):
+            is_last = step == max_steps - 1  # reserve the last step for guaranteed synthesis
+            decision = await planner.plan(task, tools, history, system, conversation=messages,
+                                          force_final=is_last, sources=number_sources(citations))
+            if is_last or decision.final is not None:
+                final_text = decision.final or fallback_answer(citations)
+                for ch in _chunks(final_text):
                     yield {"type": "token", "text": ch}
                 answered = True
                 break
@@ -84,6 +99,16 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 resolved = resolve_ticker(decision.args["ticker"])
                 if resolved:
                     decision.args["ticker"] = resolved
+
+            # an identical consecutive call means the model is stuck — synthesize now
+            sig = call_sig(decision)
+            if sig and sig == last_sig:
+                final_text = await _finalize(force=True)
+                for ch in _chunks(final_text):
+                    yield {"type": "token", "text": ch}
+                answered = True
+                break
+            last_sig = sig
 
             tool = tools.get(decision.tool)
             if tool is None:
@@ -99,12 +124,13 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 if key in seen_cites:  # de-dup repeated sources across tool calls
                     continue
                 seen_cites.add(key)
+                cit["index"] = len(citations) + 1  # 1-based [n] anchor
                 citations.append(cit)
                 yield {"type": "citation", **cit}
             history.append((decision, result))
         if not answered:
-            final = await planner.plan(task, tools, history, system, conversation=messages, force_final=True)
-            for ch in _chunks(final.final or "Reached the step limit."):
+            final_text = fallback_answer(citations)
+            for ch in _chunks(final_text):
                 yield {"type": "token", "text": ch}
     except Exception as e:
         logger.exception("Error in stream_chat loop")
@@ -112,4 +138,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # degrades to an honest message instead of breaking the stream.
         yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
 
+    # PH-4c: if the prose carries no inline [n] markers, stream a trailing anchor
+    # group so the answer ties to the citation chips (deterministic floor).
+    if citations and final_text and not has_anchors(final_text):
+        yield {"type": "token", "text": " " + anchor_markers([c.get("index") for c in citations])}
     yield {"type": "done", "citations": citations, "refused": False}

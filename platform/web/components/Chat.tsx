@@ -4,10 +4,25 @@ import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
 
-type Citation = { tool?: string; source?: string; url?: string };
 type ToolUse = { name: string; label?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[] };
+
+// Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
+const mdComponents = {
+  a: (props: any) => <a {...props} target="_blank" rel="noreferrer" />,
+};
+
+// Collapse repeated tool calls to distinct labels (one answer can hit the same
+// connector many times — show each source once, not eight identical rows).
+function uniqueTools(tools?: ToolUse[]): ToolUse[] {
+  const seen = new Map<string, ToolUse>();
+  for (const t of tools || []) seen.set(t.label || t.name, t);
+  return [...seen.values()];
+}
 
 const EXAMPLES = [
   "삼성전자 최근 실적 알려줘",
@@ -112,7 +127,11 @@ export default function Chat({ name }: { name: string }) {
             if (ev.type === "token") a.content += ev.text || "";
             else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
             else if (ev.type === "citation") {
-              const cite = { tool: ev.tool, source: ev.source, url: ev.url };
+              const cite: Citation = {
+                tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
+                doc_type: ev.doc_type, as_of: ev.as_of, freshness: ev.freshness,
+                snippet: ev.snippet, ticker: ev.ticker, page: ev.page,
+              };
               const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
               if (!dup) a.citations = [...(a.citations || []), cite];
             }
@@ -206,17 +225,22 @@ export default function Chat({ name }: { name: string }) {
 
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
-                  <div className="bubble">{m.content || (m.role === "assistant" && busy ? "…" : "")}</div>
+                  <div className="bubble">
+                    {m.content
+                      ? (m.role === "assistant"
+                          ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown></div>
+                          : m.content)
+                      : (m.role === "assistant" && busy ? "…" : "")}
+                  </div>
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
                     <details className="sources">
                       <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
-                      {m.tools?.map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
-                      {m.citations?.map((c, j) => (
-                        <div key={`c${j}`} className="cite">
-                          📎 {c.source || "출처"}
-                          {c.url ? <> · <a href={c.url} target="_blank" rel="noreferrer">원문</a></> : null}
+                      {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
+                      {(m.citations?.length || 0) > 0 && (
+                        <div className="cite-chips">
+                          {m.citations?.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}
                         </div>
-                      ))}
+                      )}
                     </details>
                   )}
                 </div>
@@ -255,12 +279,10 @@ export default function Chat({ name }: { name: string }) {
           {liveCites.length === 0 ? (
             <p className="live-empty">질문하면 답변에 사용된 출처가 여기에 모여요. 종목별 뉴스·공시 실시간 피드는 곧 추가됩니다.</p>
           ) : (
-            liveCites.map((c, j) => (
-              <div key={j} className="live-item">
-                📎 {c.source || "출처"}
-                {c.url ? <a href={c.url} target="_blank" rel="noreferrer" className="meta">{c.url}</a> : null}
-              </div>
-            ))
+            <>
+              <TrustLegend />
+              {liveCites.map((c, j) => <SourceCard key={j} c={c} />)}
+            </>
           )}
         </aside>
       )}

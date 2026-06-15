@@ -132,6 +132,77 @@ def test_citations_use_per_hit_rag_provenance():
     assert all(c.source != "Platform RAG (filings/news)" for c in cites)
 
 
+# --- PH-4/U2: enriched citations for type-aware source-preview cards -----------
+def test_freshness_buckets_from_as_of():
+    from datetime import date
+
+    from agentengine.freshness import compute_freshness
+
+    today = date(2026, 6, 15)
+    assert compute_freshness("2026-06-10", today) == "fresh"     # 5d
+    assert compute_freshness("2026-05-01", today) == "aging"     # 45d
+    assert compute_freshness("2025-01-01", today) == "stale"     # >1y
+    assert compute_freshness(None, today) is None                # unknown, not a claim
+    assert compute_freshness("not-a-date", today) is None
+
+
+def test_rag_citation_is_enriched_for_preview_card():
+    tool = {"name": "rag__search", "connector": "rag", "source": "Platform RAG"}
+    result = {"data": {"hits": [
+        {"text": "Apple sources chips from TSMC, a key supplier.",
+         "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/aapl", "doc_type": "10-K",
+                        "as_of": "2026-06-01", "ticker": "AAPL", "accession": "0000320193-26"}},
+        {"text": "Apple beats on iPhone revenue - Reuters",
+         "provenance": {"source": "Reuters", "url": "https://r/x", "doc_type": "news", "as_of": "2026-06-12"}},
+    ]}}
+    filing, news = A._citations(tool, result)
+    assert filing.kind == "filing" and filing.doc_type == "10-K" and filing.ticker == "AAPL"
+    assert filing.as_of == "2026-06-01" and filing.freshness in {"fresh", "aging", "stale"}
+    assert "TSMC" in filing.snippet and filing.page == "0000320193-26"
+    assert news.kind == "news" and news.source == "Reuters" and news.snippet.endswith("Reuters")
+
+
+def test_datasets_citation_typed_metric_vs_data():
+    price = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance"}, {"data": {"prices": []}})
+    filings = A._citations({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"x": 1}})
+    assert price[0].kind == "metric" and filings[0].kind == "data"
+
+
+def test_news_citation_uses_publisher_headline_date():
+    # /news must cite each article's publisher + headline + date, not "Google News"
+    tool = {"name": "google_news__news", "connector": "google_news", "source": "Google News"}
+    result = {"data": {"news": [
+        {"ticker": "NVDA", "title": "Nvidia chips surge in overnight trading", "source": "Yahoo Finance",
+         "date": "2026-06-15", "url": "https://news.google.com/x"},
+        {"ticker": "NVDA", "title": "SpaceX growth lifts Nvidia", "source": "Barron's",
+         "date": "2026-06-14", "url": "https://news.google.com/y"},
+    ]}}
+    cites = A._citations(tool, result)
+    assert {c.source for c in cites} == {"Yahoo Finance", "Barron's"}  # publisher, not "Google News"
+    assert all(c.kind == "news" and c.snippet and c.as_of for c in cites)
+    assert cites[0].snippet.startswith("Nvidia chips") and cites[0].freshness == "fresh"
+
+
+def test_financial_citation_gets_as_of_from_report_period():
+    tool = {"name": "opendart__income_statements", "source": "OpenDART (FSS)"}
+    result = {"data": {"statements": [
+        {"report_period": "2025-12-31", "revenue": 1}, {"report_period": "2026-03-31", "revenue": 2},
+    ]}}
+    cite = A._citations(tool, result)[0]
+    assert cite.as_of == "2026-03-31"  # latest report period becomes the figure's as-of
+    assert cite.kind in {"metric", "data"} and cite.freshness is not None
+
+
+def test_dedup_assigns_one_based_index():
+    from agentengine.models import Citation
+    out = A.dedup_citations([
+        Citation(tool="t1", source="SEC EDGAR", url="https://a"),
+        Citation(tool="t2", source="Reuters", url="https://b"),
+        Citation(tool="t3", source="SEC EDGAR", url="https://a"),  # dup
+    ])
+    assert [c.index for c in out] == [1, 2]
+
+
 @respx.mock
 async def test_call_tool_forces_single_market_connector(monkeypatch):
     from agentengine.client import PlatformClient
@@ -177,6 +248,129 @@ async def test_run_uses_tool_and_cites(monkeypatch):
     # PH-3: the raw tool id must NOT leak into the human-facing answer
     assert "yahoo__prices" not in res.answer and "`" not in res.answer
     assert res.usage["steps"] == 1
+
+
+# --- PH-4c: inline [n] source anchors -----------------------------------------
+def test_anchor_helpers():
+    assert A.has_anchors("revenue grew [1].") is True
+    assert A.has_anchors("no markers here") is False
+    assert A.anchor_markers([1, 2, None, 3]) == "[1][2][3]"  # skips falsy index
+
+
+def test_number_sources_formats_indexed_block():
+    # PH-4e: the numbered block the planner gets so its inline [n] matches the chips
+    from agentengine.models import Citation
+    block = A.number_sources([
+        Citation(tool="t", source="Barron's", snippet="Nvidia and SpaceX", as_of="2026-06-12", index=1),
+        Citation(tool="t", source="TipRanks", index=2),
+        {"source": "X", "index": None},  # no index -> skipped
+    ])
+    lines = block.splitlines()
+    assert lines[0] == "[1] Barron's · Nvidia and SpaceX · 2026-06-12"
+    assert lines[1] == "[2] TipRanks"
+    assert len(lines) == 2
+
+
+@respx.mock
+async def test_run_agent_anchors_answer_when_model_omits(monkeypatch):
+    # stub summary carries no [n]; with one citation the answer must end source-anchored
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 185.6}]}, headers={"x-connector": "yahoo"})
+    )
+    res = await A.run_agent("What is AAPL's price?", "vgk_x")
+    assert A.has_anchors(res.answer) and res.answer.rstrip().endswith("[1]")
+    assert res.citations[0].index == 1  # anchor matches the citation index
+
+
+@respx.mock
+async def test_chat_stream_emits_trailing_anchor(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 185.6}]}, headers={"x-connector": "yahoo"})
+    )
+    events = [e async for e in stream_chat([{"role": "user", "content": "What is AAPL price?"}], "vgk_x")]
+    prose = "".join(e["text"] for e in events if e["type"] == "token")
+    assert A.has_anchors(prose) and "[1]" in prose
+    cite = next(e for e in events if e["type"] == "citation")
+    assert cite["index"] == 1
+
+
+# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
+async def test_assess_budget_uses_llm_then_clamps(monkeypatch):
+    from agentengine.config import settings
+
+    async def _eleven(task):
+        return 11
+
+    async def _huge(task):
+        return 999
+
+    # gemini backend → the light model's estimate is used (clamped to the cap)
+    monkeypatch.setattr(A, "_llm_steps", _eleven)
+    assert await A.assess_budget("엔비디아 공급망·리스크 공시 요약", backend="gemini") == 11
+    monkeypatch.setattr(A, "_llm_steps", _huge)
+    assert await A.assess_budget("x", backend="gemini") == settings.max_steps_cap  # clamped
+
+
+async def test_assess_budget_falls_back_without_llm(monkeypatch):
+    from agentengine.config import settings
+    # stub backend never calls the model → plain default (no hardcoded keyword rules)
+    assert await A.assess_budget("anything", backend="stub") == settings.max_steps
+
+    async def _boom(task):
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr(A, "_llm_steps", _boom)
+    assert await A.assess_budget("anything", backend="gemini") == settings.max_steps  # graceful
+
+
+def test_call_sig_detects_repeat():
+    from agentengine.planner import Decision
+    a = Decision(tool="sec_edgar__filings", args={"ticker": "NVDA"})
+    b = Decision(tool="sec_edgar__filings", args={"ticker": "NVDA"})
+    c = Decision(tool="sec_edgar__filings", args={"ticker": "AAPL"})
+    assert A.call_sig(a) == A.call_sig(b) and A.call_sig(a) != A.call_sig(c)
+    assert A.call_sig(Decision(final="done")) is None
+
+
+def test_fallback_answer_is_nonempty_and_anchored():
+    from agentengine.models import Citation
+    out = A.fallback_answer([Citation(tool="t", source="SEC EDGAR", index=1),
+                             Citation(tool="t", source="Reuters", index=2)])
+    assert out and "Reached the step limit" not in out
+    assert "SEC EDGAR" in out and A.has_anchors(out)
+    assert A.fallback_answer([])  # still non-empty with no citations
+
+
+@respx.mock
+async def test_run_agent_recovers_from_stuck_planner(monkeypatch):
+    # a planner that never finalizes (keeps proposing the same tool) must NOT leak
+    # "Reached the step limit." — the repeat-guard + fallback yield a real answer.
+    from agentengine.planner import Decision
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"})
+    )
+
+    class StuckPlanner:
+        async def plan(self, task, tools, history, system=None, conversation=None,
+                       force_final=False, sources=None):
+            if force_final:
+                return Decision(final="")  # empty even when forced → exercises the fallback
+            return Decision(tool="yahoo__prices", args={"ticker": "AAPL"})
+
+    monkeypatch.setattr(A, "get_planner", lambda _b=None: StuckPlanner())
+    res = await A.run_agent("AAPL price please", "vgk_x")
+    assert res.answer and "Reached the step limit" not in res.answer
+    assert A.has_anchors(res.answer)              # fallback is source-anchored
+    assert len(res.steps) <= 2                    # repeat-guard stopped the loop early
 
 
 @respx.mock

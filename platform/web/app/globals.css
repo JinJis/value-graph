@@ -60,6 +60,57 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .live-item { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
 .live-item .meta { color: var(--muted); font-size: 11px; font-family: var(--mono); display: block; margin-top: 3px; }
 .live-item a { font-size: 12px; }
+
+/* PH-4/U2: freshness dots + the one trust legend (trust = the only color) */
+.fdot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--gap); vertical-align: middle; }
+.fdot.fresh { background: var(--fresh); }
+.fdot.aging { background: var(--aging); }
+.fdot.stale { background: var(--stale); }
+.fdot.gap { background: var(--gap); }
+.legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.legend i { width: 8px; height: 8px; border-radius: 999px; margin-right: 4px; }
+
+/* type-aware source-preview cards */
+.scard { border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; margin-bottom: 9px; background: var(--panel-2); }
+.scard-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.scard-head .cnum { font-family: var(--mono); color: var(--muted); font-size: 11px; }
+.scard-head .ssource { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scard-head .sdoc { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.scard-head .fdot { margin-left: auto; flex: none; }
+.scard-snip { font-size: 12.5px; line-height: 1.45; margin: 7px 0 6px; }
+.scard.filing .scard-snip { color: var(--muted); font-style: italic; }
+.scard-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); }
+.scard-foot .stick { color: var(--text); }
+.scard-foot .slink { color: var(--text); text-decoration-color: var(--muted); margin-left: auto; }
+.snote { margin-top: 7px; font-size: 10.5px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px; }
+
+/* assistant markdown rendering */
+.md { line-height: 1.6; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 9px; }
+.md ul, .md ol { margin: 6px 0 9px; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md h1, .md h2, .md h3 { font-size: 14px; margin: 14px 0 6px; font-weight: 700; }
+.md strong { font-weight: 700; color: var(--text); }
+.md code { font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.md a { color: var(--text); text-decoration-color: var(--muted); word-break: break-word; }
+.md table { border-collapse: collapse; font-size: 12.5px; margin: 8px 0; width: 100%; }
+.md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+.md th { background: var(--panel-2); font-family: var(--mono); }
+.md blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 10px; color: var(--muted); }
+
+/* inline [n] anchors inside the prose */
+.anch { font-family: var(--mono); font-size: 9px; color: var(--muted); cursor: help;
+  padding: 0 1px; vertical-align: super; line-height: 0; }
+.anch:hover { color: var(--text); }
+
+/* compact inline cite chips (under a message) */
+.cite-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cite-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text);
+  border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--panel-2); }
+.cite-chip .cnum { font-family: var(--mono); color: var(--muted); font-size: 11px; }
 .top { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .brand { font-weight: 700; letter-spacing: .4px; display: flex; align-items: center; gap: 9px; }
 /* pixel-character mascot — a tiny CSS pixel sprite; a real art asset replaces this later */

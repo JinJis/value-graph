@@ -121,8 +121,12 @@ and what the agent engine resolves tools from — so REST, MCP, and the agent al
 
 ## 3. Core principles
 
-1. **Deterministic connectors + RAG, not Deep Research** — data is structured, fast, reproducible,
-   citeable. Deep Research is at most one optional tool, never the backbone.
+1. **Deterministic *data*, not deterministic *logic*** — "deterministic" describes the **data plane**:
+   connectors are API-based, so figures are structured, fast, **reproducible, and always accurately
+   sourced** (vs Deep Research, which is at most one optional tool, never the backbone). It does **not**
+   mean the agent/reasoning logic should be hardcoded. **Answer quality and orchestration are achieved
+   with Gemini (and, going forward, multi-agent flows) — never hand-rolled keyword/heuristic rules.** The
+   `stub` planner's keyword routing is a dev/CI fallback only, not the product's intelligence.
 2. **Provenance / trust envelope everywhere** — every datum, chunk, and (eventually) agent output
    carries `source` + `as_of` + `freshness` (+ `confidence` where derivable). No number without a source.
 3. **Platform-managed keys + metering/billing** → a **per-connector license / redistribution policy is
@@ -207,8 +211,10 @@ Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
   plane. Each tool result's provenance is collected into **citations** → sourced answers.
 - **Guardrails:** refuses forecasts / price targets / buy-sell advice at the boundary ("not investment
   advice"; no prediction — matches the PRD's out-of-scope).
-- **Pluggable planner (`AGENT_LLM_BACKEND`):** `stub` (deterministic keyword routing, dev/CI, no key) ·
-  `gemini` (real function-calling LLM; extra `gemini`, needs `GOOGLE_API_KEY` / Vertex).
+- **Pluggable planner (`AGENT_LLM_BACKEND`):** `stub` (keyword routing — a **dev/CI fallback only**, not
+  the product's intelligence) · `gemini` (real function-calling LLM; the production path — answer quality
+  and step-budget assessment come from the model, not hardcoded rules; extra `gemini`, needs
+  `GOOGLE_API_KEY` / Vertex).
 - **Builder modes:** declarative `AgentSpec` (system + allowed_tools + max_steps) and NL `/agent/compile`.
 - **Endpoints:** `POST /agent/run` (X-API-KEY), `POST /agent/compile`, `GET /agent/info`.
 - **7 tests.** Verified live (e2e): refuses advice; uses `yahoo__prices` via the gateway; cites Yahoo Finance.

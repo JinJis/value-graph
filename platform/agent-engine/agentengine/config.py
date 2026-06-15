@@ -13,9 +13,12 @@ class Settings(BaseSettings):
     # Planner backend: stub (deterministic, dev/CI) | gemini (real LLM)
     llm_backend: str = "stub"
     model: str = "gemini-flash-latest"  # an evergreen alias (2.0/1.5 ids get retired)
+    # A light/cheap model that assesses a query's complexity → the step budget (PH-15).
+    budget_model: str = "gemini-flash-lite-latest"
     # The control-plane gateway the agent's tools are called through.
     gateway_url: str = "http://127.0.0.1:8010"
-    max_steps: int = 8
+    max_steps: int = 8         # base tool-step budget (raised for multi-source tasks, up to the cap)
+    max_steps_cap: int = 14    # hard ceiling for the dynamic budget
     http_timeout_seconds: float = 60.0
 
 

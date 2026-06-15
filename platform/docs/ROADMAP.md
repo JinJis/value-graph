@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 191 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 39 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 206 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
@@ -127,9 +127,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     progress** (admin auto-refreshes while running); `backfill_running` **serializes** runs (busy returned
     synchronously). **Verified live:** `us_mega` 4/15→15/15, 15 cos · 34,506 facts. +7 datasets, +2 admin.
     *(Real distributed queue + migrations = PH-11.)*
-- 🚧 **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
-  `hash` toy embedder + ephemeral `memory` store, so `rag__search` returns nothing real. Make "real,
-  cited, semantic" true instead of aspirational. **The single most important unbuilt item.** Broken into:
+- ✅ **PH-2 · RAG ingestion pipeline (news live).** RAG started empty; now a real pipeline indexes content
+  per tenant so `rag__search` returns real, cited, semantic hits. Delivered as 2a + 2b:
   - ✅ **PH-2a · per-tenant doc isolation.** `IngestDoc`/`Chunk` gain a `tenant` (control-plane
     `project_id`), namespaced into the chunk id (no cross-tenant PK clobber) and stored in pgvector `meta`
     (excluded from user-facing `provenance()`). The **gateway injects `X-Tenant-Id` from the caller's key**
@@ -143,10 +142,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     as an `IngestionJob` kind `news`) + admin ops-console form + an optional scheduler tick
     (`SCHEDULER_NEWS`). **Verified live:** AAPL → 8 headlines indexed, `rag/search "Apple news"` returns
     real sourced hits (Trefis/Finviz/Motley Fool, with as_of + url). *(datasets + admin)* +4 datasets.
-  - ⬜ **PH-2c · filing-text ingestion.** Index filing text once PH-5 ships `/filings/items`. *(depends PH-5)*
-  - ⬜ **PH-2d · persistent + real-embedding defaults.** Default `oss-cpu` + `pgvector` — lands with
-    **PH-11** (no Postgres in compose until then); until then the `e2e_functional` oss-cpu path validates
-    semantics. *(ties to PH-11)*
+  - *Filing/other document-text ingestion is consolidated into **PH-RAG** (do it once, when more text
+    sources exist — see the linear order below). Persistent `oss-cpu` + `pgvector` defaults = **PH-2d**,
+    which lands with **PH-11** (no Postgres in compose until then).*
 
 #### Tier 1 — answer quality *(most visible; mostly independent)*
 - ✅ **PH-3 · Answer-quality quick wins.** (a) catalog `name` → friendly `connector_name`/`friendly`
@@ -162,16 +160,75 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   to GenAI (sequential tool calls), `thought_signature` mapping (avoids 400 on chained calls), public
   `resolve_ticker` (company name/alias → ticker inside the loop), injected date context + per-param
   schema descriptions, `.text` bypass. *(agent-engine)*
-- ⬜ **PH-15 · Dynamic step budget & strict loop guarantees.** Adjust `max_steps` by estimated complexity
-  (default already raised to 8); **force-finalize at `step = max_steps − 1`** (no wasted +1 call), handle
-  intermediate tool failures gracefully, and prevent infinite looping by detecting identical consecutive
-  calls. *(agent-engine)*
-- ⬜ **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
-  trust feature — folded here from UX.* Enrich the `Citation` model (`type`/`as_of`/`doc_type`/
-  `freshness`/`index`); anchor inline `[n]` markers to spans; three type-aware preview cards. Depends on
-  PH-3 + citation metadata; sits at the Phase 1↔2 seam. **Full milestone detail under Phase 2 → U2.**
+- ✅ **PH-15 · LLM-assessed step budget & strict loop guarantees.** A **light Gemini model
+  (`AGENT_BUDGET_MODEL`, e.g. flash-lite) assesses the query's complexity → the step budget** — no
+  hardcoded keyword rules (falls back to the plain default budget on stub/CI or assess failure). Then the
+  budget is strictly honored: the loop **reserves its last step for guaranteed synthesis** (force-finalize),
+  a non-empty **fallback answer** replaces the old "Reached the step limit." leak, and an **identical
+  consecutive call is detected** → synthesize instead of looping. *(agent-engine)* +5 tests → 54.
+- ✅ **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
+  trust feature — folded here from UX.* Depends on PH-3 + citation metadata; sits at the Phase 1↔2 seam.
+  Delivered in 4a/4b/4c:
+  - ✅ **PH-4a · enriched citation model (agent-engine).** `Citation` gains `index` (1-based [n] anchor),
+    `kind` (filing\|news\|metric\|data — named `kind` not `type` to avoid the SSE envelope collision),
+    `doc_type`, `as_of`, `freshness`, `snippet`, `ticker`, `page`. RAG citations populate all of it from
+    per-hit provenance; datasets citations get a `kind`; `freshness.py` computes fresh/aging/stale from
+    `as_of`. Carried through the SSE `citation` event + `done` list + `RunResult` (studio-api persists
+    citations as schema-less JSON → backward-compatible). *(agent-engine)* +4 tests → 43.
+  - ✅ **PH-4b · web source-preview cards + legend.** `SourceCard.tsx`: type-aware cards (filing
+    verbatim-span / metric / news snippet + "맥락 정보 — 전망 아님") keyed by `kind`, with a freshness
+    dot; `CiteChip` compact inline `[n]` chips under each message; one reused `TrustLegend`. Chat captures
+    the enriched citation fields; right Live Context pane renders full cards, matte palette (freshness =
+    the only color). *(web)*
+  - ✅ **PH-4c · inline `[n]` anchoring in prose.** Gemini final-answer prompt instructs inline `[n]` in
+    source-appearance order; a deterministic floor appends a trailing `[n]` anchor group when the model
+    emitted none (covers stub + streaming), matching the citation indices. Web renders `[n]` as superscript
+    anchors titled with the cited source. *(agent-engine + web)* +3 agent-engine tests → 46.
+  - ✅ **PH-4d · substantive answers — markdown + datasets-source enrichment + de-noise.** Real-world
+    answers looked flat because (a) the web rendered assistant **markdown as plain text**, and (b) only
+    RAG citations were enriched — **datasets/news sources were bare** generic chips. Fixed: web renders
+    markdown (`react-markdown` + GFM tables); `/news` citations now carry the **publisher + headline +
+    date** (not "Google News"); financial/metric citations get **`as_of` from the latest report period** +
+    freshness; the gemini prompt stops dumping raw URLs in prose; **tool labels de-duped** in the web (one
+    row per source, not eight). *(agent-engine + web)* +2 agent-engine tests → 48.
+  - ✅ **PH-4e · inline `[n]` ↔ citation-index alignment.** The model numbered `[n]` by its own narrative,
+    so a prose `[2]` could point at a different source than chip `[2]`. Fix: thread a `number_sources()`
+    block (our authoritative numbering) into the planner's `system_instruction` and instruct gemini to cite
+    **only those exact numbers, never reorder**. **Verified live:** NVDA query → prose `[1][2][3]` map
+    exactly to Barron's/TipRanks/Yahoo Finance chips. *(agent-engine)* +1 test → 49.
 
-#### Tier 2 — more tools *(depth; several need a populated store)*
+### ▶ Order of remaining work — linear (each item's dependencies precede it)
+
+> Do top-to-bottom. `↳` = the dependency that fixed this position; items with no `↳` are ordered by value.
+> New data endpoints **auto-expand REST + MCP tools + RAG registration** (one manifest → all surfaces).
+> Detail for each item is in the bullets below this list.
+>
+> **Finish the data substance**
+> 1. **PH-5** — cheap universe endpoints (+ `/filings/items`).  ← **next**
+> 2. **PH-MACRO** — cloud-safe macro (DBnomics / Treasury).
+> 3. **PH-6** — store-backed: 13F ticker-mode + historical metrics.  ↳ populated store ✅
+> 4. **PH-8** — index / ETF holdings (SEC N-PORT).
+> 5. **PH-7** — XBRL depth: segments + as-reported.
+> 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
+>    segment/MD&A from PH-7, transcripts, … + news ✅) → chunk·embed·index.  ↳ PH-5 / PH-7 text  *(was PH-2c)*
+> 7. **PH-9** — KPIs via Gemini from filings/earnings text.  ↳ PH-RAG
+>
+> **Make it deployable**
+> 8. **PH-10** — admin → real ops console.
+> 9. **PH-11** — productionization: Postgres + Redis + Alembic + job queue + CI + observability  *(the infra gate)*.
+> 10. **PH-2d** — `oss-cpu` + `pgvector` as defaults.  ↳ PH-11
+> 11. **PH-12** — governance / licensing + BYO-key.
+> 12. **PH-DEFER** — paid adapters (Polygon / Tiingo / FMP / KIS).  ↳ PH-12
+>
+> **Research-desk UX (differentiators)**
+> 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
+> 14. **U3** — inline live artifacts + Board.  ↳ U2 ✅
+> 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
+> 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
+> 17. **U0** — onboarding, full flow.  ↳ U5  *(minimal onboarding already shippable on U1)*
+
+#### Item detail
+
 - ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,
   `/earnings/tickers`, `/company/facts/ciks`, `/prices/snapshot/market`, and `/filings/items` (filing
   text — also feeds PH-2). *(datasets, mostly S)*
@@ -179,8 +236,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   financial-metrics** (ratios across periods). *(datasets; needs PH-1 populated store)*
 - ⬜ **PH-7 · XBRL depth.** #20 **segments** + **as-reported** financials (XBRL direct parse, US+KR). *(L)*
 - ⬜ **PH-8 · Index/ETF holdings (#19).** US SEC N-PORT; KR KRX/DART later. *(M)*
-- ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (needs text ingestion + Gemini + metering).
-  *(depends PH-2)*
+- ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then
+  done once.)* When the text-bearing endpoints land (filing text via PH-5 `/filings/items`, segment/MD&A
+  text via PH-7, earnings-call transcripts, …), ingest them **all** through one pipeline → chunk → embed →
+  index per tenant (reusing the PH-2b news pipeline shape). Turns `rag__search` from news-only into the
+  full document corpus. *(datasets/rag; M)* — ↳ PH-5 (+ PH-7) for the text.
+- ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering). *(↳ PH-RAG text)*
 - ⬜ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfed.org` serves a
   **JS bot-wall (not JSON) from datacenter IPs** even with a valid key (confirmed: `coverage.sh` shows
   FRED `503 · datacenter IP wall`) → US macro breaks in cloud. Add a `macro_provider_us` selection (mirror
@@ -191,36 +252,28 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ⬜ **PH-DEFER · Paid adapters (#24)** (Polygon/Tiingo/FMP/KIS realtime; KR majorstock 5%) — needs keys;
   tie to BYO-key / governance (PH-12).
 
-#### Tier 3 — production hardening
 - ⬜ **PH-10 · Admin → real ops console.** Harden auth (hash/secret + rate-limit, drop `admin`/`admin`);
   styled dashboard (not raw HTML); job-history + RAG-index-stats + per-market store + per-tenant usage
   views; bulk-backfill form. *(admin)*
 - ⬜ **PH-11 · Productionization (#23).** Postgres + Redis (cache / rate-limit / quota / scheduler), **DB
   migrations (Alembic)**, real distributed job queue, CI running all tests, slim images,
-  observability/metrics.
+  observability/metrics. *(the infra gate — PH-2d, U4 scheduler, and cost quotas all sit on this.)*
+- ⬜ **PH-2d · Persistent + real-embedding defaults.** Default `oss-cpu` embedder + `pgvector` store (the
+  RAG corpus survives restarts; semantic search is real, not lexical). *(↳ PH-11 brings Postgres.)*
 - ⬜ **PH-12 · Governance / licensing enforcement + BYO-key.** Redistribution rules, BYO-key fallback for
   restricted feeds (`license.redistribution=false` → yahoo/news) — also unblocks U5 clone of yahoo/news
   and PH-DEFER paid adapters.
 
 ---
 
-### Phase 2 · Research-desk UX *(the differentiators — after PH)*
+### Phase 2 · Research-desk UX — milestone detail *(do-order is the linear list above)*
 
-> Converts "a chatbot with a data-source picker" into the research desk of `UX_SPEC.md`. Each milestone
-> names the services it touches and what it depends on. Foundation (U1, U-SHELL) is done.
+> Converts "a chatbot with a data-source picker" into the research desk of `UX_SPEC.md`. Foundation
+> (U1, U-SHELL-01, and **U2 = PH-4a–e**) is done; the blocks below detail the rest.
 
-**Priority at a glance**
+#### U2 — Source-preview cards  ✅  *(delivered via PH-4a–e — see Phase 1 above)*
+<details><summary>original spec (for reference)</summary>
 
-| # | Milestone | Pillar | Why this order | Depends |
-|---|---|---|---|---|
-| **U2** (=PH-4) | Source-preview cards | Trust | Highest "not-a-chatbot" proof per unit effort | PH-3 + citation metadata |
-| **U3** | Inline live artifacts + Board | Trust | Makes answers persistent & visual | U2 legend |
-| **U4** | Standing analysts (push) | Pull→Push | The daily reason to return; **subsumes F3 messengers** | U1, scheduler (PH-11) |
-| **U5** | Gallery: clone/substitution + publish | Ecosystem | Network effects; generalises F1/F2 clone | U1, U4, governance (PH-12) |
-| **U0** | Onboarding (cold-start) | all | First sourced value in < 90s | U1 (min) → U5 (full) |
-| **U-SHELL-02** | Thinking & tool indicator | Trust | Perceived quality; pull-anytime | SSE events (exists) |
-
-#### U2 — Source-preview cards  ⬜  *( ≡ PH-4; the signature)*
 **Goal:** every inline citation `[n]` opens a **type-aware preview** — filing (verbatim highlighted span),
 price/metric (computation + next refresh), news (snippet + "context only") — each with a freshness dot.
 - **datasets/rag:** citations carry enough to render the preview — `source`, `url`, `as_of`, `doc_type`,
@@ -235,6 +288,7 @@ price/metric (computation + next refresh), news (snippet + "context only") — e
 **Acceptance:** in a real answer, hovering a filing citation highlights the exact cited sentence on its
 filing page with `as_of` + freshness; a price citation shows connector + computation; a news citation
 shows the snippet labelled "맥락 정보 — 전망 아님".
+</details>
 
 #### U3 — Inline live artifacts + Board  ⬜
 **Goal:** figures render as **interactive cards backed by connectors** (refreshable), gaps are drawn, and
@@ -326,15 +380,10 @@ Tracked above under PH-5–PH-9 / PH-DEFER; listed here as the raw endpoint inve
 - ⬜ #20 Segments + as-reported financials (XBRL direct parse) → PH-7
 - ⬜ #21 Historical financial-metrics (derive ratios across periods from the store) → PH-6
 - ⬜ #22 KPIs via Gemini extraction from earnings releases → PH-9
+- ⬜ Document-text → RAG corpus (filing text, segments/MD&A, transcripts) → PH-RAG (consolidated; was PH-2c)
 - ⬜ #24 Paid adapters (Polygon/Tiingo/FMP, KIS realtime) + KR institutional (majorstock 5%) → PH-DEFER
 - ⬜ Cheap universe 501s (`/filings/tickers|ciks`, `/earnings/tickers`, `/company/facts/ciks`,
   `/prices/snapshot/market`, `/filings/items`) → PH-5
 
----
-
-## 5. Suggested sequence
-**Phase 1 (PH):** Tier 0 (PH-2) → Tier 1 (PH-15 → PH-4/U2) → Tier 2 (PH-5 first, it feeds PH-2/PH-6/PH-9;
-then PH-MACRO for cloud) → Tier 3 (PH-10 → PH-11 → PH-12).
-**Phase 2 (UX):** U2 (=PH-4) → U3 → U4 → U5, with **U0** shipped minimally alongside U1 (done) and
-completed after U5; **U-SHELL-02** pulled in whenever convenient.
-Keep this file's status markers + test totals current in the same PR as each task.
+> The do-order is the single linear list in §2 ("▶ Order of remaining work"). Keep this file's status
+> markers + test totals current in the same PR as each task.
