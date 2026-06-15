@@ -75,7 +75,8 @@ class Artifact(BaseModel):
     freshness: str | None = None
     ticker: str | None = None
     has_gap: bool = False
-    tool: str | None = None      # the tool that produced it (lets the web ↻ refresh)
+    tool: str | None = None      # the tool that produced it (lets a pinned card ↻ refresh)
+    args: dict | None = None     # the tool args, so a pinned card can re-fetch (U3-03)
 
 
 class Step(BaseModel):

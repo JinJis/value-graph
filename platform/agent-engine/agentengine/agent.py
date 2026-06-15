@@ -394,6 +394,7 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             for a in _artifacts(tool, result):
                 if a.title not in seen_artifacts:
                     seen_artifacts.add(a.title)
+                    a.args = decision.args or {}  # so a pinned card can re-fetch (U3-03)
                     artifacts.append(a)
             history.append((decision, result))
         if not answer:

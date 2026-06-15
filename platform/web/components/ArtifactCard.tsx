@@ -32,8 +32,9 @@ function fmt(y: number | null | undefined, unit?: string | null) {
   return y.toLocaleString();
 }
 
-export function ArtifactCard({ a }: { a: Artifact }) {
+export function ArtifactCard({ a, onPin, onRemove }: { a: Artifact; onPin?: () => void; onRemove?: () => void }) {
   const [table, setTable] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const xs = Array.from(new Set(a.series.flatMap((s) => s.points.map((p) => p.x)))).sort();
   const ys = a.series.flatMap((s) => s.points.map((p) => p.y)).filter((v): v is number => v != null);
   const unit = a.series[0]?.unit;
@@ -51,6 +52,15 @@ export function ArtifactCard({ a }: { a: Artifact }) {
         <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
           {table ? "📈 차트" : "⇄ 표로"}
         </button>
+        {onPin && (
+          <button type="button" className="artifact-toggle" disabled={pinned}
+            onClick={() => { onPin(); setPinned(true); }}>
+            {pinned ? "📌 핀됨" : "📌 핀"}
+          </button>
+        )}
+        {onRemove && (
+          <button type="button" className="artifact-toggle" onClick={onRemove} title="보드에서 제거">✕</button>
+        )}
       </div>
 
       {table ? (

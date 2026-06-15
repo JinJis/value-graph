@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 218 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 59 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 219 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 59 · studio-api 32 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -237,7 +237,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > **Research-desk UX (differentiators)**
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
 > 13b. ✅ **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder.
-> 14. 🚧 **U3** — inline live artifacts + Board.  ↳ U2 ✅  *(U3-01 ✅ spec · U3-02 ✅ web card · U3-03 Board)*
+> 14. 🚧 **U3** — inline live artifacts + Board.  ↳ U2 ✅  *(01 ✅ spec · 02 ✅ web card · 03a ✅ pin+Board · 03b refresh)*
 > 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
 > 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
 > 17. **U0** — onboarding, full flow.  ↳ U5  *(minimal onboarding already shippable on U1)*
@@ -367,9 +367,13 @@ cards can be **pinned to a Board** that auto-refreshes.
   ratios). Chat captures the `artifact` SSE event and renders cards under the assistant bubble. Web build
   green. **eval:** the harness now captures `artifact` events + an `expect_artifact` check; +1 scenario
   ("price chart → timeseries") → 20 scenarios. *(web + eval)*
-- ⬜ **U3-03 · Board (pin + persist + refresh).** studio-api `PinnedArtifact{id,user_email,spec(JSON)}` CRUD;
-  web Board screen = grid of pinned cards; `↻새로고침` re-runs the artifact's `tool` and reopening refetches
-  with a new `as_of`. *(studio-api + web)*
+- ✅ **U3-03a · Board (pin + persist + display).** studio-api `PinnedArtifact{id,user_email,title,spec(JSON)}`
+  + `/board` CRUD (per-user); the artifact spec carries `args` so a pin can later re-fetch. Web: **📌 핀**
+  button on each chat artifact card → `/api/board`; the **보드** rail tab renders the pinned cards in a grid
+  with ✕ remove. *(studio-api + web)* +1 studio test → 32; web build green.
+- ⬜ **U3-03b · Board refresh.** `↻새로고침` re-runs a pinned card's `tool`+`args` (agent-engine
+  `/agent/artifact/refresh` → re-shape → new `as_of`), and reopening the Board auto-refetches. *(agent-engine
+  + studio-api + web)*
 
 **Acceptance:** ask for a multi-name margin comparison → an interactive card with per-series sources +
 freshness; pin it; reopen the Board next day → refreshed values with a new `as_of`.

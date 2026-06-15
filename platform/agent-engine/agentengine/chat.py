@@ -133,6 +133,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 if a.title in seen_artifacts:
                     continue
                 seen_artifacts.add(a.title)
+                a.args = decision.args or {}     # so a pinned card can re-fetch (U3-03)
                 art = a.model_dump()
                 artifacts.append(art)
                 yield {"type": "artifact", "artifact": art}

@@ -101,6 +101,13 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .md th { background: var(--panel-2); font-family: var(--mono); }
 .md blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 10px; color: var(--muted); }
 
+/* U3-03: Board screen */
+.board { padding: 18px 22px; overflow-y: auto; }
+.board-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.board-head h3 { margin: 0; font-size: 16px; }
+.board-head .sub { color: var(--muted); font-size: 12px; }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+
 /* U3: inline live artifact cards */
 .artifacts { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
 .artifact { border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2); padding: 11px 12px; }

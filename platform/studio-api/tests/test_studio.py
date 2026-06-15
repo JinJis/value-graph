@@ -251,6 +251,28 @@ def test_agents_are_user_scoped(monkeypatch):
 
 
 @respx.mock
+@respx.mock
+def test_board_pin_list_unpin_user_scoped(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    spec = {"kind": "timeseries", "title": "AAPL 종가", "source": "Yahoo Finance", "tool": "yahoo__prices",
+            "series": [{"label": "종가", "points": [{"x": "2024-01-02", "y": 185.6}]}]}
+    pinned = client.post("/board", headers=_hdr("b@u.com"), json={"spec": spec}).json()
+    assert pinned["id"].startswith("pin") and pinned["title"] == "AAPL 종가"
+    assert pinned["spec"]["tool"] == "yahoo__prices"
+    mine = client.get("/board", headers=_hdr("b@u.com")).json()["pinned"]
+    assert any(p["id"] == pinned["id"] for p in mine)
+    # user-scoped: another user can't see it
+    other = client.get("/board", headers=_hdr("intruder-b@u.com")).json()["pinned"]
+    assert all(p["id"] != pinned["id"] for p in other)
+    # unpin
+    assert client.delete(f"/board/{pinned['id']}", headers=_hdr("b@u.com")).status_code == 200
+    assert client.get("/board", headers=_hdr("b@u.com")).json()["pinned"] == []
+    # a non-artifact spec is rejected
+    assert client.post("/board", headers=_hdr("b@u.com"), json={"spec": {"title": "x"}}).status_code == 422
+
+
+@respx.mock
 def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()

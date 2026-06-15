@@ -21,6 +21,7 @@ from studioapi.prompts import router as prompts_router
 from studioapi.prompts import seed_community_prompts
 from studioapi.search import router as search_router
 from studioapi.watchlists import router as watchlists_router
+from studioapi.board import router as board_router
 
 
 @asynccontextmanager
@@ -83,4 +84,5 @@ app.include_router(agents_router)
 app.include_router(connectors_router)
 app.include_router(prompts_router)
 app.include_router(watchlists_router)
+app.include_router(board_router)
 app.include_router(search_router)
