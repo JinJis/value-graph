@@ -101,6 +101,35 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .md th { background: var(--panel-2); font-family: var(--mono); }
 .md blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 10px; color: var(--muted); }
 
+/* U3-03: Board screen */
+.board { padding: 18px 22px; overflow-y: auto; }
+.board-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.board-head h3 { margin: 0; font-size: 16px; }
+.board-head .sub { color: var(--muted); font-size: 12px; }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+
+/* U3: inline live artifact cards */
+.artifacts { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+.artifact { border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2); padding: 11px 12px; }
+.artifact-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.artifact-title { font-size: 13px; font-weight: 600; }
+.artifact-head .fdot { margin-left: 2px; }
+.artifact-toggle { margin-left: auto; background: none; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); font-size: 11px; padding: 2px 9px; cursor: pointer; }
+.artifact-toggle:hover { color: var(--text); }
+.artifact-svg { width: 100%; height: 150px; display: block; }
+.artifact-xaxis { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.artifact-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.artifact-table th, .artifact-table td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: right; }
+.artifact-table th:first-child, .artifact-table td:first-child { text-align: left; }
+.artifact-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  margin-top: 8px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.artifact-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+.artifact-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.artifact-legend i { width: 12px; height: 2px; border-radius: 1px; display: inline-block; }
+.artifact-src { font-size: 11px; }
+.artifact-gap { color: var(--aging); }
+
 /* inline [n] anchors inside the prose */
 .anch { font-family: var(--mono); font-size: 9px; color: var(--muted); cursor: help;
   padding: 0 1px; vertical-align: super; line-height: 0; }

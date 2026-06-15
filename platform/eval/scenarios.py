@@ -13,6 +13,7 @@ honoured its data-source restrictions / guardrails.
   answer_regex       : the answer matches this regex (grounding, e.g. a figure)
   answer_contains    : the answer contains all of these substrings
   expect_refused     : the agent refused (guardrail)
+  expect_artifact    : an artifact (U3) was emitted — a kind string ("timeseries") or True for any
   judge              : run the deep-model rubric judge (see eval/RUBRIC.md)
 
 Top-level (optional):
@@ -158,6 +159,14 @@ SCENARIOS = [
         "criteria": "정규화·추정 없이 공시에 보고된 그대로(as-reported)의 항목/수치를 SEC EDGAR 출처와 함께 제시.",
         "checks": {"expect_connector": "sec_edgar__", "expect_status": 200, "expect_cite": "SEC EDGAR",
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        "name": "Live artifact → price chart (U3)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "AAPL의 최근 종가 흐름을 차트로 보여줘.",
+        "criteria": "최근 종가 추이를 수치와 함께 설명하고 Yahoo Finance 출처를 밝힘; 전망·매수의견 금지.",
+        "checks": {"expect_connector": "yahoo__", "expect_status": 200, "expect_artifact": "timeseries",
+                   "expect_cite": "Yahoo Finance", "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
         "name": "Historical metrics → margin/return trend (PH-6, store-backed)",

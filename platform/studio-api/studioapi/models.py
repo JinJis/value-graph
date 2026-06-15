@@ -123,6 +123,19 @@ class WatchlistItem(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class PinnedArtifact(Base):
+    """A live artifact (U3) the user pinned to their Board. ``spec`` is the JSON
+    artifact spec (kind/title/series/source/as_of/tool/args) — re-renderable, and
+    re-fetchable via its tool+args (U3-03b refresh)."""
+
+    __tablename__ = "pinned_artifacts"
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("pin"))
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    spec: Mapped[str] = mapped_column(Text)  # JSON artifact spec
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Integration(Base):
     __tablename__ = "integrations"
     id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("int"))

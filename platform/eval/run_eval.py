@@ -96,7 +96,7 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
     headers = {"X-Service-Token": SVC, "X-User-Email": USER, "Content-Type": "application/json"}
     code, raw = _request("POST", f"{STUDIO}/chat/stream",
                          {"messages": messages, "agent_id": agent_id}, headers)
-    tools, statuses, cites, ans = [], [], [], []
+    tools, statuses, cites, ans, arts = [], [], [], [], []
     refused = None
     for line in raw.decode("utf-8", "replace").splitlines():
         line = line.strip()
@@ -114,12 +114,15 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
         elif t == "citation":
             if ev.get("source"):
                 cites.append(ev["source"])
+        elif t == "artifact":
+            if ev.get("artifact"):
+                arts.append(ev["artifact"])
         elif t == "token":
             ans.append(ev.get("text", ""))
         elif t == "done":
             refused = ev.get("refused")
     return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
-            "answer": "".join(ans).strip(), "refused": bool(refused)}
+            "artifacts": arts, "answer": "".join(ans).strip(), "refused": bool(refused)}
 
 
 def chat(question: str, agent_id: str) -> dict:
@@ -208,6 +211,12 @@ def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
     if "expect_cite" in checks:
         c = checks["expect_cite"]
         out.append((f"cites {c}", any(c in s for s in r["citations"]), f"cites={r['citations']}"))
+    if "expect_artifact" in checks:
+        kind = checks["expect_artifact"]
+        arts = r.get("artifacts") or []
+        kinds = [a.get("kind") for a in arts]
+        ok = bool(arts) if kind is True else (kind in kinds)
+        out.append((f"emits artifact {kind if kind is not True else ''}".strip(), ok, f"artifacts={kinds}"))
     if "answer_regex" in checks:
         rx = checks["answer_regex"]
         out.append((f"answer matches /{rx}/", bool(re.search(rx, r["answer"])), r["answer"][:80]))

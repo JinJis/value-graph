@@ -7,9 +7,10 @@ import Watchlists, { Watchlist } from "./Watchlists";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
+import { Artifact, ArtifactCard } from "./ArtifactCard";
 
 type ToolUse = { name: string; label?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[] };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -46,9 +47,29 @@ export default function Chat({ name }: { name: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // shell view + watchlists / @groups
-  const [view, setView] = useState<"desk" | "watch">("desk");
+  const [view, setView] = useState<"desk" | "watch" | "board">("desk");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
+  const [pins, setPins] = useState<{ id: string; spec: Artifact }[]>([]);  // U3-03 Board
+
+  async function loadPins() {
+    try {
+      const r = await fetch("/api/board");
+      if (r.ok) setPins((await r.json()).pinned ?? []);
+    } catch {}
+  }
+  async function pinArtifact(a: Artifact) {
+    try { await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ spec: a }) }); } catch {}
+  }
+  async function unpin(id: string) {
+    try { await fetch(`/api/board/${id}`, { method: "DELETE" }); setPins((p) => p.filter((x) => x.id !== id)); } catch {}
+  }
+  async function refreshPin(id: string) {
+    try {
+      const r = await fetch(`/api/board/${id}/refresh`, { method: "POST" });
+      if (r.ok) { const fresh = await r.json(); setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: fresh.spec } : x))); }
+    } catch {}
+  }
 
   async function loadAgents() {
     try {
@@ -126,6 +147,10 @@ export default function Chat({ name }: { name: string }) {
             const a = { ...next[next.length - 1] };
             if (ev.type === "token") a.content += ev.text || "";
             else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
+            else if (ev.type === "artifact" && ev.artifact) {
+              const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
+              if (!dup) a.artifacts = [...(a.artifacts || []), ev.artifact as Artifact];
+            }
             else if (ev.type === "citation") {
               const cite: Citation = {
                 tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
@@ -169,7 +194,9 @@ export default function Chat({ name }: { name: string }) {
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
           <span className="ic">🏠</span>데스크
         </button>
-        <div className="rail-item soon" title="곧"><span className="ic">📊</span>보드<span className="soon-tag">곧</span></div>
+        <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => { setView("board"); loadPins(); }}>
+          <span className="ic">📊</span>보드
+        </button>
         <div className="rail-item soon" title="곧"><span className="ic">🧑‍💼</span>분석가<span className="soon-tag">곧</span></div>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
           <span className="ic">⭐</span>관심
@@ -183,6 +210,17 @@ export default function Chat({ name }: { name: string }) {
       <div className="main">
         {view === "watch" ? (
           <Watchlists embedded onChanged={loadHandles} />
+        ) : view === "board" ? (
+          <div className="board">
+            <div className="board-head"><h3>📊 보드</h3><span className="sub">핀한 라이브 아티팩트 · 열 때마다 출처·신선도 갱신</span></div>
+            {pins.length === 0 ? (
+              <p className="live-empty">아직 핀한 카드가 없어요. 답변의 차트 카드에서 <b>📌 핀</b>을 누르면 여기에 모여요.</p>
+            ) : (
+              <div className="board-grid">
+                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)} onRemove={() => unpin(p.id)} />)}
+              </div>
+            )}
+          </div>
         ) : (
           <>
             <header className="top">
@@ -232,6 +270,11 @@ export default function Chat({ name }: { name: string }) {
                           : m.content)
                       : (m.role === "assistant" && busy ? "…" : "")}
                   </div>
+                  {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
+                    <div className="artifacts">
+                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={() => pinArtifact(a)} />)}
+                    </div>
+                  )}
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
                     <details className="sources">
                       <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>

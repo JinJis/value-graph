@@ -39,6 +39,7 @@ Per scenario (`scenarios.py`), each present check is one graded item:
 | `expect_cite` | the answer cites the right source (per-chunk for RAG) |
 | `answer_regex` / `answer_contains` | the answer is **grounded** — contains the real figure / fact |
 | `expect_refused` | guardrail refuses forecast/advice (EN + KR) |
+| `expect_artifact` | an inline artifact (U3) was emitted — a `kind` (e.g. `"timeseries"`) or `True` for any |
 | `judge` | **deep-model rubric judge** — scores 5 dimensions 1–5 (see [`RUBRIC.md`](./RUBRIC.md)) |
 
 Each judged scenario also carries a one-line **`criteria`** ("what a correct answer to THIS question

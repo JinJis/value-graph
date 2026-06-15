@@ -19,7 +19,7 @@ from typing import AsyncIterator
 
 from agentengine import guardrails
 from agentengine.agent import (
-    _citations, anchor_markers, assess_budget, call_sig, fallback_answer,
+    _artifacts, _citations, anchor_markers, assess_budget, call_sig, fallback_answer,
     filter_tools, has_anchors, number_sources,
 )
 from agentengine.client import PlatformClient
@@ -51,7 +51,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     if refusal:
         for ch in _chunks(refusal):
             yield {"type": "token", "text": ch}
-        yield {"type": "done", "citations": [], "refused": True}
+        yield {"type": "done", "citations": [], "artifacts": [], "refused": True}
         return
 
     client = PlatformClient(api_key)
@@ -59,7 +59,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         tools = await client.fetch_tools()
     except Exception:
         yield {"type": "token", "text": "The data platform is unavailable right now."}
-        yield {"type": "done", "citations": [], "refused": False}
+        yield {"type": "done", "citations": [], "artifacts": [], "refused": False}
         return
     if spec and spec.allowed_tools:
         tools = filter_tools(tools, spec.allowed_tools)
@@ -69,6 +69,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
     history: list = []
     citations: list[dict] = []
+    artifacts: list[dict] = []
+    seen_artifacts: set = set()
     seen_cites: set = set()
     answered = False
     final_text = ""
@@ -127,6 +129,14 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 cit["index"] = len(citations) + 1  # 1-based [n] anchor
                 citations.append(cit)
                 yield {"type": "citation", **cit}
+            for a in _artifacts(tool, result):  # U3: connector-backed figure cards
+                if a.title in seen_artifacts:
+                    continue
+                seen_artifacts.add(a.title)
+                a.args = decision.args or {}     # so a pinned card can re-fetch (U3-03)
+                art = a.model_dump()
+                artifacts.append(art)
+                yield {"type": "artifact", "artifact": art}
             history.append((decision, result))
         if not answered:
             final_text = fallback_answer(citations)
@@ -142,4 +152,4 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # group so the answer ties to the citation chips (deterministic floor).
     if citations and final_text and not has_anchors(final_text):
         yield {"type": "token", "text": " " + anchor_markers([c.get("index") for c in citations])}
-    yield {"type": "done", "citations": citations, "refused": False}
+    yield {"type": "done", "citations": citations, "artifacts": artifacts, "refused": False}
