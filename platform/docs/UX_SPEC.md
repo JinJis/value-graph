@@ -252,6 +252,13 @@ triggers, channels** — NL-first, with a two-way structured form.
   rewrites the summary.
 - `데이터소스` lists **only activated connectors** (entitlement 1:1). A **strategy analyst** binds the
   screener (`/search/screener`) as its core tool instead of a watchlist.
+- **Data sources are toggleable AND expandable — expose the tools inside.** A connector groups several
+  tools; each connector row expands (▸) to reveal its **tools with a plain-language "what it does"**
+  (e.g. `datasets_store` → `metrics_history` "기간별 재무비율 추이", `screener`, `line_items`; `sec_edgar`
+  → `as_reported` "공시에 보고된 원본 XBRL 항목", `filings`, `company_facts`, …). Tool list + descriptions
+  come from the catalog `resources` (already in `/catalog`) — **no new data, just surface it.** This is on
+  brand: showing *exactly* what each analyst can touch is trust-by-construction. *(Selection stays at the
+  connector level; the expansion is for transparency. Per-tool selection is a possible later refinement.)*
 - **트리거 is a first-class concept**: cron + **Disclosure-Calendar event (D-3)** — this is the engine of
   push. Requires a disclosure-calendar endpoint (new task) + a scheduler that runs the agent headless.
 - **미리보기 실행** runs once before hiring → "지금 돌리면 이런 브리프가 옵니다" → trust before commit.

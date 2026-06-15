@@ -236,6 +236,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 >
 > **Research-desk UX (differentiators)**
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
+> 13b. **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder  *(pull anytime; small)*.
 > 14. **U3** — inline live artifacts + Board.  ↳ U2 ✅
 > 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
 > 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
@@ -421,6 +422,15 @@ Render the mascot's thinking animation/state in the chat message stream and a dy
 of active tool calls (e.g. "삼성전자 공시를 분석하는 중…", "Yahoo Finance 시세를 가져오는 중…") derived
 from the SSE `tool`/`tool_result` events. Independent of the other U milestones — pair it with PH answer-
 quality work for perceived-quality lift. *(web)*
+
+#### U-BUILDER-01 — Expandable data-source → tool transparency  ⬜  *(pull-anytime; small)*
+In the agent/analyst builder, each data-source (connector) row **expands (▸) to list the tools inside it
+with a plain-language description of what each does** — selection stays connector-level, the expansion is
+for transparency (showing *exactly* what an analyst can touch = trust-by-construction). Data already
+exists: the gateway `/catalog` returns each connector's `resources` (name + description). Surface it via
+`studio-api /connectors` (include `resources`) → `web/AgentBuilder.tsx` (collapsible connector with a tool
+sub-list). See `UX_SPEC.md` §5.5. *(studio-api + web; S)* — per-tool *selection* is a possible later
+refinement. *(motivated by the metrics_history tool being invisible behind the datasets_store connector.)*
 
 ---
 
