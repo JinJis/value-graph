@@ -24,7 +24,7 @@ router = APIRouter()
 _client = httpx.AsyncClient(timeout=settings.http_timeout_seconds)
 _limiter = RateLimiter(settings.rate_limit_per_minute)
 
-_HOP = {"host", "content-length", "x-api-key", "x-admin-token", "connection"}
+_HOP = {"host", "content-length", "x-api-key", "x-admin-token", "connection", "x-tenant-id"}
 
 
 def _audit(project_id, key_id, action: str, detail: str) -> None:
@@ -40,11 +40,13 @@ def _meter(project_id, key_id, connector_id, method, path, status, cost, latency
         db.commit()
 
 
-async def _proxy(method, path, request, *, connector_id, cost=0, project_id=None, key_id=None, base_url=None) -> Response:
+async def _proxy(method, path, request, *, connector_id, cost=0, project_id=None, key_id=None, base_url=None, extra_headers=None) -> Response:
     url = f"{base_url or settings.datasets_url}{path}"
     if request.url.query:
         url += f"?{request.url.query}"
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP}
+    if extra_headers:
+        headers.update(extra_headers)
     started = time.monotonic()
     try:
         upstream = await _client.request(method, url, content=await request.body(), headers=headers)
@@ -80,7 +82,7 @@ async def gateway(full_path: str, request: Request) -> Response:
         project_id, key_id = api_key.project_id, api_key.id
 
     # 2) entitlement (only catalog-governed paths)
-    connector_id, cost, base_url = None, 0, settings.datasets_url
+    connector_id, cost, base_url, extra_headers = None, 0, settings.datasets_url, None
     if is_governed(method, path):
         cands = candidate_connectors(method, path, market)
         cand_ids = [c["connector_id"] for c in cands]
@@ -100,11 +102,17 @@ async def gateway(full_path: str, request: Request) -> Response:
             _audit(project_id, key_id, "denied", f"{method} {path} market={market} needs one of {cand_ids}")
             raise HTTPException(403, f"Not entitled — activate one of {cand_ids} for this project.")
         connector_id, cost = chosen["connector_id"], cost_units(chosen["cost_tier"])
-        base_url = settings.rag_url if chosen.get("service") == "rag" else settings.datasets_url
+        is_rag = chosen.get("service") == "rag"
+        base_url = settings.rag_url if is_rag else settings.datasets_url
+        # RAG is the only multi-tenant data store — scope it to the caller's project so
+        # one tenant's ingested docs never surface in another's search.
+        if is_rag:
+            extra_headers = {"X-Tenant-Id": project_id}
 
     # 3) rate limit
     if not _limiter.allow(key_id):
         raise HTTPException(429, "Rate limit exceeded.")
 
     # 4) proxy + meter + audit
-    return await _proxy(method, path, request, connector_id=connector_id, cost=cost, project_id=project_id, key_id=key_id, base_url=base_url)
+    return await _proxy(method, path, request, connector_id=connector_id, cost=cost,
+                        project_id=project_id, key_id=key_id, base_url=base_url, extra_headers=extra_headers)

@@ -6,7 +6,7 @@ the same service runs CPU-OSS, GCP (Vertex), or GPU without code changes.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from rag.config import settings
 from rag.ingest import ingest_docs
@@ -17,6 +17,10 @@ app = FastAPI(
     title="Platform RAG", version="0.1.0",
     description="Provenance-first RAG with pluggable embedding/reranker/store backends.",
 )
+
+# Header the gateway injects from the caller's authenticated key (control-plane
+# project_id). Direct callers (admin ops, dev) omit it → docs stay unscoped/global.
+_TENANT_HEADER = "x-tenant-id"
 
 
 @app.get("/health", tags=["Meta"])
@@ -35,13 +39,22 @@ async def info() -> dict:
 
 
 @app.post("/rag/ingest", tags=["RAG"], summary="Ingest documents (chunk + embed + store)")
-async def ingest(body: IngestRequest) -> dict:
+async def ingest(body: IngestRequest, request: Request) -> dict:
+    # The gateway stamps the tenant from the caller's key; it's authoritative and
+    # overrides anything a client put in the body (clients can't ingest for others).
+    tenant = request.headers.get(_TENANT_HEADER)
+    if tenant:
+        for doc in body.documents:
+            doc.tenant = tenant
     n = await ingest_docs(body.documents)
     return {"chunks": n}
 
 
 @app.post("/rag/search", tags=["RAG"], summary="Retrieve passages with provenance")
-async def search(body: SearchRequest) -> dict:
+async def search(body: SearchRequest, request: Request) -> dict:
     filters = {k: v for k, v in (("ticker", body.ticker), ("market", body.market)) if v}
+    tenant = request.headers.get(_TENANT_HEADER)
+    if tenant:
+        filters["tenant"] = tenant
     hits = await run_search(body.query, body.top_k, filters)
     return {"hits": [h.model_dump() for h in hits]}

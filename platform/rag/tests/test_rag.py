@@ -113,6 +113,42 @@ async def test_search_on_empty_store_returns_nothing():
     assert await search("anything at all", top_k=5) == []
 
 
+# --- PH-2a: per-tenant document isolation -------------------------------------
+_HDR_A = {"X-Tenant-Id": "ten_a"}
+_HDR_B = {"X-Tenant-Id": "ten_b"}
+
+
+def _ingest(text: str, headers: dict | None = None):
+    return client.post("/rag/ingest", json={"documents": [{"text": text, "source": "SEC EDGAR"}]},
+                       headers=headers or {})
+
+
+def test_tenant_cannot_see_another_tenants_docs():
+    _reset()
+    _ingest("Acme builds widgets exclusively for tenant A.", _HDR_A)
+    # tenant B searches the same query → must not see tenant A's private doc
+    resb = client.post("/rag/search", json={"query": "Acme widgets", "top_k": 5}, headers=_HDR_B).json()
+    assert resb["hits"] == []
+    # tenant A sees its own doc
+    resa = client.post("/rag/search", json={"query": "Acme widgets", "top_k": 5}, headers=_HDR_A).json()
+    assert resa["hits"] and "Acme" in resa["hits"][0]["text"]
+
+
+def test_global_docs_visible_to_every_tenant():
+    _reset()
+    _ingest("Apple sources chips from TSMC, a key supplier.")  # no header → global
+    # a scoped tenant still sees the shared/global corpus
+    res = client.post("/rag/search", json={"query": "Apple TSMC supplier chips", "top_k": 5}, headers=_HDR_A).json()
+    assert res["hits"] and "TSMC" in res["hits"][0]["text"]
+
+
+def test_tenant_not_leaked_into_provenance():
+    _reset()
+    _ingest("Tenant-scoped note about chips.", _HDR_A)
+    res = client.post("/rag/search", json={"query": "chips note", "top_k": 5}, headers=_HDR_A).json()
+    assert res["hits"] and "tenant" not in res["hits"][0]["provenance"]
+
+
 async def test_search_respects_top_k():
     _reset()
     await ingest_docs([

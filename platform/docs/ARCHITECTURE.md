@@ -88,6 +88,13 @@ or `rag` (chosen by path · market · `service`); ⑥ the provider adapter fetch
 the ingestion store). External MCP clients hit the exact same gateway, so entitlement + metering are
 identical no matter who calls.
 
+**Tenant isolation in RAG.** `rag` is the one multi-tenant *store* (it holds ingested docs, not just
+proxied upstream data), so when the gateway proxies to it, it injects `X-Tenant-Id` from the caller's
+authenticated `project_id` (any client-supplied value is stripped — no spoofing). RAG stamps that tenant
+onto ingested chunks and scopes search to **own-tenant OR global (unscoped)** docs: a tenant's ingested
+news never surfaces in another's search, while a shared/seeded corpus (ingested without a tenant) stays
+visible to all. The tenant key is an isolation dimension only — it's never part of user-facing provenance.
+
 **Response / data flow.** Each datum and RAG chunk carries `source · as_of · url`; the agent turns those
 into **citations**, the gateway stamps `x-connector` / `x-cost-units`, studio-api persists the assistant
 message + citations, and the answer streams back to the browser as SSE (`token` → `tool` → `citation` →
