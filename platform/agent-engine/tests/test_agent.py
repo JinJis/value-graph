@@ -165,8 +165,9 @@ def test_rag_citation_is_enriched_for_preview_card():
 # --- U3: connector-backed artifacts -------------------------------------------
 def test_artifacts_from_prices_timeseries():
     tool = {"name": "yahoo__prices", "source": "Yahoo Finance"}
+    # real Price shape: the date is in `time` (no `date` field), value in `close`
     result = {"data": {"ticker": "AAPL", "prices": [
-        {"date": "2024-01-02", "close": 185.6}, {"date": "2024-01-03", "close": 184.2}]}}
+        {"time": "2024-01-02", "close": 185.6}, {"time": "2024-01-03", "close": 184.2}]}}
     arts = A._artifacts(tool, result)
     assert len(arts) == 1
     a = arts[0]
@@ -195,7 +196,7 @@ async def test_run_agent_emits_price_artifact(monkeypatch):
     _gw(monkeypatch)
     _catalog()
     respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
-        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"date": "2024-01-02", "close": 185.6}]},
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-01-02", "close": 185.6}]},
                                     headers={"x-connector": "yahoo"}))
     res = await A.run_agent("AAPL price chart", "vgk_x")
     assert res.artifacts and res.artifacts[0].kind == "timeseries" and res.artifacts[0].source == "Yahoo Finance"
@@ -208,7 +209,7 @@ async def test_chat_stream_emits_artifact_event(monkeypatch):
     _gw(monkeypatch)
     _catalog()
     respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
-        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"date": "2024-01-02", "close": 185.6}]},
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-01-02", "close": 185.6}]},
                                     headers={"x-connector": "yahoo"}))
     events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price chart"}], "vgk_x")]
     art = next((e for e in events if e["type"] == "artifact"), None)

@@ -174,8 +174,9 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
     out: list[Artifact] = []
 
     if name.endswith("__prices") and isinstance(data.get("prices"), list):
-        pts = [ArtifactPoint(x=str(p.get("date")), y=_num(p.get("close")))
-               for p in data["prices"] if p.get("date")]
+        # the Price model's date lives in `time` (no `date` field); take the date part.
+        pts = [ArtifactPoint(x=str(p.get("time"))[:10], y=_num(p.get("close")))
+               for p in data["prices"] if p.get("time")]
         a = _timeseries(f"{data.get('ticker') or ''} 종가", [ArtifactSeries(label="종가", points=pts)],
                         src, name, data.get("ticker"))
         if a:
