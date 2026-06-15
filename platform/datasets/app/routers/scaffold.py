@@ -31,7 +31,6 @@ _UNBUILT_GET: list[tuple[str, str]] = [
     ("/financials/income-statements/as-reported", "Financial Statements"),
     ("/financials/balance-sheets/as-reported", "Financial Statements"),
     ("/financials/cash-flow-statements/as-reported", "Financial Statements"),
-    ("/financials/as-reported", "Financial Statements"),
     ("/filings/items", "SEC Filings"),
     ("/filings/items/types", "SEC Filings"),
     ("/kpi/metrics", "KPIs"),

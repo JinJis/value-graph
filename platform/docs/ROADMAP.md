@@ -12,10 +12,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 212 unit** — datasets 84 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 213 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (18 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (19 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -210,7 +210,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 3. ✅ **PH-6a** — historical financial-metrics (store-backed ratios) → MCP tool.  · **PH-6b** (13F
 >    ticker-mode / reverse-CUSIP) deferred — needs a 13F-holdings index, not the facts store.
 > 4. **PH-8** — index / ETF holdings (SEC N-PORT).
-> 5. **PH-7** — XBRL depth: segments + as-reported.
+> 5. 🚧 **PH-7a** — XBRL as-reported (US) → MCP tool `sec_edgar__as_reported`.  · **PH-7b** (segments +
+>    statement-specific as-reported + KR DART XBRL) deferred (dimensional/heavier parse).
 > 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
 >    segment/MD&A from PH-7, transcripts, … + news ✅) → chunk·embed·index.  ↳ PH-5 / PH-7 text  *(was PH-2c)*
 > 7. **PH-9** — KPIs via Gemini from filings/earnings text.  ↳ PH-RAG
@@ -247,7 +248,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ⬜ **PH-6b · 13F ticker-mode (#18).** "which filers hold this security" — needs a **reverse-CUSIP /
   13F-holdings index** (the facts store doesn't hold 13F holdings), so it's a heavier ingestion job, not a
   store query. Deferred. *(datasets; M–L)*
-- ⬜ **PH-7 · XBRL depth.** #20 **segments** + **as-reported** financials (XBRL direct parse, US+KR). *(L)*
+- 🚧 **PH-7 · XBRL depth (#20).**
+  - ✅ **PH-7a · as-reported (US).** `/financials/as-reported` (was 501) returns every us-gaap XBRL concept
+    **exactly as filed**, per period (latest-filed value per concept; gaps absent, never faked), from SEC
+    company-facts. **New MCP tool `sec_edgar__as_reported`** (catalog resource; coverage "all 33"; eval
+    scenario added). *(datasets)* +1 test → 85.
+  - ⬜ **PH-7b · segments + statement-specific as-reported + KR.** Business/geographic **segments** are
+    dimensional XBRL (not in company-facts → needs the filing's R-files/frames); the 3 statement-specific
+    `…/as-reported` splits; and **KR DART XBRL** as-reported. Heavier parse — deferred. *(datasets; L)*
 - ⬜ **PH-8 · Index/ETF holdings (#19).** US SEC N-PORT; KR KRX/DART later. *(M)*
 - ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then
   done once.)* When the text-bearing endpoints land (filing text via PH-5 `/filings/items`, segment/MD&A

@@ -152,6 +152,14 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        "name": "As-reported XBRL → SEC EDGAR (PH-7)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "Apple(AAPL)이 가장 최근 연간 보고서에 XBRL로 보고한 원본 재무 항목(예: Revenues, Assets)을 수치로 알려줘.",
+        "criteria": "정규화·추정 없이 공시에 보고된 그대로(as-reported)의 항목/수치를 SEC EDGAR 출처와 함께 제시.",
+        "checks": {"expect_connector": "sec_edgar__", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Historical metrics → margin/return trend (PH-6, store-backed)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
         "question": "Apple(AAPL)의 최근 몇 년간 매출총이익률(gross margin)과 순이익률 추이를 알려줘.",

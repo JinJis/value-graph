@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from app.deps import ApiKeyDep, MarketParam
 from app.filters import ReportPeriodFilters
 from app.models.generated import (
+    AsReportedResponse,
     BalanceSheetResponse,
     CashFlowStatementResponse,
     Financials,
@@ -83,6 +84,29 @@ async def get_cash_flow_statements(
     ref = build_ref(market, ticker, cik)
     rows = await get_financials_provider(market).cash_flow_statements(ref, period, filters.fetch_limit(limit))
     return CashFlowStatementResponse(cash_flow_statements=filters.apply(rows, limit))
+
+
+@router.get(
+    "/financials/as-reported",
+    response_model=AsReportedResponse,
+    dependencies=[ApiKeyDep],
+    summary="Financials exactly as reported in XBRL (raw us-gaap concepts)",
+    description=(
+        "Returns every XBRL concept exactly as filed (not normalised to our schema), per period — the "
+        "auditable 'as-reported' view. US (SEC XBRL) only for now; KR (DART XBRL) is PH-7b. Gaps stay "
+        "absent, never fabricated."
+    ),
+)
+async def get_financials_as_reported(
+    ticker: str = Query(..., description="The ticker symbol."),
+    period: str = Query("annual", description="annual | quarterly | ttm"),
+    limit: int = Query(4, ge=1, le=20, description="Number of recent periods."),
+    market: MarketParam = Market.US,
+) -> AsReportedResponse:
+    _check_period(period)
+    ref = build_ref(market, ticker)
+    periods = await get_financials_provider(market).as_reported(ref, period, limit)
+    return AsReportedResponse(ticker=ref.ticker, period=period, periods=periods)
 
 
 @router.get("/financials", response_model=FinancialsResponse, dependencies=[ApiKeyDep])
