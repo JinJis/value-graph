@@ -1828,6 +1828,14 @@ class FinancialMetricSnapshotResponse(BaseModel):
     snapshot: FinancialMetricSnapshot | None = None
 
 
+class FinancialMetricsHistoryResponse(BaseModel):
+    """Derived financial ratios across periods (store-backed; PH-6)."""
+
+    ticker: str | None = None
+    period: str | None = None
+    metrics: list[FinancialMetricsResponse] | None = None
+
+
 class InterestRatesResponse(BaseModel):
     interest_rates: list[InterestRate] | None = None
 
