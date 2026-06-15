@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FreshnessDot } from "./SourceCard";
+import { FreshnessDot } from "./ui";
 
 // U3-02: render a connector-backed Artifact as an interactive card — a dependency-free
 // SVG line chart (matte palette) with a 차트/표 toggle, source + freshness, drawn gaps.

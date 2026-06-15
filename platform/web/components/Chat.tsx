@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
 import { Artifact, ArtifactCard } from "./ArtifactCard";
+import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean };
@@ -192,21 +193,28 @@ export default function Chat({ name }: { name: string }) {
   return (
     <div className={`shell ${view === "desk" ? "" : "no-right"}`}>
       <nav className="rail">
-        <div className="rail-brand"><span className="mascot" aria-hidden /></div>
+        <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">VALUE·GRAPH</span></div>
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
-          <span className="ic">🏠</span>데스크
+          <span className="ic">🏠</span><span className="lbl">데스크</span>
         </button>
         <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => { setView("board"); loadPins(); }}>
-          <span className="ic">📊</span>보드
+          <span className="ic">📊</span><span className="lbl">보드</span>
         </button>
-        <div className="rail-item soon" title="곧"><span className="ic">🧑‍💼</span>분석가<span className="soon-tag">곧</span></div>
+        <div className="rail-item soon" title="곧"><span className="ic">🧑‍💼</span><span className="lbl">분석가</span><span className="soon-tag">곧</span></div>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
-          <span className="ic">⭐</span>관심
+          <span className="ic">⭐</span><span className="lbl">관심</span>
         </button>
-        <div className="rail-item soon" title="곧"><span className="ic">🔔</span>브리프<span className="soon-tag">곧</span></div>
-        <div className="rail-item soon" title="곧"><span className="ic">🛒</span>갤러리<span className="soon-tag">곧</span></div>
+        <div className="rail-item soon" title="곧"><span className="ic">🔔</span><span className="lbl">브리프</span><span className="soon-tag">곧</span></div>
+        <div className="rail-item soon" title="곧"><span className="ic">🛒</span><span className="lbl">갤러리</span><span className="soon-tag">곧</span></div>
         <div className="rail-spacer" />
-        <div className="rail-foot"><span title={name}>{(name?.split("@")[0] ?? "me").slice(0, 9)}</span><a href="/api/auth/signout">로그아웃</a></div>
+        <div className="rail-foot">
+          <span className="acct-ava" aria-hidden />
+          <div className="acct-meta">
+            <span className="acct-name" title={name}>{(name?.split("@")[0] ?? "me").slice(0, 12)}</span>
+            <span className="acct-sub">tenant ✓</span>
+          </div>
+          <a href="/api/auth/signout" title="로그아웃">↩</a>
+        </div>
       </nav>
 
       <div className="main">
@@ -226,7 +234,9 @@ export default function Chat({ name }: { name: string }) {
         ) : (
           <>
             <header className="top">
-              <div className="agentbar">
+              <div className="desk-id">
+                <Mascot />
+                <FreshnessDot f="fresh" />
                 <select className="agentpick" value={agentId} onChange={(e) => setAgentId(e.target.value)} title="분석가 선택">
                   <option value="">기본 에이전트</option>
                   {agents.some((a) => a.is_template) && (
@@ -240,13 +250,14 @@ export default function Chat({ name }: { name: string }) {
                     </optgroup>
                   )}
                 </select>
-                <button className="btn ghost sm" onClick={() => setBuilder({ open: true, base: selected })}
-                  title={selected ? "선택한 분석가 편집/복제" : "새 분석가 만들기"}>
-                  {selected ? (selected.editable ? "편집" : "복제") : "＋ 분석가"}
-                </button>
-                <button className="btn ghost sm" onClick={() => setLibrary(true)} title="프롬프트 라이브러리">프롬프트</button>
               </div>
-              <div className="who">데스크</div>
+              <div className="agentbar">
+                <Button variant="ghost" size="sm" onClick={() => setBuilder({ open: true, base: selected })}
+                  title={selected ? "선택한 분석가 편집/복제" : "새 분석가 만들기"}>
+                  {selected ? (selected.editable ? "⚙ 편집" : "⧉ 복제") : "＋ 분석가"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setLibrary(true)} title="프롬프트 라이브러리">프롬프트</Button>
+              </div>
             </header>
 
             <main className="chat" ref={scrollRef}>
@@ -273,7 +284,7 @@ export default function Chat({ name }: { name: string }) {
                       : (m.role === "assistant" && busy ? "…" : "")}
                   </div>
                   {m.role === "assistant" && m.refused && (
-                    <div className="guard">🛡 매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</div>
+                    <GuardrailLabel>매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</GuardrailLabel>
                   )}
                   {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
                     <div className="artifacts">
@@ -310,15 +321,17 @@ export default function Chat({ name }: { name: string }) {
               <form onSubmit={(e) => { e.preventDefault(); if (mention.length) { pickHandle(mention[0]); return; } send(input); }}>
                 <input ref={inputRef} className="input" value={input} onChange={(e) => onInput(e.target.value)}
                   onBlur={() => setTimeout(() => setMention([]), 120)}
-                  placeholder="메시지를 입력하거나 @그룹 으로 관심 종목을 호출…" disabled={busy} />
-                <button className="btn" disabled={busy || !input.trim()}>보내기</button>
+                  placeholder="무엇이든 물어보거나 — /프롬프트 · @그룹 호출…" disabled={busy} />
+                <Button disabled={busy || !input.trim()}>보내기</Button>
               </form>
               <div className="composer-meta">
                 {(input.match(/@([^\s@]+)/g) ?? []).slice(0, 3).map((h) => (
-                  <span key={h} className="ghandle">{h}</span>
+                  <Chip key={h} tone="accent">{h}</Chip>
                 ))}
                 <span className="grow" />
-                {liveCites.length > 0 && <span>📎 소스 {liveCites.length}</span>}
+                {liveCites.length > 0 && (
+                  <span className="cmeta-src">📎 소스 {liveCites.length}<FreshnessDot f={liveCites[0]?.freshness} /></span>
+                )}
               </div>
               <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
             </footer>

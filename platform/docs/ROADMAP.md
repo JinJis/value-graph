@@ -111,6 +111,15 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     composer trust-meta. Tokens + templates documented in `docs/DESIGN_SYSTEM.md`; components consume
     tokens (no hardcoded hex). Confidence tiers kept spec-only (no `confidence` field yet → not faked).
     Web build green; stack boots; light tokens verified in the compiled bundle.
+  - ✅ **U-SHELL-DS · unified design system + Desk 1:1** — added the primitive library
+    `web/components/ui.tsx` (`Button`/`Chip`/`Card`/`FreshnessDot`/`TrustLegend`/`GuardrailLabel`/
+    `Mascot`/`Modal`) as the single source for recurring patterns; refactored Chat/AgentBuilder/
+    PromptLibrary/Watchlists/SourceCard/ArtifactCard to compose them (one `FreshnessDot`, one
+    `Modal`). Rebuilt the **Desk** to the wireframe composition: horizontal rail (brand wordmark ·
+    nav rows · account footer with `tenant ✓`), analyst header (mascot + status dot + switcher),
+    composer placeholder + @group chips + source meta, source-preview card C layout. API documented
+    in `docs/DESIGN_SYSTEM.md` §4. Web build green; DS classes verified in the bundle. (D–I screens
+    next, on confirmation.)
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Button, Mascot, Modal } from "./ui";
 
 export type WatchItem = { id: string; market: string; ticker: string; name?: string | null };
 export type Watchlist = { id: string; name: string; handle: string; count: number; items: WatchItem[] };
@@ -92,21 +93,13 @@ export default function Watchlists(
 
   const body = (
       <>
-        {embedded ? (
-          <div className="embed-head"><h3><span className="mascot" aria-hidden /> 관심 종목</h3></div>
-        ) : (
-          <div className="modal-head">
-            <h3><span className="mascot" aria-hidden /> 관심 종목</h3>
-            <button className="x" onClick={onClose}>✕</button>
-          </div>
-        )}
         {err && <div className="err">{err}</div>}
 
         <div className="newprompt" style={{ display: "flex", gap: 8 }}>
           <input className="input" placeholder="새 그룹 이름 (예: 반도체바스켓)" value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") createGroup(); }} />
-          <button className="btn" onClick={createGroup} disabled={!newName.trim()}>＋ 그룹</button>
+          <Button onClick={createGroup} disabled={!newName.trim()}>＋ 그룹</Button>
         </div>
 
         {lists.length === 0 ? (
@@ -128,8 +121,8 @@ export default function Watchlists(
                   <div className="modal-foot">
                     <b className="mono">@{active.name}</b>
                     <span className="grow" />
-                    <button className="btn ghost sm" onClick={renameGroup}>이름 변경</button>
-                    <button className="btn danger sm" onClick={deleteGroup}>삭제</button>
+                    <Button variant="ghost" size="sm" onClick={renameGroup}>이름 변경</Button>
+                    <Button variant="danger" size="sm" onClick={deleteGroup}>삭제</Button>
                   </div>
 
                   <div className="wl-searchbar">
@@ -172,10 +165,17 @@ export default function Watchlists(
       </>
   );
 
-  if (embedded) return <div className="embed">{body}</div>;
+  if (embedded) {
+    return (
+      <div className="embed">
+        <div className="embed-head"><h3><Mascot /> 관심 종목</h3></div>
+        {body}
+      </div>
+    );
+  }
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()}>{body}</div>
-    </div>
+    <Modal title={<><Mascot /> 관심 종목</>} wide onClose={() => onClose?.()}>
+      {body}
+    </Modal>
   );
 }

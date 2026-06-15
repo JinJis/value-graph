@@ -73,7 +73,28 @@
   `@handle` group; that handle is the unit the composer and builder bind to.
 - **Prompt library** `.tabs`/`.prompt-card` — mine ↔ community, clone-import pattern.
 
-## 4. Rules
+## 4. Primitive library — `web/components/ui.tsx`
+One module owns the recurring patterns; every screen composes these instead of
+re-deriving markup/classes. This is what keeps the language unified.
+
+| Primitive | API | Used by |
+|---|---|---|
+| `Button` | `variant: primary\|ghost\|danger`, `size: md\|sm` | composer, header, builder, prompt lib, watchlists |
+| `Chip` | `tone: default\|accent\|ink`, `dot?`, `onClick?` | composer @groups, builder tags |
+| `Card` | `head?`, `foot?`, `elevated?` | generic surface (artifact/source cards keep bespoke layout) |
+| `FreshnessDot` / `TrustLegend` | `f` ∈ fresh/aging/stale/gap | everywhere a figure appears (single source) |
+| `GuardrailLabel` | `icon?`, children | refused turns, builder, (Live feed uses `.live-label`) |
+| `Mascot` | `size?` | rail brand, header, watchlists, builder |
+| `Modal` | `title`, `onClose`, `wide?`, `footer?` | builder, prompt library, watchlists |
+
+Tokens live in `globals.css :root`; primitives own the structural classNames
+(`.btn`, `.chip-ui`, `.card-ui`, `.modal`, `.fdot`, `.guard`, …) that consume them.
+`SourceCard`/`ArtifactCard` import their trust primitives from `ui` so there is exactly
+one `FreshnessDot`.
+
+## 5. Rules
+- Build new screens by composing `ui.tsx` primitives; reach for raw markup only for
+  genuinely bespoke layout (charts, the source-card C internals).
 - Consume tokens; never hardcode hex in components (except SVG strokes).
 - Numbers, tickers, timestamps, `[n]` → `.mono`.
 - Any user-visible figure shows source + as_of + freshness.
