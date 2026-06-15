@@ -15,7 +15,7 @@
 > **Test totals (current): 218 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 59 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (19 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -365,7 +365,8 @@ cards can be **pinned to a Board** that auto-refreshes.
   dependency-free **SVG multi-series line chart** (matte palette, neutral + sparse accent), `⇄표로 보기`
   toggle, dashed line when `has_gap`, source + freshness dot + as_of, value formatting (T/B/M, % for
   ratios). Chat captures the `artifact` SSE event and renders cards under the assistant bubble. Web build
-  green. *(web)*
+  green. **eval:** the harness now captures `artifact` events + an `expect_artifact` check; +1 scenario
+  ("price chart → timeseries") → 20 scenarios. *(web + eval)*
 - ⬜ **U3-03 · Board (pin + persist + refresh).** studio-api `PinnedArtifact{id,user_email,spec(JSON)}` CRUD;
   web Board screen = grid of pinned cards; `↻새로고침` re-runs the artifact's `tool` and reopening refetches
   with a new `as_of`. *(studio-api + web)*
