@@ -300,6 +300,79 @@ async def test_chat_stream_emits_trailing_anchor(monkeypatch):
     assert cite["index"] == 1
 
 
+# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
+async def test_assess_budget_uses_llm_then_clamps(monkeypatch):
+    from agentengine.config import settings
+
+    async def _eleven(task):
+        return 11
+
+    async def _huge(task):
+        return 999
+
+    # gemini backend → the light model's estimate is used (clamped to the cap)
+    monkeypatch.setattr(A, "_llm_steps", _eleven)
+    assert await A.assess_budget("엔비디아 공급망·리스크 공시 요약", backend="gemini") == 11
+    monkeypatch.setattr(A, "_llm_steps", _huge)
+    assert await A.assess_budget("x", backend="gemini") == settings.max_steps_cap  # clamped
+
+
+async def test_assess_budget_falls_back_without_llm(monkeypatch):
+    from agentengine.config import settings
+    # stub backend never calls the model → plain default (no hardcoded keyword rules)
+    assert await A.assess_budget("anything", backend="stub") == settings.max_steps
+
+    async def _boom(task):
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr(A, "_llm_steps", _boom)
+    assert await A.assess_budget("anything", backend="gemini") == settings.max_steps  # graceful
+
+
+def test_call_sig_detects_repeat():
+    from agentengine.planner import Decision
+    a = Decision(tool="sec_edgar__filings", args={"ticker": "NVDA"})
+    b = Decision(tool="sec_edgar__filings", args={"ticker": "NVDA"})
+    c = Decision(tool="sec_edgar__filings", args={"ticker": "AAPL"})
+    assert A.call_sig(a) == A.call_sig(b) and A.call_sig(a) != A.call_sig(c)
+    assert A.call_sig(Decision(final="done")) is None
+
+
+def test_fallback_answer_is_nonempty_and_anchored():
+    from agentengine.models import Citation
+    out = A.fallback_answer([Citation(tool="t", source="SEC EDGAR", index=1),
+                             Citation(tool="t", source="Reuters", index=2)])
+    assert out and "Reached the step limit" not in out
+    assert "SEC EDGAR" in out and A.has_anchors(out)
+    assert A.fallback_answer([])  # still non-empty with no citations
+
+
+@respx.mock
+async def test_run_agent_recovers_from_stuck_planner(monkeypatch):
+    # a planner that never finalizes (keeps proposing the same tool) must NOT leak
+    # "Reached the step limit." — the repeat-guard + fallback yield a real answer.
+    from agentengine.planner import Decision
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"})
+    )
+
+    class StuckPlanner:
+        async def plan(self, task, tools, history, system=None, conversation=None,
+                       force_final=False, sources=None):
+            if force_final:
+                return Decision(final="")  # empty even when forced → exercises the fallback
+            return Decision(tool="yahoo__prices", args={"ticker": "AAPL"})
+
+    monkeypatch.setattr(A, "get_planner", lambda _b=None: StuckPlanner())
+    res = await A.run_agent("AAPL price please", "vgk_x")
+    assert res.answer and "Reached the step limit" not in res.answer
+    assert A.has_anchors(res.answer)              # fallback is source-anchored
+    assert len(res.steps) <= 2                    # repeat-guard stopped the loop early
+
+
 @respx.mock
 async def test_run_refuses_forecast(monkeypatch):
     _gw(monkeypatch)

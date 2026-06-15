@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 201 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 49 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 206 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
@@ -162,10 +162,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   to GenAI (sequential tool calls), `thought_signature` mapping (avoids 400 on chained calls), public
   `resolve_ticker` (company name/alias → ticker inside the loop), injected date context + per-param
   schema descriptions, `.text` bypass. *(agent-engine)*
-- ⬜ **PH-15 · Dynamic step budget & strict loop guarantees.** Adjust `max_steps` by estimated complexity
-  (default already raised to 8); **force-finalize at `step = max_steps − 1`** (no wasted +1 call), handle
-  intermediate tool failures gracefully, and prevent infinite looping by detecting identical consecutive
-  calls. *(agent-engine)*
+- ✅ **PH-15 · LLM-assessed step budget & strict loop guarantees.** A **light Gemini model
+  (`AGENT_BUDGET_MODEL`, e.g. flash-lite) assesses the query's complexity → the step budget** — no
+  hardcoded keyword rules (falls back to the plain default budget on stub/CI or assess failure). Then the
+  budget is strictly honored: the loop **reserves its last step for guaranteed synthesis** (force-finalize),
+  a non-empty **fallback answer** replaces the old "Reached the step limit." leak, and an **identical
+  consecutive call is detected** → synthesize instead of looping. *(agent-engine)* +5 tests → 54.
 - ✅ **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
   trust feature — folded here from UX.* Depends on PH-3 + citation metadata; sits at the Phase 1↔2 seam.
   Delivered in 4a/4b/4c:

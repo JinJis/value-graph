@@ -7,6 +7,7 @@ answers are sourced.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from agentengine import guardrails
@@ -175,6 +176,75 @@ def anchor_markers(indices) -> str:
     return "".join(f"[{i}]" for i in indices if i)
 
 
+# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
+# A light model rates how many tool hops a query needs (not hardcoded keyword rules):
+# simple single-fact asks finish fast; multi-source asks ("공급망·리스크 공시 요약")
+# get headroom. The numbered budget is then strictly honored (the loop reserves its
+# last step for synthesis, so it never leaks "Reached the step limit").
+_BUDGET_PROMPT = (
+    "You plan how many tool-calls a financial-research assistant needs to FULLY answer a query.\n"
+    "Tools available: prices, news, company filings, financial statements, macro indicators, semantic search.\n"
+    "Guidance: one fact about one company ≈ 2-3; a comparison or a multi-source ask "
+    "(e.g. 'summarize a company's supply chain + risks from filings and news') ≈ 8-12.\n"
+    "Reply with ONLY a single integer.\nQuery: {task}"
+)
+
+
+async def _llm_steps(task: str) -> int | None:
+    """One cheap call to the light model → an integer step estimate (None on no parse)."""
+    import asyncio
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client()
+    resp = await asyncio.to_thread(
+        client.models.generate_content,
+        model=settings.budget_model,
+        contents=_BUDGET_PROMPT.format(task=(task or "")[:500]),
+        config=types.GenerateContentConfig(temperature=0, max_output_tokens=8),
+    )
+    m = re.search(r"\d+", getattr(resp, "text", "") or "")
+    return int(m.group()) if m else None
+
+
+async def assess_budget(task: str, backend: str | None = None) -> int:
+    """LLM-assessed step budget (PH-15). Falls back to the plain default budget when
+    the backend is the stub or the assessment fails — never hardcoded keyword rules."""
+    cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
+    effective = backend or settings.llm_backend
+    if effective != "gemini":
+        return default
+    try:
+        n = await _llm_steps(task)
+    except Exception as exc:  # noqa: BLE001 — degrade to the default, never block the answer
+        logger.warning("budget assessment failed (%s); using default %d", exc, default)
+        n = None
+    return max(floor, min(n, cap)) if n else default
+
+
+def call_sig(decision) -> str | None:
+    """Stable signature of a tool call, to detect an identical consecutive repeat."""
+    if not getattr(decision, "tool", None):
+        return None
+    return decision.tool + "|" + json.dumps(decision.args or {}, sort_keys=True, ensure_ascii=False)
+
+
+def fallback_answer(cites) -> str:
+    """A non-empty, honest answer when the model returns no final text — never leak
+    'Reached the step limit.' to the user. Summarizes what was gathered + anchors."""
+    cites = list(cites or [])
+    if not cites:
+        return ("요청하신 내용을 처리했지만 근거가 될 출처를 충분히 찾지 못했어요. "
+                "종목·기간·자료 유형(공시/뉴스/재무)을 조금 더 구체적으로 알려주시면 다시 찾아볼게요.")
+    srcs = ", ".join(dict.fromkeys(
+        ((c.get("source") if isinstance(c, dict) else c.source) or "출처") for c in cites
+    ))
+    idxs = [(c.get("index") if isinstance(c, dict) else c.index) for c in cites]
+    return (f"관련 자료 {len(cites)}건을 수집했어요 (출처: {srcs}). "
+            f"핵심 수치·문장은 아래 출처 카드에서 확인하세요. " + anchor_markers(idxs))
+
+
 def number_sources(cites) -> str:
     """Numbered source block for the final-answer prompt so the model cites with OUR
     indices — keeping inline [n] aligned to the citation list. Accepts Citation
@@ -209,7 +279,8 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     if refusal:
         return RunResult(answer=refusal, refused=True, usage={"steps": 0})
 
-    max_steps = (spec.max_steps if spec and spec.max_steps else settings.max_steps)
+    # PH-15: a spec can pin max_steps; otherwise a light model assesses the budget.
+    max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
     system = spec.system if spec else None
     client = PlatformClient(api_key)
     tools = await client.fetch_tools()
@@ -222,21 +293,30 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     answer = ""
     try:
         planner = get_planner(spec.backend if spec else None)
-        for _ in range(max_steps):
-            # give the planner OUR numbered citations so any inline [n] it writes
-            # aligns with the citation list (PH-4e).
-            sources = number_sources(dedup_citations(citations))
-            decision = await planner.plan(task, tools, history, system, sources=sources)
-            if decision.final is not None:
-                answer = decision.final
+        last_sig = None
+        for step in range(max_steps):
+            is_last = step == max_steps - 1  # reserve the last step for guaranteed synthesis
+            sources = number_sources(dedup_citations(citations))  # OUR numbering (PH-4e)
+            decision = await planner.plan(task, tools, history, system,
+                                          force_final=is_last, sources=sources)
+            if is_last or decision.final is not None:
+                answer = decision.final or fallback_answer(dedup_citations(citations))
                 break
-            
+
             # Auto-resolve ticker from company name/alias
             if decision.tool and decision.args and "ticker" in decision.args:
                 from agentengine.planner import resolve_ticker
                 resolved = resolve_ticker(decision.args["ticker"])
                 if resolved:
                     decision.args["ticker"] = resolved
+
+            # an identical consecutive call means the model is stuck — synthesize now
+            sig = call_sig(decision)
+            if sig and sig == last_sig:
+                final = await planner.plan(task, tools, history, system, force_final=True, sources=sources)
+                answer = final.final or fallback_answer(dedup_citations(citations))
+                break
+            last_sig = sig
 
             tool = tools.get(decision.tool)
             if tool is None:
@@ -247,9 +327,7 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             citations.extend(_citations(tool, result))
             history.append((decision, result))
         if not answer:
-            sources = number_sources(dedup_citations(citations))
-            final = await planner.plan(task, tools, history, system, force_final=True, sources=sources)
-            answer = final.final or "Reached the step limit without a final answer."
+            answer = fallback_answer(dedup_citations(citations))
     except Exception as e:
         logger.exception("Error in run_agent loop")
         # Honest degrade on a planner/LLM error rather than a 500.
