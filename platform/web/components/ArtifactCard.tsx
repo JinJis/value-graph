@@ -32,9 +32,13 @@ function fmt(y: number | null | undefined, unit?: string | null) {
   return y.toLocaleString();
 }
 
-export function ArtifactCard({ a, onPin, onRemove }: { a: Artifact; onPin?: () => void; onRemove?: () => void }) {
+export function ArtifactCard(
+  { a, onPin, onRemove, onRefresh }:
+  { a: Artifact; onPin?: () => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void },
+) {
   const [table, setTable] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [busy, setBusy] = useState(false);
   const xs = Array.from(new Set(a.series.flatMap((s) => s.points.map((p) => p.x)))).sort();
   const ys = a.series.flatMap((s) => s.points.map((p) => p.y)).filter((v): v is number => v != null);
   const unit = a.series[0]?.unit;
@@ -52,6 +56,12 @@ export function ArtifactCard({ a, onPin, onRemove }: { a: Artifact; onPin?: () =
         <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
           {table ? "📈 차트" : "⇄ 표로"}
         </button>
+        {onRefresh && (
+          <button type="button" className="artifact-toggle" disabled={busy}
+            onClick={async () => { setBusy(true); try { await onRefresh(); } finally { setBusy(false); } }}>
+            {busy ? "…" : "↻ 새로고침"}
+          </button>
+        )}
         {onPin && (
           <button type="button" className="artifact-toggle" disabled={pinned}
             onClick={() => { onPin(); setPinned(true); }}>

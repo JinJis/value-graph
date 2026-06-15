@@ -64,6 +64,12 @@ export default function Chat({ name }: { name: string }) {
   async function unpin(id: string) {
     try { await fetch(`/api/board/${id}`, { method: "DELETE" }); setPins((p) => p.filter((x) => x.id !== id)); } catch {}
   }
+  async function refreshPin(id: string) {
+    try {
+      const r = await fetch(`/api/board/${id}/refresh`, { method: "POST" });
+      if (r.ok) { const fresh = await r.json(); setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: fresh.spec } : x))); }
+    } catch {}
+  }
 
   async function loadAgents() {
     try {
@@ -211,7 +217,7 @@ export default function Chat({ name }: { name: string }) {
               <p className="live-empty">아직 핀한 카드가 없어요. 답변의 차트 카드에서 <b>📌 핀</b>을 누르면 여기에 모여요.</p>
             ) : (
               <div className="board-grid">
-                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRemove={() => unpin(p.id)} />)}
+                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)} onRemove={() => unpin(p.id)} />)}
               </div>
             )}
           </div>

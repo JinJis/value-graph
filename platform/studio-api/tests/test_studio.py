@@ -273,6 +273,21 @@ def test_board_pin_list_unpin_user_scoped(monkeypatch):
 
 
 @respx.mock
+def test_board_refresh_updates_spec(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    spec = {"kind": "timeseries", "title": "AAPL 종가", "tool": "yahoo__prices",
+            "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": []}
+    pinned = client.post("/board", headers=_hdr("rf@u.com"), json={"spec": spec}).json()
+    # agent-engine re-fetches → a fresher artifact (new as_of)
+    respx.post("http://ae.test/agent/artifact/refresh").mock(return_value=httpx.Response(200, json={"artifact": {
+        "kind": "timeseries", "title": "AAPL 종가", "tool": "yahoo__prices", "args": {"ticker": "AAPL"},
+        "as_of": "2024-03-01", "series": [{"label": "종가", "points": [{"x": "2024-03-01", "y": 200.0}]}]}}))
+    r = client.post(f"/board/{pinned['id']}/refresh", headers=_hdr("rf@u.com"))
+    assert r.status_code == 200 and r.json()["spec"]["as_of"] == "2024-03-01"  # refreshed in place
+
+
+@respx.mock
 def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()

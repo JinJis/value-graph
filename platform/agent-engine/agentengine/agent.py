@@ -210,6 +210,25 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
     return out
 
 
+async def refresh_artifact(tool_name: str, args: dict | None, api_key: str | None, title: str | None = None) -> Artifact | None:
+    """Re-run one tool through the gateway and re-shape its result into a fresh artifact
+    (U3-03b). Returns the artifact matching `title` if given, else the first produced."""
+    client = PlatformClient(api_key)
+    tools = await client.fetch_tools()
+    tool = tools.get(tool_name)
+    if tool is None:
+        return None
+    result = await client.call_tool(tool, args or {})
+    arts = _artifacts(tool, result)
+    for a in arts:
+        a.args = args or {}
+    if title:
+        match = next((a for a in arts if a.title == title), None)
+        if match is not None:
+            return match
+    return arts[0] if arts else None
+
+
 def dedup_citations(cites: list[Citation]) -> list[Citation]:
     """Collapse repeats — the same (source, url) cited by several tool calls should
     appear once (fixes the '📎 OpenDART · 📎 OpenDART · …' repetition)."""

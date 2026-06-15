@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
-from agentengine.agent import run_agent
+from agentengine.agent import refresh_artifact, run_agent
 from agentengine.chat import stream_chat
 from agentengine.config import settings
-from agentengine.models import AgentSpec, ChatRequest, CompileRequest, RunRequest
+from agentengine.models import AgentSpec, ArtifactRefreshRequest, ChatRequest, CompileRequest, RunRequest
 
 app = FastAPI(
     title="Platform Agent Engine", version="0.1.0",
@@ -37,6 +37,14 @@ async def info() -> dict:
 async def run(body: RunRequest, x_api_key: Annotated[str | None, Header(alias="X-API-KEY")] = None) -> dict:
     result = await run_agent(body.task, x_api_key, body.spec)
     return result.model_dump()
+
+
+@app.post("/agent/artifact/refresh", tags=["Agent"], summary="Re-run a pinned artifact's tool to refresh it")
+async def artifact_refresh(body: ArtifactRefreshRequest, x_api_key: Annotated[str | None, Header(alias="X-API-KEY")] = None) -> dict:
+    a = await refresh_artifact(body.tool, body.args, x_api_key, body.title)
+    if a is None:
+        raise HTTPException(404, "Could not refresh — tool unavailable or produced no artifact.")
+    return {"artifact": a.model_dump()}
 
 
 @app.post("/agent/chat", tags=["Agent"], summary="Streaming multi-turn chat (SSE)")

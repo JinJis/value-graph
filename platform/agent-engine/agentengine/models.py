@@ -35,6 +35,14 @@ class CompileRequest(BaseModel):
     description: str
 
 
+class ArtifactRefreshRequest(BaseModel):
+    """Re-run a pinned artifact's tool+args to refresh it (U3-03b)."""
+
+    tool: str
+    args: dict | None = None
+    title: str | None = None  # pick the matching artifact when a tool yields several
+
+
 class Citation(BaseModel):
     tool: str
     source: str | None = None          # institution / publisher (e.g. 'SEC EDGAR', 'Reuters')

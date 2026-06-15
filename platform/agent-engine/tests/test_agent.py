@@ -217,6 +217,26 @@ async def test_chat_stream_emits_artifact_event(monkeypatch):
     assert events[-1]["type"] == "done" and events[-1]["artifacts"]
 
 
+@respx.mock
+async def test_refresh_artifact_refetches(monkeypatch):
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-02-01", "close": 190.0}]},
+                                    headers={"x-connector": "yahoo"}))
+    a = await A.refresh_artifact("yahoo__prices",
+                                 {"ticker": "AAPL", "interval": "day", "start_date": "2024-01-01", "end_date": "2024-02-01"},
+                                 "vgk_x", title="AAPL 종가")
+    assert a and a.kind == "timeseries" and a.as_of == "2024-02-01" and a.args["ticker"] == "AAPL"
+
+
+@respx.mock
+async def test_refresh_artifact_unknown_tool_returns_none(monkeypatch):
+    _gw(monkeypatch)
+    _catalog()
+    assert await A.refresh_artifact("nope__x", {}, "vgk_x") is None
+
+
 def test_datasets_citation_typed_metric_vs_data():
     price = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance"}, {"data": {"prices": []}})
     filings = A._citations({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"x": 1}})
