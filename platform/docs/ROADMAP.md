@@ -237,7 +237,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > **Research-desk UX (differentiators)**
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
 > 13b. ✅ **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder.
-> 14. 🚧 **U3** — inline live artifacts + Board.  ↳ U2 ✅  *(U3-01 ✅ artifact spec · U3-02 web card · U3-03 Board)*
+> 14. 🚧 **U3** — inline live artifacts + Board.  ↳ U2 ✅  *(U3-01 ✅ spec · U3-02 ✅ web card · U3-03 Board)*
 > 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
 > 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
 > 17. **U0** — onboarding, full flow.  ↳ U5  *(minimal onboarding already shippable on U1)*
@@ -361,8 +361,11 @@ cards can be **pinned to a Board** that auto-refreshes.
   (prices→종가 timeseries; metrics_history→margin multi-series; income_statements→매출·순이익) — pure
   data-shaping like citations, not reasoning. Emitted as the SSE `artifact` event + `done.artifacts` +
   `RunResult.artifacts`; refusals emit none. studio-api relays the events transparently. +5 tests → 59.
-- ⬜ **U3-02 · web artifact card.** Render the spec as an interactive card (dependency-free SVG line chart;
-  multi-series legend), `⇄표로 보기` toggle, **dashed gap segments**, source + freshness dot. *(web)*
+- ✅ **U3-02 · web artifact card.** `ArtifactCard.tsx` renders the spec as an interactive card —
+  dependency-free **SVG multi-series line chart** (matte palette, neutral + sparse accent), `⇄표로 보기`
+  toggle, dashed line when `has_gap`, source + freshness dot + as_of, value formatting (T/B/M, % for
+  ratios). Chat captures the `artifact` SSE event and renders cards under the assistant bubble. Web build
+  green. *(web)*
 - ⬜ **U3-03 · Board (pin + persist + refresh).** studio-api `PinnedArtifact{id,user_email,spec(JSON)}` CRUD;
   web Board screen = grid of pinned cards; `↻새로고침` re-runs the artifact's `tool` and reopening refetches
   with a new `as_of`. *(studio-api + web)*

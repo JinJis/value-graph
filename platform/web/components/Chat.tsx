@@ -7,9 +7,10 @@ import Watchlists, { Watchlist } from "./Watchlists";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
+import { Artifact, ArtifactCard } from "./ArtifactCard";
 
 type ToolUse = { name: string; label?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[] };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -126,6 +127,10 @@ export default function Chat({ name }: { name: string }) {
             const a = { ...next[next.length - 1] };
             if (ev.type === "token") a.content += ev.text || "";
             else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
+            else if (ev.type === "artifact" && ev.artifact) {
+              const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
+              if (!dup) a.artifacts = [...(a.artifacts || []), ev.artifact as Artifact];
+            }
             else if (ev.type === "citation") {
               const cite: Citation = {
                 tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
@@ -232,6 +237,11 @@ export default function Chat({ name }: { name: string }) {
                           : m.content)
                       : (m.role === "assistant" && busy ? "…" : "")}
                   </div>
+                  {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
+                    <div className="artifacts">
+                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} />)}
+                    </div>
+                  )}
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
                     <details className="sources">
                       <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
