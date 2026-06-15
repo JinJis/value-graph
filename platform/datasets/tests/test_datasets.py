@@ -483,6 +483,69 @@ def test_admin_news_ingest_endpoint(monkeypatch):
     assert r.status_code == 200 and r.json()["started"] is True
 
 
+# --- PH-5: cheap universe-enumeration endpoints ---------------------------
+_SEC_TICKERS = {
+    "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+    "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
+}
+
+
+@respx.mock
+def test_ph5_filings_company_earnings_enumerations_us():
+    from app.cache import cache
+    cache.clear()  # ensure the respx-mocked SEC index is the one used
+    respx.get("https://www.sec.gov/files/company_tickers.json").mock(
+        return_value=httpx.Response(200, json=_SEC_TICKERS)
+    )
+    # filings/tickers + filings/ciks
+    rt = client.get("/filings/tickers?market=US")
+    assert rt.status_code == 200 and rt.json()["resource"] == "filings"
+    assert set(rt.json()["tickers"]) == {"AAPL", "MSFT"}
+    rc = client.get("/filings/ciks?market=US")
+    assert rc.status_code == 200 and "0000320193" in rc.json()["ciks"]
+    # company/facts/ciks + earnings/tickers reuse the same universe
+    assert "0000789019" in client.get("/company/facts/ciks?market=US").json()["ciks"]
+    assert "MSFT" in client.get("/earnings/tickers?market=US").json()["tickers"]
+
+
+def test_ph5_kr_list_ciks_uses_corp_code(monkeypatch):
+    import asyncio
+
+    from app.providers.kr import opendart
+
+    async def fake_corp_map():
+        return {"005930": {"corp_code": "00126380", "corp_name": "삼성전자"}}
+
+    monkeypatch.setattr(opendart, "_corp_map", fake_corp_map)
+    assert asyncio.run(opendart.OpenDartProvider().list_ciks()) == ["00126380"]
+
+
+def test_ph5_prices_snapshot_market_skips_unpriceable(monkeypatch):
+    import app.routers.prices as P
+    from app.models.generated import PriceSnapshot
+
+    monkeypatch.setattr(P, "store_tickers", lambda market, limit: ["AAPL", "MSFT"])
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker == "MSFT":
+                raise RuntimeError("no price")  # skipped, never fabricated
+            return PriceSnapshot(ticker=ref.ticker, price=185.6)
+
+    monkeypatch.setattr(P, "get_prices_provider", lambda market: _Prov())
+    r = client.get("/prices/snapshot/market?market=US&limit=10")
+    assert r.status_code == 200
+    snaps = r.json()["snapshots"]
+    assert len(snaps) == 1 and snaps[0]["ticker"] == "AAPL"
+
+
+def test_ph5_endpoints_no_longer_scaffold_501(monkeypatch):
+    # /prices/snapshot/market used to be a scaffolded 501; now a real route
+    import app.routers.prices as P
+    monkeypatch.setattr(P, "store_tickers", lambda market, limit: [])
+    assert client.get("/prices/snapshot/market?market=US").status_code == 200
+
+
 # --- one provider path with mocked upstream -------------------------------
 @respx.mock
 def test_us_company_facts_with_mocked_sec():

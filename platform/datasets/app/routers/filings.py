@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
-from app.models.generated import FilingsResponse
-from app.providers.registry import get_filings_provider
+from app.models.generated import CiksResponse, FilingsResponse, TickersResponse
+from app.providers.registry import get_company_provider, get_filings_provider
 from app.symbols import Market, build_ref
 
 router = APIRouter(tags=["SEC Filings"])
@@ -33,3 +33,17 @@ async def get_filings(
 @router.get("/filings/types")
 async def get_filing_types(market: MarketParam = Market.US) -> dict:
     return {"resource": "filings", "filing_types": _FILING_TYPES[market]}
+
+
+@router.get("/filings/tickers", response_model=TickersResponse)
+async def get_filings_tickers(market: MarketParam = Market.US) -> TickersResponse:
+    """Tickers in the filing universe (US: SEC company_tickers; KR: DART corp list)."""
+    tickers = await get_company_provider(market).list_tickers()
+    return TickersResponse(resource="filings", tickers=tickers)
+
+
+@router.get("/filings/ciks", response_model=CiksResponse)
+async def get_filings_ciks(market: MarketParam = Market.US) -> CiksResponse:
+    """Filer ids in the filing universe (US: SEC CIK; KR: OpenDART corp_code)."""
+    ciks = await get_company_provider(market).list_ciks()
+    return CiksResponse(resource="filings", ciks=ciks)

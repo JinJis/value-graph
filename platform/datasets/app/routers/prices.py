@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
 from app.models.generated import (
+    PriceSnapshotMarketResponse,
     PriceSnapshotResponse,
     PricesResponse,
     TickersResponse,
 )
 from app.providers.registry import get_company_provider, get_prices_provider
+from app.store.screener import store_tickers
 from app.symbols import Market, build_ref
 
 router = APIRouter(tags=["Market Data"])
@@ -45,6 +48,27 @@ async def get_price_snapshot(
     ref = build_ref(market, ticker)
     snap = await get_prices_provider(market).snapshot(ref)
     return PriceSnapshotResponse(snapshot=snap)
+
+
+@router.get("/prices/snapshot/market", response_model=PriceSnapshotMarketResponse, dependencies=[ApiKeyDep])
+async def get_price_snapshot_market(
+    market: MarketParam = Market.US,
+    limit: int = Query(25, ge=1, le=100, description="Max tickers to snapshot."),
+) -> PriceSnapshotMarketResponse:
+    """Latest snapshot for the tickers we track in this market (the ingested universe,
+    bounded by `limit`) — never fans out to the whole exchange. Per-ticker failures are
+    skipped, not faked."""
+    tickers = await asyncio.to_thread(store_tickers, market.value, limit)
+    provider = get_prices_provider(market)
+
+    async def _one(tk: str):
+        try:
+            return await provider.snapshot(build_ref(market, tk))
+        except Exception:  # noqa: BLE001 — skip a ticker that can't be priced; don't fabricate
+            return None
+
+    snaps = await asyncio.gather(*[_one(t) for t in tickers])
+    return PriceSnapshotMarketResponse(snapshots=[s for s in snaps if s is not None])
 
 
 @router.get("/prices/snapshot/tickers", response_model=TickersResponse)

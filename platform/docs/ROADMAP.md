@@ -12,7 +12,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 206 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 210 unit** — datasets 82 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
@@ -204,8 +204,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > Detail for each item is in the bullets below this list.
 >
 > **Finish the data substance**
-> 1. **PH-5** — cheap universe endpoints (+ `/filings/items`).  ← **next**
-> 2. **PH-MACRO** — cloud-safe macro (DBnomics / Treasury).
+> 1. ✅ **PH-5** — cheap universe-enumeration endpoints.  *(filing-text `/filings/items` → PH-RAG)*
+> 2. **PH-MACRO** — cloud-safe macro (DBnomics / Treasury).  ← **next**
 > 3. **PH-6** — store-backed: 13F ticker-mode + historical metrics.  ↳ populated store ✅
 > 4. **PH-8** — index / ETF holdings (SEC N-PORT).
 > 5. **PH-7** — XBRL depth: segments + as-reported.
@@ -229,9 +229,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 
 #### Item detail
 
-- ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,
-  `/earnings/tickers`, `/company/facts/ciks`, `/prices/snapshot/market`, and `/filings/items` (filing
-  text — also feeds PH-2). *(datasets, mostly S)*
+- ✅ **PH-5 · Cheap universe-enumeration endpoints.** Implemented the trivial 501s: `/filings/tickers`,
+  `/filings/ciks`, `/company/facts/ciks` (SEC ticker index / DART corp map via new `list_ciks()` provider
+  method), `/earnings/tickers` (company universe), `/prices/snapshot/market` (snapshots the store's tracked
+  tickers, bounded by `limit`; per-ticker failures skipped, never faked). Removed from `scaffold.py`'s
+  501 list. Following the existing `/…/tickers` convention these are **plain utility routes, not catalog
+  resources** → they don't add MCP tools (MCP-tool growth comes from data-bearing PH-6/7/8/PH-RAG).
+  *(datasets)* +4 tests → 82. Filing **text** (`/filings/items`) deferred to **PH-RAG**.
 - ⬜ **PH-6 · Store-backed endpoints.** #18 13F **ticker-mode** (reverse-CUSIP index) + #21 **historical
   financial-metrics** (ratios across periods). *(datasets; needs PH-1 populated store)*
 - ⬜ **PH-7 · XBRL depth.** #20 **segments** + **as-reported** financials (XBRL direct parse, US+KR). *(L)*
