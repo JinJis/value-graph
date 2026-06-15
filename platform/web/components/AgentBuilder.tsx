@@ -12,7 +12,8 @@ export type Agent = {
   is_template: boolean;
   editable: boolean;
 };
-export type Connector = { id: string; name: string; description?: string | null };
+export type Tool = { name: string; description?: string | null };
+export type Connector = { id: string; name: string; description?: string | null; tools?: Tool[] };
 
 // Builder modal: create a new agent, or edit/clone an existing one. Templates
 // are read-only, so editing one starts a clone (new agent seeded from it).
@@ -33,8 +34,17 @@ export default function AgentBuilder({
   const [model, setModel] = useState(base?.model ?? "stub");
   const [systemPrompt, setSystemPrompt] = useState(base?.system_prompt ?? "");
   const [sources, setSources] = useState<string[]>(base?.data_sources ?? connectors.map((c) => c.id));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   const editing = !!base && base.editable; // existing own agent -> PATCH
 
@@ -108,14 +118,38 @@ export default function AgentBuilder({
         </label>
 
         <div className="fld">
-          <span>데이터 소스</span>
-          <div className="sources-grid">
-            {connectors.map((c) => (
-              <label key={c.id} className={`src ${sources.includes(c.id) ? "on" : ""}`} title={c.description ?? ""}>
-                <input type="checkbox" checked={sources.includes(c.id)} onChange={() => toggle(c.id)} />
-                {c.name}
-              </label>
-            ))}
+          <span>데이터 소스 <span className="hint-inline">— 펼치면 안에 어떤 툴이 있는지 보여줘요</span></span>
+          <div className="sources-list">
+            {connectors.map((c) => {
+              const tools = c.tools ?? [];
+              const open = expanded.has(c.id);
+              return (
+                <div key={c.id} className={`src-row ${sources.includes(c.id) ? "on" : ""}`}>
+                  <div className="src-head">
+                    <label className="src-pick" title={c.description ?? ""}>
+                      <input type="checkbox" checked={sources.includes(c.id)} onChange={() => toggle(c.id)} />
+                      {c.name}
+                    </label>
+                    {tools.length > 0 && (
+                      <button type="button" className="src-expand" aria-expanded={open}
+                        onClick={() => toggleExpand(c.id)}>
+                        {open ? "▾" : "▸"} 툴 {tools.length}
+                      </button>
+                    )}
+                  </div>
+                  {open && tools.length > 0 && (
+                    <ul className="tool-list">
+                      {tools.map((t) => (
+                        <li key={t.name}>
+                          <code className="tool-name">{t.name}</code>
+                          {t.description ? <span className="tool-desc">{t.description}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
             {connectors.length === 0 && <div className="muted-note">데이터 소스를 불러오지 못했습니다.</div>}
           </div>
         </div>
