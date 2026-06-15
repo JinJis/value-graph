@@ -7,6 +7,7 @@
 > - **What it should feel like, screen by screen / why it's not a chatbot:** [`UX_SPEC.md`](./UX_SPEC.md)
 > - **How the services fit together (current state):** [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 > - **Engineering rules + invariants:** [`../CLAUDE.md`](../CLAUDE.md)
+> - **Exploratory ideas (not commitments; promote only with approval):** [`IDEA.md`](./IDEA.md)
 >
 > **Status:** ✅ done · 🚧 partial · ⬜ todo. **One task per PR;** tag the id in branch/commits/PR
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
