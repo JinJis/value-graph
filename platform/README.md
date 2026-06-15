@@ -48,8 +48,11 @@ platform/
 
 ## Principles
 
-- **Deterministic connectors + RAG, not Deep Research** — data is structured, fast, reproducible,
-  citeable. Deep Research is at most one optional tool.
+- **Deterministic *data*, not deterministic *logic*** — connectors are API-based, so figures are
+  structured, fast, reproducible, and always accurately sourced (Deep Research is at most one optional
+  tool). This is about the **data plane**, not the reasoning: answer quality and orchestration come from
+  Gemini / multi-agent flows, **never hardcoded keyword/heuristic rules** (the `stub` planner is a dev/CI
+  fallback only).
 - **Provenance/trust envelope everywhere** — every datum/chunk/agent output carries source + as-of +
   freshness (+ confidence where derivable). No number without a source.
 - **Platform holds upstream keys, meters usage, bills tenants** — so a per-connector license /

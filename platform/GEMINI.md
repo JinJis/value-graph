@@ -48,6 +48,12 @@ These hold across every service; breaking one fails review.
 8. **Two surfaces over one core stay consistent:** the **connector manifest/catalog**
    (`datasets/app/connectors/`) is the single source REST docs, MCP tools, RAG registration, entitlement,
    metering, and the agent's tool list all derive from. Touch the manifest, not forked copies.
+9. **Deterministic *data*, not deterministic *logic*.** "Deterministic" describes the **data plane** —
+   connectors are API-based, so figures are reproducible and **always accurately sourced**. It is **not**
+   license to hardcode reasoning. **Answer quality, routing, and orchestration come from Gemini and
+   multi-agent flows — never hand-rolled keyword/heuristic rules.** The `stub` planner's keyword routing
+   exists only as a dev/CI fallback. When a task needs judgment (difficulty, extraction, synthesis,
+   review), reach for an LLM/agent, not an `if`-ladder.
 
 ## 3. Services (ports = host:container; one `docker compose`, one shared `.env`)
 
