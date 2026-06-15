@@ -11,10 +11,29 @@ import logging
 from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
+from agentengine.freshness import compute_freshness
 from agentengine.models import AgentSpec, Citation, RunResult, Step
 from agentengine.planner import get_planner
 
 logger = logging.getLogger(__name__)
+
+# filing-ish doc_type hints (RAG provenance) → the "filing" preview-card variant.
+_FILING_HINTS = ("10-k", "10-q", "8-k", "20-f", "6-k", "s-1", "filing", "annual", "quarterly")
+# datasets tools whose citation renders as a "metric computation" card, not raw data.
+_METRIC_HINTS = ("price", "metric", "snapshot", "financ", "ratio", "screener", "earnings")
+
+
+def _rag_type(prov: dict) -> str:
+    dt = (prov.get("doc_type") or "").lower()
+    if dt == "news":
+        return "news"
+    if prov.get("accession") or any(h in dt for h in _FILING_HINTS):
+        return "filing"
+    return "data"
+
+
+def _datasets_type(tool: dict) -> str:
+    return "metric" if any(h in tool["name"].lower() for h in _METRIC_HINTS) else "data"
 
 
 def _find_urls(obj, out: list | None = None) -> list:
@@ -45,7 +64,14 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
         if not (src or url) or key in seen:
             continue
         seen.add(key)
-        cites.append(Citation(tool=tool["name"], source=src or tool.get("source"), url=url))
+        as_of = prov.get("as_of")
+        cites.append(Citation(
+            tool=tool["name"], source=src or tool.get("source"), url=url,
+            kind=_rag_type(prov), doc_type=prov.get("doc_type"), as_of=as_of,
+            freshness=compute_freshness(as_of),
+            snippet=((h or {}).get("text") or "")[:300] or None,
+            ticker=prov.get("ticker"), page=prov.get("section") or prov.get("accession"),
+        ))
     return cites or None
 
 
@@ -56,10 +82,11 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
         if rag is not None:
             return rag
     src = tool.get("source")
+    ctype = _datasets_type(tool)
     urls = list(dict.fromkeys(_find_urls(data)))[:5]
     if not urls:
-        return [Citation(tool=tool["name"], source=src)]
-    return [Citation(tool=tool["name"], source=src, url=u) for u in urls]
+        return [Citation(tool=tool["name"], source=src, kind=ctype)]
+    return [Citation(tool=tool["name"], source=src, url=u, kind=ctype) for u in urls]
 
 
 def dedup_citations(cites: list[Citation]) -> list[Citation]:
@@ -72,6 +99,7 @@ def dedup_citations(cites: list[Citation]) -> list[Citation]:
         if key in seen:
             continue
         seen.add(key)
+        c.index = len(out) + 1  # 1-based [n] anchor
         out.append(c)
     return out
 

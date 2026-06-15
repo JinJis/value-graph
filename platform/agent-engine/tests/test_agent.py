@@ -132,6 +132,52 @@ def test_citations_use_per_hit_rag_provenance():
     assert all(c.source != "Platform RAG (filings/news)" for c in cites)
 
 
+# --- PH-4/U2: enriched citations for type-aware source-preview cards -----------
+def test_freshness_buckets_from_as_of():
+    from datetime import date
+
+    from agentengine.freshness import compute_freshness
+
+    today = date(2026, 6, 15)
+    assert compute_freshness("2026-06-10", today) == "fresh"     # 5d
+    assert compute_freshness("2026-05-01", today) == "aging"     # 45d
+    assert compute_freshness("2025-01-01", today) == "stale"     # >1y
+    assert compute_freshness(None, today) is None                # unknown, not a claim
+    assert compute_freshness("not-a-date", today) is None
+
+
+def test_rag_citation_is_enriched_for_preview_card():
+    tool = {"name": "rag__search", "connector": "rag", "source": "Platform RAG"}
+    result = {"data": {"hits": [
+        {"text": "Apple sources chips from TSMC, a key supplier.",
+         "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/aapl", "doc_type": "10-K",
+                        "as_of": "2026-06-01", "ticker": "AAPL", "accession": "0000320193-26"}},
+        {"text": "Apple beats on iPhone revenue - Reuters",
+         "provenance": {"source": "Reuters", "url": "https://r/x", "doc_type": "news", "as_of": "2026-06-12"}},
+    ]}}
+    filing, news = A._citations(tool, result)
+    assert filing.kind == "filing" and filing.doc_type == "10-K" and filing.ticker == "AAPL"
+    assert filing.as_of == "2026-06-01" and filing.freshness in {"fresh", "aging", "stale"}
+    assert "TSMC" in filing.snippet and filing.page == "0000320193-26"
+    assert news.kind == "news" and news.source == "Reuters" and news.snippet.endswith("Reuters")
+
+
+def test_datasets_citation_typed_metric_vs_data():
+    price = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance"}, {"data": {"prices": []}})
+    filings = A._citations({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"x": 1}})
+    assert price[0].kind == "metric" and filings[0].kind == "data"
+
+
+def test_dedup_assigns_one_based_index():
+    from agentengine.models import Citation
+    out = A.dedup_citations([
+        Citation(tool="t1", source="SEC EDGAR", url="https://a"),
+        Citation(tool="t2", source="Reuters", url="https://b"),
+        Citation(tool="t3", source="SEC EDGAR", url="https://a"),  # dup
+    ])
+    assert [c.index for c in out] == [1, 2]
+
+
 @respx.mock
 async def test_call_tool_forces_single_market_connector(monkeypatch):
     from agentengine.client import PlatformClient

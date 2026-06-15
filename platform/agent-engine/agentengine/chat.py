@@ -99,6 +99,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 if key in seen_cites:  # de-dup repeated sources across tool calls
                     continue
                 seen_cites.add(key)
+                cit["index"] = len(citations) + 1  # 1-based [n] anchor
                 citations.append(cit)
                 yield {"type": "citation", **cit}
             history.append((decision, result))
