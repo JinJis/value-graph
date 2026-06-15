@@ -14,7 +14,7 @@ from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.freshness import compute_freshness
-from agentengine.models import AgentSpec, Citation, RunResult, Step
+from agentengine.models import Artifact, ArtifactPoint, ArtifactSeries, AgentSpec, Citation, RunResult, Step
 from agentengine.planner import get_planner
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,69 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
     if not urls:
         return [Citation(tool=tool["name"], source=src, kind=ctype, as_of=as_of, freshness=fresh)]
     return [Citation(tool=tool["name"], source=src, url=u, kind=ctype, as_of=as_of, freshness=fresh) for u in urls]
+
+
+def _num(v) -> float | None:
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker) -> Artifact | None:
+    series = [s for s in series if s.points]
+    if not series:
+        return None
+    as_of = max((p.x for s in series for p in s.points if p.x), default=None)
+    lengths = {len(s.points) for s in series}
+    return Artifact(
+        kind="timeseries", title=title.strip() or "추이", series=series, source=source,
+        as_of=as_of, freshness=compute_freshness(as_of), ticker=ticker,
+        has_gap=len(lengths) > 1,  # series of differing coverage → a gap to draw
+        tool=tool_name,
+    )
+
+
+# Chartable tool results → a typed artifact. Pure data-shaping of a known API shape
+# (like _citations) — NOT reasoning; which tools to call is still the model's job.
+def _artifacts(tool: dict, result: dict) -> list[Artifact]:
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return []
+    name, src = tool["name"], tool.get("source")
+    out: list[Artifact] = []
+
+    if name.endswith("__prices") and isinstance(data.get("prices"), list):
+        pts = [ArtifactPoint(x=str(p.get("date")), y=_num(p.get("close")))
+               for p in data["prices"] if p.get("date")]
+        a = _timeseries(f"{data.get('ticker') or ''} 종가", [ArtifactSeries(label="종가", points=pts)],
+                        src, name, data.get("ticker"))
+        if a:
+            out.append(a)
+
+    if name.endswith("__metrics_history") and isinstance(data.get("metrics"), list):
+        rows = data["metrics"]
+        series = []
+        for key, label in (("gross_margin", "매출총이익률"), ("operating_margin", "영업이익률"), ("net_margin", "순이익률")):
+            pts = [ArtifactPoint(x=str(r.get("report_period")), y=_num(r.get(key)))
+                   for r in rows if r.get("report_period") and r.get(key) is not None]
+            if pts:
+                series.append(ArtifactSeries(label=label, unit="ratio", points=sorted(pts, key=lambda p: p.x)))
+        a = _timeseries(f"{data.get('ticker') or ''} 재무비율 추이", series, src, name, data.get("ticker"))
+        if a:
+            out.append(a)
+
+    if name.endswith("__income_statements") and isinstance(data.get("income_statements"), list):
+        rows = data["income_statements"]
+        ticker = (rows[0].get("ticker") if rows else None)
+        series = []
+        for key, label in (("revenue", "매출"), ("net_income", "순이익")):
+            pts = [ArtifactPoint(x=str(r.get("report_period")), y=_num(r.get(key)))
+                   for r in rows if r.get("report_period") and r.get(key) is not None]
+            if pts:
+                series.append(ArtifactSeries(label=label, points=sorted(pts, key=lambda p: p.x)))
+        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker)
+        if a:
+            out.append(a)
+
+    return out
 
 
 def dedup_citations(cites: list[Citation]) -> list[Citation]:
@@ -290,6 +353,8 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     history: list = []
     steps: list[Step] = []
     citations: list[Citation] = []
+    artifacts: list[Artifact] = []
+    seen_artifacts: set = set()
     answer = ""
     try:
         planner = get_planner(spec.backend if spec else None)
@@ -325,6 +390,10 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             result = await client.call_tool(tool, decision.args or {})
             steps.append(Step(tool=decision.tool, args=decision.args or {}, status=result["status"]))
             citations.extend(_citations(tool, result))
+            for a in _artifacts(tool, result):
+                if a.title not in seen_artifacts:
+                    seen_artifacts.add(a.title)
+                    artifacts.append(a)
             history.append((decision, result))
         if not answer:
             answer = fallback_answer(dedup_citations(citations))
@@ -338,4 +407,4 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     # markers, append a trailing anchor group so every claim ties to the citations.
     if cites and answer and not has_anchors(answer):
         answer = answer.rstrip() + " " + anchor_markers([c.index for c in cites])
-    return RunResult(answer=answer, steps=steps, citations=cites, usage={"steps": len(steps)})
+    return RunResult(answer=answer, steps=steps, citations=cites, artifacts=artifacts, usage={"steps": len(steps)})

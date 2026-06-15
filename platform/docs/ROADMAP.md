@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 213 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 218 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 59 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (19 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -237,7 +237,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > **Research-desk UX (differentiators)**
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
 > 13b. ✅ **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder.
-> 14. **U3** — inline live artifacts + Board.  ↳ U2 ✅
+> 14. 🚧 **U3** — inline live artifacts + Board.  ↳ U2 ✅  *(U3-01 ✅ artifact spec · U3-02 web card · U3-03 Board)*
 > 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
 > 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
 > 17. **U0** — onboarding, full flow.  ↳ U5  *(minimal onboarding already shippable on U1)*
@@ -353,16 +353,19 @@ filing page with `as_of` + freshness; a price citation shows connector + computa
 shows the snippet labelled "맥락 정보 — 전망 아님".
 </details>
 
-#### U3 — Inline live artifacts + Board  ⬜
+#### U3 — Inline live artifacts + Board  🚧
 **Goal:** figures render as **interactive cards backed by connectors** (refreshable), gaps are drawn, and
 cards can be **pinned to a Board** that auto-refreshes.
-- **agent-engine:** emit a typed **artifact spec** alongside prose (`{kind: timeseries|compare|table|
-  mini-graph, series[], provenance[]}`); guardrail renders **no** artifact for refused asks.
-- **web:** artifact renderer (charts; R3F only where a graph view is warranted), `↻새로고침` re-calls the
-  connector, `⇄표로 보기` toggle, dashed gap segments; **Board** screen = grid of pinned artifacts, each
-  re-fetching on open with its own freshness line. **Never render the graph with DOM nodes** (WebGL/R3F +
-  instanced meshes).
-- **studio-api:** `PinnedArtifact { id, user_email, spec(JSON), created_at }` CRUD for the Board.
+- ✅ **U3-01 · artifact spec (agent-engine).** `Artifact{kind,title,series[{label,unit,points[{x,y}]}],
+  source,as_of,freshness,ticker,has_gap,tool}`. `_artifacts(tool,result)` shapes chartable tool results
+  (prices→종가 timeseries; metrics_history→margin multi-series; income_statements→매출·순이익) — pure
+  data-shaping like citations, not reasoning. Emitted as the SSE `artifact` event + `done.artifacts` +
+  `RunResult.artifacts`; refusals emit none. studio-api relays the events transparently. +5 tests → 59.
+- ⬜ **U3-02 · web artifact card.** Render the spec as an interactive card (dependency-free SVG line chart;
+  multi-series legend), `⇄표로 보기` toggle, **dashed gap segments**, source + freshness dot. *(web)*
+- ⬜ **U3-03 · Board (pin + persist + refresh).** studio-api `PinnedArtifact{id,user_email,spec(JSON)}` CRUD;
+  web Board screen = grid of pinned cards; `↻새로고침` re-runs the artifact's `tool` and reopening refetches
+  with a new `as_of`. *(studio-api + web)*
 
 **Acceptance:** ask for a multi-name margin comparison → an interactive card with per-series sources +
 freshness; pin it; reopen the Board next day → refreshed values with a new `as_of`.

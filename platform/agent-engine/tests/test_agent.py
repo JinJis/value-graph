@@ -162,6 +162,60 @@ def test_rag_citation_is_enriched_for_preview_card():
     assert news.kind == "news" and news.source == "Reuters" and news.snippet.endswith("Reuters")
 
 
+# --- U3: connector-backed artifacts -------------------------------------------
+def test_artifacts_from_prices_timeseries():
+    tool = {"name": "yahoo__prices", "source": "Yahoo Finance"}
+    result = {"data": {"ticker": "AAPL", "prices": [
+        {"date": "2024-01-02", "close": 185.6}, {"date": "2024-01-03", "close": 184.2}]}}
+    arts = A._artifacts(tool, result)
+    assert len(arts) == 1
+    a = arts[0]
+    assert a.kind == "timeseries" and a.ticker == "AAPL" and a.source == "Yahoo Finance" and a.tool == "yahoo__prices"
+    assert a.series[0].label == "종가" and len(a.series[0].points) == 2
+    assert a.series[0].points[0].x == "2024-01-02" and a.series[0].points[0].y == 185.6
+    assert a.as_of == "2024-01-03"
+
+
+def test_artifacts_from_metrics_history_multi_series():
+    tool = {"name": "datasets_store__metrics_history", "source": "ingestion store"}
+    result = {"data": {"ticker": "AAPL", "metrics": [
+        {"report_period": "2024-09-28", "gross_margin": 0.46, "net_margin": 0.24},
+        {"report_period": "2025-09-27", "gross_margin": 0.47, "net_margin": 0.27}]}}
+    a = A._artifacts(tool, result)[0]
+    labels = {s.label for s in a.series}
+    assert a.kind == "timeseries" and {"매출총이익률", "순이익률"} <= labels
+
+
+def test_artifacts_none_for_unchartable_result():
+    assert A._artifacts({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"filings": []}}) == []
+
+
+@respx.mock
+async def test_run_agent_emits_price_artifact(monkeypatch):
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"date": "2024-01-02", "close": 185.6}]},
+                                    headers={"x-connector": "yahoo"}))
+    res = await A.run_agent("AAPL price chart", "vgk_x")
+    assert res.artifacts and res.artifacts[0].kind == "timeseries" and res.artifacts[0].source == "Yahoo Finance"
+
+
+@respx.mock
+async def test_chat_stream_emits_artifact_event(monkeypatch):
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"date": "2024-01-02", "close": 185.6}]},
+                                    headers={"x-connector": "yahoo"}))
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price chart"}], "vgk_x")]
+    art = next((e for e in events if e["type"] == "artifact"), None)
+    assert art and art["artifact"]["kind"] == "timeseries"
+    assert events[-1]["type"] == "done" and events[-1]["artifacts"]
+
+
 def test_datasets_citation_typed_metric_vs_data():
     price = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance"}, {"data": {"prices": []}})
     filings = A._citations({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"x": 1}})
@@ -465,7 +519,7 @@ async def test_chat_stream_platform_unavailable(monkeypatch):
     events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price?"}], "vgk_x")]
     assert all(e["type"] != "tool" for e in events)  # no tool could be called
     assert any(e["type"] == "token" for e in events)  # but the user still gets a message
-    assert events[-1] == {"type": "done", "citations": [], "refused": False}
+    assert events[-1] == {"type": "done", "citations": [], "artifacts": [], "refused": False}
 
 
 @respx.mock

@@ -52,6 +52,32 @@ class Citation(BaseModel):
     page: str | None = None            # filing section / accession ref
 
 
+class ArtifactPoint(BaseModel):
+    x: str               # date / report-period label
+    y: float | None = None
+
+
+class ArtifactSeries(BaseModel):
+    label: str
+    unit: str | None = None      # 'ratio' | currency | None
+    points: list[ArtifactPoint] = []
+
+
+class Artifact(BaseModel):
+    """A typed, connector-backed figure emitted alongside prose (U3). The web renders
+    it as an interactive card; gaps are drawn, never hidden."""
+
+    kind: str                    # timeseries | compare | table
+    title: str
+    series: list[ArtifactSeries] = []
+    source: str | None = None
+    as_of: str | None = None
+    freshness: str | None = None
+    ticker: str | None = None
+    has_gap: bool = False
+    tool: str | None = None      # the tool that produced it (lets the web ↻ refresh)
+
+
 class Step(BaseModel):
     tool: str
     args: dict
@@ -63,4 +89,5 @@ class RunResult(BaseModel):
     refused: bool = False
     steps: list[Step] = []
     citations: list[Citation] = []
+    artifacts: list[Artifact] = []
     usage: dict = {}
