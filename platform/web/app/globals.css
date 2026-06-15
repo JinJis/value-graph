@@ -84,6 +84,23 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .scard-foot .slink { color: var(--text); text-decoration-color: var(--muted); margin-left: auto; }
 .snote { margin-top: 7px; font-size: 10.5px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px; }
 
+/* assistant markdown rendering */
+.md { line-height: 1.6; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 9px; }
+.md ul, .md ol { margin: 6px 0 9px; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md h1, .md h2, .md h3 { font-size: 14px; margin: 14px 0 6px; font-weight: 700; }
+.md strong { font-weight: 700; color: var(--text); }
+.md code { font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.md a { color: var(--text); text-decoration-color: var(--muted); word-break: break-word; }
+.md table { border-collapse: collapse; font-size: 12.5px; margin: 8px 0; width: 100%; }
+.md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+.md th { background: var(--panel-2); font-family: var(--mono); }
+.md blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 10px; color: var(--muted); }
+
 /* inline [n] anchors inside the prose */
 .anch { font-family: var(--mono); font-size: 9px; color: var(--muted); cursor: help;
   padding: 0 1px; vertical-align: super; line-height: 0; }

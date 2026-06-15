@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 198 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 46 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 200 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 48 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
@@ -184,6 +184,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     source-appearance order; a deterministic floor appends a trailing `[n]` anchor group when the model
     emitted none (covers stub + streaming), matching the citation indices. Web renders `[n]` as superscript
     anchors titled with the cited source. *(agent-engine + web)* +3 agent-engine tests → 46.
+  - ✅ **PH-4d · substantive answers — markdown + datasets-source enrichment + de-noise.** Real-world
+    answers looked flat because (a) the web rendered assistant **markdown as plain text**, and (b) only
+    RAG citations were enriched — **datasets/news sources were bare** generic chips. Fixed: web renders
+    markdown (`react-markdown` + GFM tables); `/news` citations now carry the **publisher + headline +
+    date** (not "Google News"); financial/metric citations get **`as_of` from the latest report period** +
+    freshness; the gemini prompt stops dumping raw URLs in prose; **tool labels de-duped** in the web (one
+    row per source, not eight). *(agent-engine + web)* +2 agent-engine tests → 48.
 
 #### Tier 2 — more tools *(depth; several need a populated store)*
 - ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,

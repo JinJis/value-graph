@@ -4,24 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
 
 type ToolUse = { name: string; label?: string };
 type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[] };
 
-// PH-4c: render inline [n] markers in the prose as superscript anchors, titled
-// with the cited source (so each claim ties to a source-preview card).
-function renderContent(content: string, citations?: Citation[]) {
-  return content.split(/(\[\d+\])/).map((part, i) => {
-    const m = /^\[(\d+)\]$/.exec(part);
-    if (!m) return part;
-    const c = citations?.find((x) => x.index === Number(m[1]));
-    return (
-      <sup key={i} className="anch" title={c ? `${c.source || "출처"}${c.snippet ? " — " + c.snippet : ""}` : undefined}>
-        {part}
-      </sup>
-    );
-  });
+// Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
+const mdComponents = {
+  a: (props: any) => <a {...props} target="_blank" rel="noreferrer" />,
+};
+
+// Collapse repeated tool calls to distinct labels (one answer can hit the same
+// connector many times — show each source once, not eight identical rows).
+function uniqueTools(tools?: ToolUse[]): ToolUse[] {
+  const seen = new Map<string, ToolUse>();
+  for (const t of tools || []) seen.set(t.label || t.name, t);
+  return [...seen.values()];
 }
 
 const EXAMPLES = [
@@ -227,13 +227,15 @@ export default function Chat({ name }: { name: string }) {
                 <div key={i} className={`msg ${m.role}`}>
                   <div className="bubble">
                     {m.content
-                      ? (m.role === "assistant" ? renderContent(m.content, m.citations) : m.content)
+                      ? (m.role === "assistant"
+                          ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown></div>
+                          : m.content)
                       : (m.role === "assistant" && busy ? "…" : "")}
                   </div>
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
                     <details className="sources">
                       <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
-                      {m.tools?.map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
+                      {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
                       {(m.citations?.length || 0) > 0 && (
                         <div className="cite-chips">
                           {m.citations?.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}

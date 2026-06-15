@@ -168,6 +168,31 @@ def test_datasets_citation_typed_metric_vs_data():
     assert price[0].kind == "metric" and filings[0].kind == "data"
 
 
+def test_news_citation_uses_publisher_headline_date():
+    # /news must cite each article's publisher + headline + date, not "Google News"
+    tool = {"name": "google_news__news", "connector": "google_news", "source": "Google News"}
+    result = {"data": {"news": [
+        {"ticker": "NVDA", "title": "Nvidia chips surge in overnight trading", "source": "Yahoo Finance",
+         "date": "2026-06-15", "url": "https://news.google.com/x"},
+        {"ticker": "NVDA", "title": "SpaceX growth lifts Nvidia", "source": "Barron's",
+         "date": "2026-06-14", "url": "https://news.google.com/y"},
+    ]}}
+    cites = A._citations(tool, result)
+    assert {c.source for c in cites} == {"Yahoo Finance", "Barron's"}  # publisher, not "Google News"
+    assert all(c.kind == "news" and c.snippet and c.as_of for c in cites)
+    assert cites[0].snippet.startswith("Nvidia chips") and cites[0].freshness == "fresh"
+
+
+def test_financial_citation_gets_as_of_from_report_period():
+    tool = {"name": "opendart__income_statements", "source": "OpenDART (FSS)"}
+    result = {"data": {"statements": [
+        {"report_period": "2025-12-31", "revenue": 1}, {"report_period": "2026-03-31", "revenue": 2},
+    ]}}
+    cite = A._citations(tool, result)[0]
+    assert cite.as_of == "2026-03-31"  # latest report period becomes the figure's as-of
+    assert cite.kind in {"metric", "data"} and cite.freshness is not None
+
+
 def test_dedup_assigns_one_based_index():
     from agentengine.models import Citation
     out = A.dedup_citations([

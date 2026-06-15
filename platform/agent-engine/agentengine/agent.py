@@ -51,6 +51,54 @@ def _find_urls(obj, out: list | None = None) -> list:
     return out
 
 
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _collect_dates(obj, out: list) -> None:
+    """Gather YYYY-MM-DD values under date-ish keys (report_period / as_of / date / filing_date)."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str) and _DATE_RE.match(v) and any(t in k.lower() for t in ("date", "period", "as_of")):
+                out.append(v[:10])
+            else:
+                _collect_dates(v, out)
+    elif isinstance(obj, list):
+        for x in obj[:50]:
+            _collect_dates(x, out)
+
+
+def _latest_date(data) -> str | None:
+    """Most recent date-ish value in a datasets response — the figure's as-of."""
+    found: list[str] = []
+    _collect_dates(data, found)
+    return max(found) if found else None
+
+
+def _news_citations(tool: dict, data) -> list[Citation] | None:
+    """Google News (/news) returns articles that each carry their OWN publisher +
+    headline + date — cite those, not the connector's generic 'Google News' label."""
+    items = data.get("news") if isinstance(data, dict) else None
+    if not items:
+        return None
+    cites, seen = [], set()
+    for a in items[:6]:
+        if not isinstance(a, dict):
+            continue
+        url = a.get("url")
+        src = a.get("source") or tool.get("source") or "Google News"  # publisher (Reuters/연합뉴스/…)
+        key = (src, url)
+        if key in seen:
+            continue
+        seen.add(key)
+        as_of = a.get("date")
+        cites.append(Citation(
+            tool=tool["name"], source=src, url=url, kind="news", doc_type="news",
+            as_of=as_of, freshness=compute_freshness(as_of),
+            snippet=(a.get("title") or "")[:300] or None, ticker=a.get("ticker"),
+        ))
+    return cites or None
+
+
 def _rag_citations(tool: dict, data) -> list[Citation] | None:
     """RAG returns passages that each carry their OWN provenance — cite those
     (the real document source/url), not the connector's generic label."""
@@ -82,12 +130,19 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
         rag = _rag_citations(tool, data)
         if rag is not None:
             return rag
+    if tool.get("connector") == "google_news" or tool["name"].endswith("__news"):
+        news = _news_citations(tool, data)
+        if news is not None:
+            return news
+    # financials / metrics: enrich with the figure's as-of (latest report period) + freshness
     src = tool.get("source")
     ctype = _datasets_type(tool)
+    as_of = _latest_date(data)
+    fresh = compute_freshness(as_of)
     urls = list(dict.fromkeys(_find_urls(data)))[:5]
     if not urls:
-        return [Citation(tool=tool["name"], source=src, kind=ctype)]
-    return [Citation(tool=tool["name"], source=src, url=u, kind=ctype) for u in urls]
+        return [Citation(tool=tool["name"], source=src, kind=ctype, as_of=as_of, freshness=fresh)]
+    return [Citation(tool=tool["name"], source=src, url=u, kind=ctype, as_of=as_of, freshness=fresh) for u in urls]
 
 
 def dedup_citations(cites: list[Citation]) -> list[Citation]:
