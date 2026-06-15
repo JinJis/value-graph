@@ -154,6 +154,8 @@ export default function AgentBuilder({
           </div>
         </div>
 
+        <div className="guard" style={{ marginBottom: 14 }}>🛡 매수/매도·목표가·전망은 자동 거절됩니다 (끌 수 없음)</div>
+
         {err && <div className="err">{err}</div>}
 
         <div className="modal-foot">

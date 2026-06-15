@@ -10,7 +10,7 @@ import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
 import { Artifact, ArtifactCard } from "./ArtifactCard";
 
 type ToolUse = { name: string; label?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[] };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -160,6 +160,8 @@ export default function Chat({ name }: { name: string }) {
               const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
               if (!dup) a.citations = [...(a.citations || []), cite];
             }
+            // the guardrail is a visible label, not fine print: mark refused turns
+            else if (ev.type === "done" && ev.refused) a.refused = true;
             next[next.length - 1] = a;
             return next;
           });
@@ -270,6 +272,9 @@ export default function Chat({ name }: { name: string }) {
                           : m.content)
                       : (m.role === "assistant" && busy ? "…" : "")}
                   </div>
+                  {m.role === "assistant" && m.refused && (
+                    <div className="guard">🛡 매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</div>
+                  )}
                   {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
                     <div className="artifacts">
                       {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={() => pinArtifact(a)} />)}
@@ -308,6 +313,13 @@ export default function Chat({ name }: { name: string }) {
                   placeholder="메시지를 입력하거나 @그룹 으로 관심 종목을 호출…" disabled={busy} />
                 <button className="btn" disabled={busy || !input.trim()}>보내기</button>
               </form>
+              <div className="composer-meta">
+                {(input.match(/@([^\s@]+)/g) ?? []).slice(0, 3).map((h) => (
+                  <span key={h} className="ghandle">{h}</span>
+                ))}
+                <span className="grow" />
+                {liveCites.length > 0 && <span>📎 소스 {liveCites.length}</span>}
+              </div>
               <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
             </footer>
           </>

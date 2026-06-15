@@ -6,6 +6,7 @@
 > Companion docs — read the one a task points to before building:
 > - **What it should feel like, screen by screen / why it's not a chatbot:** [`UX_SPEC.md`](./UX_SPEC.md)
 > - **How the services fit together (current state):** [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+> - **Web visual language / component templates (the wireframe, implemented):** [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) ← derived from [`wireframe.dc.html`](./wireframe.dc.html) (open with `wireframe-support.js`; intent in `wireframe-chat.md`)
 > - **Engineering rules + invariants:** [`../CLAUDE.md`](../CLAUDE.md)
 >
 > **Status:** ✅ done · 🚧 partial · ⬜ todo. **One task per PR;** tag the id in branch/commits/PR
@@ -103,6 +104,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     center desk · right **Live Context** pane); rail nav with active state + "곧" placeholders for unbuilt
     tabs; 관심 promoted from modal to embedded rail screen; new visual identity applied (matte
     black/gray/white, mono numerics, pixel mascot, trust = the only saturated color). Web build green.
+  - ✅ **U-SHELL-DESIGN · wireframe re-skin** — whole web UI re-skinned to the user's wireframe
+    (`docs/wireframe.dc.html`): **light grayscale** system (white cards on `#E9E9EB`, near-black ink
+    actions), Space Grotesk + Space Mono fonts, trust signals the only saturated color, visible
+    guardrail label (Live feed · builder · **refused turns** via the `done` SSE `refused` flag) +
+    composer trust-meta. Tokens + templates documented in `docs/DESIGN_SYSTEM.md`; components consume
+    tokens (no hardcoded hex). Confidence tiers kept spec-only (no `confidence` field yet → not faked).
+    Web build green; stack boots; light tokens verified in the compiled bundle.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---

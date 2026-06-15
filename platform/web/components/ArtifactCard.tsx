@@ -20,7 +20,7 @@ export type Artifact = {
   tool?: string | null;
 };
 
-const STROKES = ["#ececee", "#8a8f98", "#3ec46b", "#e0a93b"]; // neutral + sparse accent; distinguishable
+const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // dark→light gray on light cards, then sparse trust accent
 
 function fmt(y: number | null | undefined, unit?: string | null) {
   if (y == null) return "—";
