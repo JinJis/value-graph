@@ -12,10 +12,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 210 unit** — datasets 82 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 212 unit** — datasets 84 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 54 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (17 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (18 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -207,7 +207,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > **Finish the data substance**
 > 1. ✅ **PH-5** — cheap universe-enumeration endpoints.  *(filing-text `/filings/items` → PH-RAG)*
 > 2. **PH-MACRO** — cloud-safe macro (DBnomics / Treasury).  ← **next**
-> 3. **PH-6** — store-backed: 13F ticker-mode + historical metrics.  ↳ populated store ✅
+> 3. ✅ **PH-6a** — historical financial-metrics (store-backed ratios) → MCP tool.  · **PH-6b** (13F
+>    ticker-mode / reverse-CUSIP) deferred — needs a 13F-holdings index, not the facts store.
 > 4. **PH-8** — index / ETF holdings (SEC N-PORT).
 > 5. **PH-7** — XBRL depth: segments + as-reported.
 > 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
@@ -237,8 +238,15 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   501 list. Following the existing `/…/tickers` convention these are **plain utility routes, not catalog
   resources** → they don't add MCP tools (MCP-tool growth comes from data-bearing PH-6/7/8/PH-RAG).
   *(datasets)* +4 tests → 82. Filing **text** (`/filings/items`) deferred to **PH-RAG**.
-- ⬜ **PH-6 · Store-backed endpoints.** #18 13F **ticker-mode** (reverse-CUSIP index) + #21 **historical
-  financial-metrics** (ratios across periods). *(datasets; needs PH-1 populated store)*
+- ✅ **PH-6a · Historical financial-metrics (#21).** `/financial-metrics` (was 501) now derives ratios
+  across periods from the store (`store/metrics_history.py`): margins, ROE/ROA, debt-to-equity/assets,
+  current ratio, interest coverage, EPS + YoY revenue/earnings/operating-income growth — only where inputs
+  exist (gaps stay null, never faked). **Added as a catalog resource on `datasets_store` → a new MCP tool
+  `datasets_store__metrics_history` (US+KR)**; coverage.sh "all 32"; eval scenario added. *(datasets)*
+  +2 tests → 84.
+- ⬜ **PH-6b · 13F ticker-mode (#18).** "which filers hold this security" — needs a **reverse-CUSIP /
+  13F-holdings index** (the facts store doesn't hold 13F holdings), so it's a heavier ingestion job, not a
+  store query. Deferred. *(datasets; M–L)*
 - ⬜ **PH-7 · XBRL depth.** #20 **segments** + **as-reported** financials (XBRL direct parse, US+KR). *(L)*
 - ⬜ **PH-8 · Index/ETF holdings (#19).** US SEC N-PORT; KR KRX/DART later. *(M)*
 - ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then

@@ -1,18 +1,23 @@
 """Financial Metrics endpoints.
 
 The real-time snapshot is backed by live providers (KR: pykrx fundamentals,
-US: XBRL + EOD price). Historical metrics (`/financial-metrics`) require
-ratio derivation across periods and are scaffolded for a later iteration.
+US: XBRL + EOD price). Historical metrics (`/financial-metrics`) derive ratios
+across periods from the point-in-time ingestion store (PH-6).
 """
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
-from app.errors import NOT_IMPLEMENTED_TAG, not_implemented
-from app.models.generated import FinancialMetricSnapshotResponse
+from app.models.generated import (
+    FinancialMetricsHistoryResponse,
+    FinancialMetricSnapshotResponse,
+)
 from app.providers.registry import get_metrics_provider
+from app.store.metrics_history import metrics_history_models
 from app.symbols import Market, build_ref
 
 router = APIRouter(tags=["Financial Metrics"])
@@ -35,22 +40,21 @@ async def get_financial_metrics_snapshot(
 
 @router.get(
     "/financial-metrics",
-    tags=[NOT_IMPLEMENTED_TAG],
-    summary="🚧 NOT IMPLEMENTED — GET /financial-metrics (historical)",
-    description=(
-        "**Not implemented yet** — historical metrics require ratio derivation across periods. "
-        "Returns **HTTP 501**. Use `/financial-metrics/snapshot` for the latest values (implemented)."
-    ),
-    status_code=501,
+    response_model=FinancialMetricsHistoryResponse,
     dependencies=[ApiKeyDep],
+    summary="Historical derived financial metrics (ratios across periods)",
+    description=(
+        "Derives margins / returns / leverage / liquidity / YoY-growth ratios across periods from the "
+        "point-in-time ingestion store. Store-backed: returns what's been ingested for the ticker (empty "
+        "if it hasn't been backfilled). Gaps stay null — never fabricated."
+    ),
 )
 async def get_financial_metrics(
-    period: str = Query(..., description="annual | quarterly | ttm"),
-    ticker: str | None = Query(None),
-    cik: str | None = Query(None),
+    ticker: str = Query(..., description="The ticker symbol."),
+    period: str = Query("annual", description="annual | quarterly | ttm"),
+    limit: int = Query(8, ge=1, le=40, description="Number of recent periods."),
     market: MarketParam = Market.US,
-):
-    raise not_implemented(
-        "Historical financial-metrics is not implemented yet; use "
-        "/financial-metrics/snapshot for the latest values."
-    )
+) -> FinancialMetricsHistoryResponse:
+    ref = build_ref(market, ticker)
+    metrics = await asyncio.to_thread(metrics_history_models, market.value, ref.ticker, period, limit)
+    return FinancialMetricsHistoryResponse(ticker=ref.ticker, period=period, metrics=metrics)

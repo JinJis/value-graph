@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool coverage — calls EVERY catalog tool (all 31) through the metered gateway with
+# Tool coverage — calls EVERY catalog tool (all 32) through the metered gateway with
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
@@ -98,9 +98,10 @@ tool "interest_rates_snapshot" GET "/macro/interest-rates/snapshot?bank=BOK&mark
 section "Google News (1 tool)"
 tool "news"  GET "/news?ticker=NVDA&market=US"  "" 'news'
 
-section "Datasets store — cross-sectional search (2 tools)"
-tool "screener"   POST "/financials/search/screener"   '{"filters":[{"field":"revenue","operator":"gt","value":1}],"limit":3}'  'search_results'
-tool "line_items" POST "/financials/search/line-items" '{"tickers":["AAPL"],"line_items":["revenue"],"period":"annual"}'         'search_results'
+section "Datasets store — cross-sectional search + derived metrics (3 tools)"
+tool "screener"        POST "/financials/search/screener"   '{"filters":[{"field":"revenue","operator":"gt","value":1}],"limit":3}'  'search_results'
+tool "line_items"      POST "/financials/search/line-items" '{"tickers":["AAPL"],"line_items":["revenue"],"period":"annual"}'         'search_results'
+tool "metrics_history" GET  "/financial-metrics?ticker=AAPL&market=US&period=annual" "" 'metrics'
 
 section "RAG — semantic retrieval (1 tool)"
 tool "search"  POST "/rag/search"  '{"query":"Apple TSMC supplier chips","top_k":3}'  'hits'

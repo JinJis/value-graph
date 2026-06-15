@@ -198,6 +198,10 @@ CONNECTORS: list[ConnectorManifest] = [
             Resource(name="line_items", description="Fetch line items across tickers.", method="POST",
                      path="/financials/search/line-items", output_model="FinancialsSearchResponse", cost_tier=CostTier.free,
                      params=[], provenance=Provenance(source="ingestion store (SEC/DART)", as_of_field="report_period", freshness=Freshness.periodic)),
+            Resource(name="metrics_history", description="Derived financial ratios across periods (margins, returns, leverage, growth).",
+                     path="/financial-metrics", output_model="FinancialMetricsHistoryResponse", markets=["US", "KR"], cost_tier=CostTier.free,
+                     params=[P_TICKER_REQ, ResourceParam(name="period", enum=["annual", "quarterly", "ttm"]), P_LIMIT, P_MARKET],
+                     provenance=Provenance(source="ingestion store (SEC/DART)", as_of_field="report_period", freshness=Freshness.periodic)),
         ],
     ),
     ConnectorManifest(

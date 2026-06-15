@@ -152,6 +152,13 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        "name": "Historical metrics → margin/return trend (PH-6, store-backed)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "Apple(AAPL)의 최근 몇 년간 매출총이익률(gross margin)과 순이익률 추이를 알려줘.",
+        "criteria": "여러 기간의 이익률을 수치(%)로 제시하고 추세를 설명; 출처를 밝히고; 전망·매수의견은 금지.",
+        "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Multi-company comparison (US, two tickers)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
         "question": "Compare the most recent annual revenue of Apple (AAPL) and Microsoft (MSFT). Give both numbers.",

@@ -546,6 +546,61 @@ def test_ph5_endpoints_no_longer_scaffold_501(monkeypatch):
     assert client.get("/prices/snapshot/market?market=US").status_code == 200
 
 
+# --- PH-6: historical financial-metrics (store-backed ratios) -------------
+def test_ph6_metrics_history_derives_ratios_and_growth():
+    from datetime import date
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.metrics_history import metrics_history
+    from app.store.models import FinancialFact
+
+    init_db()
+
+    def fact(rp, item, val):
+        return FinancialFact(market="US", ticker="ZZTEST", statement="x", line_item=item,
+                             value=val, period="annual", report_period=rp, source="SEC EDGAR")
+
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.ticker == "ZZTEST"))
+        rows = []
+        for rp, rev, gp, ni in [(date(2024, 12, 31), 100.0, 40.0, 10.0),
+                                (date(2025, 12, 31), 120.0, 60.0, 24.0)]:
+            rows += [fact(rp, "revenue", rev), fact(rp, "gross_profit", gp), fact(rp, "net_income", ni),
+                     fact(rp, "total_assets", 200.0), fact(rp, "shareholders_equity", 80.0),
+                     fact(rp, "current_assets", 50.0), fact(rp, "current_liabilities", 25.0)]
+        db.add_all(rows)
+        db.commit()
+
+    hist = metrics_history("US", "ZZTEST", "annual", 8)
+    assert len(hist) == 2
+    latest = hist[0]  # newest first → 2025
+    assert abs(latest["gross_margin"] - 0.5) < 1e-9       # 60/120
+    assert abs(latest["net_margin"] - 0.2) < 1e-9         # 24/120
+    assert abs(latest["return_on_equity"] - 0.3) < 1e-9   # 24/80
+    assert abs(latest["current_ratio"] - 2.0) < 1e-9      # 50/25
+    assert abs(latest["revenue_growth"] - 0.2) < 1e-9     # (120-100)/100
+    assert hist[1].get("revenue_growth") is None          # oldest period has no prior → null, not faked
+
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.ticker == "ZZTEST"))
+        db.commit()
+
+
+def test_ph6_metrics_history_endpoint_no_longer_501(monkeypatch):
+    import app.routers.metrics as M
+    from app.models.generated import FinancialMetricsResponse
+
+    monkeypatch.setattr(M, "metrics_history_models",
+                        lambda market, ticker, period, limit: [FinancialMetricsResponse(ticker="AAPL", gross_margin=0.46)])
+    r = client.get("/financial-metrics?ticker=AAPL&market=US&period=annual")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ticker"] == "AAPL" and body["period"] == "annual"
+    assert body["metrics"][0]["gross_margin"] == 0.46
+
+
 # --- one provider path with mocked upstream -------------------------------
 @respx.mock
 def test_us_company_facts_with_mocked_sec():
