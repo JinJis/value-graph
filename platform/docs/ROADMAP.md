@@ -12,8 +12,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 200 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 48 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 201 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 49 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
 > 59/59 checks + judge 5.00/5). `scripts/test_all.sh` runs everything.
@@ -191,6 +191,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     date** (not "Google News"); financial/metric citations get **`as_of` from the latest report period** +
     freshness; the gemini prompt stops dumping raw URLs in prose; **tool labels de-duped** in the web (one
     row per source, not eight). *(agent-engine + web)* +2 agent-engine tests → 48.
+  - ✅ **PH-4e · inline `[n]` ↔ citation-index alignment.** The model numbered `[n]` by its own narrative,
+    so a prose `[2]` could point at a different source than chip `[2]`. Fix: thread a `number_sources()`
+    block (our authoritative numbering) into the planner's `system_instruction` and instruct gemini to cite
+    **only those exact numbers, never reorder**. **Verified live:** NVDA query → prose `[1][2][3]` map
+    exactly to Barron's/TipRanks/Yahoo Finance chips. *(agent-engine)* +1 test → 49.
 
 #### Tier 2 — more tools *(depth; several need a populated store)*
 - ⬜ **PH-5 · Cheap universe endpoints.** Implement the trivial 501s: `/filings/tickers`, `/filings/ciks`,

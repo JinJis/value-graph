@@ -194,7 +194,8 @@ def _user_text(conversation: list | None) -> str:
 
 class StubPlanner:
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
-                   conversation: list | None = None) -> Decision:
+                   conversation: list | None = None, sources: str | None = None,
+                   force_final: bool = False) -> Decision:
         if history:  # already observed a tool result -> finalize
             return Decision(final=_summarize(task, history, tools))
         if not tools:
@@ -239,7 +240,8 @@ class GeminiPlanner:
         self.model = model
 
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
-                   conversation: list | None = None, force_final: bool = False) -> Decision:
+                   conversation: list | None = None, force_final: bool = False,
+                   sources: str | None = None) -> Decision:
         import asyncio
         from google.genai import types
         from datetime import datetime
@@ -259,12 +261,18 @@ class GeminiPlanner:
             "- 'ticker': Stock tickers MUST be official symbols (e.g., 'AAPL' for Apple, '005930' for Samsung Electronics). NEVER pass company names (e.g., 'Apple', '삼성전자') as the ticker parameter.\n"
             "- Always identify the correct market ('US' or 'KR') based on the company or central bank mentioned.\n"
             "- Resolve follow-up references (e.g. 'that company') from the conversation so far.\n"
-            "When you write the final answer, cite the sources you used inline as [1], [2], … in the "
-            "order they first appear, so each claim is anchored to a source.\n"
+            "When you write the final answer, anchor each claim with an inline [n] marker that refers to "
+            "the numbered source list provided below; use ONLY those exact numbers and never renumber.\n"
             "Never predict prices or give buy/sell advice; this is not investment advice."
         )
 
         system_instruction = f"{base_system}\n\n{system.strip()}" if system and system.strip() else base_system
+        if sources:
+            # the authoritative numbering — the model must cite with these exact [n].
+            system_instruction += (
+                "\n\nSources (cite ONLY with these exact bracketed numbers; do not invent or reorder):\n"
+                + sources
+            )
 
         contents = _to_gemini_contents(conversation, history, task)
 
@@ -272,7 +280,8 @@ class GeminiPlanner:
             prompt = (
                 "위 데이터에만 근거해 핵심을 간결하고 자연스럽게 답하세요(질문과 같은 언어로). "
                 "수치는 단위·기간과 함께 제시하고, 출처는 기관 이름(예: OpenDART, SEC EDGAR)으로 자연스럽게 언급하세요. "
-                "근거가 된 출처는 해당 문장 끝에 [1], [2]처럼 등장 순서대로 번호를 붙여 인용하세요. "
+                "근거가 된 출처는 문장 끝에 [n] 번호로 인용하되, 시스템 지침의 'Sources' 목록에 있는 "
+                "정확한 번호만 사용하고 새 번호를 만들거나 순서를 바꾸지 마세요. "
                 "원문 링크(URL)는 본문에 직접 쓰지 마세요 — [n] 번호만 쓰고, 링크는 출처 카드에 표시됩니다. "
                 "내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 절대 노출하지 마세요. "
                 "가격 예측이나 매수/매도 의견은 금지하며, 별도의 면책 문구는 덧붙이지 마세요."

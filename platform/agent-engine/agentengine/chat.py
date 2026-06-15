@@ -18,7 +18,7 @@ import logging
 from typing import AsyncIterator
 
 from agentengine import guardrails
-from agentengine.agent import _citations, anchor_markers, filter_tools, has_anchors
+from agentengine.agent import _citations, anchor_markers, filter_tools, has_anchors, number_sources
 from agentengine.client import PlatformClient
 from agentengine.config import settings
 from agentengine.models import AgentSpec
@@ -72,7 +72,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     try:
         planner = get_planner(spec.backend if spec else None)
         for _ in range(max_steps):
-            decision = await planner.plan(task, tools, history, system, conversation=messages)
+            # pass OUR numbered citations so inline [n] aligns with the chips (PH-4e)
+            decision = await planner.plan(task, tools, history, system, conversation=messages,
+                                          sources=number_sources(citations))
             if decision.final is not None:
                 final_text = decision.final
                 for ch in _chunks(decision.final):
@@ -106,7 +108,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 yield {"type": "citation", **cit}
             history.append((decision, result))
         if not answered:
-            final = await planner.plan(task, tools, history, system, conversation=messages, force_final=True)
+            final = await planner.plan(task, tools, history, system, conversation=messages,
+                                       force_final=True, sources=number_sources(citations))
             final_text = final.final or "Reached the step limit."
             for ch in _chunks(final_text):
                 yield {"type": "token", "text": ch}

@@ -257,6 +257,20 @@ def test_anchor_helpers():
     assert A.anchor_markers([1, 2, None, 3]) == "[1][2][3]"  # skips falsy index
 
 
+def test_number_sources_formats_indexed_block():
+    # PH-4e: the numbered block the planner gets so its inline [n] matches the chips
+    from agentengine.models import Citation
+    block = A.number_sources([
+        Citation(tool="t", source="Barron's", snippet="Nvidia and SpaceX", as_of="2026-06-12", index=1),
+        Citation(tool="t", source="TipRanks", index=2),
+        {"source": "X", "index": None},  # no index -> skipped
+    ])
+    lines = block.splitlines()
+    assert lines[0] == "[1] Barron's · Nvidia and SpaceX · 2026-06-12"
+    assert lines[1] == "[2] TipRanks"
+    assert len(lines) == 2
+
+
 @respx.mock
 async def test_run_agent_anchors_answer_when_model_omits(monkeypatch):
     # stub summary carries no [n]; with one citation the answer must end source-anchored

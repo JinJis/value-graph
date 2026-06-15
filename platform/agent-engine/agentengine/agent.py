@@ -175,6 +175,25 @@ def anchor_markers(indices) -> str:
     return "".join(f"[{i}]" for i in indices if i)
 
 
+def number_sources(cites) -> str:
+    """Numbered source block for the final-answer prompt so the model cites with OUR
+    indices — keeping inline [n] aligned to the citation list. Accepts Citation
+    objects or dicts."""
+    lines = []
+    for c in cites:
+        get = c.get if isinstance(c, dict) else (lambda k, _c=c: getattr(_c, k, None))
+        idx, src = get("index"), get("source")
+        if not idx or not src:
+            continue
+        bits = [f"[{idx}] {src}"]
+        if get("snippet"):
+            bits.append(str(get("snippet"))[:80])
+        if get("as_of"):
+            bits.append(str(get("as_of")))
+        lines.append(" · ".join(bits))
+    return "\n".join(lines)
+
+
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
     """Restrict ``tools`` to ``allowed`` — entries match a full tool name
     (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
@@ -204,7 +223,10 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     try:
         planner = get_planner(spec.backend if spec else None)
         for _ in range(max_steps):
-            decision = await planner.plan(task, tools, history, system)
+            # give the planner OUR numbered citations so any inline [n] it writes
+            # aligns with the citation list (PH-4e).
+            sources = number_sources(dedup_citations(citations))
+            decision = await planner.plan(task, tools, history, system, sources=sources)
             if decision.final is not None:
                 answer = decision.final
                 break
@@ -225,7 +247,8 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
             citations.extend(_citations(tool, result))
             history.append((decision, result))
         if not answer:
-            final = await planner.plan(task, tools, history, system, force_final=True)
+            sources = number_sources(dedup_citations(citations))
+            final = await planner.plan(task, tools, history, system, force_final=True, sources=sources)
             answer = final.final or "Reached the step limit without a final answer."
     except Exception as e:
         logger.exception("Error in run_agent loop")
