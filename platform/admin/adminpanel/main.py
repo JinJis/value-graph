@@ -251,6 +251,19 @@ async def ops_backfill(request: Request, preset: str = Form(""), market: str = F
     )
 
 
+@app.post("/ops/news")
+async def ops_news(request: Request, market: str = Form("US"), tickers: str = Form("")):
+    tick = [t.strip() for t in tickers.replace(",", " ").split() if t.strip()] or None
+    async with httpx.AsyncClient() as c:
+        r = await c.post(f"{settings.datasets_url}/admin/news/ingest",
+                         json={"market": market, "tickers": tick}, timeout=20)
+        ok = r.status_code == 200
+    label = f"{market}+{'+'.join(tick) if tick else 'market'}"
+    return RedirectResponse(
+        f"/?msg=news+ingest+{'started' if ok else 'failed'}+{label}+(watch+progress+below)", status_code=303
+    )
+
+
 @app.post("/ops/selftest")
 async def ops_selftest(request: Request):
     async with httpx.AsyncClient() as c:
@@ -432,6 +445,15 @@ _DASH_BODY = """
   <select name=market><option>US</option><option>KR</option></select>
   <input name=tickers placeholder="explicit tickers e.g. AAPL MSFT / 005930" size=34>
   <button>Backfill tickers</button>
+</form>
+
+<h2>News → RAG index</h2>
+<p class=muted>Pull Google News headlines into the RAG index so <code>rag__search</code> returns
+recent context. Indexed as a global corpus (visible to every tenant). Shows up in jobs below (kind <b>news</b>).</p>
+<form class=ops method=post action=/ops/news>
+  <select name=market><option>US</option><option>KR</option></select>
+  <input name=tickers placeholder="tickers e.g. AAPL MSFT / 005930 (blank = market news)" size=40>
+  <button class=p>Pull news → RAG</button>
 </form>
 
 <h2>Recent ingestion jobs</h2>

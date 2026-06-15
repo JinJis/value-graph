@@ -128,6 +128,30 @@ def test_gateway_routes_rag_to_rag_service(monkeypatch):
 
 
 @respx.mock
+def test_gateway_injects_tenant_header_for_rag(monkeypatch):
+    # PH-2a: the gateway scopes RAG to the caller's project via X-Tenant-Id, and a
+    # client-supplied X-Tenant-Id is stripped (no cross-tenant spoofing).
+    from controlplane.config import settings as cp_settings
+
+    cp_settings.rag_url = "http://rag.test"
+    catalog_index.set_catalog(CATALOG + [
+        {"id": "rag", "service": "rag", "resources": [
+            {"method": "POST", "path": "/rag/search", "markets": ["US", "KR"], "cost_tier": "low"}]}
+    ])
+    route = respx.route(method="POST", url__regex=r"http://rag\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": []})
+    )
+    pid, key = _make_project("RagScoped")
+    client.post(f"/admin/projects/{pid}/activations", json={"connector_id": "rag"}, headers=ADMIN)
+    r = client.post("/rag/search", json={"query": "q"},
+                    headers={"X-API-KEY": key, "X-Tenant-Id": "ten_spoofed"})
+    assert r.status_code == 200
+    forwarded = route.calls.last.request.headers
+    assert forwarded["x-tenant-id"] == pid          # authoritative project id
+    assert forwarded["x-tenant-id"] != "ten_spoofed"  # client value did not pass through
+
+
+@respx.mock
 def test_gateway_audit_log_and_activation_listing():
     catalog_index.set_catalog(CATALOG)
     respx.route(method="GET", url__regex=_PRICES).mock(return_value=httpx.Response(200, json={"ticker": "AAPL"}))

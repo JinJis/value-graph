@@ -73,7 +73,15 @@ class PgVectorStore:
         return conn
 
     async def upsert(self, chunks, vectors):
-        rows = [(c.id, c.text, json.dumps(c.provenance()), v) for c, v in zip(chunks, vectors)]
+        # tenant lives in meta (reserved key) for filtering, but is excluded from
+        # provenance() so it never surfaces in user-facing hits.
+        def _meta(c):
+            m = c.provenance()
+            if c.tenant:
+                m["tenant"] = c.tenant
+            return json.dumps(m)
+
+        rows = [(c.id, c.text, _meta(c), v) for c, v in zip(chunks, vectors)]
         with self._connect() as conn:
             conn.cursor().executemany(
                 "INSERT INTO rag_chunks (id, text, meta, embedding) VALUES (%s,%s,%s,%s) "
@@ -87,8 +95,13 @@ class PgVectorStore:
         if filters:
             conds = []
             for k, val in filters.items():
-                conds.append("meta->>%s = %s")
-                filter_params.extend([k, str(val)])
+                if k == "tenant":
+                    # tenant isolation: own chunks OR global (unscoped) ones.
+                    conds.append("(meta->>'tenant' = %s OR meta->>'tenant' IS NULL)")
+                    filter_params.append(str(val))
+                else:
+                    conds.append("meta->>%s = %s")
+                    filter_params.extend([k, str(val)])
             where = "WHERE " + " AND ".join(conds)
         sql = (
             "SELECT id, text, meta, 1 - (embedding <=> %s) AS score FROM rag_chunks "
@@ -105,7 +118,14 @@ class PgVectorStore:
 
 
 def _match(chunk: Chunk, filters: dict) -> bool:
-    return all(getattr(chunk, k, None) == v for k, v in filters.items())
+    for k, v in filters.items():
+        if k == "tenant":
+            # tenant isolation: a tenant sees its own chunks AND global (unscoped) ones.
+            if chunk.tenant is not None and chunk.tenant != v:
+                return False
+        elif getattr(chunk, k, None) != v:
+            return False
+    return True
 
 
 @cache

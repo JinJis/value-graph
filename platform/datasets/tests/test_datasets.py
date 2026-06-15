@@ -398,6 +398,91 @@ async def test_backfill_guard_blocks_concurrent(monkeypatch):
         db.commit()
 
 
+# --- PH-2b: news → RAG ingestion pipeline -------------------------------------
+class _FakeNewsProvider:
+    async def news(self, market, ticker, limit):
+        from app.models.generated import News
+
+        return [
+            News(ticker=ticker, title=f"{ticker} ships record chips", source="Reuters",
+                 date="2026-06-14", url="https://news.example/a"),
+            News(ticker=ticker, title="", source="X"),  # no title → skipped
+        ]
+
+
+async def test_run_news_ingest_indexes_headlines(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+    from app.store import news_ingest as N
+
+    init_db()
+    captured = {}
+
+    async def fake_ingest(rag_url, docs):
+        captured["rag_url"], captured["docs"] = rag_url, docs
+        return len(docs)
+
+    monkeypatch.setattr(N, "get_news_provider", lambda mkt: _FakeNewsProvider())
+    monkeypatch.setattr(N, "_ingest_to_rag", fake_ingest)
+    out = await N.run_news_ingest("US", ["AAPL"], limit=5)
+
+    assert out["status"] == "success" and out["rows"] == 1 and out["docs"] == 1
+    doc = captured["docs"][0]
+    assert doc["doc_type"] == "news" and doc["ticker"] == "AAPL" and doc["source"] == "Reuters"
+    assert doc["text"].startswith("AAPL") and "tenant" not in doc  # global corpus
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["kind"] == "news" and row["status"] == "success" and row["done"] == row["total"]
+
+
+async def test_run_news_ingest_records_error(monkeypatch):
+    from app.store.db import init_db
+    from app.store import jobs as J
+    from app.store import news_ingest as N
+
+    init_db()
+
+    async def boom(rag_url, docs):
+        raise RuntimeError("rag unreachable")
+
+    monkeypatch.setattr(N, "get_news_provider", lambda mkt: _FakeNewsProvider())
+    monkeypatch.setattr(N, "_ingest_to_rag", boom)
+    out = await N.run_news_ingest("US", ["AAPL"])
+    assert out["status"] == "error" and "rag unreachable" in out["error"]
+    row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
+    assert row["status"] == "error"
+
+
+async def test_news_ingest_guard_blocks_concurrent():
+    from app.store.db import SessionLocal, init_db
+    from app.store import news_ingest as N
+    from app.store.models import IngestionJob
+
+    init_db()
+    with SessionLocal() as db:
+        db.add(IngestionJob(kind="news", market="US", status="running", total=1, done=0))
+        db.commit()
+    assert N.news_ingest_running() is True
+    out = await N.run_news_ingest("US", ["AAPL"])
+    assert out["status"] == "busy"
+    with SessionLocal() as db:
+        from sqlalchemy import delete
+        db.execute(delete(IngestionJob).where(IngestionJob.status == "running"))
+        db.commit()
+
+
+def test_admin_news_ingest_endpoint(monkeypatch):
+    # the endpoint fires the pipeline in the background and returns started=True
+    import app.routers.admin as A
+
+    async def fake_run(market, tickers, limit=None):
+        return {"status": "success"}
+
+    monkeypatch.setattr(A, "run_news_ingest", fake_run)
+    monkeypatch.setattr(A, "news_ingest_running", lambda: False)
+    r = client.post("/admin/news/ingest", json={"market": "US", "tickers": ["AAPL"]})
+    assert r.status_code == 200 and r.json()["started"] is True
+
+
 # --- one provider path with mocked upstream -------------------------------
 @respx.mock
 def test_us_company_facts_with_mocked_sec():

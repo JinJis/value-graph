@@ -1,0 +1,102 @@
+"""News → RAG ingestion pipeline (PH-2b).
+
+Pulls Google News headlines for a set of tickers and indexes them into the RAG
+service so ``rag__search`` returns real, recent context instead of nothing.
+
+News is *public* and identical for every tenant, so it's indexed as a **global
+(unscoped) corpus** — visible to all tenants via PH-2a's "own-tenant OR global"
+search rule — rather than copied per tenant. Each run is recorded as an
+``IngestionJob`` (kind ``news``) so the admin ops console shows what was pulled,
+when, and any error — same observability as the financial-facts backfill.
+
+A headline carries only title + publisher + url + date (no body), which is exactly
+the Live Context Feed's "context only, no forecast" shape.
+"""
+
+from __future__ import annotations
+
+import httpx
+from sqlalchemy import func, select
+
+from app.config import settings
+from app.models.generated import News
+from app.providers.registry import get_news_provider
+from app.store.db import SessionLocal
+from app.store.jobs import finish_job, start_job, update_progress
+from app.store.models import IngestionJob
+from app.symbols import Market
+
+
+def news_ingest_running() -> bool:
+    """True if a news ingestion is already in flight — serialize runs (PH-11 = real queue)."""
+    with SessionLocal() as db:
+        n = db.scalar(
+            select(func.count()).select_from(IngestionJob)
+            .where(IngestionJob.kind == "news", IngestionJob.status == "running")
+        )
+        return bool(n)
+
+
+def _news_to_doc(market: str, article: News) -> dict | None:
+    """Map one headline → a RAG IngestDoc (global; no tenant). None if it has no title."""
+    title = (article.title or "").strip()
+    if not title:
+        return None
+    return {
+        "text": title,
+        "source": article.source or "Google News",  # publisher (Reuters/연합뉴스/…) when present
+        "doc_type": "news",
+        "ticker": article.ticker,
+        "market": market,
+        "as_of": str(article.date) if article.date else None,
+        "url": str(article.url) if article.url else None,
+    }
+
+
+async def _ingest_to_rag(rag_url: str, docs: list[dict]) -> int:
+    """POST the docs to the RAG service (global corpus) and return the chunk count."""
+    if not docs:
+        return 0
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
+        resp = await client.post(f"{rag_url.rstrip('/')}/rag/ingest", json={"documents": docs})
+        resp.raise_for_status()
+        return int((resp.json() or {}).get("chunks", 0))
+
+
+async def run_news_ingest(
+    market: str, tickers: list[str] | None, limit: int | None = None, rag_url: str | None = None,
+) -> dict:
+    """Pull news for ``tickers`` and index it into RAG, recorded as an IngestionJob.
+
+    An empty/None ticker list pulls broad market news. Serialized via
+    ``news_ingest_running`` so runs don't pile up.
+    """
+    market = (market or "US").upper()
+    try:
+        mkt = Market(market)
+    except ValueError:
+        return {"status": "error", "error": f"Unknown market '{market}'."}
+    # None entry => broad market news (the provider treats ticker=None that way).
+    syms: list[str | None] = [t for t in (tickers or []) if t] or [None]
+    if news_ingest_running():
+        return {"status": "busy", "error": "A news ingestion is already running — wait for it to finish."}
+
+    limit = limit or settings.news_ingest_limit
+    rag_url = rag_url or settings.rag_url
+    spec = ",".join(t for t in syms if t) or "(market)"
+    job_id = start_job("news", market, f"news:{spec}"[:256], total=len(syms))
+    provider = get_news_provider(mkt)
+    docs: list[dict] = []
+    try:
+        for i, sym in enumerate(syms):
+            for article in await provider.news(mkt, sym, limit):
+                doc = _news_to_doc(market, article)
+                if doc:
+                    docs.append(doc)
+            update_progress(job_id, i + 1)
+        chunks = await _ingest_to_rag(rag_url, docs)
+        finish_job(job_id, "success", rows=chunks)
+        return {"job_id": job_id, "status": "success", "rows": chunks, "docs": len(docs)}
+    except Exception as exc:  # noqa: BLE001 — record the failure, don't crash the worker
+        finish_job(job_id, "error", error=str(exc))
+        return {"job_id": job_id, "status": "error", "error": str(exc)}

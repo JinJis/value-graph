@@ -12,7 +12,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 183 unit** — datasets 74 · control-plane 12 · mcp 9 · rag 14 (+2 oss-cpu
+> **Test totals (current): 191 unit** — datasets 78 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 39 · studio-api 31 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (14 scenarios incl. multi-turn;
@@ -127,12 +127,26 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     progress** (admin auto-refreshes while running); `backfill_running` **serializes** runs (busy returned
     synchronously). **Verified live:** `us_mega` 4/15→15/15, 15 cos · 34,506 facts. +7 datasets, +2 admin.
     *(Real distributed queue + migrations = PH-11.)*
-- ⬜ **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
-  `hash` toy embedder + ephemeral `memory` store, so `rag__search` returns nothing real. Build a pipeline
-  (news now via Google News; filing text after PH-5's `/filings/items`) → chunk → embed → index per
-  tenant; default `oss-cpu` + `pgvector` (persistent); add per-tenant doc isolation. *(rag + pipeline;
-  partially depends on PH-5 for filing text.)* **The single most important unbuilt item — it makes "real,
-  cited, semantic" true instead of aspirational.**
+- 🚧 **PH-2 · RAG ingestion pipeline + real defaults.** RAG starts empty (no pipeline) and defaults to the
+  `hash` toy embedder + ephemeral `memory` store, so `rag__search` returns nothing real. Make "real,
+  cited, semantic" true instead of aspirational. **The single most important unbuilt item.** Broken into:
+  - ✅ **PH-2a · per-tenant doc isolation.** `IngestDoc`/`Chunk` gain a `tenant` (control-plane
+    `project_id`), namespaced into the chunk id (no cross-tenant PK clobber) and stored in pgvector `meta`
+    (excluded from user-facing `provenance()`). The **gateway injects `X-Tenant-Id` from the caller's key**
+    when proxying the RAG service (client-supplied values stripped — no spoofing); RAG ingest stamps it,
+    search filters **own-tenant OR global (unscoped)** docs so the shared corpus stays visible. *(rag +
+    control-plane)* +3 rag, +1 control-plane.
+  - ✅ **PH-2b · news ingestion pipeline.** `datasets/app/store/news_ingest.py`: pull Google News per
+    ticker → map headlines → IngestDocs (source=publisher, doc_type=news, ticker, as_of, url) → index into
+    RAG as a **global corpus** (news is public/identical per tenant → visible to all via PH-2a's
+    own-or-global rule, not copied per tenant). `POST /admin/news/ingest` (background, serialized, recorded
+    as an `IngestionJob` kind `news`) + admin ops-console form + an optional scheduler tick
+    (`SCHEDULER_NEWS`). **Verified live:** AAPL → 8 headlines indexed, `rag/search "Apple news"` returns
+    real sourced hits (Trefis/Finviz/Motley Fool, with as_of + url). *(datasets + admin)* +4 datasets.
+  - ⬜ **PH-2c · filing-text ingestion.** Index filing text once PH-5 ships `/filings/items`. *(depends PH-5)*
+  - ⬜ **PH-2d · persistent + real-embedding defaults.** Default `oss-cpu` + `pgvector` — lands with
+    **PH-11** (no Postgres in compose until then); until then the `e2e_functional` oss-cpu path validates
+    semantics. *(ties to PH-11)*
 
 #### Tier 1 — answer quality *(most visible; mostly independent)*
 - ✅ **PH-3 · Answer-quality quick wins.** (a) catalog `name` → friendly `connector_name`/`friendly`
