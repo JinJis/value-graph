@@ -141,6 +141,12 @@ The **Prompt library** (built, F2) stays as a composer affordance (`/` to insert
 
 ## 5. Screens
 
+> **Visual spec & design system.** The full-size mockups live in `wireframe-detail.dc.html` (7 screens) and
+> `wireframe-community*.dc.html`; the implemented visual language (tokens + primitive components every screen
+> composes) is **`DESIGN_SYSTEM.md`** — read it before building any screen so the language stays unified.
+> Desk + Live Context are already built to this system (light grayscale, `ui.tsx` primitives, native source
+> previews + expand viewer); the rest map to ROADMAP `U4/U5/U0/U6` (+ unblocked `U-SHELL-POLISH`).
+
 ### 5.1 The Desk (chat) — current screen, evolved
 - Active **analyst** named in the header (not "model"); switching analysts switches system prompt +
   allowed data sources + persona.
@@ -205,6 +211,15 @@ dragging it pins it into the right panel.
 ```
 This is what beats Perplexity-style citations: **point-in-time**, **verbatim-span highlight**,
 **freshness + next-update**, and **type-aware** previews.
+
+> ✅ **Built (and extended).** The Live Context panel renders each cited source as a **native preview with the
+> cited passage highlighted** — filing → mini PDF page (page badge + amber highlight over skeleton text),
+> web/news → browser chrome (URL bar from the real host) + headline + highlight, data → extracted card.
+> Clicking a preview opens the **full source viewer** (`SourceViewer.tsx`, wireframe Screen 08): the source
+> full-size with the passage highlighted + margin pin, and a "이 원문을 인용한 곳" panel (freshness / as_of /
+> source · 원문 열기 ↗ · 인용 복사). We render only the extracted snippet + a link (no full-text redistribution);
+> surrounding text is skeleton. **Next (U6):** apply the same native-preview + viewer to community footnotes
+> and Data-Hub RAG chunks. Components: `SourceCard.tsx` (`.srcprev`), `SourceViewer.tsx` — see `DESIGN_SYSTEM.md`.
 
 ### 5.4 Watchlists & @groups (search + favorite — yes, the user searches)
 **Stock search** (autocomplete over the company universe):
@@ -330,6 +345,33 @@ Rules:
 This is the concrete answer to *"카드를 import하면 내 데이터로 어떻게 치환되나"*: **template slots → my
 watchlist + my activations + my channels = my instance, with provenance back to the source.**
 
+### 5.8 Analyst list page (분석가 destination) — *frontend-now, ROADMAP U-SHELL-POLISH*
+The rail's `분석가` destination (currently a "곧" placeholder) becomes a real page: **my analysts** — chat
+agents + (later) standing analysts in one list, each with its pixel variant so it reads like "my staff".
+Per row: name, status dot, residency line (`상주 · 매일 08:00 · @반도체바스켓` — schedule shown once U4 lands),
+`ON` toggle; `＋ 만들기` and `갤러리에서 데려오기`. Opens the existing builder modal. The **list ships now**
+from `/api/agents` (chat agents + create/edit/clone); residency/schedule badges wait on U4's push backend.
+Spec: `wireframe-detail.dc.html` Screen 3. Compose `ui.tsx` (Card/Chip/Button/Mascot/FreshnessDot).
+
+### 5.9 Source viewer (preview → full source) — *built (SourceViewer.tsx)*
+Clicking a Live Context preview (§5.3) expands it into a modal over the dimmed desk: type tabs
+(공시/뉴스/데이터), the source full-size with the cited passage highlighted + a margin pin, and a right
+**"이 원문을 인용한 곳"** panel — which artifact/answer cited it, freshness, as_of, source — with `데스크
+대화로 ↗` (jump back), `원문 열기 ↗`, `인용 복사`. The reusable trust pattern for §5.10 (community) too.
+Spec: `wireframe-detail.dc.html` Screen 08.
+
+### 5.10 Community / Insights — *ROADMAP U6 (lowest priority)*
+The ecosystem pillar: users author **blog-style insights** with embedded **LIVE artifacts** (fresh at
+read-time, not screenshots), share, earn upvotes/scraps/followers, build reputation. Screens (full spec in
+`wireframe-community.dc.html` + `wireframe-community-ext.dc.html`): **Feed** (인기/팔로잉/신규 + 명예의 전당
+leaderboard), **Composer** (block editor, drag Board artifacts to embed, RAG auto-footnotes, pre-publish
+sources/no-forecast gate, "논리를 분석가로 변환"), **Reader** (upvote · scrap-to-collection · discussion ·
+"내 보드로 복제"; footnotes = native source previews + 펼치기 → §5.9 viewer), **Author profile** (reputation ·
+badges), **Scrapbook** (collections, highlights), **Data Hub** (RAG 자료실 with evidence-chunk previews + MCP
+connector status; private PDFs never leave the tenant). **Design principle:** data signals stay trust-color
+(green/amber/red); **people/social signals are indigo** (`--accent`) — two signal systems kept separate.
+Reuses `SourceCard`/`SourceViewer` + `ui.tsx` primitives (`DESIGN_SYSTEM.md`). Relates to `IDEA.md` Insight Canvas.
+
 ---
 
 ## 6. End-to-end interaction example (ties the pillars together)
@@ -346,16 +388,23 @@ watchlist + my activations + my channels = my instance, with provenance back to 
 
 ## 7. Design system (cross-screen invariants)
 
-### 7.1 Visual identity — "terminal-grade, but with a soul"
-The brand splits the difference between a **professional trading terminal** (Bloomberg / an exchange
-floor — dense, monospaced numerics, decisive) and a **hip startup with a pixel-art soul** (a small,
-cute pixel-character mascot — à la Claude's character — that gives the product warmth and personality).
-It must *not* read as a generic "AI app"; it should look like a top-tier designer made it.
+> **Implemented system of record: `DESIGN_SYSTEM.md`** (tokens + the `ui.tsx` primitive components every
+> screen composes). This section is the *intent*; that doc is what to build against. The palette landed
+> **light** (per the user's wireframe), inverting the original matte-dark note below — the principles
+> (trust = the only color · pixel mascot · two-typeface · not a generic "AI app") carried over unchanged.
 
-- **Palette — matte black / gray / white only.** No neon, no candy gradients. Backgrounds matte black →
-  charcoal (`#0E0E10` → `#1A1B1E`), surfaces in grays, text off-white. The **only** saturated color in
-  the entire UI is the **trust signal** (freshness 🟢🟡🔴⚪ + confidence) — data quality is the one
-  thing worth color, so it becomes the brightest thing on screen.
+### 7.1 Visual identity — "terminal-grade, but with a soul"
+The brand splits the difference between a **professional trading terminal** (dense, monospaced numerics,
+decisive) and a **hip startup with a pixel-art soul** (a small, cute pixel-character mascot — à la Claude's
+character — that gives the product warmth and personality). It must *not* read as a generic "AI app"; it
+should look like a top-tier designer made it.
+
+- **Palette — light grayscale (as built).** White cards on a light gray page (`#E9E9EB`), near-black **ink**
+  (`#1A1B1E`) for primary actions/active states, grayscale text. No neon, no candy gradients. The **only**
+  saturated colors are the **trust signal** (freshness 🟢🟡🔴⚪ — `#1FA463`/`#D9A300`/`#D1483A`/gray) and a
+  single calm **indigo** (`#6E72B0`) reserved for citations / @groups / people-social signals. Data quality
+  is the one thing worth trust-color. *(Original note: started matte-dark `#0E0E10`→`#1A1B1E`; flipped to
+  light per the wireframe — see `DESIGN_SYSTEM.md` for the full token table.)*
 - **Pixel-character mascot.** A small pixel-art character is the analyst/agent avatar and the
   empty/loading/thinking state (the mascot "reading a filing", "fetching prices"). Each standing analyst
   can wear a pixel variant (color/accessory) so *my analysts* feel like distinct little staff. Tasteful:
