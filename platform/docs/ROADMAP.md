@@ -6,7 +6,7 @@
 > Companion docs — read the one a task points to before building:
 > - **What it should feel like, screen by screen / why it's not a chatbot:** [`UX_SPEC.md`](./UX_SPEC.md)
 > - **How the services fit together (current state):** [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-> - **Web visual language / component templates (the wireframe, implemented):** [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) ← derived from the wireframes (open `.dc.html` with `wireframe-support.js`; intent in `wireframe-chat*.md`): [`wireframe.dc.html`](./wireframe.dc.html) (app map), [`wireframe-detail.dc.html`](./wireframe-detail.dc.html) (**7 full-size screens + source viewer**), `wireframe-community*.dc.html` (community/insights — U6)
+> - **Web visual language / component templates (the wireframe, implemented):** [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) ← derived from the wireframes (open `.dc.html` with `wireframes/support.js`; intent in `wireframes/chat-*.md`): [`wireframes/app-map.dc.html`](./wireframes/app-map.dc.html) (app map), [`wireframes/screens.dc.html`](./wireframes/screens.dc.html) (**7 full-size screens + source viewer**), `wireframes/community.dc.html` (community/insights — U6)
 > - **Engineering rules + invariants:** [`../CLAUDE.md`](../CLAUDE.md)
 >
 > **Status:** ✅ done · 🚧 partial · ⬜ todo. **One task per PR;** tag the id in branch/commits/PR
@@ -105,7 +105,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     tabs; 관심 promoted from modal to embedded rail screen; new visual identity applied (matte
     black/gray/white, mono numerics, pixel mascot, trust = the only saturated color). Web build green.
   - ✅ **U-SHELL-DESIGN · wireframe re-skin** — whole web UI re-skinned to the user's wireframe
-    (`docs/wireframe.dc.html`): **light grayscale** system (white cards on `#E9E9EB`, near-black ink
+    (`docs/wireframes/app-map.dc.html`): **light grayscale** system (white cards on `#E9E9EB`, near-black ink
     actions), Space Grotesk + Space Mono fonts, trust signals the only saturated color, visible
     guardrail label (Live feed · builder · **refused turns** via the `done` SSE `refused` flag) +
     composer trust-meta. Tokens + templates documented in `docs/DESIGN_SYSTEM.md`; components consume
@@ -127,8 +127,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     opens the **full source viewer** (`SourceViewer.tsx`, wireframe Screen 08) with the passage
     highlighted + a "이 원문을 인용한 곳" panel (freshness/as_of/source · 원문 열기 ↗ · 인용 복사).
     Maps onto real `Citation` data (kind/url/page/snippet/freshness); skeleton lines stand in for
-    un-redistributed surrounding text. New design files saved to `docs/wireframe-detail.dc.html` +
-    `wireframe-community*.dc.html`. Web build green. *(Detailed pages for 분석가/브리프/갤러리 are
+    un-redistributed surrounding text. New design files saved to `docs/wireframes/screens.dc.html` +
+    `wireframes/community.dc.html`. Web build green. *(Detailed pages for 분석가/브리프/갤러리 are
     backend-blocked — analysts list, brief inbox = push/PH-11, gallery = community/Phase-2 — tracked
     under U4/U5; community = lowest priority per the user.)*
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
@@ -262,13 +262,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 11. **PH-12** — governance / licensing + subscription metering (BYO-key only as a license fallback).
 > 12. **PH-DEFER** — paid adapters (Polygon / Tiingo / FMP / KIS).  ↳ PH-12
 >
-> **Research-desk UX (differentiators)** — visual spec: `wireframe-detail.dc.html` (7 full-size screens) +
-> `wireframe-community*.dc.html`; **every screen composes the `ui.tsx` primitives — see `DESIGN_SYSTEM.md` for
+> **Research-desk UX (differentiators)** — visual spec: `wireframes/screens.dc.html` (7 full-size screens) +
+> `wireframes/community.dc.html`; **every screen composes the `ui.tsx` primitives — see `DESIGN_SYSTEM.md` for
 > tokens/components so the language stays unified.** ✅ Desk + Live Context (light DS, native source previews +
 > expand viewer) already shipped — U-SHELL-DESIGN/DS/LIVECTX above.
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
 > 13b. ✅ **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder.
-> 13c. **U-SHELL-POLISH** — detail-pass the already-real screens to `wireframe-detail`: Board head (핀 수 ·
+> 13c. **U-SHELL-POLISH** — detail-pass the already-real screens to `wireframes/screens.dc.html`: Board head (핀 수 ·
 >      마지막 새로고침 · 전체 새로고침); 관심 = @group sidebar + stock table + favorite→group popover; **분석가**
 >      list page (현재 "곧" → render `/api/agents`). *Frontend-only, unblocked — do alongside its backend milestone.*
 > 14. ✅ **U3** — inline live artifacts + Board.  *(01 spec · 02 web card · 03a pin+Board · 03b ↻refresh — all done)*
@@ -431,7 +431,7 @@ in-app inbox and Telegram. *This is the daily reason to return.*
 - **integrations (F3):** Telegram channel — connect bot → deliver brief card.
 - **web:** standing-analyst builder additions (targets/schedule/triggers/channels, NL↔form, 미리보기) +
   the `🔔 브리프` inbox (read/unread) + deep-link from a brief line into the Desk pre-loaded.
-  *Detailed UX:* `wireframe-detail.dc.html` **Screen 3** (분석가 list + builder) and **Screen 5** (브리프 inbox
+  *Detailed UX:* `wireframes/screens.dc.html` **Screen 3** (분석가 list + builder) and **Screen 5** (브리프 inbox
   + full reading view: numbered changes, `[n]` cites, "why it fired" header). Compose `ui.tsx` primitives
   (Card/Chip/GuardrailLabel/FreshnessDot) — see `DESIGN_SYSTEM.md`. **Frontend-now (unblocked):** the **분석가
   list page** (replace the rail "곧" placeholder by rendering `/api/agents` — chat agents + create/edit/clone)
@@ -452,7 +452,7 @@ private data stripped).
 - **control-plane:** clone checks the user's **activations** per required connector; restricted feeds
   trigger **BYO-key or skip** (completes governance — PH-12).
 - **web:** Gallery grid (badges `sourced·no-forecast·auditable`, author, ★, clone count, cost) + the
-  4-step clone wizard + a publish flow. *Detailed UX:* `wireframe-detail.dc.html` **Screen 6** (template
+  4-step clone wizard + a publish flow. *Detailed UX:* `wireframes/screens.dc.html` **Screen 6** (template
   grid + 4-step wizard: 대상 → 소스 → 트리거·채널 → 미리보기; restricted feed → BYO-key/skip → honest degrade).
   Compose `ui.tsx` primitives; reuse the prompt-import clone pattern. See `DESIGN_SYSTEM.md`.
 
@@ -467,7 +467,7 @@ chips) → hire a starter analyst → land on a **non-empty desk**.
   seed the first watchlist + (full version) bind a starter Gallery template.
 - **web:** onboarding flow (market → chips/search → ⭐ → hire → seeded "내 관심 한눈에" artifact on the
   Desk). Minimal (with U1): market + search/favorite + seeded desk. Full (post-U5): hire-a-starter via the
-  clone wizard. *Detailed UX:* `wireframe-detail.dc.html` **Screen 7** (4 steps: 시장 → 관심 → 고용 → 비어있지
+  clone wizard. *Detailed UX:* `wireframes/screens.dc.html` **Screen 7** (4 steps: 시장 → 관심 → 고용 → 비어있지
   않은 데스크). Compose `ui.tsx` primitives; see `DESIGN_SYSTEM.md`. *The market→favorite→seeded-desk steps are
   frontend-now on U1; hire-a-starter waits on U5.*
 
@@ -491,8 +491,8 @@ existing `/connectors` test); web build green. See `UX_SPEC.md` §5.5. Per-tool 
 #### U6 — Community / Insights  ⬜  *(lowest priority, per user — gated on U5 + PH-RAG + PH-12)*
 **Goal:** turn the desk into an **ecosystem** — users author blog-style **investment insights** with embedded
 **LIVE artifacts** (fresh at read-time, not screenshots), share them, earn upvotes/scraps/followers, and
-build reputation. Consumption feeds back into the reader's own assets. Spec: `wireframe-community.dc.html` +
-`wireframe-community-ext.dc.html`; design principle from the wireframe — **data signals stay trust-color
+build reputation. Consumption feeds back into the reader's own assets. Spec: `wireframes/community.dc.html` +
+`wireframes/community.dc.html`; design principle from the wireframe — **data signals stay trust-color
 (green/amber/red), people/social signals are indigo** (`--accent`); two signal systems kept separate. Every
 screen composes `ui.tsx` primitives (`DESIGN_SYSTEM.md`) and **reuses the already-built `SourceCard` native
 previews + `SourceViewer`** for footnotes/RAG chunks. Capability-review origin (data·MCP·RAG·Agent → feature

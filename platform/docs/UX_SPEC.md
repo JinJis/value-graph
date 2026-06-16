@@ -141,8 +141,8 @@ The **Prompt library** (built, F2) stays as a composer affordance (`/` to insert
 
 ## 5. Screens
 
-> **Visual spec & design system.** The full-size mockups live in `wireframe-detail.dc.html` (7 screens) and
-> `wireframe-community*.dc.html`; the implemented visual language (tokens + primitive components every screen
+> **Visual spec & design system.** The full-size mockups live in `wireframes/screens.dc.html` (7 screens) and
+> `wireframes/community.dc.html`; the implemented visual language (tokens + primitive components every screen
 > composes) is **`DESIGN_SYSTEM.md`** — read it before building any screen so the language stays unified.
 > Desk + Live Context are already built to this system (light grayscale, `ui.tsx` primitives, native source
 > previews + expand viewer); the rest map to ROADMAP `U4/U5/U0/U6` (+ unblocked `U-SHELL-POLISH`).
@@ -351,19 +351,19 @@ agents + (later) standing analysts in one list, each with its pixel variant so i
 Per row: name, status dot, residency line (`상주 · 매일 08:00 · @반도체바스켓` — schedule shown once U4 lands),
 `ON` toggle; `＋ 만들기` and `갤러리에서 데려오기`. Opens the existing builder modal. The **list ships now**
 from `/api/agents` (chat agents + create/edit/clone); residency/schedule badges wait on U4's push backend.
-Spec: `wireframe-detail.dc.html` Screen 3. Compose `ui.tsx` (Card/Chip/Button/Mascot/FreshnessDot).
+Spec: `wireframes/screens.dc.html` Screen 3. Compose `ui.tsx` (Card/Chip/Button/Mascot/FreshnessDot).
 
 ### 5.9 Source viewer (preview → full source) — *built (SourceViewer.tsx)*
 Clicking a Live Context preview (§5.3) expands it into a modal over the dimmed desk: type tabs
 (공시/뉴스/데이터), the source full-size with the cited passage highlighted + a margin pin, and a right
 **"이 원문을 인용한 곳"** panel — which artifact/answer cited it, freshness, as_of, source — with `데스크
 대화로 ↗` (jump back), `원문 열기 ↗`, `인용 복사`. The reusable trust pattern for §5.10 (community) too.
-Spec: `wireframe-detail.dc.html` Screen 08.
+Spec: `wireframes/screens.dc.html` Screen 08.
 
 ### 5.10 Community / Insights — *ROADMAP U6 (lowest priority)*
 The ecosystem pillar: users author **blog-style insights** with embedded **LIVE artifacts** (fresh at
 read-time, not screenshots), share, earn upvotes/scraps/followers, build reputation. Screens (full spec in
-`wireframe-community.dc.html` + `wireframe-community-ext.dc.html`): **Feed** (인기/팔로잉/신규 + 명예의 전당
+`wireframes/community.dc.html` + `wireframes/community.dc.html`): **Feed** (인기/팔로잉/신규 + 명예의 전당
 leaderboard), **Composer** (block editor, drag Board artifacts to embed, RAG auto-footnotes, pre-publish
 sources/no-forecast gate, "논리를 분석가로 변환"), **Reader** (upvote · scrap-to-collection · discussion ·
 "내 보드로 복제"; footnotes = native source previews + 펼치기 → §5.9 viewer), **Author profile** (reputation ·

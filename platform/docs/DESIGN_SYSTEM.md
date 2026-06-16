@@ -1,8 +1,8 @@
 # DESIGN_SYSTEM.md — ValueGraph component templates
 
 > Source of truth for the **web UI visual language**, derived 1:1 from the user's
-> wireframe (`docs/wireframe.dc.html`, open it with `wireframe-support.js`; intent in
-> `docs/wireframe-chat.md`). The wireframe is **mid-fidelity light grayscale**: white
+> wireframe (`docs/wireframes/app-map.dc.html`, open it with `wireframes/support.js`; intent in
+> `docs/wireframes/chat-1-app-map.md`). The wireframe is **mid-fidelity light grayscale**: white
 > cards on a light gray page, near-black ink for actions, and **the freshness/trust
 > signals are the only saturated color**. Implemented in `web/app/globals.css` `:root`
 > + component classes; every web component consumes these tokens — **don't hardcode
