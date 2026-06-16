@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button, Modal } from "./ui";
 
 export type Prompt = {
   id: string;
@@ -83,13 +84,7 @@ export default function PromptLibrary({
   const list = tab === "mine" ? mine : community;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3>프롬프트 라이브러리</h3>
-          <button className="x" onClick={onClose}>✕</button>
-        </div>
-
+    <Modal title="프롬프트 라이브러리" onClose={onClose}>
         <div className="tabs">
           <button className={`tab ${tab === "mine" ? "on" : ""}`} onClick={() => setTab("mine")}>내 프롬프트</button>
           <button className={`tab ${tab === "community" ? "on" : ""}`} onClick={() => setTab("community")}>커뮤니티</button>
@@ -104,12 +99,12 @@ export default function PromptLibrary({
                   value={body} onChange={(e) => setBody(e.target.value)} />
                 <div className="modal-foot">
                   <div className="grow" />
-                  <button className="btn ghost sm" onClick={() => setCreating(false)} disabled={busy}>취소</button>
-                  <button className="btn sm" onClick={create} disabled={busy || !title.trim() || !body.trim()}>저장</button>
+                  <Button variant="ghost" size="sm" onClick={() => setCreating(false)} disabled={busy}>취소</Button>
+                  <Button size="sm" onClick={create} disabled={busy || !title.trim() || !body.trim()}>저장</Button>
                 </div>
               </div>
             ) : (
-              <button className="btn ghost sm" onClick={() => setCreating(true)}>＋ 새 프롬프트</button>
+              <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>＋ 새 프롬프트</Button>
             )}
           </div>
         )}
@@ -127,14 +122,13 @@ export default function PromptLibrary({
               {p.description && <div className="pc-desc">{p.description}</div>}
               <div className="pc-body">{p.body}</div>
               <div className="pc-actions">
-                <button className="btn sm" onClick={() => onUse(p.body)}>사용</button>
-                {tab === "community" && <button className="btn ghost sm" onClick={() => importPrompt(p.id)} disabled={busy}>가져오기</button>}
-                {tab === "mine" && <button className="btn ghost sm" onClick={() => remove(p.id)} disabled={busy}>삭제</button>}
+                <Button size="sm" onClick={() => onUse(p.body)}>사용</Button>
+                {tab === "community" && <Button variant="ghost" size="sm" onClick={() => importPrompt(p.id)} disabled={busy}>가져오기</Button>}
+                {tab === "mine" && <Button variant="ghost" size="sm" onClick={() => remove(p.id)} disabled={busy}>삭제</Button>}
               </div>
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

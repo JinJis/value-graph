@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FreshnessDot } from "./SourceCard";
+import { FreshnessDot } from "./ui";
 
 // U3-02: render a connector-backed Artifact as an interactive card — a dependency-free
 // SVG line chart (matte palette) with a 차트/표 toggle, source + freshness, drawn gaps.
@@ -20,7 +20,7 @@ export type Artifact = {
   tool?: string | null;
 };
 
-const STROKES = ["#ececee", "#8a8f98", "#3ec46b", "#e0a93b"]; // neutral + sparse accent; distinguishable
+const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // dark→light gray on light cards, then sparse trust accent
 
 function fmt(y: number | null | undefined, unit?: string | null) {
   if (y == null) return "—";

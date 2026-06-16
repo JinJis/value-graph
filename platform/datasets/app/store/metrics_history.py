@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.models.generated import FinancialMetricsResponse
 from app.store.db import SessionLocal
 from app.store.models import FinancialFact
+from app.store.provenance import filing_link
 
 # line items this module reads (statement field names as ingested)
 _NEEDED = (
@@ -54,6 +55,7 @@ def metrics_history(market: str, ticker: str, period: str = "annual", limit: int
             select(
                 FinancialFact.report_period, FinancialFact.line_item,
                 FinancialFact.value, FinancialFact.currency,
+                FinancialFact.accession_number, FinancialFact.cik,
             ).where(
                 FinancialFact.market == market.upper(),
                 FinancialFact.ticker == ticker.upper(),
@@ -65,10 +67,13 @@ def metrics_history(market: str, ticker: str, period: str = "annual", limit: int
     # collapse to {report_period: {line_item: value}} (keep one value per item/period)
     by_period: dict = {}
     ccy: dict = {}
-    for rp, item, value, currency in rows:
+    prov: dict = {}  # report_period -> (accession, cik) so each ratio links to its filing
+    for rp, item, value, currency, accession, cik in rows:
         by_period.setdefault(rp, {})[item] = value
         if currency:
             ccy[rp] = currency
+        if accession and rp not in prov:
+            prov[rp] = (accession, cik)
     periods = sorted(by_period)  # ascending, so growth can look back one period
     out: list[dict] = []
     for i, rp in enumerate(periods):
@@ -79,7 +84,12 @@ def metrics_history(market: str, ticker: str, period: str = "annual", limit: int
             m["revenue_growth"] = _pct_change(v.get("revenue"), prev.get("revenue"))
             m["earnings_growth"] = _pct_change(v.get("net_income"), prev.get("net_income"))
             m["operating_income_growth"] = _pct_change(v.get("operating_income"), prev.get("operating_income"))
-        out.append({"report_period": rp, "currency": ccy.get(rp), **m})
+        accession, cik = prov.get(rp, (None, None))
+        row = {"report_period": rp, "currency": ccy.get(rp), **m}
+        if accession:  # tie each period's ratios to the exact filing they came from
+            row["accession_number"] = accession
+            row["filing_url"] = filing_link(market, accession, cik)
+        out.append(row)
 
     out.sort(key=lambda r: r["report_period"], reverse=True)  # newest first
     return out[:limit]

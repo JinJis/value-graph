@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button, GuardrailLabel, Modal } from "./ui";
 
 export type Agent = {
   id: string;
@@ -86,13 +87,16 @@ export default function AgentBuilder({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3>{editing ? "에이전트 편집" : cloning ? "에이전트 복제" : "새 에이전트"}</h3>
-          <button className="x" onClick={onClose}>✕</button>
-        </div>
-
+    <Modal
+      title={editing ? "에이전트 편집" : cloning ? "에이전트 복제" : "새 에이전트"}
+      onClose={onClose}
+      footer={<>
+        {editing && <Button variant="danger" onClick={remove} disabled={busy}>삭제</Button>}
+        <span className="grow" />
+        <Button variant="ghost" onClick={onClose} disabled={busy}>취소</Button>
+        <Button onClick={save} disabled={busy}>{busy ? "저장 중…" : "저장"}</Button>
+      </>}
+    >
         <label className="fld">
           <span>이름</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 공시 분석가" />
@@ -154,17 +158,9 @@ export default function AgentBuilder({
           </div>
         </div>
 
-        {err && <div className="err">{err}</div>}
+        <GuardrailLabel>매수/매도·목표가·전망은 자동 거절됩니다 (끌 수 없음)</GuardrailLabel>
 
-        <div className="modal-foot">
-          {editing && (
-            <button className="btn danger" onClick={remove} disabled={busy}>삭제</button>
-          )}
-          <div className="grow" />
-          <button className="btn ghost" onClick={onClose} disabled={busy}>취소</button>
-          <button className="btn" onClick={save} disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
-        </div>
-      </div>
-    </div>
+        {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+    </Modal>
   );
 }

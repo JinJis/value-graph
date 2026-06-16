@@ -25,6 +25,149 @@ _FILING_HINTS = ("10-k", "10-q", "8-k", "20-f", "6-k", "s-1", "filing", "annual"
 _METRIC_HINTS = ("price", "metric", "snapshot", "financ", "ratio", "screener", "earnings")
 
 
+# --- canonical filing links ---------------------------------------------------
+# Mirror of datasets `app.store.provenance` — agent-engine is a separate deployable,
+# so the tiny builder is duplicated here on purpose (can't import across services).
+def _sec_index_url(cik, accession) -> str | None:
+    if not accession or not cik:
+        return None
+    nodash = str(accession).replace("-", "")
+    if len(nodash) != 18:
+        return None
+    dashed = accession if "-" in str(accession) else f"{nodash[:10]}-{nodash[10:12]}-{nodash[12:]}"
+    try:
+        return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{nodash}/{dashed}-index.htm"
+    except (TypeError, ValueError):
+        return None
+
+
+def _filing_link(market, accession, cik=None) -> str | None:
+    """Canonical link to the *specific filing* — SEC index page / DART rcpNo viewer."""
+    if not accession:
+        return None
+    m = (market or "").upper()
+    if m == "KR":
+        return f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={accession}"
+    if m == "US":
+        return _sec_index_url(cik, accession)
+    return None
+
+
+def _market_hint(tool: dict, data) -> str | None:
+    """KR vs US for link-building: the data's own market field, else the connector."""
+    if isinstance(data, dict) and isinstance(data.get("market"), str) and data["market"]:
+        return data["market"].upper()
+    conn = (tool.get("connector") or tool.get("name") or "").lower()
+    if "dart" in conn or "opendart" in conn or "kis" in conn:
+        return "KR"
+    if "sec" in conn or "edgar" in conn or "yahoo" in conn or "fred" in conn:
+        return "US"
+    return None
+
+
+_CANON_URL_KEYS = ("filing_url", "source_url")
+_PROV_KEYS = {"filing_url", "source_url", "accession_number", "cik", "url", "ticker",
+              "market", "currency", "period", "fiscal_period", "source"}
+
+
+def _canonical_provenance(data) -> tuple[str | None, str | None, str | None]:
+    """(url, accession, cik) from the first row carrying a *canonical* filing link or
+    accession — never an incidental url (a directory listing is not the filing)."""
+    found = {"url": None, "accn": None, "cik": None}
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                kl = k.lower()
+                if found["url"] is None and isinstance(v, str) and v.startswith("http") and kl in _CANON_URL_KEYS:
+                    found["url"] = v
+                elif found["accn"] is None and kl == "accession_number" and v:
+                    found["accn"] = str(v)
+                elif found["cik"] is None and kl == "cik" and v:
+                    found["cik"] = str(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o[:30]:
+                walk(x)
+
+    walk(data)
+    return found["url"], found["accn"], found["cik"]
+
+
+def _fmt_ratio(v) -> str:
+    return f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "—"
+
+
+def _fmt_amt(v) -> str:
+    if not isinstance(v, (int, float)):
+        return "—"
+    a = abs(v)
+    if a >= 1e12:
+        return f"{v / 1e12:.2f}T"
+    if a >= 1e9:
+        return f"{v / 1e9:.2f}B"
+    if a >= 1e6:
+        return f"{v / 1e6:.2f}M"
+    return f"{v:,.0f}" if a >= 1 else f"{v:.4f}"
+
+
+# known result shapes → (snippet, table[header-first]) showing the SPECIFIC figures used.
+_METRIC_COLS = (("gross_margin", "매출총이익률", _fmt_ratio), ("operating_margin", "영업이익률", _fmt_ratio),
+                ("net_margin", "순이익률", _fmt_ratio), ("return_on_equity", "ROE", _fmt_ratio))
+_INCOME_COLS = (("revenue", "매출", _fmt_amt), ("operating_income", "영업이익", _fmt_amt),
+                ("net_income", "순이익", _fmt_amt))
+
+
+def _shape_table(rows: list[dict], period_key: str, cols, period_label: str):
+    rows = [r for r in rows if isinstance(r, dict)][:6]
+    use = [(k, lbl, fn) for k, lbl, fn in cols if any(r.get(k) is not None for r in rows)]
+    if not rows or not use:
+        return None, None
+    header = [period_label] + [lbl for _, lbl, _ in use]
+    table = [header]
+    for r in rows:
+        table.append([str(r.get(period_key) or "—")] + [fn(r.get(k)) for k, _, fn in use])
+    top = rows[0]
+    snippet = " · ".join(f"{lbl} {fn(top.get(k))}" for k, lbl, fn in use if top.get(k) is not None)
+    if top.get(period_key):
+        snippet += f" ({top.get(period_key)})"
+    return snippet or None, table
+
+
+def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
+    """The specific figures a structured result contributed — a one-line computation
+    summary + a small extracted table — so the preview shows real data, not a label."""
+    if not isinstance(data, dict):
+        return None, None
+    if isinstance(data.get("metrics"), list):
+        return _shape_table(data["metrics"], "report_period", _METRIC_COLS, "기간")
+    if isinstance(data.get("income_statements"), list):
+        return _shape_table(data["income_statements"], "report_period", _INCOME_COLS, "기간")
+    if isinstance(data.get("prices"), list):
+        rows = [r for r in data["prices"] if isinstance(r, dict)]
+        rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]
+        pr = [r for r in rows if r.get("close") is not None]
+        if pr:
+            table = [["날짜", "종가"]] + [[str(r.get("time"))[:10], _fmt_amt(r.get("close"))] for r in pr]
+            top = pr[0]
+            return f"종가 {_fmt_amt(top.get('close'))} ({str(top.get('time'))[:10]})", table
+    # generic fallback: first list-of-dicts → a compact table of its real values
+    for v in data.values():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            rows = [r for r in v if isinstance(r, dict)][:6]
+            keys = [k for k in rows[0] if k.lower() not in _PROV_KEYS
+                    and isinstance(rows[0].get(k), (int, float, str))][:4]
+            if not keys:
+                break
+            header = keys
+            table = [header] + [[_fmt_amt(r.get(k)) if isinstance(r.get(k), (int, float)) else str(r.get(k) or "—")
+                                 for k in keys] for r in rows]
+            snippet = " · ".join(f"{k} {table[1][i]}" for i, k in enumerate(keys))
+            return snippet or None, table
+    return None, None
+
+
 def _rag_type(prov: dict) -> str:
     dt = (prov.get("doc_type") or "").lower()
     if dt == "news":
@@ -36,20 +179,6 @@ def _rag_type(prov: dict) -> str:
 
 def _datasets_type(tool: dict) -> str:
     return "metric" if any(h in tool["name"].lower() for h in _METRIC_HINTS) else "data"
-
-
-def _find_urls(obj, out: list | None = None) -> list:
-    out = [] if out is None else out
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, str) and v.startswith("http") and ("url" in k.lower() or "filing" in k.lower()):
-                out.append(v)
-            else:
-                _find_urls(v, out)
-    elif isinstance(obj, list):
-        for x in obj[:30]:
-            _find_urls(x, out)
-    return out
 
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -109,7 +238,7 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
     cites, seen = [], set()
     for h in hits[:5]:
         prov = (h or {}).get("provenance") or {}
-        src, url = prov.get("source"), prov.get("url")
+        src, url = prov.get("source"), _rag_link(prov)
         key = (src, url)
         if not (src or url) or key in seen:
             continue
@@ -125,6 +254,11 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
     return cites or None
 
 
+def _rag_link(prov: dict) -> str | None:
+    """A RAG chunk's canonical link: its own url, else built from its accession."""
+    return prov.get("url") or _filing_link(prov.get("market"), prov.get("accession"))
+
+
 def _citations(tool: dict, result: dict) -> list[Citation]:
     data = result.get("data")
     if "search" in tool["name"] or tool.get("connector") == "rag":
@@ -135,22 +269,45 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
         news = _news_citations(tool, data)
         if news is not None:
             return news
-    # financials / metrics: enrich with the figure's as-of (latest report period) + freshness
     src = tool.get("source")
     ctype = _datasets_type(tool)
+    market = _market_hint(tool, data)
+    # A filings *listing* → one evidence card per distinct filing document (each its
+    # own source: its filing_url + what the filing is).
+    if isinstance(data, dict) and isinstance(data.get("filings"), list):
+        out, seen = [], set()
+        for f in data["filings"][:6]:
+            if not isinstance(f, dict):
+                continue
+            u = (f.get("filing_url") or f.get("source_url") or f.get("url")
+                 or _filing_link(market, f.get("accession_number"), f.get("cik")))
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            fa = f.get("filed") or f.get("report_period") or f.get("as_of")
+            fa = str(fa)[:10] if fa else None
+            out.append(Citation(
+                tool=tool["name"], source=src, url=u, kind="filing", as_of=fa,
+                freshness=compute_freshness(fa), page=f.get("accession_number"),
+                snippet=(f.get("title") or f.get("form") or f.get("filing_type") or None)))
+        if out:
+            return out
+    # Derived figures (financials / metrics / prices): show the SPECIFIC figures used +
+    # link to the exact filing they came from — not a label or a directory listing.
     as_of = _latest_date(data)
-    fresh = compute_freshness(as_of)
-    urls = list(dict.fromkeys(_find_urls(data)))[:5]
-    if not urls:
-        return [Citation(tool=tool["name"], source=src, kind=ctype, as_of=as_of, freshness=fresh)]
-    return [Citation(tool=tool["name"], source=src, url=u, kind=ctype, as_of=as_of, freshness=fresh) for u in urls]
+    url, accn, cik = _canonical_provenance(data)        # canonical filing link / accession
+    if not url and accn:                                # build it from the identifier
+        url = _filing_link(market, accn, cik)
+    snippet, table = _evidence(tool, data)              # the real figures + extracted table
+    return [Citation(tool=tool["name"], source=src, url=url, kind=ctype, as_of=as_of,
+                     freshness=compute_freshness(as_of), snippet=snippet, table=table, page=accn)]
 
 
 def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
-def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker) -> Artifact | None:
+def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker, url=None) -> Artifact | None:
     series = [s for s in series if s.points]
     if not series:
         return None
@@ -160,7 +317,7 @@ def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, tic
         kind="timeseries", title=title.strip() or "추이", series=series, source=source,
         as_of=as_of, freshness=compute_freshness(as_of), ticker=ticker,
         has_gap=len(lengths) > 1,  # series of differing coverage → a gap to draw
-        tool=tool_name,
+        url=url, tool=tool_name,
     )
 
 
@@ -172,13 +329,17 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         return []
     name, src = tool["name"], tool.get("source")
     out: list[Artifact] = []
+    # canonical link to the filing the figures came from (drawn on the artifact card)
+    url, accn, cik = _canonical_provenance(data)
+    if not url and accn:
+        url = _filing_link(_market_hint(tool, data), accn, cik)
 
     if name.endswith("__prices") and isinstance(data.get("prices"), list):
         # the Price model's date lives in `time` (no `date` field); take the date part.
         pts = [ArtifactPoint(x=str(p.get("time"))[:10], y=_num(p.get("close")))
                for p in data["prices"] if p.get("time")]
         a = _timeseries(f"{data.get('ticker') or ''} 종가", [ArtifactSeries(label="종가", points=pts)],
-                        src, name, data.get("ticker"))
+                        src, name, data.get("ticker"), url)
         if a:
             out.append(a)
 
@@ -190,7 +351,7 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                    for r in rows if r.get("report_period") and r.get(key) is not None]
             if pts:
                 series.append(ArtifactSeries(label=label, unit="ratio", points=sorted(pts, key=lambda p: p.x)))
-        a = _timeseries(f"{data.get('ticker') or ''} 재무비율 추이", series, src, name, data.get("ticker"))
+        a = _timeseries(f"{data.get('ticker') or ''} 재무비율 추이", series, src, name, data.get("ticker"), url)
         if a:
             out.append(a)
 
@@ -203,7 +364,7 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                    for r in rows if r.get("report_period") and r.get(key) is not None]
             if pts:
                 series.append(ArtifactSeries(label=label, points=sorted(pts, key=lambda p: p.x)))
-        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker)
+        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker, url)
         if a:
             out.append(a)
 
@@ -257,6 +418,23 @@ def anchor_markers(indices) -> str:
     """Compact trailing anchor group: [1][2][3] (the deterministic floor when the
     model didn't place markers inline — keeps every answer source-anchored)."""
     return "".join(f"[{i}]" for i in indices if i)
+
+
+def mark_evidence(cites: list[Citation], answer: str, artifacts: list[Artifact]) -> list[Citation]:
+    """Flag which citations are *evidence* (actually backed the answer) vs merely
+    consulted. Evidence = cited by [n] in the prose OR backs a rendered artifact.
+    The Live Context shows only evidence; everything consulted stays in 도구·출처.
+    When the model wrote no inline [n] at all, evidence falls back to the citations
+    that actually returned data (a url / snippet / table) — never the bare labels."""
+    cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer or "")}
+    art_tools = {a.tool for a in artifacts if a.tool}
+    for c in cites:
+        c.used = (c.index in cited) or (c.tool in art_tools)
+    if cites and not any(c.used for c in cites):
+        data_bearing = [c for c in cites if c.url or c.snippet or c.table]
+        for c in (data_bearing or cites):
+            c.used = True
+    return cites
 
 
 # --- PH-15: LLM-assessed step budget + strict finalize ------------------------
@@ -424,8 +602,12 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
 
     cites = dedup_citations(citations)
+    # Mark which citations are evidence (cited [n] or back an artifact) vs consulted.
+    mark_evidence(cites, answer, artifacts)
     # Ensure the answer is source-anchored: if the planner didn't write inline [n]
-    # markers, append a trailing anchor group so every claim ties to the citations.
+    # markers, append a trailing anchor group — but only for the *evidence*, so the
+    # answer doesn't claim every consulted source produced its figures.
     if cites and answer and not has_anchors(answer):
-        answer = answer.rstrip() + " " + anchor_markers([c.index for c in cites])
+        used = [c for c in cites if c.used] or cites
+        answer = answer.rstrip() + " " + anchor_markers([c.index for c in used])
     return RunResult(answer=answer, steps=steps, citations=cites, artifacts=artifacts, usage={"steps": len(steps)})

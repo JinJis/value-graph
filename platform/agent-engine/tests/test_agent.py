@@ -80,6 +80,79 @@ def test_citations_fallback_to_source_when_no_url():
     assert len(cites) == 1 and cites[0].url is None and cites[0].source == "Yahoo Finance"
 
 
+def test_filing_link_canonical_per_market():
+    # KR → DART rcpNo viewer (deterministic); US → SEC index page (needs CIK)
+    assert A._filing_link("KR", "20260605000073") == "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260605000073"
+    assert A._filing_link("US", "0000320193-25-000079", "320193") == \
+        "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/0000320193-25-000079-index.htm"
+    assert A._filing_link("US", "0000320193-25-000079", None) is None
+    assert A._filing_link("US", None) is None
+
+
+def test_citations_metrics_show_real_figures_and_canonical_link():
+    # a derived-metrics result → ONE evidence card with the actual figures + a table +
+    # the canonical filing link built from accession (not a directory listing).
+    tool = {"name": "datasets_store__metrics_history", "source": "SEC EDGAR", "connector": "datasets_store"}
+    data = {"market": "US", "ticker": "AAPL", "metrics": [
+        {"report_period": "2025-12-31", "gross_margin": 0.46, "net_margin": 0.25,
+         "accession_number": "0000320193-25-000079", "cik": "320193"},
+        {"report_period": "2024-12-31", "gross_margin": 0.44, "net_margin": 0.23,
+         "accession_number": "0000320193-24-000123", "cik": "320193"}]}
+    cites = A._citations(tool, {"data": data})
+    assert len(cites) == 1
+    c = cites[0]
+    assert c.url == "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/0000320193-25-000079-index.htm"
+    assert "46.0%" in (c.snippet or "")          # the real figure, not "지표 계산값"
+    assert c.table and c.table[0][0] == "기간"     # extracted table, header first
+    assert "2025-12-31" in c.table[1]
+    assert c.page == "0000320193-25-000079"
+
+
+def test_mark_evidence_only_cited_or_artifact_backing():
+    from agentengine.models import Artifact
+    cites = [A.Citation(tool="t1", source="A", url="u1", index=1, snippet="x"),
+             A.Citation(tool="t2", source="B", url="u2", index=2, snippet="y"),
+             A.Citation(tool="t3", source="C", url="u3", index=3)]
+    arts = [Artifact(kind="timeseries", title="z", tool="t3")]
+    A.mark_evidence(cites, "핵심 수치는 이렇습니다 [1].", arts)
+    used = {c.index for c in cites if c.used}
+    assert used == {1, 3}            # [1] cited + t3 backs an artifact; t2 consulted-only
+
+
+def test_mark_evidence_fallback_when_no_inline_anchors():
+    cites = [A.Citation(tool="t1", source="A", url="u1", index=1, snippet="real"),
+             A.Citation(tool="t2", source="B", index=2)]  # bare label, no data
+    A.mark_evidence(cites, "근거를 정리했습니다.", [])
+    assert cites[0].used and not cites[1].used   # data-bearing is evidence; bare label is not
+
+
+def test_citations_prices_and_generic_show_real_values():
+    # prices → a date/close table + latest-close snippet (no filing link, that's fine)
+    tool = {"name": "yahoo__prices", "source": "Yahoo Finance", "connector": "yahoo"}
+    data = {"ticker": "AAPL", "prices": [
+        {"time": "2026-06-12T00:00:00", "close": 210.5}, {"time": "2026-06-13T00:00:00", "close": 213.0}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table[0] == ["날짜", "종가"] and c.table[1][0] == "2026-06-13"  # newest first
+    assert "213" in (c.snippet or "")
+    # generic tabular result → a table of its real values (scales to new data sources)
+    tool2 = {"name": "datasets_store__insider", "source": "SEC EDGAR", "connector": "datasets_store"}
+    data2 = {"trades": [{"insider": "CEO", "shares": 1000, "filing_url": "https://x"}]}
+    c2 = A._citations(tool2, {"data": data2})[0]
+    assert c2.table is not None and c2.url == "https://x"
+
+
+def test_rag_citation_builds_canonical_link_from_accession():
+    # a RAG chunk with no url but a KR accession → DART viewer link (not linkless)
+    tool = {"name": "rag__search", "connector": "rag", "source": "RAG"}
+    result = {"data": {"hits": [{"text": "메모리 매출원가율 개선", "provenance": {
+        "source": "OpenDART", "doc_type": "filing", "market": "KR",
+        "accession": "20260605000073", "as_of": "2026-06-05"}}]}}
+    cites = A._citations(tool, result)
+    assert len(cites) == 1
+    assert cites[0].url == "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260605000073"
+    assert cites[0].kind == "filing" and "메모리" in (cites[0].snippet or "")
+
+
 def test_dedup_citations_collapses_repeats():
     from agentengine.models import Citation
     cites = [

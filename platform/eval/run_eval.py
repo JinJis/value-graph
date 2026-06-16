@@ -277,8 +277,12 @@ def main() -> int:
         print("   needs a key. Set GOOGLE_API_KEY (or GEMINI_API_KEY) in platform/.env, then re-run.")
         return 2
 
-    n = len(SCENARIOS)
-    print(bold("Quality eval") + dim(f"  · studio={STUDIO} · judge={JUDGE_MODEL} · {n} scenarios"))
+    # optional `--only=<substr>` to run a subset by name (cheap iteration; default = all)
+    only = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--only=")), None)
+    scenarios = [s for s in SCENARIOS if not only or only.lower() in s["name"].lower()]
+    n = len(scenarios)
+    print(bold("Quality eval") + dim(f"  · studio={STUDIO} · judge={JUDGE_MODEL} · {n} scenarios"
+                                      + (f" · only={only!r}" if only else "")))
     print(dim("─" * 70))
     code, _ = studio("POST", "/users/ensure")
     if code != 200:
@@ -291,7 +295,7 @@ def main() -> int:
     dim_n = {k: 0 for k in RUBRIC_KEYS}
     rows: list[tuple[str, int, int, str]] = []
 
-    for i, sc in enumerate(SCENARIOS, 1):
+    for i, sc in enumerate(scenarios, 1):
         name = sc["name"]
         tag = cyan(f"[{i:>2}/{n}]")
         try:

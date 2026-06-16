@@ -94,7 +94,10 @@ SCENARIOS = [
         "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
         "question": "엔비디아(NVDA) 관련 최근 뉴스를 알려줘.",
         "criteria": "최근 헤드라인 2~3개를 발행사·날짜와 함께 요약하고, 전망/매수의견 없이 맥락 정보로만 제시.",
-        "checks": {"expect_connector": "google_news__", "expect_status": 200, "expect_cite": "Google News",
+        # News is attributed to the PUBLISHER (Reuters/CNBC/…), not the "Google News"
+        # aggregator label — so don't assert that literal string (it varies per RSS run).
+        # The connector + the judge's sourcing dimension cover that it's properly cited.
+        "checks": {"expect_connector": "google_news__", "expect_status": 200,
                    "expect_refused": False, "judge": True},
     },
     {

@@ -6,6 +6,7 @@
 > Companion docs — read the one a task points to before building:
 > - **What it should feel like, screen by screen / why it's not a chatbot:** [`UX_SPEC.md`](./UX_SPEC.md)
 > - **How the services fit together (current state):** [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+> - **Web visual language / component templates (the wireframe, implemented):** [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) ← derived from the wireframes (open `.dc.html` with `wireframes/support.js`; intent in `wireframes/chat-*.md`): [`wireframes/app-map.dc.html`](./wireframes/app-map.dc.html) (app map), [`wireframes/screens.dc.html`](./wireframes/screens.dc.html) (**7 full-size screens + source viewer**), `wireframes/community.dc.html` (community/insights — U6)
 > - **Engineering rules + invariants:** [`../CLAUDE.md`](../CLAUDE.md)
 > - **Exploratory ideas (not commitments; promote only with approval):** [`IDEA.md`](./IDEA.md)
 >
@@ -13,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 222 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 61 · studio-api 33 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 226 unit** — datasets 86 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 64 · studio-api 33 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -104,6 +105,49 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     center desk · right **Live Context** pane); rail nav with active state + "곧" placeholders for unbuilt
     tabs; 관심 promoted from modal to embedded rail screen; new visual identity applied (matte
     black/gray/white, mono numerics, pixel mascot, trust = the only saturated color). Web build green.
+  - ✅ **U-SHELL-DESIGN · wireframe re-skin** — whole web UI re-skinned to the user's wireframe
+    (`docs/wireframes/app-map.dc.html`): **light grayscale** system (white cards on `#E9E9EB`, near-black ink
+    actions), Space Grotesk + Space Mono fonts, trust signals the only saturated color, visible
+    guardrail label (Live feed · builder · **refused turns** via the `done` SSE `refused` flag) +
+    composer trust-meta. Tokens + templates documented in `docs/DESIGN_SYSTEM.md`; components consume
+    tokens (no hardcoded hex). Confidence tiers kept spec-only (no `confidence` field yet → not faked).
+    Web build green; stack boots; light tokens verified in the compiled bundle.
+  - ✅ **U-SHELL-DS · unified design system + Desk 1:1** — added the primitive library
+    `web/components/ui.tsx` (`Button`/`Chip`/`Card`/`FreshnessDot`/`TrustLegend`/`GuardrailLabel`/
+    `Mascot`/`Modal`) as the single source for recurring patterns; refactored Chat/AgentBuilder/
+    PromptLibrary/Watchlists/SourceCard/ArtifactCard to compose them (one `FreshnessDot`, one
+    `Modal`). Rebuilt the **Desk** to the wireframe composition: horizontal rail (brand wordmark ·
+    nav rows · account footer with `tenant ✓`), analyst header (mascot + status dot + switcher),
+    composer placeholder + @group chips + source meta, source-preview card C layout. API documented
+    in `docs/DESIGN_SYSTEM.md` §4. Web build green; DS classes verified in the bundle. (D–I screens
+    next, on confirmation.)
+  - ✅ **U-SHELL-LIVECTX · Live Context source previews + viewer** — reworked the Live Context
+    panel from a title list into **native source previews** with the cited passage highlighted
+    (`SourceCard` → `.srcprev`: filing = mini PDF page + page badge, web = browser chrome + URL bar +
+    highlight, data = extracted card), panel header "인용 원문 N" + guardrail note; clicking a preview
+    opens the **full source viewer** (`SourceViewer.tsx`, wireframe Screen 08) with the passage
+    highlighted + a "이 원문을 인용한 곳" panel (freshness/as_of/source · 원문 열기 ↗ · 인용 복사).
+    Maps onto real `Citation` data (kind/url/page/snippet/freshness); skeleton lines stand in for
+    un-redistributed surrounding text. New design files saved to `docs/wireframes/screens.dc.html` +
+    `wireframes/community.dc.html`. Web build green. *(Detailed pages for 분석가/브리프/갤러리 are
+    backend-blocked — analysts list, brief inbox = push/PH-11, gallery = community/Phase-2 — tracked
+    under U4/U5; community = lowest priority per the user.)*
+  - ✅ **U-SHELL-PROV · Live Context = evidence, with canonical links + real data** — reworked the whole
+    provenance path so Live Context shows only the sources that *actually produced the answer*, each with
+    a canonical link and the specific figures used (not every consulted source, not a bare "지표 계산값"):
+    - **datasets:** `metrics_history` now surfaces `accession_number` + a canonical `filing_url` per period;
+      new `app/store/provenance.py` `filing_link()` (SEC **index page** from cik+accn — not the bare
+      directory listing; DART rcpNo viewer). SEC `_filing_url` upgraded to the index page. +1 test (86).
+    - **agent-engine:** `_citations` extracts the canonical filing link (`filing_url`/`source_url`/accession,
+      never an incidental directory URL) + builds a real-data **snippet + extracted table** from the actual
+      figures; RAG chunks get a canonical link built from their accession when they lack a url; filings
+      listings emit one evidence card per document. `mark_evidence()` flags `used` = cited `[n]` OR backs an
+      artifact → only evidence is anchored/shown; `done` SSE carries `used`. Artifacts carry `url`. +3 (64).
+    - **web:** Live Context filters to `used` citations (consulted-but-unused stay in the answer's 도구·출처);
+      `SourceCard`/`SourceViewer` render the extracted **table** (cited row highlighted) + canonical link.
+    - **eval:** the store-backed metrics + filings scenarios already exercise the enriched provenance
+      path (judge 5/5); corrected the News scenario's brittle `expect_cite` (news cites the *publisher*,
+      not the "Google News" label). Full eval green (85/85 deterministic, judge 3.94/5). e2e + web build green.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---
@@ -235,13 +279,21 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 11. **PH-12** — governance / licensing + subscription metering (BYO-key only as a license fallback).
 > 12. **PH-DEFER** — paid adapters (Polygon / Tiingo / FMP / KIS).  ↳ PH-12
 >
-> **Research-desk UX (differentiators)**
+> **Research-desk UX (differentiators)** — visual spec: `wireframes/screens.dc.html` (7 full-size screens) +
+> `wireframes/community.dc.html`; **every screen composes the `ui.tsx` primitives — see `DESIGN_SYSTEM.md` for
+> tokens/components so the language stays unified.** ✅ Desk + Live Context (light DS, native source previews +
+> expand viewer) already shipped — U-SHELL-DESIGN/DS/LIVECTX above.
 > 13. **U-SHELL-02** — thinking & tool-execution indicator  *(pull anytime)*.
 > 13b. ✅ **U-BUILDER-01** — expandable data-source → **tool transparency** in the builder.
+> 13c. **U-SHELL-POLISH** — detail-pass the already-real screens to `wireframes/screens.dc.html`: Board head (핀 수 ·
+>      마지막 새로고침 · 전체 새로고침); 관심 = @group sidebar + stock table + favorite→group popover; **분석가**
+>      list page (현재 "곧" → render `/api/agents`). *Frontend-only, unblocked — do alongside its backend milestone.*
 > 14. ✅ **U3** — inline live artifacts + Board.  *(01 spec · 02 web card · 03a pin+Board · 03b ↻refresh — all done)*
-> 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11
-> 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12
-> 17. **U0** — onboarding, full flow.  ↳ U5  *(minimal onboarding already shippable on U1)*
+> 15. **U4** — standing analysts (push): calendar · schedule · briefs · Telegram.  ↳ U1 ✅ + PH-11  *(브리프 inbox = detail Screen 5)*
+> 16. **U5** — gallery clone / substitution + publish.  ↳ U4 + PH-12  *(gallery + 4-step wizard = detail Screen 6)*
+> 17. **U0** — onboarding, full flow.  ↳ U5  *(detail Screen 7; minimal already shippable on U1)*
+> 18. **U6** — Community / Insights *(lowest priority, per user)*: blog-style insight authoring with embedded LIVE
+>      artifacts, upvote/scrap/follow, author reputation/badges, data hub.  ↳ U5 + PH-RAG + PH-12.
 
 #### Item detail
 
@@ -396,6 +448,11 @@ in-app inbox and Telegram. *This is the daily reason to return.*
 - **integrations (F3):** Telegram channel — connect bot → deliver brief card.
 - **web:** standing-analyst builder additions (targets/schedule/triggers/channels, NL↔form, 미리보기) +
   the `🔔 브리프` inbox (read/unread) + deep-link from a brief line into the Desk pre-loaded.
+  *Detailed UX:* `wireframes/screens.dc.html` **Screen 3** (분석가 list + builder) and **Screen 5** (브리프 inbox
+  + full reading view: numbered changes, `[n]` cites, "why it fired" header). Compose `ui.tsx` primitives
+  (Card/Chip/GuardrailLabel/FreshnessDot) — see `DESIGN_SYSTEM.md`. **Frontend-now (unblocked):** the **분석가
+  list page** (replace the rail "곧" placeholder by rendering `/api/agents` — chat agents + create/edit/clone)
+  ships without the scheduler; the inbox + residency badges wait on the push backend above.
 
 **Acceptance:** create a standing analyst on `@반도체바스켓` at 08:00 + disclosure D-3 → the scheduler
 runs it headless → a sourced brief appears in the inbox and (if connected) Telegram, with a header
@@ -412,7 +469,9 @@ private data stripped).
 - **control-plane:** clone checks the user's **activations** per required connector; restricted feeds
   trigger **BYO-key or skip** (completes governance — PH-12).
 - **web:** Gallery grid (badges `sourced·no-forecast·auditable`, author, ★, clone count, cost) + the
-  4-step clone wizard + a publish flow.
+  4-step clone wizard + a publish flow. *Detailed UX:* `wireframes/screens.dc.html` **Screen 6** (template
+  grid + 4-step wizard: 대상 → 소스 → 트리거·채널 → 미리보기; restricted feed → BYO-key/skip → honest degrade).
+  Compose `ui.tsx` primitives; reuse the prompt-import clone pattern. See `DESIGN_SYSTEM.md`.
 
 **Acceptance:** clone a gallery analyst targeting the author's basket → the wizard binds it to *my*
 `@반도체바스켓`, flags `news` as restricted (BYO-key or skip), runs a preview, and the saved instance
@@ -425,7 +484,9 @@ chips) → hire a starter analyst → land on a **non-empty desk**.
   seed the first watchlist + (full version) bind a starter Gallery template.
 - **web:** onboarding flow (market → chips/search → ⭐ → hire → seeded "내 관심 한눈에" artifact on the
   Desk). Minimal (with U1): market + search/favorite + seeded desk. Full (post-U5): hire-a-starter via the
-  clone wizard.
+  clone wizard. *Detailed UX:* `wireframes/screens.dc.html` **Screen 7** (4 steps: 시장 → 관심 → 고용 → 비어있지
+  않은 데스크). Compose `ui.tsx` primitives; see `DESIGN_SYSTEM.md`. *The market→favorite→seeded-desk steps are
+  frontend-now on U1; hire-a-starter waits on U5.*
 
 **Acceptance:** a brand-new Google login is never shown an empty desk; within the flow they create a
 watchlist and (full) hire an analyst whose first brief is scheduled.
@@ -443,6 +504,35 @@ tools inside with a plain-language "what it does" — selection stays connector-
 transparency (showing *exactly* what an analyst can touch = trust-by-construction). Now e.g. expanding
 `datasets_store` shows `metrics_history` "기간별 재무비율 추이". *(studio-api + web)* +0 (extended the
 existing `/connectors` test); web build green. See `UX_SPEC.md` §5.5. Per-tool *selection* is a later option.
+
+#### U6 — Community / Insights  ⬜  *(lowest priority, per user — gated on U5 + PH-RAG + PH-12)*
+**Goal:** turn the desk into an **ecosystem** — users author blog-style **investment insights** with embedded
+**LIVE artifacts** (fresh at read-time, not screenshots), share them, earn upvotes/scraps/followers, and
+build reputation. Consumption feeds back into the reader's own assets. Spec: `wireframes/community.dc.html` +
+`wireframes/community.dc.html`; design principle from the wireframe — **data signals stay trust-color
+(green/amber/red), people/social signals are indigo** (`--accent`); two signal systems kept separate. Every
+screen composes `ui.tsx` primitives (`DESIGN_SYSTEM.md`) and **reuses the already-built `SourceCard` native
+previews + `SourceViewer`** for footnotes/RAG chunks. Capability-review origin (data·MCP·RAG·Agent → feature
+mining) is the wireframe's screen 00.
+- **Feed** (`커뮤니티 피드`) — 인기/팔로잉/신규 tabs; post cards embed LIVE artifacts (read-time fresh + "내
+  보드로" clone); right-rail **명예의 전당** leaderboard (incl. my rank).
+- **Composer** (`인사이트 작성기`) — block editor; drag **my Board artifacts** in to embed; RAG citations become
+  auto-footnotes; **pre-publish gate** (sources present · no-forecast); "이 글의 논리를 분석가로 변환". *(Relates
+  to the parked **Insight Canvas** idea in `IDEA.md`.)*
+- **Reader** (`인사이트 읽기`) — upvote dock, **scrap** (pick collection), discussion thread, artifact "내 보드로
+  복제"; footnotes render as **native source previews + 펼치기 → `SourceViewer`** (same trust pattern as Live Context).
+- **Author profile** (`작가 프로필 · 명예`) — reputation · followers · scraps-received · published analysts +
+  badges (Always-Sourced, …) — the "become known" surface.
+- **Scrapbook** (`스크랩북 · 컬렉션`) — saved insights + LIVE artifacts in folders, highlights/notes, curate-on-publish.
+- **Data Hub** (`데이터 허브`) — 자료실 (RAG: evidence-chunk citations + native preview + trace), MCP connector
+  status (price/filing connected · news BYO-key · custom server), private PDFs never leave the tenant.
+- **backend:** posts/collections/upvotes/follows/scraps in studio-api (mirror the prompt-import clone pattern
+  for portability); leaderboard/reputation aggregation; moderation/report flow; artifact-embed = a Board-spec
+  reference re-resolved at read-time; needs PH-RAG (auto-footnotes) + PH-12 (publish/governance) + moderation.
+
+**Acceptance:** publish an insight embedding a Board artifact and a RAG-cited footnote → it passes the
+sources/no-forecast gate → another user reads it (artifacts fresh at read-time), scraps it to a collection,
+clones an embedded artifact to their Board, and follows the author; the author's reputation reflects it.
 
 ---
 

@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;}
+    body{margin:0;background:#E9E9EB;font-family:'Space Grotesk',system-ui,sans-serif;color:#26262A;-webkit-font-smoothing:antialiased;}
+    ::selection{background:#C9D2E8;}
+  </style>
+</helmet>
+
+<div style="max-width:1480px;margin:0 auto;padding:40px 36px 120px;">
+
+  <!-- ===== PAGE HEADER ===== -->
+  <header style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:2px solid #1A1B1E;padding-bottom:18px;margin-bottom:8px;flex-wrap:wrap;">
+    <div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.18em;color:#86868C;margin-bottom:8px;">VALUE·GRAPH — INVESTMENT RESEARCH DESK</div>
+      <h1 style="margin:0;font-size:30px;font-weight:700;letter-spacing:-0.02em;line-height:1.05;">화면 상세 <span style="color:#9A9AA0;font-weight:500;">— 목적지별 풀스크린</span></h1>
+      <p style="margin:10px 0 0;font-size:14px;color:#5A5A60;max-width:720px;line-height:1.5;">앱 맵의 각 목적지를 <b>실제 해상도·실제 콘텐츠</b>로 펼친 상세 화면. 동일한 좌측 레일(6개 돌아오는 장소)을 공유하고, 모든 수치엔 출처·시점·신선도가 붙는다.</p>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:19px;color:#6E72B0;line-height:1.25;text-align:right;transform:rotate(-1.5deg);">7개 화면 · 풀 디테일<br>신뢰 신호만 색을 가진다 →</div>
+  </header>
+
+  <!-- ===== READING LEGEND ===== -->
+  <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #DCDCDF;border-radius:10px;padding:14px 18px;margin:18px 0 44px;">
+    <span style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:0.1em;color:#9A9AA0;">읽는 법</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="width:11px;height:11px;border-radius:50%;background:#1FA463;"></span>fresh &lt;30d</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="width:11px;height:11px;border-radius:50%;background:#D9A300;"></span>aging</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="width:11px;height:11px;border-radius:50%;background:#D1483A;"></span>stale</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="width:11px;height:11px;border-radius:50%;background:#A6A6AC;"></span>gap</span>
+    <span style="width:1px;height:18px;background:#E0E0E3;"></span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="width:22px;height:14px;border-radius:3px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 5px,#E5E5E8 5px,#E5E5E8 10px);border:1px solid #DADADD;"></span>이미지/차트 자리</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="font-family:'Caveat',cursive;font-size:17px;color:#6E72B0;">↳ 손글씨</span> = 디자이너 주석</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4A50;"><span style="width:14px;height:14px;border-radius:4px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/7px 7px;"></span>픽셀 마스코트</span>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 1 — 데스크 (DESK)                                                 -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:64px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">01</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">데스크</h2>
+      <span style="font-size:14px;color:#9A9AA0;">pull 표면 · 상주 애널리스트와의 대화 + 인라인 live artifact</span>
+    </div>
+
+    <div style="background:#fff;border:1px solid #D8D8DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 50px rgba(0,0,0,.06);overflow:hidden;display:flex;height:760px;">
+
+      <!-- LEFT RAIL (active: 데스크) -->
+      <aside style="width:172px;flex:none;border-right:1px solid #E7E7EA;background:#FAFAFB;padding:16px 12px;display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:9px;padding:2px 6px 16px;">
+          <span style="width:20px;height:20px;border-radius:6px;background:#1A1B1E;flex:none;"></span>
+          <span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.04em;color:#6A6A70;">VALUE·GRAPH</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1A1B1E;color:#fff;"><span style="width:17px;height:17px;border-radius:5px;background:#3A3B40;flex:none;"></span><span style="font-size:13px;font-weight:500;">데스크</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">보드</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">분석가</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">관심</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">브리프</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">갤러리</span></div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:9px;padding:10px 8px;border-top:1px solid #ECECEE;">
+          <span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span>
+          <span style="font-size:11.5px;color:#86868C;line-height:1.2;">내 계정<br><span style="font-family:'Space Mono',monospace;font-size:9px;">tenant ✓</span></span>
+        </div>
+      </aside>
+
+      <!-- CENTER DESK -->
+      <main style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;background:#fff;">
+        <!-- analyst header -->
+        <div style="display:flex;align-items:center;gap:11px;padding:15px 20px;border-bottom:1px solid #ECECEE;">
+          <span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span>
+          <span style="display:flex;align-items:center;gap:7px;font-size:15px;font-weight:600;"><span style="width:9px;height:9px;border-radius:50%;background:#1FA463;"></span>반도체 데일리 <span style="color:#A6A6AC;font-weight:400;">▾</span></span>
+          <span style="font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">상주 · 매일 08:00 · @반도체바스켓</span>
+          <span style="margin-left:auto;display:flex;gap:8px;">
+            <span style="font-size:12px;color:#6A6A70;border:1px solid #E0E0E3;border-radius:7px;padding:6px 11px;">⚙ 편집</span>
+            <span style="font-size:12px;color:#6A6A70;border:1px solid #E0E0E3;border-radius:7px;padding:6px 11px;">↗ 공유</span>
+          </span>
+        </div>
+
+        <!-- chat scroll -->
+        <div style="flex:1;padding:22px 28px;overflow:hidden;display:flex;flex-direction:column;gap:18px;background:#FCFCFD;">
+
+          <div style="align-self:center;font-family:'Space Mono',monospace;font-size:10px;color:#B0B0B6;letter-spacing:0.05em;">— 오늘 09:24 —</div>
+
+          <!-- user msg -->
+          <div style="align-self:flex-end;max-width:56%;background:#1A1B1E;color:#EDEDEF;font-size:14px;line-height:1.5;border-radius:14px 14px 4px 14px;padding:11px 15px;">SK하이닉스 HBM 매출 비중 추이랑 삼성이랑 비교해줘</div>
+
+          <!-- assistant turn -->
+          <div style="align-self:flex-start;max-width:78%;display:flex;flex-direction:column;gap:11px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="width:22px;height:22px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/5px 5px;flex:none;"></span>
+              <span style="font-family:'Space Mono',monospace;font-size:10.5px;color:#9A9AA0;">반도체 데일리</span>
+            </div>
+            <div style="background:#fff;border:1px solid #ECECEE;font-size:14px;color:#3A3A40;border-radius:4px 14px 14px 14px;padding:13px 16px;line-height:1.6;">최근 5개 분기 메모리 부문 매출 비중을 정리했어요<sup style="font-family:'Space Mono',monospace;color:#6E72B0;">[1]</sup>. 두 회사 모두 HBM 비중이 빠르게 올라오고 있고, SK하이닉스의 상승 기울기가 더 가파릅니다<sup style="font-family:'Space Mono',monospace;color:#6E72B0;">[2]</sup>. 분기 추이는 아래 차트로 확인하세요.</div>
+
+            <!-- inline artifact card (big) -->
+            <div style="border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.04);">
+              <div style="display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid #F0F0F2;">
+                <span style="font-size:13.5px;font-weight:600;">메모리 매출총이익률(GPM) · FY20–FY25</span>
+                <span style="margin-left:auto;display:flex;gap:7px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">
+                  <span style="border:1px solid #1A1B1E;color:#fff;background:#1A1B1E;border-radius:6px;padding:3px 8px;">핀 📌</span>
+                  <span style="border:1px solid #E0E0E3;border-radius:6px;padding:3px 8px;">⇄ 표</span>
+                  <span style="border:1px solid #E0E0E3;border-radius:6px;padding:3px 8px;">↻</span>
+                </span>
+              </div>
+              <div style="padding:16px 18px;background:repeating-linear-gradient(45deg,#FAFAFB,#FAFAFB 8px,#F3F3F5 8px,#F3F3F5 16px);">
+                <svg viewBox="0 0 560 150" width="100%" height="150" preserveAspectRatio="none" style="display:block;">
+                  <line x1="0" y1="130" x2="560" y2="130" stroke="#D8D8DC" stroke-width="1"/>
+                  <line x1="0" y1="90" x2="560" y2="90" stroke="#ECECEE" stroke-width="1"/>
+                  <line x1="0" y1="50" x2="560" y2="50" stroke="#ECECEE" stroke-width="1"/>
+                  <polyline points="10,100 120,92 230,78 340,62 450,44 540,32" fill="none" stroke="#5A5A62" stroke-width="2.5"/>
+                  <polyline points="10,112 120,104 230,94 340,78 450,58" fill="none" stroke="#A6A6AC" stroke-width="2.5"/>
+                  <polyline points="450,58 540,46" fill="none" stroke="#A6A6AC" stroke-width="2.5" stroke-dasharray="4 4"/>
+                  <circle cx="540" cy="32" r="3.5" fill="#5A5A62"/>
+                </svg>
+                <div style="display:flex;gap:18px;font-family:'Space Mono',monospace;font-size:10.5px;color:#6A6A70;margin-top:8px;"><span>— 삼성전자</span><span style="color:#A6A6AC;">— SK하이닉스</span><span style="color:#A6A6AC;">·· 미공시(gap)</span></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;padding:11px 15px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:11px;color:#86868C;">
+                <span>출처: SEC EDGAR · OpenDART</span><span>·</span><span>as_of 2026-05-14</span>
+                <span style="margin-left:auto;display:flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:50%;background:#1FA463;"></span>fresh · 31일 전</span>
+              </div>
+            </div>
+
+            <!-- citation chips -->
+            <div style="display:flex;gap:8px;">
+              <span style="font-family:'Space Mono',monospace;font-size:11px;color:#5A5A62;border:1px solid #5A5A62;border-radius:7px;padding:5px 9px;display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span>[1] DART 사업보고서</span>
+              <span style="font-family:'Space Mono',monospace;font-size:11px;color:#5A5A62;border:1px dashed #9A9AA0;border-radius:7px;padding:5px 9px;display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#D9A300;"></span>[2] 한국경제 (derived)</span>
+            </div>
+          </div>
+
+          <!-- user follow up -->
+          <div style="align-self:flex-end;max-width:56%;background:#1A1B1E;color:#EDEDEF;font-size:14px;line-height:1.5;border-radius:14px 14px 4px 14px;padding:11px 15px;">이거 매일 추적해줘. 변하면 브리프로 알려줘</div>
+
+          <!-- assistant confirm w/ refine chip -->
+          <div style="align-self:flex-start;max-width:78%;display:flex;flex-direction:column;gap:9px;">
+            <div style="background:#fff;border:1px solid #ECECEE;font-size:14px;color:#3A3A40;border-radius:4px 14px 14px 14px;padding:13px 16px;line-height:1.6;">감시 규칙으로 등록했어요. 새 분기 공시가 접수되면 자동 갱신 후 브리프로 보냅니다.</div>
+            <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:#5A5A62;">
+              <span style="display:flex;align-items:center;gap:6px;background:#EAF6EF;color:#1F7A4D;border:1px solid #BFE3CE;border-radius:7px;padding:5px 10px;font-family:'Space Mono',monospace;font-size:10.5px;">✓ 감시 규칙 생성됨</span>
+              <span style="border:1px solid #E0E0E3;border-radius:7px;padding:5px 10px;">보드에 핀</span>
+              <span style="border:1px solid #E0E0E3;border-radius:7px;padding:5px 10px;">규칙 편집</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- composer -->
+        <div style="padding:14px 22px 18px;border-top:1px solid #ECECEE;background:#fff;">
+          <div style="border:1px solid #D8D8DC;border-radius:12px;padding:13px 15px;font-size:14px;color:#A6A6AC;display:flex;align-items:center;">무엇이든 물어보거나 — /프롬프트 · @그룹 호출<span style="margin-left:auto;color:#1A1B1E;">↑</span></div>
+          <div style="display:flex;align-items:center;gap:11px;margin-top:10px;font-family:'Space Mono',monospace;font-size:11px;color:#86868C;">
+            <span style="background:#EEF0F6;color:#5A5E86;border-radius:6px;padding:3px 9px;">@반도체바스켓</span>
+            <span style="background:#F0F0F2;border-radius:6px;padding:3px 9px;">/실적요약</span>
+            <span style="background:#F0F0F2;border-radius:6px;padding:3px 9px;">/밸류에이션</span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">📎 소스 4 · <span style="width:8px;height:8px;border-radius:50%;background:#1FA463;display:inline-block;"></span> fresh</span>
+          </div>
+        </div>
+      </main>
+
+      <!-- RIGHT LIVE CONTEXT — source previews with cited passage highlighted -->
+      <aside style="width:312px;flex:none;border-left:1px solid #E7E7EA;background:#FAFAFB;padding:16px 14px;display:flex;flex-direction:column;gap:11px;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:7px;"><span style="font-family:'Space Mono',monospace;font-size:10.5px;letter-spacing:0.08em;color:#86868C;">LIVE 컨텍스트</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:9px;color:#5A5E86;background:#EEF0F6;border-radius:5px;padding:2px 7px;">인용 원문 3</span></div>
+        <div style="font-size:10.5px;color:#8A6A00;background:#FBF3DA;border:1px solid #EFE0AE;border-radius:7px;padding:7px 9px;line-height:1.35;">⛔ 점수·전망 없음 · 인용한 <b>원문 그대로</b> 미리보기</div>
+
+        <!-- SOURCE 1 — FILING / PDF preview with highlighted line -->
+        <div style="border:1px solid #E4E4E7;border-radius:10px;background:#fff;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid #F0F0F2;background:#FAFAFB;">
+            <span style="font-size:11px;">📄</span><span style="font-size:10.5px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">SK하이닉스 사업보고서.pdf</span>
+            <span style="font-family:'Space Mono',monospace;font-size:8.5px;color:#fff;background:#5A5A62;border-radius:4px;padding:1px 6px;">p.83</span>
+          </div>
+          <!-- mini PDF page -->
+          <div style="margin:9px 10px;border:1px solid #ECECEE;border-radius:5px;background:#fff;padding:9px 9px 10px;box-shadow:0 1px 3px rgba(0,0,0,.04);position:relative;">
+            <div style="font-family:'Space Mono',monospace;font-size:7.5px;color:#B0B0B6;letter-spacing:0.04em;margin-bottom:6px;">II. 사업의 내용 — 매출 및 수주상황</div>
+            <div style="height:5px;background:#EDEDF0;border-radius:2px;margin-bottom:4px;width:100%;"></div>
+            <div style="height:5px;background:#EDEDF0;border-radius:2px;margin-bottom:7px;width:82%;"></div>
+            <div style="font-size:9.5px;line-height:1.5;color:#3A3A40;background:#FCEFC4;border-left:2px solid #D9A300;border-radius:0 3px 3px 0;padding:5px 7px;">DRAM 매출 중 HBM이 차지하는 비중은 전년 대비 확대되어 <b>두 자릿수 후반</b>에 도달하였습니다.</div>
+            <div style="height:5px;background:#EDEDF0;border-radius:2px;margin:7px 0 4px;width:94%;"></div>
+            <div style="height:5px;background:#EDEDF0;border-radius:2px;width:60%;"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;padding:8px 10px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;"><span style="width:7px;height:7px;border-radius:50%;background:#1FA463;"></span>DART · as_of 05-14<span style="margin-left:auto;color:#5A5E86;">원문 ↗</span></div>
+        </div>
+
+        <!-- SOURCE 2 — WEB URL preview in browser chrome with highlight -->
+        <div style="border:1px solid #E4E4E7;border-radius:10px;background:#fff;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid #F0F0F2;background:#FAFAFB;">
+            <span style="display:flex;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#E0726A;"></span><span style="width:6px;height:6px;border-radius:50%;background:#E3B34E;"></span><span style="width:6px;height:6px;border-radius:50%;background:#7FB97F;"></span></span>
+            <span style="flex:1;background:#fff;border:1px solid #E4E4E7;border-radius:5px;font-family:'Space Mono',monospace;font-size:8px;color:#86868C;padding:3px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔒 hankyung.com/economy/202606…</span>
+          </div>
+          <div style="padding:9px 11px;">
+            <div style="font-size:11px;font-weight:700;line-height:1.35;color:#1A1B1E;">SK하이닉스, HBM4 양산 일정 앞당긴다</div>
+            <div style="font-family:'Space Mono',monospace;font-size:7.5px;color:#B0B0B6;margin-top:3px;">한국경제 · 6시간 전</div>
+            <div style="font-size:9.5px;color:#5A5A60;line-height:1.6;margin-top:7px;">업계에 따르면 회사는 <span style="background:#FCEFC4;border-radius:2px;padding:0 2px;color:#3A3A40;">내년 상반기로 양산 시점을 앞당기기로 했다</span>고 전해졌다. 이는 고객사 수요…</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;padding:8px 10px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;"><span style="width:7px;height:7px;border-radius:50%;background:#D9A300;"></span>aging · 맥락정보<span style="margin-left:auto;color:#5A5E86;">기사 ↗</span></div>
+        </div>
+
+        <!-- SOURCE 3 — extracted DATA / table preview with highlighted cell -->
+        <div style="border:1px solid #E4E4E7;border-radius:10px;background:#fff;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid #F0F0F2;background:#FAFAFB;">
+            <span style="font-size:11px;">▤</span><span style="font-size:10.5px;font-weight:600;flex:1;">추출 데이터 · 메모리 GPM</span>
+          </div>
+          <div style="padding:8px 10px;font-family:'Space Mono',monospace;font-size:9px;color:#5A5A62;">
+            <div style="display:grid;grid-template-columns:1fr 0.7fr 0.7fr;gap:6px;color:#A6A6AC;font-size:8px;padding-bottom:4px;border-bottom:1px solid #F0F0F2;"><span>분기</span><span style="text-align:right;">삼성</span><span style="text-align:right;">SK</span></div>
+            <div style="display:grid;grid-template-columns:1fr 0.7fr 0.7fr;gap:6px;padding:3px 0;"><span>1Q26</span><span style="text-align:right;">41%</span><span style="text-align:right;background:#FCEFC4;border-radius:2px;color:#3A3A40;">38%</span></div>
+            <div style="display:grid;grid-template-columns:1fr 0.7fr 0.7fr;gap:6px;padding:3px 0;color:#9A9AA0;"><span>4Q25</span><span style="text-align:right;">39%</span><span style="text-align:right;">34%</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;padding:8px 10px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;"><span style="width:7px;height:7px;border-radius:50%;background:#1FA463;"></span>OpenDART 계산<span style="margin-left:auto;color:#5A5E86;">표 ↗</span></div>
+        </div>
+
+        <div style="border:1px dashed #DADADD;border-radius:9px;padding:9px;color:#A6A6AC;font-size:9.5px;text-align:center;line-height:1.4;">드래그한 소스가 여기 미리보기로 고정됩니다</div>
+      </aside>
+    </div>
+
+    <div style="display:flex;gap:28px;margin-top:14px;flex-wrap:wrap;">
+      <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;line-height:1.3;max-width:340px;">↳ 모든 artifact 하단은 <b>신뢰 라인</b>: 출처·as_of·신선도 (필수). 챗봇과의 차이를 만드는 한 줄.</div>
+      <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;line-height:1.3;max-width:340px;">↳ "매일 추적" 한마디가 <b>감시 규칙</b>이 됨 → pull이 push를 낳는 루프 시작점.</div>
+      <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;line-height:1.3;max-width:360px;">↳ LIVE 컨텍스트는 제목이 아니라 <b>원문 미리보기</b> — PDF는 페이지·뉴스는 브라우저·데이터는 표로, 인용한 부분을 노랗게 하이라이트. "정말 거기 그렇게 써있다"를 눈으로 확인 = 신뢰.</div>
+    </div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 2 — 보드 (BOARD)                                                  -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:64px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">02</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">보드</h2>
+      <span style="font-size:14px;color:#9A9AA0;">핀한 artifact가 자동 새로고침되는 개인 라이브 모니터</span>
+    </div>
+
+    <div style="background:#fff;border:1px solid #D8D8DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 50px rgba(0,0,0,.06);overflow:hidden;display:flex;height:760px;">
+      <!-- RAIL (active: 보드) -->
+      <aside style="width:172px;flex:none;border-right:1px solid #E7E7EA;background:#FAFAFB;padding:16px 12px;display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:9px;padding:2px 6px 16px;"><span style="width:20px;height:20px;border-radius:6px;background:#1A1B1E;flex:none;"></span><span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.04em;color:#6A6A70;">VALUE·GRAPH</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">데스크</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1A1B1E;color:#fff;"><span style="width:17px;height:17px;border-radius:5px;background:#3A3B40;flex:none;"></span><span style="font-size:13px;font-weight:500;">보드</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">분석가</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">관심</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">브리프</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">갤러리</span></div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:9px;padding:10px 8px;border-top:1px solid #ECECEE;"><span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span><span style="font-size:11.5px;color:#86868C;line-height:1.2;">내 계정<br><span style="font-family:'Space Mono',monospace;font-size:9px;">tenant ✓</span></span></div>
+      </aside>
+
+      <!-- BOARD MAIN -->
+      <main style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;background:#FCFCFD;">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid #ECECEE;background:#fff;">
+          <b style="font-size:17px;">보드</b>
+          <span style="font-size:12.5px;color:#9A9AA0;">8개 핀 · 마지막 새로고침 08:02</span>
+          <span style="display:flex;align-items:center;gap:6px;font-family:'Space Mono',monospace;font-size:11px;color:#5A5A62;border:1px solid #E0E0E3;border-radius:7px;padding:5px 11px;margin-left:14px;">자동 새로고침 ON</span>
+          <span style="margin-left:auto;display:flex;gap:8px;">
+            <span style="font-size:12px;color:#5A5A62;border:1px solid #E0E0E3;border-radius:7px;padding:6px 12px;">레이아웃 ⊞</span>
+            <span style="font-size:12px;color:#fff;background:#1A1B1E;border:1px solid #1A1B1E;border-radius:7px;padding:6px 12px;">전체 새로고침 ↻</span>
+          </span>
+        </div>
+
+        <div style="flex:1;overflow:hidden;padding:22px 24px;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:min-content;gap:16px;">
+
+          <!-- card 1 -->
+          <div style="background:#fff;border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+            <div style="display:flex;align-items:center;padding:11px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-size:13px;font-weight:600;">GPM 비교 · 반도체 3사</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">↻ ✕</span></div>
+            <div style="height:118px;background:repeating-linear-gradient(45deg,#FAFAFB,#FAFAFB 8px,#F3F3F5 8px,#F3F3F5 16px);display:flex;align-items:flex-end;padding:14px;"><svg viewBox="0 0 260 84" width="100%" height="84" preserveAspectRatio="none"><line x1="0" y1="74" x2="260" y2="74" stroke="#D8D8DC"/><polyline points="6,64 70,52 134,36 210,22 254,14" fill="none" stroke="#5A5A62" stroke-width="2.5"/><polyline points="6,68 70,60 134,50 210,40 254,34" fill="none" stroke="#A6A6AC" stroke-width="2.5"/></svg></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:9px 13px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span>OpenDART · as_of 05-14 · fresh</div>
+          </div>
+
+          <!-- card 2 -->
+          <div style="background:#fff;border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+            <div style="display:flex;align-items:center;padding:11px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-size:13px;font-weight:600;">삼성전자 종가 · 90D</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">↻ ✕</span></div>
+            <div style="height:118px;background:repeating-linear-gradient(45deg,#FAFAFB,#FAFAFB 8px,#F3F3F5 8px,#F3F3F5 16px);display:flex;align-items:flex-end;padding:14px;"><svg viewBox="0 0 260 84" width="100%" height="84" preserveAspectRatio="none"><polyline points="6,56 50,64 96,40 142,52 188,26 254,34" fill="none" stroke="#5A5A62" stroke-width="2.5"/></svg></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:9px 13px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span>Yahoo Finance · as_of 어제</div>
+          </div>
+
+          <!-- card 3 -->
+          <div style="background:#fff;border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+            <div style="display:flex;align-items:center;padding:11px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-size:13px;font-weight:600;">매출·순이익 · FY</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">↻ ✕</span></div>
+            <div style="height:118px;background:repeating-linear-gradient(45deg,#FAFAFB,#FAFAFB 8px,#F3F3F5 8px,#F3F3F5 16px);display:flex;align-items:flex-end;gap:8px;padding:14px;"><span style="flex:1;height:58%;background:#C8C8CC;border-radius:3px 3px 0 0;"></span><span style="flex:1;height:74%;background:#C8C8CC;border-radius:3px 3px 0 0;"></span><span style="flex:1;height:48%;background:#C8C8CC;border-radius:3px 3px 0 0;"></span><span style="flex:1;height:86%;background:#5A5A62;border-radius:3px 3px 0 0;"></span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:9px 13px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span style="width:8px;height:8px;border-radius:50%;background:#D9A300;"></span>SEC EDGAR · as_of '25 1Q · aging</div>
+          </div>
+
+          <!-- card 4 -->
+          <div style="background:#fff;border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+            <div style="display:flex;align-items:center;padding:11px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-size:13px;font-weight:600;">기관 순매수 · 5D</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">↻ ✕</span></div>
+            <div style="height:118px;background:repeating-linear-gradient(45deg,#FAFAFB,#FAFAFB 8px,#F3F3F5 8px,#F3F3F5 16px);display:flex;align-items:center;justify-content:center;gap:7px;padding:14px;"><span style="width:10px;height:30%;background:#A6A6AC;border-radius:2px;align-self:flex-end;"></span><span style="width:10px;height:55%;background:#5A5A62;border-radius:2px;align-self:flex-end;"></span><span style="width:10px;height:20%;background:#A6A6AC;border-radius:2px;align-self:flex-start;"></span><span style="width:10px;height:70%;background:#5A5A62;border-radius:2px;align-self:flex-end;"></span><span style="width:10px;height:40%;background:#A6A6AC;border-radius:2px;align-self:flex-start;"></span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:9px 13px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span>KIS · as_of 오늘 · fresh</div>
+          </div>
+
+          <!-- card 5 -->
+          <div style="background:#fff;border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+            <div style="display:flex;align-items:center;padding:11px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-size:13px;font-weight:600;">기준금리 추이</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">↻ ✕</span></div>
+            <div style="height:118px;background:repeating-linear-gradient(45deg,#FAFAFB,#FAFAFB 8px,#F3F3F5 8px,#F3F3F5 16px);display:flex;align-items:flex-end;padding:14px;"><svg viewBox="0 0 260 84" width="100%" height="84" preserveAspectRatio="none"><polyline points="6,66 80,66 130,42 200,42 254,30" fill="none" stroke="#5A5A62" stroke-width="2.5"/></svg></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:9px 13px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span style="width:8px;height:8px;border-radius:50%;background:#D1483A;"></span>ECOS · stale · 다음 공시 지남</div>
+          </div>
+
+          <!-- card 6: numeric tile -->
+          <div style="background:#fff;border:1px solid #E0E0E3;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+            <div style="display:flex;align-items:center;padding:11px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-size:13px;font-weight:600;">SK하이닉스 PER</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">↻ ✕</span></div>
+            <div style="height:118px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:16px;gap:4px;">
+              <span style="font-family:'Space Mono',monospace;font-size:34px;font-weight:700;letter-spacing:-0.02em;">14.2<span style="font-size:16px;color:#9A9AA0;">x</span></span>
+              <span style="font-family:'Space Mono',monospace;font-size:11px;color:#1F7A4D;">▲ +1.1 vs 3M avg</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;padding:9px 13px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span>계산 · OpenDART · fresh</div>
+          </div>
+
+          <!-- add tile -->
+          <div style="border:1.5px dashed #D0D0D4;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:#A6A6AC;min-height:178px;">
+            <span style="width:30px;height:30px;border-radius:8px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/7px 7px;"></span>
+            <span style="font-size:12px;text-align:center;line-height:1.4;">데스크에서 artifact를<br>📌 핀하면 여기 쌓여요</span>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;margin-top:14px;">↳ 핀은 tool+args를 기억 → 다음 날 다시 열면 새 as_of로 자동 갱신. 빨간 stale 타일이 "이건 다음 공시를 지났다"고 정직하게 알림.</div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 3 — 분석가 + 빌더 (ANALYSTS)                                       -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:64px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">03</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">분석가 + 빌더</h2>
+      <span style="font-size:14px;color:#9A9AA0;">"봇 설정"이 아니라 "사람 고용" · 자연어 ↔ 폼 양방향</span>
+    </div>
+
+    <div style="background:#fff;border:1px solid #D8D8DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 50px rgba(0,0,0,.06);overflow:hidden;display:flex;height:760px;">
+      <!-- RAIL (active: 분석가) -->
+      <aside style="width:172px;flex:none;border-right:1px solid #E7E7EA;background:#FAFAFB;padding:16px 12px;display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:9px;padding:2px 6px 16px;"><span style="width:20px;height:20px;border-radius:6px;background:#1A1B1E;flex:none;"></span><span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.04em;color:#6A6A70;">VALUE·GRAPH</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">데스크</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">보드</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1A1B1E;color:#fff;"><span style="width:17px;height:17px;border-radius:5px;background:#3A3B40;flex:none;"></span><span style="font-size:13px;font-weight:500;">분석가</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">관심</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">브리프</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">갤러리</span></div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:9px;padding:10px 8px;border-top:1px solid #ECECEE;"><span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span><span style="font-size:11.5px;color:#86868C;line-height:1.2;">내 계정<br><span style="font-family:'Space Mono',monospace;font-size:9px;">tenant ✓</span></span></div>
+      </aside>
+
+      <!-- analyst list column -->
+      <div style="width:288px;flex:none;border-right:1px solid #ECECEE;background:#FCFCFD;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid #ECECEE;background:#fff;"><b style="font-size:15px;">내 분석가</b><span style="margin-left:auto;font-size:11.5px;background:#1A1B1E;color:#fff;border-radius:7px;padding:6px 12px;">＋ 만들기</span></div>
+        <div style="padding:12px;display:flex;flex-direction:column;gap:9px;overflow:hidden;">
+          <!-- active analyst -->
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #1A1B1E;border-radius:10px;padding:12px;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.05);">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span>
+            <div style="min-width:0;flex:1;"><div style="font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#1FA463;"></span>반도체 데일리</div><div style="font-size:10.5px;color:#86868C;margin-top:2px;">상주 · 매일 08:00 · @반도체바스켓</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:9px;color:#1FA463;border:1px solid #BFE3CE;border-radius:5px;padding:2px 7px;">ON</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:11px;border:1px solid #E0E0E3;border-radius:10px;padding:12px;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span>
+            <div style="min-width:0;flex:1;"><div style="font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#1FA463;"></span>저PER 스크리너</div><div style="font-size:10.5px;color:#86868C;margin-top:2px;">상주 · 매일 09:00 · @관심</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:9px;color:#1FA463;border:1px solid #BFE3CE;border-radius:5px;padding:2px 7px;">ON</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:11px;border:1px solid #E0E0E3;border-radius:10px;padding:12px;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span>
+            <div style="min-width:0;flex:1;"><div style="font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#A6A6AC;"></span>실적 시즌 추적</div><div style="font-size:10.5px;color:#86868C;margin-top:2px;">채팅용 · 비상주</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:9px;color:#9A9AA0;border:1px solid #E0E0E3;border-radius:5px;padding:2px 7px;">OFF</span>
+          </div>
+          <div style="border:1.5px dashed #D0D0D4;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;color:#A6A6AC;padding:14px;font-size:12px;">＋ 갤러리에서 데려오기</div>
+        </div>
+      </div>
+
+      <!-- builder (NL <-> form) -->
+      <main style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;background:#fff;">
+        <div style="display:flex;align-items:center;gap:10px;padding:16px 22px;border-bottom:1px solid #ECECEE;">
+          <span style="width:26px;height:26px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;"></span>
+          <b style="font-size:16px;">반도체 데일리</b>
+          <span style="font-family:'Space Mono',monospace;font-size:11px;color:#A6A6AC;">편집 중</span>
+          <span style="margin-left:auto;display:flex;gap:8px;">
+            <span style="font-size:12px;color:#5A5A62;border:1px solid #E0E0E3;border-radius:7px;padding:6px 12px;">미리보기 실행 ▷</span>
+            <span style="font-size:12px;color:#fff;background:#1A1B1E;border-radius:7px;padding:6px 14px;">저장</span>
+          </span>
+        </div>
+
+        <div style="flex:1;overflow:hidden;display:flex;">
+          <!-- NL panel -->
+          <div style="flex:1 1 0;min-width:0;border-right:1px dashed #E0E0E3;padding:20px;display:flex;flex-direction:column;gap:13px;background:#FCFCFD;">
+            <div style="font-family:'Space Mono',monospace;font-size:10.5px;color:#86868C;letter-spacing:0.05em;">자연어로 지시</div>
+            <div style="border:1px solid #E0E0E3;border-radius:11px;background:#fff;padding:14px;font-size:13.5px;line-height:1.65;color:#3A3A40;">
+              매일 아침 8시, <span style="background:#EEF0F6;color:#5A5E86;border-radius:4px;padding:0 4px;">@반도체바스켓</span> 5종목을 점검해.
+              <span style="background:#FCEFC4;border-radius:3px;padding:0 3px;">전일 대비 3% 이상</span> 움직이거나 <span style="background:#FCEFC4;border-radius:3px;padding:0 3px;">신규 공시</span>가 있으면 이유와 함께 정리하고,
+              <span style="background:#FCEFC4;border-radius:3px;padding:0 3px;">D-3 이내 실적 발표</span>가 있으면 일정을 알려줘.
+              전망이나 추천은 하지 말고 <span style="background:#FCEFC4;border-radius:3px;padding:0 3px;">원문 출처</span>만 붙여.
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:#6E72B0;font-family:'Caveat',cursive;font-size:16px;">↳ 타이핑하면 오른쪽 폼이 실시간으로 채워짐 (양방향)</div>
+            <div style="margin-top:auto;border:1px solid #D8D8DC;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#A6A6AC;display:flex;align-items:center;">지시 추가 또는 수정…<span style="margin-left:auto;color:#1A1B1E;">↑</span></div>
+          </div>
+
+          <!-- form panel -->
+          <div style="flex:1 1 0;min-width:0;padding:20px;overflow:hidden;display:flex;flex-direction:column;gap:15px;">
+            <div style="font-family:'Space Mono',monospace;font-size:10.5px;color:#86868C;letter-spacing:0.05em;">구조화된 설정 — 같은 내용, 폼으로</div>
+
+            <div>
+              <div style="font-size:11.5px;color:#6A6A70;margin-bottom:7px;">대상 그룹</div>
+              <div style="display:flex;align-items:center;gap:8px;border:1px solid #E0E0E3;border-radius:9px;padding:10px 12px;"><span style="font-family:'Space Mono',monospace;font-size:11px;background:#EEF0F6;color:#5A5E86;border-radius:5px;padding:3px 9px;">@반도체바스켓</span><span style="font-size:11.5px;color:#A6A6AC;">· 5종목</span><span style="margin-left:auto;color:#A6A6AC;">▾</span></div>
+            </div>
+
+            <div>
+              <div style="font-size:11.5px;color:#6A6A70;margin-bottom:7px;">실행 주기</div>
+              <div style="display:flex;gap:7px;"><span style="flex:1;text-align:center;font-size:12px;border:1px solid #1A1B1E;background:#1A1B1E;color:#fff;border-radius:8px;padding:8px;">매일 08:00</span><span style="flex:1;text-align:center;font-size:12px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:8px;padding:8px;">장중</span><span style="flex:1;text-align:center;font-size:12px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:8px;padding:8px;">주간</span></div>
+            </div>
+
+            <div>
+              <div style="font-size:11.5px;color:#6A6A70;margin-bottom:7px;">트리거 조건</div>
+              <div style="display:flex;flex-direction:column;gap:7px;">
+                <div style="display:flex;align-items:center;gap:9px;border:1px solid #E0E0E3;border-radius:8px;padding:9px 11px;font-size:12px;"><span style="width:30px;height:17px;border-radius:9px;background:#1A1B1E;position:relative;flex:none;"><span style="position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;"></span></span>전일 대비 <b style="font-family:'Space Mono',monospace;">±3%</b> 이상 변동</div>
+                <div style="display:flex;align-items:center;gap:9px;border:1px solid #E0E0E3;border-radius:8px;padding:9px 11px;font-size:12px;"><span style="width:30px;height:17px;border-radius:9px;background:#1A1B1E;position:relative;flex:none;"><span style="position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;"></span></span>신규 공시 접수</div>
+                <div style="display:flex;align-items:center;gap:9px;border:1px solid #E0E0E3;border-radius:8px;padding:9px 11px;font-size:12px;color:#6A6A70;"><span style="width:30px;height:17px;border-radius:9px;background:#D5D5D9;position:relative;flex:none;"><span style="position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;"></span></span>실적 컨센서스 변경</div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:11.5px;color:#6A6A70;margin-bottom:7px;">소스 & 출력</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #BFE3CE;color:#1F7A4D;border-radius:6px;padding:4px 9px;display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#1FA463;"></span>가격</span>
+                <span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #BFE3CE;color:#1F7A4D;border-radius:6px;padding:4px 9px;display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#1FA463;"></span>공시</span>
+                <span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #EFE0AE;color:#A88A20;border-radius:6px;padding:4px 9px;display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#D9A300;"></span>뉴스 · BYO-key</span>
+                <span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:6px;padding:4px 9px;">＋</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:10.5px;color:#8A6A00;background:#FBF3DA;border:1px solid #EFE0AE;border-radius:8px;padding:8px 11px;margin-top:9px;">🛡 매수/매도·목표가·전망 자동 거절 — 빌더에서 끌 수 없음</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;margin-top:14px;">↳ 왼쪽에 말로 적으면 오른쪽 폼이 채워지고, 폼을 누르면 왼쪽 문장이 갱신됨. "사람을 고용하는" 감각 = 무상태 봇 설정과의 결정적 차이.</div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 4 — 관심 (WATCHLIST)                                              -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:64px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">04</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">관심</h2>
+      <span style="font-size:14px;color:#9A9AA0;">watchlist / @그룹 — 검색+즐겨찾기, @태그 호출의 단위</span>
+    </div>
+
+    <div style="background:#fff;border:1px solid #D8D8DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 50px rgba(0,0,0,.06);overflow:hidden;display:flex;height:760px;">
+      <!-- RAIL (active: 관심) -->
+      <aside style="width:172px;flex:none;border-right:1px solid #E7E7EA;background:#FAFAFB;padding:16px 12px;display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:9px;padding:2px 6px 16px;"><span style="width:20px;height:20px;border-radius:6px;background:#1A1B1E;flex:none;"></span><span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.04em;color:#6A6A70;">VALUE·GRAPH</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">데스크</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">보드</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">분석가</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1A1B1E;color:#fff;"><span style="width:17px;height:17px;border-radius:5px;background:#3A3B40;flex:none;"></span><span style="font-size:13px;font-weight:500;">관심</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">브리프</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">갤러리</span></div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:9px;padding:10px 8px;border-top:1px solid #ECECEE;"><span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span><span style="font-size:11.5px;color:#86868C;line-height:1.2;">내 계정<br><span style="font-family:'Space Mono',monospace;font-size:9px;">tenant ✓</span></span></div>
+      </aside>
+
+      <!-- group list -->
+      <div style="width:230px;flex:none;border-right:1px solid #ECECEE;background:#FCFCFD;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;padding:16px 16px;border-bottom:1px solid #ECECEE;background:#fff;"><b style="font-size:15px;">@그룹</b><span style="margin-left:auto;font-size:11.5px;background:#1A1B1E;color:#fff;border-radius:7px;padding:6px 11px;">＋ 새 그룹</span></div>
+        <div style="padding:11px;display:flex;flex-direction:column;gap:7px;">
+          <div style="display:flex;align-items:center;gap:9px;border:1.5px solid #1A1B1E;border-radius:9px;padding:11px;background:#fff;"><span style="font-family:'Space Mono',monospace;font-size:11px;color:#5A5E86;background:#EEF0F6;border-radius:5px;padding:3px 8px;">@반도체바스켓</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">5</span></div>
+          <div style="display:flex;align-items:center;gap:9px;border:1px solid #E0E0E3;border-radius:9px;padding:11px;"><span style="font-family:'Space Mono',monospace;font-size:11px;color:#6A6A70;background:#F0F0F2;border-radius:5px;padding:3px 8px;">@관심</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">12</span></div>
+          <div style="display:flex;align-items:center;gap:9px;border:1px solid #E0E0E3;border-radius:9px;padding:11px;"><span style="font-family:'Space Mono',monospace;font-size:11px;color:#6A6A70;background:#F0F0F2;border-radius:5px;padding:3px 8px;">@2차전지</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">8</span></div>
+          <div style="display:flex;align-items:center;gap:9px;border:1px solid #E0E0E3;border-radius:9px;padding:11px;"><span style="font-family:'Space Mono',monospace;font-size:11px;color:#6A6A70;background:#F0F0F2;border-radius:5px;padding:3px 8px;">@배당주</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">6</span></div>
+          <div style="border:1px dashed #D0D0D4;border-radius:9px;color:#A6A6AC;padding:11px;font-size:11.5px;text-align:center;">＋ @그룹 인라인 생성</div>
+        </div>
+      </div>
+
+      <!-- stock table -->
+      <main style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;background:#fff;">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 22px;border-bottom:1px solid #ECECEE;">
+          <span style="font-family:'Space Mono',monospace;font-size:13px;color:#5A5E86;background:#EEF0F6;border-radius:6px;padding:4px 11px;">@반도체바스켓</span>
+          <span style="font-size:12.5px;color:#9A9AA0;">5종목 · @태그로 분석가에 한 번에 호출</span>
+          <span style="margin-left:auto;border:1px solid #D8D8DC;border-radius:8px;padding:7px 13px;font-size:12.5px;color:#A6A6AC;display:flex;align-items:center;gap:7px;width:230px;">🔍 종목 검색해서 추가…</span>
+        </div>
+
+        <!-- table head -->
+        <div style="display:grid;grid-template-columns:34px 1.6fr 1fr 0.9fr 0.7fr 60px;gap:12px;padding:11px 22px;border-bottom:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:10px;color:#9A9AA0;letter-spacing:0.04em;background:#FCFCFD;">
+          <span></span><span>종목</span><span style="text-align:right;">현재가</span><span style="text-align:right;">전일대비</span><span style="text-align:center;">신선도</span><span style="text-align:center;">★</span>
+        </div>
+
+        <div style="flex:1;overflow:hidden;">
+          <!-- rows -->
+          <div style="display:grid;grid-template-columns:34px 1.6fr 1fr 0.9fr 0.7fr 60px;gap:12px;padding:14px 22px;border-bottom:1px solid #F4F4F6;align-items:center;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 5px,#E5E5E8 5px,#E5E5E8 10px);"></span>
+            <div><div style="font-size:13.5px;font-weight:600;">삼성전자</div><div style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">005930 · KR</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:13px;text-align:right;">₩71,200</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;text-align:right;color:#1F7A4D;">▲ 1.4%</span>
+            <span style="display:flex;justify-content:center;"><span style="width:10px;height:10px;border-radius:50%;background:#1FA463;"></span></span>
+            <span style="text-align:center;font-size:17px;color:#1A1B1E;">★</span>
+          </div>
+          <div style="display:grid;grid-template-columns:34px 1.6fr 1fr 0.9fr 0.7fr 60px;gap:12px;padding:14px 22px;border-bottom:1px solid #F4F4F6;align-items:center;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 5px,#E5E5E8 5px,#E5E5E8 10px);"></span>
+            <div><div style="font-size:13.5px;font-weight:600;">SK하이닉스</div><div style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">000660 · KR</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:13px;text-align:right;">₩198,400</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;text-align:right;color:#1F7A4D;">▲ 4.2%</span>
+            <span style="display:flex;justify-content:center;"><span style="width:10px;height:10px;border-radius:50%;background:#D9A300;"></span></span>
+            <span style="text-align:center;font-size:17px;color:#1A1B1E;">★</span>
+          </div>
+          <div style="display:grid;grid-template-columns:34px 1.6fr 1fr 0.9fr 0.7fr 60px;gap:12px;padding:14px 22px;border-bottom:1px solid #F4F4F6;align-items:center;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 5px,#E5E5E8 5px,#E5E5E8 10px);"></span>
+            <div><div style="font-size:13.5px;font-weight:600;">DB하이텍</div><div style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">000990 · KR</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:13px;text-align:right;">₩41,850</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;text-align:right;color:#B2483A;">▼ 0.6%</span>
+            <span style="display:flex;justify-content:center;"><span style="width:10px;height:10px;border-radius:50%;background:#1FA463;"></span></span>
+            <span style="text-align:center;font-size:17px;color:#1A1B1E;">★</span>
+          </div>
+          <div style="display:grid;grid-template-columns:34px 1.6fr 1fr 0.9fr 0.7fr 60px;gap:12px;padding:14px 22px;border-bottom:1px solid #F4F4F6;align-items:center;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 5px,#E5E5E8 5px,#E5E5E8 10px);"></span>
+            <div><div style="font-size:13.5px;font-weight:600;">한미반도체</div><div style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">042700 · KR</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:13px;text-align:right;">₩96,300</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;text-align:right;color:#1F7A4D;">▲ 2.1%</span>
+            <span style="display:flex;justify-content:center;"><span style="width:10px;height:10px;border-radius:50%;background:#1FA463;"></span></span>
+            <span style="text-align:center;font-size:17px;color:#1A1B1E;">★</span>
+          </div>
+          <div style="display:grid;grid-template-columns:34px 1.6fr 1fr 0.9fr 0.7fr 60px;gap:12px;padding:14px 22px;border-bottom:1px solid #F4F4F6;align-items:center;">
+            <span style="width:30px;height:30px;border-radius:7px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 5px,#E5E5E8 5px,#E5E5E8 10px);"></span>
+            <div><div style="font-size:13.5px;font-weight:600;">리노공업</div><div style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">058470 · KR</div></div>
+            <span style="font-family:'Space Mono',monospace;font-size:13px;text-align:right;">₩182,500</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;text-align:right;color:#9A9AA0;">― 0.0%</span>
+            <span style="display:flex;justify-content:center;"><span style="width:10px;height:10px;border-radius:50%;background:#A6A6AC;"></span></span>
+            <span style="text-align:center;font-size:17px;color:#1A1B1E;">★</span>
+          </div>
+
+          <!-- search-to-add popover -->
+          <div style="margin:18px 22px;border:1px solid #D0D0D4;border-radius:11px;background:#FCFCFD;box-shadow:0 6px 20px rgba(0,0,0,.06);overflow:hidden;max-width:520px;">
+            <div style="border-bottom:1px solid #ECECEE;padding:11px 14px;font-size:12.5px;color:#3A3A40;display:flex;align-items:center;gap:9px;background:#fff;">🔍 <span style="color:#86868C;">"삼성"</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;color:#A6A6AC;">검색 결과 3</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid #F4F4F6;"><span style="width:26px;height:26px;border-radius:6px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 4px,#E5E5E8 4px,#E5E5E8 8px);"></span><div style="flex:1;"><div style="font-size:12.5px;font-weight:600;">삼성SDI</div><div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#86868C;">006400 · KR</div></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:#3A3A40;">₩412,000</span><span style="font-size:15px;color:#C4C4C8;">☆</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;"><span style="width:26px;height:26px;border-radius:6px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 4px,#E5E5E8 4px,#E5E5E8 8px);"></span><div style="flex:1;"><div style="font-size:12.5px;font-weight:600;">삼성바이오로직스</div><div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#86868C;">207940 · KR</div></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:#3A3A40;">₩1,041,000</span><span style="font-size:15px;color:#C4C4C8;">☆</span></div>
+            <div style="border-top:1px solid #ECECEE;padding:11px 14px;background:#fff;">
+              <div style="font-size:11px;color:#6A6A70;margin-bottom:8px;">★ 누르면 — 어느 그룹에 추가할까요?</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;"><span style="font-family:'Space Mono',monospace;font-size:10px;background:#1A1B1E;color:#fff;border-radius:5px;padding:4px 9px;">@반도체바스켓</span><span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:5px;padding:4px 9px;">@관심</span><span style="font-family:'Space Mono',monospace;font-size:10px;border:1px dashed #C4C4C8;color:#9A9AA0;border-radius:5px;padding:4px 9px;">＋ 새 그룹</span></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;margin-top:14px;">↳ 그룹은 단순 리스트가 아니라 <b>@호출의 단위</b> — 데스크에서 @반도체바스켓 한 번에 5종목을 분석가에 넘김. 즐겨찾기(★)는 항상 "어느 그룹에" 를 묻는다.</div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 5 — 브리프 (BRIEFS)                                               -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:64px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">05</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">브리프</h2>
+      <span style="font-size:14px;color:#9A9AA0;">push 인박스 — 인앱 + Telegram 동일 포맷, 매일 돌아올 이유</span>
+    </div>
+
+    <div style="background:#fff;border:1px solid #D8D8DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 50px rgba(0,0,0,.06);overflow:hidden;display:flex;height:760px;">
+      <!-- RAIL (active: 브리프) -->
+      <aside style="width:172px;flex:none;border-right:1px solid #E7E7EA;background:#FAFAFB;padding:16px 12px;display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:9px;padding:2px 6px 16px;"><span style="width:20px;height:20px;border-radius:6px;background:#1A1B1E;flex:none;"></span><span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.04em;color:#6A6A70;">VALUE·GRAPH</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">데스크</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">보드</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">분석가</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">관심</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1A1B1E;color:#fff;"><span style="width:17px;height:17px;border-radius:5px;background:#3A3B40;flex:none;"></span><span style="font-size:13px;font-weight:500;">브리프</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">갤러리</span></div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:9px;padding:10px 8px;border-top:1px solid #ECECEE;"><span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span><span style="font-size:11.5px;color:#86868C;line-height:1.2;">내 계정<br><span style="font-family:'Space Mono',monospace;font-size:9px;">tenant ✓</span></span></div>
+      </aside>
+
+      <!-- inbox list -->
+      <div style="width:296px;flex:none;border-right:1px solid #ECECEE;background:#FCFCFD;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid #ECECEE;background:#fff;"><b style="font-size:15px;">브리프</b><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:3px 9px;">3 안읽음</span></div>
+        <div style="display:flex;flex-direction:column;overflow:hidden;">
+          <div style="display:flex;gap:11px;padding:14px 18px;border-bottom:1px solid #F0F0F2;border-left:3px solid #1A1B1E;background:#fff;"><span style="width:8px;height:8px;border-radius:50%;background:#1A1B1E;flex:none;margin-top:5px;"></span><div style="min-width:0;flex:1;"><div style="font-size:12.5px;font-weight:600;">반도체 데일리</div><div style="font-size:11px;color:#86868C;line-height:1.45;margin-top:2px;">어젯밤 바스켓 5종목, 주목할 3가지 …</div><div style="font-family:'Space Mono',monospace;font-size:9px;color:#A6A6AC;margin-top:4px;">오늘 08:00</div></div></div>
+          <div style="display:flex;gap:11px;padding:14px 18px;border-bottom:1px solid #F0F0F2;"><span style="width:8px;height:8px;border-radius:50%;background:#1A1B1E;flex:none;margin-top:5px;"></span><div style="min-width:0;flex:1;"><div style="font-size:12.5px;font-weight:600;">저PER 스크리너</div><div style="font-size:11px;color:#86868C;line-height:1.45;margin-top:2px;">신규 편입 2 · 이탈 1 …</div><div style="font-family:'Space Mono',monospace;font-size:9px;color:#A6A6AC;margin-top:4px;">오늘 09:00</div></div></div>
+          <div style="display:flex;gap:11px;padding:14px 18px;border-bottom:1px solid #F0F0F2;"><span style="width:8px;height:8px;border-radius:50%;background:#1A1B1E;flex:none;margin-top:5px;"></span><div style="min-width:0;flex:1;"><div style="font-size:12.5px;font-weight:600;">배당주 모니터</div><div style="font-size:11px;color:#86868C;line-height:1.45;margin-top:2px;">2종목 배당 공시 …</div><div style="font-family:'Space Mono',monospace;font-size:9px;color:#A6A6AC;margin-top:4px;">오늘 09:00</div></div></div>
+          <div style="display:flex;gap:11px;padding:14px 18px;border-bottom:1px solid #F0F0F2;opacity:0.55;"><span style="width:8px;height:8px;border-radius:50%;border:1px solid #C4C4C8;flex:none;margin-top:5px;"></span><div style="min-width:0;flex:1;"><div style="font-size:12.5px;font-weight:600;">반도체 데일리</div><div style="font-size:11px;color:#86868C;line-height:1.45;margin-top:2px;">SK +4.2% (HBM 보도) …</div><div style="font-family:'Space Mono',monospace;font-size:9px;color:#A6A6AC;margin-top:4px;">어제 08:00</div></div></div>
+          <div style="display:flex;gap:11px;padding:14px 18px;opacity:0.55;"><span style="width:8px;height:8px;border-radius:50%;border:1px solid #C4C4C8;flex:none;margin-top:5px;"></span><div style="min-width:0;flex:1;"><div style="font-size:12.5px;font-weight:600;">저PER 스크리너</div><div style="font-size:11px;color:#86868C;line-height:1.45;margin-top:2px;">변동 없음 — 5종목 유지 …</div><div style="font-family:'Space Mono',monospace;font-size:9px;color:#A6A6AC;margin-top:4px;">어제 09:00</div></div></div>
+        </div>
+      </div>
+
+      <!-- brief reading view -->
+      <main style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;background:#fff;">
+        <div style="display:flex;align-items:center;gap:11px;padding:15px 24px;border-bottom:1px solid #ECECEE;background:#FCFCFD;">
+          <span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/5px 5px;"></span>
+          <b style="font-size:15px;">반도체 데일리</b>
+          <span style="font-family:'Space Mono',monospace;font-size:11px;color:#86868C;">2026-06-14 08:00</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:7px;font-family:'Space Mono',monospace;font-size:10px;color:#5A5A62;border:1px solid #E0E0E3;border-radius:7px;padding:5px 10px;">✈ Telegram 동일 발송됨</span>
+        </div>
+
+        <div style="flex:1;overflow:hidden;padding:26px 32px;">
+          <div style="max-width:620px;">
+            <div style="font-size:20px;font-weight:700;letter-spacing:-0.01em;margin-bottom:6px;">어젯밤 바스켓 5종목, 주목할 3가지</div>
+            <div style="font-size:12px;color:#9A9AA0;margin-bottom:22px;">왜 이 브리프가 발동했는지 → 아래 3건의 변화를 감지했기 때문</div>
+
+            <div style="display:flex;flex-direction:column;gap:18px;">
+              <div style="display:flex;gap:14px;">
+                <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:#C4C4C8;flex:none;">1</span>
+                <div>
+                  <div style="font-size:14.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #E0E0E3;border-radius:5px;padding:1px 7px;">📅 D-2</span>삼성전자 — 잠정실적 발표 예정 (6/16)</div>
+                  <div style="font-size:13px;color:#5A5A60;margin-top:6px;line-height:1.6;">직전 분기 매출 <span style="font-family:'Space Mono',monospace;">79.1조원</span><sup style="font-family:'Space Mono',monospace;color:#6E72B0;">[1]</sup>, 시장 컨센서스는 매출 <span style="font-family:'Space Mono',monospace;">82조원</span> 안팎<sup style="font-family:'Space Mono',monospace;color:#6E72B0;">[2]</sup>. 발표 후 자동으로 비교 artifact를 보드에 갱신합니다.</div>
+                </div>
+              </div>
+              <div style="height:1px;background:#F0F0F2;"></div>
+              <div style="display:flex;gap:14px;">
+                <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:#C4C4C8;flex:none;">2</span>
+                <div>
+                  <div style="font-size:14.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">SK하이닉스 <span style="font-family:'Space Mono',monospace;color:#1F7A4D;">+4.2%</span> <span style="font-family:'Space Mono',monospace;font-size:11px;color:#86868C;font-weight:400;">· 거래량 2.1배</span></div>
+                  <div style="font-size:13px;color:#5A5A60;margin-top:6px;line-height:1.6;display:flex;align-items:center;gap:7px;flex-wrap:wrap;">트리거: HBM4 양산 시점 보도<sup style="font-family:'Space Mono',monospace;color:#6E72B0;">[3]</sup> <span style="display:inline-flex;align-items:center;gap:5px;font-family:'Space Mono',monospace;font-size:10px;color:#A88A20;background:#FBF3DA;border:1px solid #EFE0AE;border-radius:5px;padding:2px 7px;"><span style="width:6px;height:6px;border-radius:50%;background:#D9A300;"></span>맥락 정보 · 전망 아님</span></div>
+                </div>
+              </div>
+              <div style="height:1px;background:#F0F0F2;"></div>
+              <div style="display:flex;gap:14px;">
+                <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:#C4C4C8;flex:none;">3</span>
+                <div>
+                  <div style="font-size:14.5px;font-weight:600;display:flex;align-items:center;gap:8px;"><span style="width:9px;height:9px;border-radius:50%;background:#A6A6AC;"></span>DB하이텍 — 신규 공시/뉴스 없음</div>
+                  <div style="font-size:13px;color:#5A5A60;margin-top:6px;line-height:1.6;">감지된 변화 없음. "변화 없음"도 정직하게 보고합니다.</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:9px;font-size:12px;color:#8A6A00;background:#FBF3DA;border:1px solid #EFE0AE;border-radius:9px;padding:11px 14px;margin-top:24px;">📎 모든 수치에 원문 소스 첨부 · ⛔ 전망·추천 없음</div>
+
+            <div style="display:flex;gap:10px;margin-top:18px;">
+              <span style="font-size:13px;border:1px solid #1A1B1E;background:#1A1B1E;color:#fff;border-radius:9px;padding:10px 18px;">데스크에서 자세히 ↗</span>
+              <span style="font-size:13px;border:1px solid #D8D8DC;border-radius:9px;padding:10px 16px;color:#5A5A62;">이 브리프 조정 ⚙</span>
+              <span style="font-size:13px;border:1px solid #D8D8DC;border-radius:9px;padding:10px 16px;color:#5A5A62;">읽음 표시</span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;margin-top:14px;">↳ 브리프 줄을 탭하면 그 컨텍스트가 미리 로드된 데스크로 deep-link. Telegram도 글자 그대로 같은 카드 — 매일 아침 돌아올 이유.</div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 6 — 갤러리 + 클론 위저드 (GALLERY)                                 -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:64px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">06</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">갤러리 + 클론 위저드</h2>
+      <span style="font-size:14px;color:#9A9AA0;">템플릿 슬롯 → 내 데이터로 치환 = 내 인스턴스</span>
+    </div>
+
+    <div style="background:#fff;border:1px solid #D8D8DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 50px rgba(0,0,0,.06);overflow:hidden;display:flex;height:760px;">
+      <!-- RAIL (active: 갤러리) -->
+      <aside style="width:172px;flex:none;border-right:1px solid #E7E7EA;background:#FAFAFB;padding:16px 12px;display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;gap:9px;padding:2px 6px 16px;"><span style="width:20px;height:20px;border-radius:6px;background:#1A1B1E;flex:none;"></span><span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.04em;color:#6A6A70;">VALUE·GRAPH</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">데스크</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">보드</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">분석가</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">관심</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#6A6A70;"><span style="width:17px;height:17px;border-radius:5px;background:#E4E4E7;flex:none;"></span><span style="font-size:13px;">브리프</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#1FA463;color:#fff;border-radius:8px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1A1B1E;color:#fff;"><span style="width:17px;height:17px;border-radius:5px;background:#3A3B40;flex:none;"></span><span style="font-size:13px;font-weight:500;">갤러리</span></div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:9px;padding:10px 8px;border-top:1px solid #ECECEE;"><span style="width:24px;height:24px;border-radius:6px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;flex:none;"></span><span style="font-size:11.5px;color:#86868C;line-height:1.2;">내 계정<br><span style="font-family:'Space Mono',monospace;font-size:9px;">tenant ✓</span></span></div>
+      </aside>
+
+      <!-- gallery grid -->
+      <div style="flex:1.15 1 0;min-width:0;border-right:1px solid #ECECEE;background:#FCFCFD;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 22px;border-bottom:1px solid #ECECEE;background:#fff;"><b style="font-size:15px;">갤러리</b><span style="font-size:12px;color:#9A9AA0;">탐색 · 클론 · 게시</span>
+          <span style="margin-left:auto;display:flex;gap:6px;"><span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #1A1B1E;background:#1A1B1E;color:#fff;border-radius:6px;padding:4px 9px;">인기</span><span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:6px;padding:4px 9px;">신규</span><span style="font-family:'Space Mono',monospace;font-size:10px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:6px;padding:4px 9px;">반도체</span></span>
+        </div>
+        <div style="flex:1;overflow:hidden;padding:18px 22px;display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:min-content;gap:14px;">
+          <!-- selected card -->
+          <div style="background:#fff;border:1.5px solid #1A1B1E;border-radius:12px;padding:15px;box-shadow:0 6px 18px rgba(0,0,0,.06);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><span style="width:32px;height:32px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;"></span><div><div style="font-size:13.5px;font-weight:600;">데일리 브리프</div><div style="font-size:10px;color:#86868C;">by analyst_kim</div></div><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:9px;color:#1F7A4D;border:1px solid #BFE3CE;border-radius:5px;padding:2px 7px;">선택됨</span></div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px;"><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #BFE3CE;color:#1F8A5B;border-radius:5px;padding:2px 6px;">sourced</span><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:5px;padding:2px 6px;">no-forecast</span><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:5px;padding:2px 6px;">auditable</span></div>
+            <div style="display:flex;align-items:center;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span>★ 4.8 · 1.2k clones</span><span style="margin-left:auto;">~12 units/run</span></div>
+          </div>
+          <div style="background:#fff;border:1px solid #DCDCDF;border-radius:12px;padding:15px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><span style="width:32px;height:32px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;"></span><div><div style="font-size:13.5px;font-weight:600;">저PER 스크리너</div><div style="font-size:10px;color:#86868C;">by value_desk</div></div></div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px;"><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #BFE3CE;color:#1F8A5B;border-radius:5px;padding:2px 6px;">sourced</span><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:5px;padding:2px 6px;">no-forecast</span></div>
+            <div style="display:flex;align-items:center;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span>★ 4.6 · 840 clones</span><span style="margin-left:auto;">~20 units/run</span></div>
+          </div>
+          <div style="background:#fff;border:1px solid #DCDCDF;border-radius:12px;padding:15px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><span style="width:32px;height:32px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;"></span><div><div style="font-size:13.5px;font-weight:600;">실적 시즌 추적</div><div style="font-size:10px;color:#86868C;">by earnings_bot</div></div></div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px;"><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #BFE3CE;color:#1F8A5B;border-radius:5px;padding:2px 6px;">sourced</span><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #EFE0AE;color:#A88A20;border-radius:5px;padding:2px 6px;">news BYO-key</span></div>
+            <div style="display:flex;align-items:center;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span>★ 4.4 · 520 clones</span><span style="margin-left:auto;">~15 units/run</span></div>
+          </div>
+          <div style="background:#fff;border:1px solid #DCDCDF;border-radius:12px;padding:15px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><span style="width:32px;height:32px;border-radius:7px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/6px 6px;"></span><div><div style="font-size:13.5px;font-weight:600;">배당 캘린더</div><div style="font-size:10px;color:#86868C;">by dividend_lab</div></div></div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px;"><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #BFE3CE;color:#1F8A5B;border-radius:5px;padding:2px 6px;">sourced</span><span style="font-family:'Space Mono',monospace;font-size:9px;border:1px solid #E0E0E3;color:#6A6A70;border-radius:5px;padding:2px 6px;">no-forecast</span></div>
+            <div style="display:flex;align-items:center;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;"><span>★ 4.5 · 410 clones</span><span style="margin-left:auto;">~9 units/run</span></div>
+          </div>
+          <div style="border:1.5px dashed #D0D0D4;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#A6A6AC;min-height:150px;grid-column:1 / -1;">
+            <span style="width:28px;height:28px;border-radius:7px;background:#E4E4E7;"></span>
+            <span style="font-size:12px;text-align:center;line-height:1.4;">내 분석가를 게시 ↑ — watchlist는 슬롯으로 벗겨지고, 쓴 커넥터·비용·배지만 선언됨</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- clone wizard -->
+      <div style="width:380px;flex:none;background:#fff;display:flex;flex-direction:column;">
+        <div style="padding:16px 20px;border-bottom:1px solid #ECECEE;background:#FCFCFD;">
+          <div style="font-size:14px;font-weight:600;">「데일리 브리프」 데려오기</div>
+          <div style="display:flex;gap:5px;margin-top:11px;">
+            <span style="flex:1;text-align:center;font-family:'Space Mono',monospace;font-size:9px;color:#fff;background:#1A1B1E;border-radius:5px;padding:5px;">1 대상</span>
+            <span style="flex:1;text-align:center;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;background:#F0F0F2;border-radius:5px;padding:5px;">2 소스</span>
+            <span style="flex:1;text-align:center;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;background:#F0F0F2;border-radius:5px;padding:5px;">3 트리거</span>
+            <span style="flex:1;text-align:center;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;background:#F0F0F2;border-radius:5px;padding:5px;">4 미리보기</span>
+          </div>
+        </div>
+        <div style="flex:1;overflow:hidden;padding:20px;display:flex;flex-direction:column;">
+          <div style="font-size:14px;font-weight:600;margin-bottom:5px;">1) 대상 종목 그룹</div>
+          <div style="font-size:11.5px;color:#86868C;margin-bottom:14px;">이 분석가는 종목 그룹 1개를 봅니다.</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #1A1B1E;border-radius:10px;padding:13px;background:#FCFCFD;"><span style="width:16px;height:16px;border-radius:50%;border:5px solid #1A1B1E;flex:none;"></span><span style="font-size:13px;">내 그룹에서 선택</span><span style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;background:#EEF0F6;color:#5A5E86;border-radius:5px;padding:4px 9px;">@반도체바스켓 ▾</span></div>
+            <div style="display:flex;align-items:center;gap:10px;border:1px solid #E0E0E3;border-radius:10px;padding:13px;"><span style="width:16px;height:16px;border-radius:50%;border:2px solid #C4C4C8;flex:none;"></span><span style="font-size:13px;color:#6A6A70;">새 그룹 만들기 (검색+즐겨찾기 인라인)</span></div>
+            <div style="display:flex;align-items:center;gap:10px;border:1px solid #E0E0E3;border-radius:10px;padding:13px;"><span style="width:16px;height:16px;border-radius:50%;border:2px solid #C4C4C8;flex:none;"></span><span style="font-size:13px;color:#6A6A70;">샘플 그룹으로 체험</span></div>
+          </div>
+          <div style="border-top:1px dashed #E0E0E3;margin-top:18px;padding-top:14px;">
+            <div style="font-size:11.5px;color:#86868C;margin-bottom:10px;">2) 데이터 소스 — 필요 항목 점검</div>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+              <div style="display:flex;align-items:center;gap:9px;"><span style="width:9px;height:9px;border-radius:50%;background:#1FA463;"></span>가격 <span style="color:#86868C;">활성화됨</span></div>
+              <div style="display:flex;align-items:center;gap:9px;"><span style="width:9px;height:9px;border-radius:50%;background:#1FA463;"></span>공시 <span style="color:#86868C;">활성화됨</span></div>
+              <div style="display:flex;align-items:center;gap:9px;"><span style="width:9px;height:9px;border-radius:50%;background:#D9A300;"></span>뉴스 <span style="color:#A88A20;">제한 피드 → [내 키 입력] · [건너뛰기]</span></div>
+            </div>
+          </div>
+          <div style="margin-top:auto;display:flex;gap:9px;justify-content:flex-end;padding-top:16px;"><span style="font-size:12.5px;border:1px solid #D8D8DC;border-radius:8px;padding:9px 15px;color:#9A9AA0;">뒤로</span><span style="font-size:12.5px;border:1px solid #1A1B1E;background:#1A1B1E;color:#fff;border-radius:8px;padding:9px 19px;">다음 →</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;margin-top:14px;">↳ 제한 피드는 BYO-key 또는 건너뛰기 — 건너뛰면 분석가가 "그 소스 없이" 정직하게 degrade. 사적 데이터는 테넌트 밖으로 나가지 않음.</div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 7 — 온보딩 (ONBOARDING)                                           -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:30px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">07</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">온보딩</h2>
+      <span style="font-size:14px;color:#9A9AA0;">첫 가치까지 &lt; 90초 · 빈 데스크에 절대 떨어뜨리지 않는다</span>
+    </div>
+
+    <div style="background:#1F2024;border:1px solid #2A2B30;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.12);overflow:hidden;padding:40px;">
+      <!-- progress -->
+      <div style="display:flex;align-items:center;gap:10px;max-width:560px;margin:0 auto 34px;">
+        <span style="flex:1;height:4px;border-radius:3px;background:#fff;"></span>
+        <span style="flex:1;height:4px;border-radius:3px;background:#fff;"></span>
+        <span style="flex:1;height:4px;border-radius:3px;background:#54555C;"></span>
+        <span style="flex:1;height:4px;border-radius:3px;background:#54555C;"></span>
+      </div>
+
+      <div style="display:flex;gap:16px;align-items:stretch;justify-content:center;">
+
+        <!-- step 1 -->
+        <div style="flex:1 1 0;max-width:280px;background:#fff;border-radius:13px;padding:18px;display:flex;flex-direction:column;">
+          <div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#86868C;margin-bottom:10px;">STEP 1 · 시장</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px;">어느 시장을 보시나요?</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <span style="border:1px solid #1A1B1E;background:#1A1B1E;color:#fff;border-radius:9px;padding:11px;text-align:center;font-size:12.5px;">🇰🇷 한국 (KR)</span>
+            <span style="border:1px solid #E0E0E3;border-radius:9px;padding:11px;text-align:center;font-size:12.5px;color:#6A6A70;">🇺🇸 미국 (US)</span>
+            <span style="border:1px solid #E0E0E3;border-radius:9px;padding:11px;text-align:center;font-size:12.5px;color:#6A6A70;">둘 다</span>
+          </div>
+          <div style="font-family:'Caveat',cursive;font-size:15px;color:#6E72B0;line-height:1.3;margin-top:auto;padding-top:14px;">↳ 시장만 고르면 커넥터가 자동 매핑</div>
+        </div>
+        <div style="display:flex;align-items:center;color:#54555C;font-size:20px;">→</div>
+
+        <!-- step 2 -->
+        <div style="flex:1.15 1 0;max-width:300px;background:#fff;border-radius:13px;padding:18px;display:flex;flex-direction:column;">
+          <div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#86868C;margin-bottom:10px;">STEP 2 · 관심</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:13px;">관심 종목 채우기</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"><span style="font-size:11px;background:#1A1B1E;color:#fff;border-radius:13px;padding:5px 11px;">반도체</span><span style="font-size:11px;border:1px solid #E0E0E3;border-radius:13px;padding:5px 11px;color:#6A6A70;">2차전지</span><span style="font-size:11px;border:1px solid #E0E0E3;border-radius:13px;padding:5px 11px;color:#6A6A70;">AI</span><span style="font-size:11px;border:1px solid #E0E0E3;border-radius:13px;padding:5px 11px;color:#6A6A70;">바이오</span></div>
+          <div style="border:1px solid #D8D8DC;border-radius:8px;padding:9px 11px;font-size:12px;color:#A6A6AC;margin-bottom:11px;">🔍 직접 검색…</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:8px;border:1px solid #E0E0E3;border-radius:7px;padding:8px 10px;"><span style="width:20px;height:20px;border-radius:5px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 4px,#E5E5E8 4px,#E5E5E8 8px);"></span><span style="font-size:12px;">삼성전자</span><span style="margin-left:auto;color:#1A1B1E;">★</span></div>
+            <div style="display:flex;align-items:center;gap:8px;border:1px solid #E0E0E3;border-radius:7px;padding:8px 10px;"><span style="width:20px;height:20px;border-radius:5px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 4px,#E5E5E8 4px,#E5E5E8 8px);"></span><span style="font-size:12px;">SK하이닉스</span><span style="margin-left:auto;color:#1A1B1E;">★</span></div>
+          </div>
+          <div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#5A5E86;background:#EEF0F6;border-radius:6px;padding:6px 9px;margin-top:11px;text-align:center;">→ @관심 그룹 자동 생성</div>
+        </div>
+        <div style="display:flex;align-items:center;color:#54555C;font-size:20px;">→</div>
+
+        <!-- step 3 -->
+        <div style="flex:1 1 0;max-width:280px;background:#fff;border-radius:13px;padding:18px;display:flex;flex-direction:column;">
+          <div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#86868C;margin-bottom:10px;">STEP 3 · 고용</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:13px;">추천 분석가 고용</div>
+          <div style="border:1px solid #E0E0E3;border-radius:11px;padding:15px;text-align:center;">
+            <span style="width:40px;height:40px;border-radius:9px;background:repeating-conic-gradient(#C8C8CC 0 25%, #E4E4E7 0 50%) 0 0/7px 7px;display:inline-block;margin-bottom:11px;"></span>
+            <div style="font-size:13px;font-weight:600;">데일리 브리프</div>
+            <div style="font-size:11px;color:#86868C;margin:6px 0 13px;line-height:1.4;">@관심에 미리 바인딩됨</div>
+            <div style="font-size:12.5px;border:1px solid #1A1B1E;background:#1A1B1E;color:#fff;border-radius:8px;padding:9px;">고용</div>
+          </div>
+          <div style="font-family:'Caveat',cursive;font-size:15px;color:#6E72B0;line-height:1.3;margin-top:auto;padding-top:14px;">"매일 아침 8시, 첫 브리프가 도착해요"</div>
+        </div>
+        <div style="display:flex;align-items:center;color:#54555C;font-size:20px;">→</div>
+
+        <!-- step 4 -->
+        <div style="flex:1.1 1 0;max-width:300px;background:#fff;border-radius:13px;padding:18px;display:flex;flex-direction:column;">
+          <div style="font-family:'Space Mono',monospace;font-size:9.5px;color:#86868C;margin-bottom:10px;">STEP 4 · 착륙</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:13px;">비어있지 않은 데스크</div>
+          <div style="border:1px solid #E0E0E3;border-radius:10px;overflow:hidden;flex:1;">
+            <div style="padding:9px 11px;border-bottom:1px solid #F0F0F2;font-size:11.5px;font-weight:600;">내 관심 한눈에</div>
+            <div style="padding:11px;display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;align-items:center;gap:7px;font-size:11px;"><span style="width:18px;height:18px;border-radius:4px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 4px,#E5E5E8 4px,#E5E5E8 8px);"></span>삼성전자 <span style="font-family:'Space Mono',monospace;margin-left:auto;">₩71,200</span><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span></div>
+              <div style="display:flex;align-items:center;gap:7px;font-size:11px;"><span style="width:18px;height:18px;border-radius:4px;background:repeating-linear-gradient(45deg,#F0F0F2,#F0F0F2 4px,#E5E5E8 4px,#E5E5E8 8px);"></span>SK하이닉스 <span style="font-family:'Space Mono',monospace;margin-left:auto;">₩198,400</span><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span></div>
+              <div style="font-family:'Space Mono',monospace;font-size:8.5px;color:#86868C;border-top:1px solid #F0F0F2;padding-top:7px;">live price 🟢 · 출처 첨부됨</div>
+            </div>
+          </div>
+          <div style="font-family:'Caveat',cursive;font-size:15px;color:#6E72B0;line-height:1.3;margin-top:13px;">↳ 첫 화면부터 채워지고 출처가 붙어있음</div>
+        </div>
+
+      </div>
+
+      <div style="text-align:center;margin-top:30px;font-family:'Space Mono',monospace;font-size:11px;color:#9A9AA0;letter-spacing:0.04em;">시장 → 관심 → 고용 → 착륙 · 빈 화면 0초</div>
+    </div>
+  </div>
+
+
+  <!-- ======================================================================= -->
+  <!-- SCREEN 8 — 원문 뷰어 (미리보기 → 전체 펼침)                                -->
+  <!-- ======================================================================= -->
+  <div style="margin-bottom:30px;">
+    <div style="display:flex;align-items:baseline;gap:12px;margin:0 0 14px;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#fff;background:#1A1B1E;border-radius:6px;padding:4px 11px;">08</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;">원문 뷰어</h2>
+      <span style="font-size:14px;color:#9A9AA0;">미리보기를 클릭하면 → 원문 전체로 펼쳐짐 · 타입별 네이티브 뷰</span>
+    </div>
+
+    <!-- frame: modal over dimmed desk -->
+    <div style="background:#26262A;border:1px solid #1A1B1E;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.18);overflow:hidden;height:760px;position:relative;">
+      <!-- dimmed desk skeleton backdrop -->
+      <div style="position:absolute;inset:0;opacity:0.18;display:flex;">
+        <div style="width:172px;background:#fff;border-right:1px solid #888;"></div>
+        <div style="flex:1;padding:30px;display:flex;flex-direction:column;gap:14px;"><div style="width:50%;height:42px;background:#fff;border-radius:12px;align-self:flex-end;"></div><div style="width:62%;height:120px;background:#fff;border-radius:12px;"></div><div style="width:40%;height:42px;background:#fff;border-radius:12px;align-self:flex-end;"></div></div>
+      </div>
+      <div style="position:absolute;inset:0;background:rgba(20,20,24,.55);"></div>
+
+      <!-- origin preview card + connector -->
+      <div style="position:absolute;left:34px;bottom:40px;width:236px;z-index:3;">
+        <div style="position:relative;border:1px solid #E4E4E7;border-radius:10px;background:#fff;overflow:hidden;box-shadow:0 0 0 3px rgba(110,114,176,.45),0 10px 26px rgba(0,0,0,.3);">
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid #F0F0F2;background:#FAFAFB;"><span style="font-size:11px;">📄</span><span style="font-size:10.5px;font-weight:600;flex:1;">사업보고서.pdf</span><span style="font-family:'Space Mono',monospace;font-size:8.5px;color:#fff;background:#5A5A62;border-radius:4px;padding:1px 6px;">p.83</span></div>
+          <div style="margin:8px 10px;border:1px solid #ECECEE;border-radius:5px;padding:8px;"><div style="height:5px;background:#EDEDF0;border-radius:2px;margin-bottom:4px;width:88%;"></div><div style="font-size:9px;line-height:1.45;color:#3A3A40;background:#FCEFC4;border-left:2px solid #D9A300;border-radius:0 3px 3px 0;padding:5px 6px;">DRAM 매출 중 HBM 비중은 전년 대비 확대되어 두 자릿수 후반에…</div></div>
+          <!-- click cursor -->
+          <span style="position:absolute;right:-8px;bottom:-8px;font-size:22px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.4));">🖱</span>
+        </div>
+        <div style="font-family:'Caveat',cursive;font-size:16px;color:#C9CDE8;margin-top:9px;text-align:center;">미리보기 클릭 → 전체 펼침</div>
+      </div>
+      <!-- dashed connector arrow -->
+      <svg style="position:absolute;left:250px;bottom:150px;width:230px;height:170px;z-index:2;" viewBox="0 0 230 170"><path d="M10,150 C90,150 120,70 200,40" fill="none" stroke="#6E72B0" stroke-width="2" stroke-dasharray="5 5"/><path d="M200,40 l-13,3 l8,9 z" fill="#6E72B0"/></svg>
+
+      <!-- EXPANDED MODAL -->
+      <div style="position:absolute;top:32px;right:34px;width:1010px;max-width:calc(100% - 300px);height:696px;background:#fff;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.4);overflow:hidden;display:flex;flex-direction:column;z-index:4;">
+        <!-- modal header w/ type tabs -->
+        <div style="display:flex;align-items:center;gap:14px;padding:13px 18px;border-bottom:1px solid #ECECEE;background:#FCFCFD;flex:none;">
+          <div style="display:flex;gap:5px;">
+            <span style="font-size:11.5px;font-weight:600;color:#fff;background:#1A1B1E;border-radius:7px;padding:6px 11px;">📄 공시</span>
+            <span style="font-size:11.5px;color:#6A6A70;border:1px solid #E0E0E3;border-radius:7px;padding:6px 11px;">🌐 뉴스</span>
+            <span style="font-size:11.5px;color:#6A6A70;border:1px solid #E0E0E3;border-radius:7px;padding:6px 11px;">🎙 전문</span>
+            <span style="font-size:11.5px;color:#6A6A70;border:1px solid #E0E0E3;border-radius:7px;padding:6px 11px;">▤ 데이터</span>
+          </div>
+          <span style="font-size:13px;font-weight:600;margin-left:6px;">SK하이닉스 사업보고서.pdf</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">142 페이지 · DART</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+            <span style="font-family:'Space Mono',monospace;font-size:10px;color:#6A6A70;border:1px solid #E0E0E3;border-radius:6px;padding:4px 8px;">− 100% ＋</span>
+            <span style="font-size:15px;color:#9A9AA0;">✕</span>
+          </span>
+        </div>
+
+        <div style="flex:1;display:flex;min-height:0;">
+          <!-- page thumbnails -->
+          <div style="width:96px;flex:none;border-right:1px solid #ECECEE;background:#FAFAFB;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:9px;overflow:hidden;">
+            <div style="width:58px;height:74px;border:1px solid #E0E0E3;background:#fff;border-radius:3px;opacity:0.6;"></div>
+            <span style="font-family:'Space Mono',monospace;font-size:8px;color:#A6A6AC;">82</span>
+            <div style="width:62px;height:80px;border:2px solid #6E72B0;background:#fff;border-radius:3px;box-shadow:0 2px 8px rgba(110,114,176,.25);position:relative;"><span style="position:absolute;left:5px;right:5px;top:18px;height:8px;background:#FCEFC4;border-radius:1px;"></span></div>
+            <span style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;color:#6E72B0;">83</span>
+            <div style="width:58px;height:74px;border:1px solid #E0E0E3;background:#fff;border-radius:3px;opacity:0.6;"></div>
+            <span style="font-family:'Space Mono',monospace;font-size:8px;color:#A6A6AC;">84</span>
+          </div>
+
+          <!-- the page -->
+          <div style="flex:1;min-width:0;background:#E9E9EC;padding:24px 30px;overflow:hidden;display:flex;justify-content:center;">
+            <div style="width:100%;max-width:560px;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.1);border-radius:3px;padding:34px 38px;position:relative;">
+              <div style="font-family:'Space Mono',monospace;font-size:9px;color:#B0B0B6;letter-spacing:0.05em;border-bottom:1px solid #F0F0F2;padding-bottom:10px;margin-bottom:16px;">SK하이닉스(주) · 사업보고서 (2026.05) · 83</div>
+              <div style="font-size:13px;font-weight:700;color:#1A1B1E;margin-bottom:12px;">II. 사업의 내용 — 4. 매출 및 수주상황</div>
+              <div style="font-size:11.5px;color:#3A3A40;line-height:1.85;">당사의 메모리 반도체 부문은 DRAM과 NAND Flash로 구성되며, 보고기간 중 데이터센터향 수요 확대에 힘입어 제품 믹스가 개선되었습니다. 특히 고대역폭 메모리(HBM) 제품의 판매가 본격화되면서 평균판매단가(ASP)가 상승하였습니다.</div>
+              <!-- highlighted cited passage with margin pin -->
+              <div style="position:relative;margin:14px 0;">
+                <div style="position:absolute;left:-30px;top:6px;width:22px;height:22px;border-radius:50%;background:#6E72B0;color:#fff;font-family:'Space Mono',monospace;font-size:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(110,114,176,.4);">1</div>
+                <div style="font-size:11.5px;color:#26262A;line-height:1.85;background:#FCEFC4;border-left:3px solid #D9A300;border-radius:0 4px 4px 0;padding:10px 13px;">DRAM 매출 중 HBM이 차지하는 비중은 전년 대비 확대되어 <b>두 자릿수 후반</b>에 도달하였으며, 향후 차세대 제품(HBM4)의 양산 본격화에 따라 추가 상승할 것으로 회사는 보고 있습니다.</div>
+              </div>
+              <div style="font-size:11.5px;color:#3A3A40;line-height:1.85;">NAND Flash 부문은 eSSD 중심의 수요 회복이 관찰되었으나, 가격 변동성은 지속되었습니다. 부문별 매출 및 매출원가의 세부 내역은 아래 표를 참고하시기 바랍니다.</div>
+              <div style="border:1px solid #ECECEE;border-radius:5px;margin-top:14px;overflow:hidden;font-family:'Space Mono',monospace;font-size:9.5px;color:#5A5A62;"><div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;background:#FAFAFB;border-bottom:1px solid #F0F0F2;"><span style="padding:6px 9px;">구분</span><span style="padding:6px 9px;text-align:right;">매출</span><span style="padding:6px 9px;text-align:right;">원가율</span></div><div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid #F4F4F6;"><span style="padding:6px 9px;">DRAM</span><span style="padding:6px 9px;text-align:right;">12.4조</span><span style="padding:6px 9px;text-align:right;">62%</span></div><div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;"><span style="padding:6px 9px;">NAND</span><span style="padding:6px 9px;text-align:right;">5.1조</span><span style="padding:6px 9px;text-align:right;">78%</span></div></div>
+            </div>
+          </div>
+
+          <!-- cite context panel -->
+          <aside style="width:248px;flex:none;border-left:1px solid #ECECEE;background:#FAFAFB;padding:16px 14px;display:flex;flex-direction:column;gap:14px;overflow:hidden;">
+            <div style="font-family:'Space Mono',monospace;font-size:10px;color:#86868C;letter-spacing:0.05em;">이 원문을 인용한 곳</div>
+            <div style="border:1px solid #C9CDE8;background:#F4F5FA;border-radius:10px;padding:11px;">
+              <div style="display:flex;align-items:center;gap:7px;"><span style="width:20px;height:20px;border-radius:5px;background:#E4E4E7;"></span><span style="font-size:11.5px;font-weight:600;">메모리 GPM 차트</span></div>
+              <div style="font-size:10.5px;color:#5A5A60;line-height:1.45;margin-top:8px;">"…SK하이닉스의 상승 기울기가 더 가파릅니다 <span style="color:#6E72B0;font-family:'Space Mono',monospace;">[1]</span>"</div>
+              <div style="font-family:'Space Mono',monospace;font-size:9px;color:#5A5E86;margin-top:8px;">데스크 · 오늘 09:24</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-family:'Space Mono',monospace;font-size:10px;color:#86868C;">
+              <div style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#1FA463;"></span>신선도 fresh · 31일 전</div>
+              <div>as_of 2026-05-14</div>
+              <div>인덱싱 · 청크 #1842</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto;">
+              <span style="font-size:12px;color:#fff;background:#1A1B1E;border-radius:8px;padding:9px;text-align:center;">데스크 대화로 ↗</span>
+              <span style="font-size:12px;color:#5A5A62;border:1px solid #E0E0E3;border-radius:8px;padding:9px;text-align:center;background:#fff;">이 페이지 핀 📌</span>
+              <span style="font-size:12px;color:#5A5A62;border:1px solid #E0E0E3;border-radius:8px;padding:9px;text-align:center;background:#fff;">인용 복사</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- per-type expanded forms -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:16px;">
+      <!-- web expanded -->
+      <div style="background:#fff;border:1px solid #DCDCDF;border-radius:12px;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-family:'Space Mono',monospace;font-size:10px;color:#fff;background:#1A1B1E;border-radius:5px;padding:3px 8px;">🌐 뉴스</span><span style="font-size:11.5px;font-weight:600;">웹은 웹대로 — 기사 원본</span></div>
+        <div style="padding:11px 13px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px;"><span style="display:flex;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#E0726A;"></span><span style="width:6px;height:6px;border-radius:50%;background:#E3B34E;"></span><span style="width:6px;height:6px;border-radius:50%;background:#7FB97F;"></span></span><span style="flex:1;background:#FAFAFB;border:1px solid #ECECEE;border-radius:5px;font-family:'Space Mono',monospace;font-size:8px;color:#86868C;padding:3px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔒 hankyung.com/economy/202606…</span></div>
+          <div style="font-size:12px;font-weight:700;line-height:1.35;">SK하이닉스, HBM4 양산 일정 앞당긴다</div>
+          <div style="font-size:10px;color:#5A5A60;line-height:1.65;margin-top:7px;">업계에 따르면 회사는 <span style="background:#FCEFC4;border-radius:2px;padding:0 2px;">내년 상반기로 양산 시점을 앞당기기로 했다</span>고 전해졌다. 고객사 수요가…</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;padding:8px 13px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;"><span style="width:7px;height:7px;border-radius:50%;background:#D9A300;"></span>스크롤 위치까지 하이라이트로 점프</div>
+      </div>
+      <!-- transcript expanded -->
+      <div style="background:#fff;border:1px solid #DCDCDF;border-radius:12px;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-family:'Space Mono',monospace;font-size:10px;color:#fff;background:#1A1B1E;border-radius:5px;padding:3px 8px;">🎙 전문</span><span style="font-size:11.5px;font-weight:600;">전문은 타임코드로</span></div>
+        <div style="padding:11px 13px;display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;gap:8px;opacity:0.5;"><span style="font-family:'Space Mono',monospace;font-size:8.5px;color:#86868C;flex:none;">21:02</span><span style="font-size:10px;color:#6A6A70;line-height:1.4;">…데이터센터 수요가 견조했고…</span></div>
+          <div style="display:flex;gap:8px;background:#FCEFC4;border-left:2px solid #D9A300;border-radius:0 3px 3px 0;padding:6px 8px;"><span style="font-family:'Space Mono',monospace;font-size:8.5px;color:#A88A20;flex:none;">21:14</span><span style="font-size:10px;color:#3A3A40;line-height:1.45;">"HBM 비중은 두 자릿수 후반까지…"</span></div>
+          <div style="display:flex;gap:8px;opacity:0.5;"><span style="font-family:'Space Mono',monospace;font-size:8.5px;color:#86868C;flex:none;">21:31</span><span style="font-size:10px;color:#6A6A70;line-height:1.4;">…공급은 점진적으로 확대…</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;padding:8px 13px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;"><span style="width:7px;height:7px;border-radius:50%;background:#D9A300;"></span>▶ 오디오 21:14부터 재생</div>
+      </div>
+      <!-- data expanded -->
+      <div style="background:#fff;border:1px solid #DCDCDF;border-radius:12px;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid #F0F0F2;"><span style="font-family:'Space Mono',monospace;font-size:10px;color:#fff;background:#1A1B1E;border-radius:5px;padding:3px 8px;">▤ 데이터</span><span style="font-size:11.5px;font-weight:600;">데이터는 표 + 출처식</span></div>
+        <div style="padding:9px 13px;font-family:'Space Mono',monospace;font-size:9.5px;color:#5A5A62;">
+          <div style="display:grid;grid-template-columns:1fr 0.7fr 0.7fr;gap:6px;color:#A6A6AC;font-size:8px;padding-bottom:4px;border-bottom:1px solid #F0F0F2;"><span>분기</span><span style="text-align:right;">삼성</span><span style="text-align:right;">SK</span></div>
+          <div style="display:grid;grid-template-columns:1fr 0.7fr 0.7fr;gap:6px;padding:3px 0;"><span>1Q26</span><span style="text-align:right;">41%</span><span style="text-align:right;background:#FCEFC4;border-radius:2px;color:#3A3A40;">38%</span></div>
+          <div style="display:grid;grid-template-columns:1fr 0.7fr 0.7fr;gap:6px;padding:3px 0;color:#9A9AA0;"><span>4Q25</span><span style="text-align:right;">39%</span><span style="text-align:right;">34%</span></div>
+          <div style="font-size:8px;color:#86868C;border-top:1px solid #F0F0F2;margin-top:5px;padding-top:5px;">= (매출−원가)/매출 · OpenDART p.83 추출</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;padding:8px 13px;border-top:1px solid #F0F0F2;font-family:'Space Mono',monospace;font-size:9px;color:#86868C;"><span style="width:7px;height:7px;border-radius:50%;background:#1FA463;"></span>셀 클릭 → 계산식·원천 행 추적</div>
+      </div>
+    </div>
+    <div style="font-family:'Caveat',cursive;font-size:18px;color:#6E72B0;margin-top:14px;">↳ 미리보기는 맛보기, 클릭하면 원문 전체로. 어느 타입이든 인용한 부분으로 바로 스크롤·하이라이트되고, 우측엔 "누가 이걸 인용했는지"가 따라붙어 데스크 대화로 되돌아갈 수 있다.</div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1480,&quot;height&quot;:1100}}"></script>
+</body>
+</html>

@@ -15,6 +15,7 @@ key, so entitlement + metering apply to chat too.
 from __future__ import annotations
 
 import logging
+import re
 from typing import AsyncIterator
 
 from agentengine import guardrails
@@ -148,8 +149,23 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # degrades to an honest message instead of breaking the stream.
         yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
 
-    # PH-4c: if the prose carries no inline [n] markers, stream a trailing anchor
-    # group so the answer ties to the citation chips (deterministic floor).
+    # Evidence vs consulted: a citation is evidence iff the answer cited its [n] or it
+    # backs a rendered artifact. The Live Context shows only evidence; every consulted
+    # source still appears in the answer's 도구·출처 list. When the model wrote no inline
+    # [n], evidence falls back to the citations that actually returned data.
+    cited = {int(m) for m in re.findall(r"\[(\d+)\]", final_text or "")}
+    art_tools = {a.get("tool") for a in artifacts if a.get("tool")}
+    for c in citations:
+        c["used"] = (c.get("index") in cited) or (c.get("tool") in art_tools)
+    if citations and not any(c.get("used") for c in citations):
+        data_bearing = [c for c in citations if c.get("url") or c.get("snippet") or c.get("table")]
+        for c in (data_bearing or citations):
+            c["used"] = True
+
+    # PH-4c: if the prose carries no inline [n] markers, stream a trailing anchor group
+    # for the EVIDENCE only (don't claim every consulted source produced the figures).
     if citations and final_text and not has_anchors(final_text):
-        yield {"type": "token", "text": " " + anchor_markers([c.get("index") for c in citations])}
-    yield {"type": "done", "citations": citations, "artifacts": artifacts, "refused": False}
+        used_idx = [c.get("index") for c in citations if c.get("used")] or [c.get("index") for c in citations]
+        yield {"type": "token", "text": " " + anchor_markers(used_idx)}
+    used = [c.get("index") for c in citations if c.get("used")]
+    yield {"type": "done", "citations": citations, "artifacts": artifacts, "refused": False, "used": used}
