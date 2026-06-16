@@ -25,7 +25,26 @@ export type Citation = {
   snippet?: string;
   ticker?: string;
   page?: string;
+  table?: string[][];   // extracted figures (header row first, cited row = first data row)
+  used?: boolean;       // evidence flag (set from the answer's [n] / artifact backing)
 };
+
+// A compact extracted-data table for the preview — header row + data rows, the
+// cited (latest) row highlighted. Shows the *real* figures the answer used.
+export function SrcTable({ table }: { table: string[][] }) {
+  if (!table?.length) return null;
+  const [head, ...rows] = table;
+  return (
+    <table className="sp-table mono">
+      <thead><tr>{head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+      <tbody>
+        {rows.map((r, ri) => (
+          <tr key={ri} className={ri === 0 ? "cited" : ""}>{r.map((cell, ci) => <td key={ci}>{cell}</td>)}</tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 // filing · web · data — the three native preview shapes.
 export function sourceShape(c: Citation): "filing" | "web" | "data" {
@@ -105,7 +124,9 @@ export function SourceCard({ c, onExpand }: { c: Citation; onExpand?: (c: Citati
             <span className="sp-title">{c.source || "추출 데이터"}</span>
             {c.ticker ? <span className="sp-page mono">{c.ticker}</span> : null}
           </div>
-          <div className="sp-data mono">{c.snippet || "지표 계산값"}</div>
+          {c.table ? <SrcTable table={c.table} /> : null}
+          {c.snippet ? <div className="sp-data mono">{c.snippet}</div>
+            : (!c.table ? <div className="sp-data mono">계산에 사용된 값</div> : null)}
           {foot}
         </>
       )}

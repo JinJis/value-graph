@@ -8,7 +8,7 @@
 // fabricated full document.
 
 import { useState } from "react";
-import { Citation, sourceShape, hostOf } from "./SourceCard";
+import { Citation, sourceShape, hostOf, SrcTable } from "./SourceCard";
 import { FreshnessDot, FRESH_LABEL } from "./ui";
 
 const TABS: { key: "filing" | "web" | "data"; label: string }[] = [
@@ -71,11 +71,14 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
             {shape === "data" && (
               <article className="sv-page">
                 <div className="sv-page-hd mono">{c.source || "추출 데이터"}{c.ticker ? ` · ${c.ticker}` : ""}</div>
-                <div className="sv-data mono">
-                  <span className="sv-pin mono">{c.index ?? "1"}</span>
-                  {c.snippet || "지표 계산값"}
-                </div>
-                <p className="sv-data-note mono">{c.as_of ? `as_of ${c.as_of} · ` : ""}출처에서 추출·계산된 값</p>
+                {c.table ? <SrcTable table={c.table} /> : null}
+                {c.snippet ? (
+                  <div className="sv-data mono">
+                    <span className="sv-pin mono">{c.index ?? "1"}</span>
+                    {c.snippet}
+                  </div>
+                ) : null}
+                <p className="sv-data-note mono">{c.as_of ? `as_of ${c.as_of} · ` : ""}출처에서 추출·계산된 값 (셀 = 인용 근거)</p>
               </article>
             )}
           </div>

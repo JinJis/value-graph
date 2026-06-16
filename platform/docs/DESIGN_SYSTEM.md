@@ -57,12 +57,15 @@
 - **Inline artifact card** `.artifact` — wireframe A/B/D. Title row (freshness dot + 차트/표
   · ↻ · 📌), SVG chart, then the **trust line** (`출처 · as_of · 신선도`, drawn gaps).
 - **Live Context source previews** `.srcprev` (`.filing`/`.web`/`.data`) — wireframe
-  "화면 상세" Live panel. Each cited source renders in its **native form** with the cited
+  "화면 상세" Live panel. **Live Context shows only *evidence*** — the sources that actually
+  produced the answer (cited `[n]` or backing an artifact); consulted-but-unused sources
+  stay in the message's 도구·출처 list. Each renders in its **native form** with the cited
   passage highlighted (`--mark` + amber rule): filing → a mini PDF page (page badge +
-  highlighted line over skeleton text), web/news → browser chrome (traffic dots + URL bar
-  from the real host) + headline + highlighted phrase, data/metric → an extracted-data
-  card. Surrounding text is drawn as skeleton lines (we only hold the snippet + a link —
-  no full-text redistribution). Clicking opens `SourceViewer`.
+  highlighted line over skeleton text), web/news → browser chrome (URL bar from the real
+  host) + headline + highlighted phrase, data/metric → an **extracted-data table**
+  (`.sp-table`, cited row highlighted) + computation + the **canonical filing link** (SEC
+  index page / DART rcpNo — never a bare directory listing). Surrounding text is skeleton
+  (we hold only the snippet + a link — no full-text redistribution). Clicking opens `SourceViewer`.
 - **Source viewer** `.sv-*` (`SourceViewer.tsx`) — wireframe **Screen 08**. A preview
   expands into a modal: the source full-size with the passage highlighted + a margin pin,
   and a right "이 원문을 인용한 곳" panel (freshness · as_of · source) with 원문 열기 ↗ /

@@ -220,6 +220,15 @@ This is what beats Perplexity-style citations: **point-in-time**, **verbatim-spa
 > source · 원문 열기 ↗ · 인용 복사). We render only the extracted snippet + a link (no full-text redistribution);
 > surrounding text is skeleton. **Next (U6):** apply the same native-preview + viewer to community footnotes
 > and Data-Hub RAG chunks. Components: `SourceCard.tsx` (`.srcprev`), `SourceViewer.tsx` — see `DESIGN_SYSTEM.md`.
+>
+> ✅ **Evidence, not every consulted source.** Live Context shows only the sources that *actually backed the
+> answer* (cited `[n]` or backing an artifact) — consulted-but-unused sources stay in the answer's 도구·출처
+> list. A derived figure shows its **real numbers as an extracted table** (cited row highlighted) + a
+> **canonical filing link** to the exact filing it came from (SEC filing index page from cik+accession; DART
+> `rcpNo` viewer), never a bare directory listing or a "지표 계산값" placeholder. Backed end-to-end:
+> `datasets` surfaces `accession`+`filing_url` per figure; `agent-engine` builds the link/table + the `used`
+> evidence flag; the `done` SSE carries `used`. This scales as data sources grow — any tabular result gets a
+> real-data preview by default.
 
 ### 5.4 Watchlists & @groups (search + favorite — yes, the user searches)
 **Stock search** (autocomplete over the company universe):

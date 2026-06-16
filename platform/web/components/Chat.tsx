@@ -12,7 +12,7 @@ import { Artifact, ArtifactCard } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -163,8 +163,11 @@ export default function Chat({ name }: { name: string }) {
               const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
               if (!dup) a.citations = [...(a.citations || []), cite];
             }
-            // the guardrail is a visible label, not fine print: mark refused turns
-            else if (ev.type === "done" && ev.refused) a.refused = true;
+            // done: guardrail flag + the evidence set (which [n] actually backed the answer)
+            else if (ev.type === "done") {
+              if (ev.refused) a.refused = true;
+              if (Array.isArray(ev.used)) a.used = ev.used;
+            }
             next[next.length - 1] = a;
             return next;
           });
@@ -189,8 +192,15 @@ export default function Chat({ name }: { name: string }) {
     else if (!deletedId) setAgentId(saved.id);
   }
 
-  const liveCites = [...messages].reverse()
-    .find((m) => m.role === "assistant" && (m.citations?.length || 0) > 0)?.citations ?? [];
+  // Live Context = the EVIDENCE of the latest answer (only the sources it actually
+  // used), not every consulted source — those stay in the message's 도구·출처 list.
+  const liveMsg = [...messages].reverse().find((m) => m.role === "assistant" && (m.citations?.length || 0) > 0);
+  const liveCites = (() => {
+    if (!liveMsg) return [] as Citation[];
+    const used = liveMsg.used;
+    if (used && used.length) return (liveMsg.citations ?? []).filter((c) => c.index != null && used.includes(c.index));
+    return liveMsg.citations ?? [];
+  })();
 
   return (
     <div className={`shell ${view === "desk" ? "" : "no-right"}`}>

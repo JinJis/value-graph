@@ -55,9 +55,16 @@ class Citation(BaseModel):
     doc_type: str | None = None        # e.g. '10-K', 'news' (from RAG provenance)
     as_of: str | None = None           # ISO date the cited fact is as of
     freshness: str | None = None       # fresh | aging | stale (computed from as_of)
-    snippet: str | None = None         # cited span / headline — the preview body
+    snippet: str | None = None         # cited span / headline / computation — the preview body
     ticker: str | None = None
     page: str | None = None            # filing section / accession ref
+    # the specific figures this citation actually contributed — rendered as an
+    # extracted-data table in the preview (header row first, cited row marked).
+    table: list[list[str]] | None = None
+    # evidence flag: True iff this source actually backed the answer (cited [n] or
+    # backs an artifact). The Live Context shows only evidence; consulted-but-unused
+    # sources stay in the answer's 도구·출처 list.
+    used: bool = False
 
 
 class ArtifactPoint(BaseModel):
@@ -83,6 +90,7 @@ class Artifact(BaseModel):
     freshness: str | None = None
     ticker: str | None = None
     has_gap: bool = False
+    url: str | None = None       # canonical link to the filing/source the figures came from
     tool: str | None = None      # the tool that produced it (lets a pinned card ↻ refresh)
     args: dict | None = None     # the tool args, so a pinned card can re-fetch (U3-03)
 

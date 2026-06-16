@@ -13,8 +13,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 222 unit** — datasets 85 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 61 · studio-api 33 (+ admin 11) — plus the web build, four docker harnesses
+> **Test totals (current): 226 unit** — datasets 86 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 64 · studio-api 33 (+ admin 11) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -131,6 +131,22 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     `wireframes/community.dc.html`. Web build green. *(Detailed pages for 분석가/브리프/갤러리 are
     backend-blocked — analysts list, brief inbox = push/PH-11, gallery = community/Phase-2 — tracked
     under U4/U5; community = lowest priority per the user.)*
+  - ✅ **U-SHELL-PROV · Live Context = evidence, with canonical links + real data** — reworked the whole
+    provenance path so Live Context shows only the sources that *actually produced the answer*, each with
+    a canonical link and the specific figures used (not every consulted source, not a bare "지표 계산값"):
+    - **datasets:** `metrics_history` now surfaces `accession_number` + a canonical `filing_url` per period;
+      new `app/store/provenance.py` `filing_link()` (SEC **index page** from cik+accn — not the bare
+      directory listing; DART rcpNo viewer). SEC `_filing_url` upgraded to the index page. +1 test (86).
+    - **agent-engine:** `_citations` extracts the canonical filing link (`filing_url`/`source_url`/accession,
+      never an incidental directory URL) + builds a real-data **snippet + extracted table** from the actual
+      figures; RAG chunks get a canonical link built from their accession when they lack a url; filings
+      listings emit one evidence card per document. `mark_evidence()` flags `used` = cited `[n]` OR backs an
+      artifact → only evidence is anchored/shown; `done` SSE carries `used`. Artifacts carry `url`. +3 (64).
+    - **web:** Live Context filters to `used` citations (consulted-but-unused stay in the answer's 도구·출처);
+      `SourceCard`/`SourceViewer` render the extracted **table** (cited row highlighted) + canonical link.
+    - **eval:** the store-backed metrics + filings scenarios already exercise the enriched provenance
+      path (judge 5/5); corrected the News scenario's brittle `expect_cite` (news cites the *publisher*,
+      not the "Google News" label). Full eval green (85/85 deterministic, judge 3.94/5). e2e + web build green.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---

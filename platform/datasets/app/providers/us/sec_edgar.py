@@ -350,10 +350,12 @@ def _fiscal_label(row: dict) -> str | None:
 
 
 def _filing_url(cik10: str, accn: str | None) -> str | None:
+    # the filing *index page* (lists the filing's documents), not the bare `…/{accn}/`
+    # directory — a directory listing is "just reference links", not the filing itself.
     if not accn:
         return None
     nodash = accn.replace("-", "")
-    return f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/"
+    return f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/{accn}-index.htm"
 
 
 class SecEdgarProvider:
