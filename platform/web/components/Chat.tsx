@@ -6,7 +6,8 @@ import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Citation, CiteChip, SourceCard, TrustLegend } from "./SourceCard";
+import { Citation, CiteChip, SourceCard } from "./SourceCard";
+import { SourceViewer } from "./SourceViewer";
 import { Artifact, ArtifactCard } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
@@ -52,6 +53,7 @@ export default function Chat({ name }: { name: string }) {
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pins, setPins] = useState<{ id: string; spec: Artifact }[]>([]);  // U3-03 Board
+  const [viewer, setViewer] = useState<Citation | null>(null);  // expanded source viewer
 
   async function loadPins() {
     try {
@@ -341,15 +343,17 @@ export default function Chat({ name }: { name: string }) {
 
       {view === "desk" && (
         <aside className="rightpane">
-          <h4>Live 컨텍스트</h4>
-          <p className="sub">이번 답변에 쓰인 출처</p>
-          <span className="live-label">⛔ 점수·전망 없음 · 원문만</span>
+          <div className="rp-head">
+            <h4>LIVE 컨텍스트</h4>
+            {liveCites.length > 0 && <span className="rp-count mono">인용 원문 {liveCites.length}</span>}
+          </div>
+          <span className="live-label">⛔ 점수·전망 없음 · 인용한 <b>원문 그대로</b> 미리보기</span>
           {liveCites.length === 0 ? (
-            <p className="live-empty">질문하면 답변에 사용된 출처가 여기에 모여요. 종목별 뉴스·공시 실시간 피드는 곧 추가됩니다.</p>
+            <p className="live-empty">질문하면 답변에 사용된 출처가 <b>원문 미리보기</b>로 여기에 쌓여요 — PDF는 페이지, 뉴스는 브라우저, 데이터는 표로, 인용한 부분을 하이라이트해서. 종목별 실시간 피드는 곧 추가됩니다.</p>
           ) : (
             <>
-              <TrustLegend />
-              {liveCites.map((c, j) => <SourceCard key={j} c={c} />)}
+              {liveCites.map((c, j) => <SourceCard key={j} c={c} onExpand={setViewer} />)}
+              <div className="sp-empty">드래그한 소스가 여기 미리보기로 고정됩니다</div>
             </>
           )}
         </aside>
@@ -374,6 +378,8 @@ export default function Chat({ name }: { name: string }) {
           }}
         />
       )}
+
+      {viewer && <SourceViewer c={viewer} onClose={() => setViewer(null)} />}
     </div>
   );
 }

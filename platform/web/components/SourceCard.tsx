@@ -1,9 +1,13 @@
 "use client";
 
-// Source-preview card — wireframe section C. Type-aware by `kind`: a filing shows a
-// verbatim snippet, a metric its computation note, news ends in the context-not-forecast
-// guardrail. Every card carries a freshness signal — the "trust by construction" brand.
-// Trust primitives (FreshnessDot/TrustLegend) come from the design-system module.
+// Live Context source previews — wireframe "화면 상세" Live panel. Instead of a title
+// list, each cited source renders in its NATIVE form with the cited passage highlighted:
+//   filing → a mini document page (page badge + amber-highlighted line)
+//   web/news → browser chrome (URL bar) + headline + highlighted phrase
+//   data/metric → an extracted-data card with the computation
+// Clicking a preview opens the full SourceViewer. "정말 거기 그렇게 써 있다"를 눈으로 확인 = 신뢰.
+// We only ever show the extracted snippet + a link to the real document (no full-text
+// redistribution), and surrounding text is drawn as skeleton lines.
 
 import { FreshnessDot, FRESH_LABEL, TrustLegend } from "./ui";
 
@@ -23,53 +27,100 @@ export type Citation = {
   page?: string;
 };
 
-const KIND_META: Record<string, { icon: string; label: string; open: string }> = {
-  filing: { icon: "📄", label: "공시", open: "원문 열기 ↗" },
-  news: { icon: "📰", label: "뉴스", open: "기사 열기 ↗" },
-  metric: { icon: "📊", label: "지표", open: "원문 열기 ↗" },
-  data: { icon: "📎", label: "데이터", open: "원문 열기 ↗" },
-};
+// filing · web · data — the three native preview shapes.
+export function sourceShape(c: Citation): "filing" | "web" | "data" {
+  if (c.kind === "filing") return "filing";
+  if (c.kind === "news") return "web";
+  if (c.kind === "metric" || c.kind === "data") return "data";
+  if (c.url && /^https?:\/\//.test(c.url)) return "web";
+  return "data";
+}
 
-export function SourceCard({ c }: { c: Citation }) {
-  const kind = c.kind && KIND_META[c.kind] ? c.kind : "data";
-  const meta = KIND_META[kind];
+export function hostOf(url?: string): string {
+  if (!url) return "";
+  try { return new URL(url).hostname.replace(/^www\./, ""); }
+  catch { return url.replace(/^https?:\/\//, "").split("/")[0]; }
+}
+
+const OPEN_LABEL: Record<string, string> = { filing: "원문 ↗", web: "기사 ↗", data: "표 ↗" };
+
+export function SourceCard({ c, onExpand }: { c: Citation; onExpand?: (c: Citation) => void }) {
+  const shape = sourceShape(c);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
+  const open = c.url ? (
+    <a className="sp-open" href={c.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+      {OPEN_LABEL[shape]}
+    </a>
+  ) : null;
+  const foot = (
+    <div className="sp-foot mono">
+      <FreshnessDot f={c.freshness} />
+      <span>{shape === "web" ? "맥락정보" : c.as_of ? `as_of ${c.as_of}` : (fresh ?? "출처")}</span>
+      {open}
+    </div>
+  );
+
   return (
-    <div className={`scard ${kind}`}>
-      <div className="scard-head">
-        {c.index ? <span className="cnum">[{c.index}]</span> : null}
-        <span className="sicon" aria-hidden>{meta.icon}</span>
-        <span className="ssource">{c.source || "출처"}</span>
-        {c.doc_type && c.doc_type !== "news" ? <span className="sdoc mono">{c.doc_type}</span> : null}
-        <FreshnessDot f={c.freshness} />
-      </div>
-      {(c.as_of || c.page) && (
-        <div className="scard-sub mono">
-          {c.as_of ? <span>{c.as_of}</span> : null}
-          {c.page ? <span title="문서 위치/접수번호">{c.page}</span> : null}
-        </div>
+    <div className={`srcprev ${shape}`} role={onExpand ? "button" : undefined}
+      onClick={onExpand ? () => onExpand(c) : undefined} title={onExpand ? "클릭하면 원문 전체로 펼쳐집니다" : undefined}>
+      {shape === "filing" && (
+        <>
+          <div className="sp-head">
+            {c.index ? <span className="sp-n mono">[{c.index}]</span> : null}
+            <span className="sp-ic" aria-hidden>📄</span>
+            <span className="sp-title">{c.source || "공시 문서"}</span>
+            {c.page ? <span className="sp-page mono">{c.page}</span> : null}
+          </div>
+          <div className="sp-doc">
+            {c.doc_type && c.doc_type !== "news" ? <div className="sp-doc-sec mono">{c.doc_type}</div> : null}
+            <span className="sp-skel" style={{ width: "82%" }} />
+            {c.snippet ? <div className="sp-quote">{c.snippet}</div> : <span className="sp-skel" style={{ width: "95%" }} />}
+            <span className="sp-skel" style={{ width: "94%" }} />
+            <span className="sp-skel" style={{ width: "60%" }} />
+          </div>
+          {foot}
+        </>
       )}
-      {c.snippet ? (
-        <div className="scard-snip">{kind === "filing" || kind === "news" ? `“${c.snippet}”` : c.snippet}</div>
-      ) : null}
-      <div className="scard-trust mono">
-        <FreshnessDot f={c.freshness} />
-        {fresh ? <span>{fresh}</span> : <span>출처 표시됨</span>}
-        {c.ticker ? <span className="stick">· {c.ticker}</span> : null}
-      </div>
-      {kind === "news" ? <div className="snote">ⓘ 맥락 정보 — 전망/점수 아님</div> : null}
-      {c.url ? <a className="scard-open" href={c.url} target="_blank" rel="noreferrer">{meta.open}</a> : null}
+
+      {shape === "web" && (
+        <>
+          <div className="sp-chrome">
+            <span className="sp-dots" aria-hidden><i /><i /><i /></span>
+            <span className="sp-url mono">🔒 {hostOf(c.url) || c.source || "web"}…</span>
+          </div>
+          <div className="sp-web">
+            <div className="sp-headline">{c.source || hostOf(c.url) || "기사"}</div>
+            {c.as_of ? <div className="sp-wmeta mono">{c.as_of}</div> : null}
+            {c.snippet ? <div className="sp-wtext">“<mark>{c.snippet}</mark>”</div> : null}
+          </div>
+          {foot}
+        </>
+      )}
+
+      {shape === "data" && (
+        <>
+          <div className="sp-head">
+            {c.index ? <span className="sp-n mono">[{c.index}]</span> : null}
+            <span className="sp-ic" aria-hidden>▤</span>
+            <span className="sp-title">{c.source || "추출 데이터"}</span>
+            {c.ticker ? <span className="sp-page mono">{c.ticker}</span> : null}
+          </div>
+          <div className="sp-data mono">{c.snippet || "지표 계산값"}</div>
+          {foot}
+        </>
+      )}
     </div>
   );
 }
 
 // Compact inline chip used under a message ([n] + source + freshness dot).
+const KIND_ICON: Record<string, string> = { filing: "📄", news: "📰", metric: "📊", data: "📎" };
 export function CiteChip({ c }: { c: Citation }) {
-  const meta = (c.kind && KIND_META[c.kind]) || KIND_META.data;
+  const icon = (c.kind && KIND_ICON[c.kind]) || "📎";
   const body = (
     <>
       {c.index ? <span className="cnum">[{c.index}]</span> : null}
-      <span aria-hidden>{meta.icon}</span> {c.source || "출처"}
+      <span aria-hidden>{icon}</span> {c.source || "출처"}
       <FreshnessDot f={c.freshness} />
     </>
   );

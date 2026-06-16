@@ -56,9 +56,17 @@
   light text); assistant = white card with hairline. `[n]` markers (`.anch`) = `--accent`.
 - **Inline artifact card** `.artifact` — wireframe A/B/D. Title row (freshness dot + 차트/표
   · ↻ · 📌), SVG chart, then the **trust line** (`출처 · as_of · 신선도`, drawn gaps).
-- **Source-preview card** `.scard` (`.filing`/`.news`/`.metric`/`.data`) — wireframe **C**.
-  Type-aware: filing shows a verbatim snippet (`--mark` highlight), news ends in the
-  context-not-forecast note. Always a freshness dot + `as_of`.
+- **Live Context source previews** `.srcprev` (`.filing`/`.web`/`.data`) — wireframe
+  "화면 상세" Live panel. Each cited source renders in its **native form** with the cited
+  passage highlighted (`--mark` + amber rule): filing → a mini PDF page (page badge +
+  highlighted line over skeleton text), web/news → browser chrome (traffic dots + URL bar
+  from the real host) + headline + highlighted phrase, data/metric → an extracted-data
+  card. Surrounding text is drawn as skeleton lines (we only hold the snippet + a link —
+  no full-text redistribution). Clicking opens `SourceViewer`.
+- **Source viewer** `.sv-*` (`SourceViewer.tsx`) — wireframe **Screen 08**. A preview
+  expands into a modal: the source full-size with the passage highlighted + a margin pin,
+  and a right "이 원문을 인용한 곳" panel (freshness · as_of · source) with 원문 열기 ↗ /
+  인용 복사. Honest: renders the extracted passage we hold, never a fabricated document.
 - **Trust legend** `.legend` — wireframe C. One legend, reused wherever a dot appears.
   Shows **freshness** (computed). Confidence tiers (verified/derived/estimated) are the
   *spec intent* (wireframe C) but are **not rendered live** until the backend emits a

@@ -120,6 +120,17 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     composer placeholder + @group chips + source meta, source-preview card C layout. API documented
     in `docs/DESIGN_SYSTEM.md` §4. Web build green; DS classes verified in the bundle. (D–I screens
     next, on confirmation.)
+  - ✅ **U-SHELL-LIVECTX · Live Context source previews + viewer** — reworked the Live Context
+    panel from a title list into **native source previews** with the cited passage highlighted
+    (`SourceCard` → `.srcprev`: filing = mini PDF page + page badge, web = browser chrome + URL bar +
+    highlight, data = extracted card), panel header "인용 원문 N" + guardrail note; clicking a preview
+    opens the **full source viewer** (`SourceViewer.tsx`, wireframe Screen 08) with the passage
+    highlighted + a "이 원문을 인용한 곳" panel (freshness/as_of/source · 원문 열기 ↗ · 인용 복사).
+    Maps onto real `Citation` data (kind/url/page/snippet/freshness); skeleton lines stand in for
+    un-redistributed surrounding text. New design files saved to `docs/wireframe-detail.dc.html` +
+    `wireframe-community*.dc.html`. Web build green. *(Detailed pages for 분석가/브리프/갤러리 are
+    backend-blocked — analysts list, brief inbox = push/PH-11, gallery = community/Phase-2 — tracked
+    under U4/U5; community = lowest priority per the user.)*
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---
