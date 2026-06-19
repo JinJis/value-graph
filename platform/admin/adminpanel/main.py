@@ -235,7 +235,7 @@ async def ops_scheduler(request: Request, action: str):
 
 @app.post("/ops/backfill")
 async def ops_backfill(request: Request, preset: str = Form(""), market: str = Form("US"),
-                       tickers: str = Form("")):
+                       tickers: str = Form(""), precompute: str = Form("")):
     tick = [t.strip() for t in tickers.replace(",", " ").split() if t.strip()] or None
     if preset:
         payload = {"preset": preset, "deep": True}
@@ -246,8 +246,16 @@ async def ops_backfill(request: Request, preset: str = Form(""), market: str = F
     async with httpx.AsyncClient() as c:
         r = await c.post(f"{settings.datasets_url}/admin/backfill", json=payload, timeout=20)
         ok = r.status_code == 200
+        # Same trigger, one click: also index visual-evidence pointers (US SEC iXBRL).
+        # Independent of the backfill job (it reads filings live), so fire-and-forget here;
+        # the datasets endpoint resolves the preset and skips non-US tickers itself.
+        ev = ""
+        if precompute:
+            pc = {"preset": preset} if preset else {"market": market, "tickers": tick}
+            pr = await c.post(f"{settings.datasets_url}/admin/precompute-locations", json=pc, timeout=20)
+            ev = "+evidence" if pr.status_code == 200 and pr.json().get("started") else "+(evidence+skipped:+US+only)"
     return RedirectResponse(
-        f"/?msg=backfill+{'started' if ok else 'failed'}+{label}+(watch+progress+below)", status_code=303
+        f"/?msg=backfill+{'started' if ok else 'failed'}+{label}{ev}+(watch+progress+below)", status_code=303
     )
 
 
@@ -438,14 +446,20 @@ _DASH_BODY = """
 <form class=ops method=post action=/ops/backfill>
   <label class=muted>universe</label>
   <select name=preset>{preset_opts}</select>
+  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
   <button class=p>Backfill universe</button>
 </form>
 <form class=ops method=post action=/ops/backfill>
   <label class=muted>or custom</label>
   <select name=market><option>US</option><option>KR</option></select>
   <input name=tickers placeholder="explicit tickers e.g. AAPL MSFT / 005930" size=34>
+  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
   <button>Backfill tickers</button>
 </form>
+<p class=muted>📷 <b>evidence</b> = also precompute <b>visual-evidence pointers</b> (PH-PROV2): downloads each
+US ticker's SEC filings, matches every as-reported figure to its inline-XBRL line, and stores a
+<code>FactLocation</code> so the chat can show a <b>highlighted screenshot of the source</b>. US only;
+runs in the background (kind <b>locations</b> below).</p>
 
 <h2>News → RAG index</h2>
 <p class=muted>Pull Google News headlines into the RAG index so <code>rag__search</code> returns

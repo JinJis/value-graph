@@ -483,6 +483,34 @@ def test_admin_news_ingest_endpoint(monkeypatch):
     assert r.status_code == 200 and r.json()["started"] is True
 
 
+def test_admin_precompute_locations_preset_and_non_us(monkeypatch):
+    # PH-PROV2: precompute resolves a preset to its US tickers, and refuses non-US
+    # (visual evidence is SEC iXBRL only) — never silently indexes what it can't match.
+    import app.routers.admin as A
+
+    fired = {}
+
+    async def fake_run(market, tickers):
+        fired["market"], fired["tickers"] = market, tickers
+
+    monkeypatch.setattr(A, "run_precompute_locations", fake_run)
+
+    # explicit US tickers → started
+    assert client.post("/admin/precompute-locations",
+                       json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
+    assert fired["tickers"] == ["AAPL"]
+
+    # a preset is resolved server-side to its US tickers
+    fired.clear()
+    assert client.post("/admin/precompute-locations", json={"preset": "us_mega"}).json()["started"] is True
+    assert "AAPL" in fired["tickers"] and fired["market"] == "US"
+
+    # non-US is skipped, not fabricated
+    fired.clear()
+    body = client.post("/admin/precompute-locations", json={"market": "KR", "tickers": ["005930"]}).json()
+    assert body["started"] is False and "US" in body["detail"] and not fired
+
+
 # --- PH-5: cheap universe-enumeration endpoints ---------------------------
 _SEC_TICKERS = {
     "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},

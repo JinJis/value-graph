@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 241 unit** — datasets 96 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 67 · studio-api 34 (+ admin 11, renderer 5) — plus the web build, four docker harnesses
+> **Test totals (current): 243 unit** — datasets 97 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 67 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -169,7 +169,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       different us-gaap tags across filers — try each in order); agent `_FIELD_CONCEPTS` reverse map wires
       the common **income_statements** shape (normalized fields → candidate concepts) to evidence, not just
       `as_reported`. Verified live on AAPL (consolidated revenue line FY2025 → 200 PNG). datasets 94→96,
-      agent-engine 66→67.
+      agent-engine 66→67. **Admin UX:** the Backfill forms now carry a **📷 evidence** checkbox so an
+      operator indexes fundamentals + visual-evidence pointers in one click; `/admin/precompute-locations`
+      resolves a universe preset to its US tickers and skips non-US (evidence is SEC iXBRL only).
+      datasets 96→97, admin 11→12.
     - ⬜ **PH-PROV2c** — balance + cashflow (instant vs duration) + scheduler/deep-backfill wiring.
     - ⬜ **PH-PROV2d** — DART/PDF evidence via PyMuPDF (no Chromium). ↳ PH-7b (KR raw XBRL).
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
