@@ -155,6 +155,23 @@ def test_evidence_url_attached_for_us_as_reported_filing():
     assert "report_period=2024-09-28" in c.evidence_image_url
 
 
+def test_evidence_url_for_income_statements_uses_candidate_concepts():
+    # the common income_statements tool uses OUR normalized fields → reverse-map to candidate
+    # us-gaap concepts so the answer's revenue figure still gets an evidence link (PH-PROV2b).
+    tool = {"name": "sec_edgar__income_statements", "source": "SEC EDGAR", "connector": "sec_edgar"}
+    data = {"income_statements": [
+        {"revenue": 391035000000.0, "net_income": 93736000000.0, "report_period": "2024-09-28",
+         "accession_number": "0000320193-24-000123"},
+        {"revenue": 383285000000.0, "report_period": "2023-09-30", "accession_number": "0000320193-23-000106"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.evidence_image_url and "/evidence?" in c.evidence_image_url
+    assert "accession=0000320193-24-000123" in c.evidence_image_url      # newest period
+    assert "report_period=2024-09-28" in c.evidence_image_url
+    # revenue maps to a candidate list (try each tag in order at lookup time)
+    assert "RevenueFromContractWithCustomerExcludingAssessedTax" in c.evidence_image_url
+    assert "Revenues" in c.evidence_image_url
+
+
 def test_evidence_url_none_for_non_filing_or_non_us():
     # prices (no filing) → no evidence URL
     c = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance", "connector": "yahoo"},

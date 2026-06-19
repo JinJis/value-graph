@@ -55,28 +55,54 @@ def _filing_link(market, accession, cik=None) -> str | None:
     return None
 
 
-def _evidence_url(data, accn, cik, market) -> str | None:
-    """PH-PROV2: the datasets `/evidence?…` URL for a US filing-backed result's headline
-    figure (an as-reported line item, which carries an explicit us-gaap concept). The
-    frontend fetches the highlighted screenshot lazily — we only attach the link here, so
-    the answer stream is never blocked on a render. None when there's nothing to point at."""
-    if (market or "").upper() != "US" or not accn or not isinstance(data, dict):
+# PH-PROV2b: our normalized income-statement fields → ordered candidate us-gaap concepts
+# (mirror of datasets INCOME_MAP; same field maps to different tags across filers, so the
+# /evidence lookup tries each in order). Headline order = what we'd point a viewer at first.
+_FIELD_CONCEPTS: dict[str, list[str]] = {
+    "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
+                "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"],
+    "net_income": ["NetIncomeLoss", "ProfitLoss"],
+    "operating_income": ["OperatingIncomeLoss"],
+    "gross_profit": ["GrossProfit"],
+}
+_HEADLINE_ORDER = ("revenue", "net_income", "operating_income", "gross_profit")
+
+
+def _ev_qs(accn, cik, concept, report_period, value) -> str | None:
+    if not (accn and concept and report_period):
         return None
-    periods = data.get("periods")  # as-reported shape: [{report_period, line_items:[{concept,value}]}]
-    if not isinstance(periods, list) or not periods:
-        return None
-    p = periods[0] if isinstance(periods[0], dict) else {}
-    items = [it for it in (p.get("line_items") or []) if isinstance(it, dict)]
-    if not items:
-        return None
-    pick = next((it for it in items if "Revenue" in (it.get("concept") or "")), items[0])
-    if pick.get("value") is None or not pick.get("concept"):
-        return None
-    q = {"market": "US", "accession": accn, "concept": pick["concept"],
-         "report_period": p.get("report_period"), "value": pick["value"]}
+    q = {"market": "US", "accession": accn, "concept": concept, "report_period": report_period, "value": value}
     if cik:
         q["cik"] = cik
     return "/evidence?" + urlencode(q)
+
+
+def _evidence_url(data, accn, cik, market) -> str | None:
+    """PH-PROV2: the datasets `/evidence?…` URL for a US filing-backed result's headline
+    figure. The frontend fetches the highlighted screenshot lazily — we only attach the
+    link (deterministic, no render), so the answer stream is never blocked. Handles both
+    the as-reported shape (explicit us-gaap concept) and the income-statement shape (our
+    normalized fields → candidate concepts). None when there's nothing to point at."""
+    if (market or "").upper() != "US" or not accn or not isinstance(data, dict):
+        return None
+    # as-reported: explicit us-gaap concept per line item
+    periods = data.get("periods")
+    if isinstance(periods, list) and periods and isinstance(periods[0], dict):
+        p = periods[0]
+        items = [it for it in (p.get("line_items") or []) if isinstance(it, dict)]
+        pick = next((it for it in items if "Revenue" in (it.get("concept") or "")), items[0] if items else None)
+        if pick and pick.get("value") is not None and pick.get("concept"):
+            return _ev_qs(pick.get("accession_number") or accn, cik, pick["concept"],
+                          p.get("report_period"), pick["value"])
+    # income statements: normalized fields → candidate concepts (newest period w/ a headline)
+    rows = [r for r in (data.get("income_statements") or []) if isinstance(r, dict) and r.get("report_period")]
+    rows.sort(key=lambda r: str(r.get("report_period")), reverse=True)
+    for r in rows:
+        for field in _HEADLINE_ORDER:
+            if r.get(field) is not None:
+                return _ev_qs(r.get("accession_number") or accn, cik, ",".join(_FIELD_CONCEPTS[field]),
+                              r.get("report_period"), r.get(field))
+    return None
 
 
 def _market_hint(tool: dict, data) -> str | None:

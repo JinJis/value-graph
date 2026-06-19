@@ -139,19 +139,26 @@ async def run_precompute_locations(market: str, tickers: list[str]) -> None:
 def lookup_location(market: str, accession: str, concept: str, report_period, cik: str | None = None):
     """The single indexed, matched FactLocation row for the /evidence endpoint (or None).
 
-    Keyed by (market, accession, concept, report_period): the accession already uniquely
-    identifies the filer+filing, so `cik` is intentionally NOT a filter (it's stored
-    10-digit zero-padded and callers pass it inconsistently — matching on it is brittle)."""
+    ``concept`` may be a comma-separated CANDIDATE list (e.g.
+    ``RevenueFromContractWithCustomerExcludingAssessedTax,Revenues,SalesRevenueNet``) — the
+    same field maps to different us-gaap tags across filers, so we try each in order and
+    return the first match. Keyed by (market, accession, concept, report_period): the
+    accession already uniquely identifies the filer+filing, so `cik` is intentionally NOT a
+    filter (it's stored 10-digit zero-padded and callers pass it inconsistently)."""
     init_db()
     rp = _as_date(report_period)
-    bare = concept.split(":")[-1]
+    candidates = [c.split(":")[-1].strip() for c in concept.split(",") if c.strip()]
     with SessionLocal() as db:
-        return db.execute(
-            select(FactLocation).where(
-                FactLocation.market == market.upper(),
-                FactLocation.accession_number == accession,
-                FactLocation.concept == bare,
-                FactLocation.report_period == rp,
-                FactLocation.status == "matched",
-            )
-        ).scalars().first()
+        for bare in candidates:  # honor candidate order (first present tag wins)
+            row = db.execute(
+                select(FactLocation).where(
+                    FactLocation.market == market.upper(),
+                    FactLocation.accession_number == accession,
+                    FactLocation.concept == bare,
+                    FactLocation.report_period == rp,
+                    FactLocation.status == "matched",
+                )
+            ).scalars().first()
+            if row:
+                return row
+    return None

@@ -73,7 +73,12 @@ def parse(html: str) -> etree._Element | None:
 
 
 def _index_contexts(root) -> dict[str, dict]:
-    """contextRef id → {end, start?, instant} from <xbrli:context><period>."""
+    """contextRef id → {end, start?, instant, dimensional} from <xbrli:context>.
+
+    ``dimensional`` is True when the context is scoped by an XBRL dimension (a
+    ``<segment>``/``<scenario>`` with an explicit/typed member) — i.e. a per-segment or
+    otherwise-disaggregated value. companyfacts reports the CONSOLIDATED total (no
+    dimension), so the matcher prefers the non-dimensional context for the same fact."""
     out: dict[str, dict] = {}
     for el in root.iter():
         if _ln(el) != _CTX:
@@ -81,7 +86,9 @@ def _index_contexts(root) -> dict[str, dict]:
         cid = el.get("id")
         if not cid:
             continue
-        info: dict = {}
+        info: dict = {"dimensional": any(
+            _ln(d).lower() in ("explicitmember", "typedmember") for d in el.iter()
+        )}
         for period in (c for c in el if _ln(c) == "period"):
             for c in period:
                 ln, txt = _ln(c), (c.text or "").strip()
@@ -172,7 +179,7 @@ def build_pointers_for_filing(html: str, targets: list[dict]) -> list[dict]:
             continue
         candidates.setdefault(concept, []).append({
             "el": el, "order": order, "value": val, "scale": scale, "sign": sign,
-            "end": ctx.get("end"), "start": ctx.get("start"),
+            "end": ctx.get("end"), "start": ctx.get("start"), "dimensional": ctx.get("dimensional", False),
             "unit": units.get(el.get("unitRef") or ""), "table": _table_size(el),
         })
 
@@ -195,8 +202,9 @@ def build_pointers_for_filing(html: str, targets: list[dict]) -> list[dict]:
             pointers.append({**t, "status": "miss", "match_rule": None,
                              "element_id": None, "selector": None, "scale": None, "sign": None})
             continue
-        # 3) disambiguate: prefer the statement face (largest table), then document order
-        best = min(hits, key=lambda c: (-c["table"], c["order"]))
+        # 3) disambiguate: prefer the CONSOLIDATED total (no dimension) over per-segment
+        #    duplicates, then the statement face (largest table), then document order.
+        best = min(hits, key=lambda c: (c["dimensional"], -c["table"], c["order"]))
         eid, xpath = _selector(root, best["el"])
         pointers.append({
             **t, "status": "matched", "match_rule": rule,

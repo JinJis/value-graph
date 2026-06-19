@@ -80,6 +80,32 @@ def test_miss_when_no_matching_fact():
         assert p["status"] == "miss" and p["element_id"] is None  # never fabricated
 
 
+IXBRL_DIM = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL"
+      xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
+<body>
+<ix:header><ix:resources>
+  <xbrli:context id="c-cons"><xbrli:period><xbrli:startDate>2023-10-01</xbrli:startDate><xbrli:endDate>2024-09-28</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="c-seg"><xbrli:entity><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementBusinessSegmentsAxis">us-gaap:ProductMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2023-10-01</xbrli:startDate><xbrli:endDate>2024-09-28</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>
+</ix:resources></ix:header>
+<table id="big"><tr><td>a</td><td>b</td><td>c</td><td>d</td><td>e</td></tr>
+  <tr><td>Segment revenue</td><td><ix:nonFraction id="f-seg" name="us-gaap:Revenues" contextRef="c-seg" unitRef="usd" scale="6">100</ix:nonFraction></td></tr></table>
+<p>Consolidated: <ix:nonFraction id="f-cons" name="us-gaap:Revenues" contextRef="c-cons" unitRef="usd" scale="6">100</ix:nonFraction></p>
+</body></html>"""
+
+
+def test_prefers_consolidated_over_segment_dimension():
+    # same concept/period/value in a per-segment (dimensional) context inside a BIG table
+    # and a consolidated (non-dimensional) context outside any table → pick consolidated,
+    # since companyfacts reports the consolidated total (PH-PROV2b hardening).
+    targets = [{"concept": "us-gaap:Revenues", "report_period": "2024-09-28", "value": 100_000_000.0}]
+    [p] = build_pointers_for_filing(IXBRL_DIM, targets)
+    assert p["status"] == "matched" and p["element_id"] == "f-cons"
+
+
 def test_unavailable_when_no_inline_xbrl():
     targets = [{"concept": "us-gaap:Revenues", "report_period": "2024-09-28", "value": 1.0}]
     [p] = build_pointers_for_filing("<html><body><p>old filing, no iXBRL</p></body></html>", targets)
@@ -104,3 +130,22 @@ def test_factlocation_upsert_and_lookup_roundtrip():
     loc = lookup_location("US", "0000320193-24-000123", "us-gaap:Revenues", "2024-09-28", cik="320193")
     assert loc is not None and loc.element_id == "f-rev-cur"
     assert lookup_location("US", "0000320193-24-000123", "us-gaap:Nope", date(2024, 9, 28)) is None
+
+
+def test_lookup_location_candidate_concept_list():
+    from datetime import date
+
+    from app.store.locations_ingest import _upsert, lookup_location
+
+    def row(concept, eid):
+        return {"market": "US", "cik": "320193", "accession_number": "acc-cand",
+                "concept": concept, "period": "annual", "report_period": date(2024, 9, 28),
+                "value": 1.0, "unit": "USD", "primary_doc_url": "https://x", "element_id": eid,
+                "selector": None, "scale": 0, "sign": None, "match_rule": "exact", "status": "matched"}
+    _upsert([row("Revenues", "f-revenues"), row("SalesRevenueNet", "f-sales")])
+    # the filer used "Revenues" — a candidate list tries each in order and returns the match
+    loc = lookup_location("US", "acc-cand",
+                          "RevenueFromContractWithCustomerExcludingAssessedTax,Revenues,SalesRevenueNet",
+                          "2024-09-28")
+    assert loc is not None and loc.element_id == "f-revenues"
+    assert lookup_location("US", "acc-cand", "Nope,AlsoNope", date(2024, 9, 28)) is None
