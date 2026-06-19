@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 243 unit** — datasets 97 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 67 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
+> **Test totals (current): 247 unit** — datasets 99 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 69 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -173,7 +173,15 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       operator indexes fundamentals + visual-evidence pointers in one click; `/admin/precompute-locations`
       resolves a universe preset to its US tickers and skips non-US (evidence is SEC iXBRL only).
       datasets 96→97, admin 11→12.
-    - ⬜ **PH-PROV2c** — balance + cashflow (instant vs duration) + scheduler/deep-backfill wiring.
+    - ✅ **PH-PROV2c · balance + cashflow + quarterly + scheduler/deep-backfill wiring.** Agent now
+      attaches evidence (image + extracted table) for **balance_sheets** (instant XBRL contexts →
+      total_assets/liabilities/equity) and **cash_flow_statements** (duration → operating/investing/
+      financing CF), via a generalized `_STATEMENT_HEADLINES` reverse map. Precompute now indexes
+      **both annual (10-K) AND quarterly (10-Q)** — "latest revenue" surfaces the most recent quarter, so
+      quarter-only figures need pointers too (the annual-only gap that hid the screenshot for a Q query).
+      Scheduler/deep-backfill wiring: `ingest_ticker` best-effort precomputes US pointers behind
+      `PRECOMPUTE_LOCATIONS` (the scheduler's `ingest_universe` goes through it → manual + scheduled both
+      covered). datasets 97→99, agent-engine 67→69.
     - ⬜ **PH-PROV2d** — DART/PDF evidence via PyMuPDF (no Chromium). ↳ PH-7b (KR raw XBRL).
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.

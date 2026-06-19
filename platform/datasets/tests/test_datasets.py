@@ -511,6 +511,43 @@ def test_admin_precompute_locations_preset_and_non_us(monkeypatch):
     assert body["started"] is False and "US" in body["detail"] and not fired
 
 
+async def test_ingest_ticker_precomputes_locations_for_us_when_flagged(monkeypatch):
+    # PH-PROV2c: with PRECOMPUTE_LOCATIONS on, a US backfill (manual OR scheduled/deep — both
+    # go through ingest_ticker) also indexes visual-evidence pointers; non-US is skipped.
+    import app.store.ingest as I
+    from app.symbols import Market
+
+    class _Ref:
+        ticker = "AAPL"
+        cik = "0000320193"
+
+    class _Prov:
+        async def income_statements(self, *a, **k): return []
+        async def balance_sheets(self, *a, **k): return []
+        async def cash_flow_statements(self, *a, **k): return []
+        async def company_facts(self, *a, **k): raise RuntimeError("skip")
+
+    monkeypatch.setattr(I, "build_ref", lambda market, ticker: _Ref())
+    monkeypatch.setattr(I, "get_financials_provider", lambda m: _Prov())
+    monkeypatch.setattr(I, "get_company_provider", lambda m: _Prov())
+
+    calls = []
+    import app.store.locations_ingest as L
+
+    async def fake_precompute(market, ticker, *a, **k):
+        calls.append((market, ticker))
+        return {}
+    monkeypatch.setattr(L, "precompute_locations_for_ticker", fake_precompute)
+    monkeypatch.setattr(I.settings, "precompute_locations", True)
+
+    await I.ingest_ticker(Market.US, "AAPL")
+    assert calls == [("US", "AAPL")]                 # US + flag on → precomputed
+
+    calls.clear()
+    await I.ingest_ticker(Market.KR, "005930")       # non-US → skipped (SEC iXBRL only)
+    assert calls == []
+
+
 # --- PH-5: cheap universe-enumeration endpoints ---------------------------
 _SEC_TICKERS = {
     "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},

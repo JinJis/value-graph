@@ -172,6 +172,38 @@ def test_evidence_url_for_income_statements_uses_candidate_concepts():
     assert "Revenues" in c.evidence_image_url
 
 
+def test_evidence_url_for_balance_sheet_instant_context():
+    # PH-PROV2c: the balance_sheets tool (instant XBRL contexts) → evidence link for the
+    # headline figure (total_assets → us-gaap:Assets), plus an extracted balance table.
+    tool = {"name": "sec_edgar__balance_sheets", "source": "SEC EDGAR", "connector": "sec_edgar"}
+    data = {"balance_sheets": [
+        {"total_assets": 364980000000.0, "total_liabilities": 308030000000.0,
+         "shareholders_equity": 56950000000.0, "report_period": "2025-09-27",
+         "accession_number": "0000320193-25-000079"},
+        {"total_assets": 364980000000.0, "report_period": "2024-09-28",
+         "accession_number": "0000320193-24-000123"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.evidence_image_url and "/evidence?" in c.evidence_image_url
+    assert "concept=Assets" in c.evidence_image_url                      # total_assets → Assets
+    assert "accession=0000320193-25-000079" in c.evidence_image_url      # newest period
+    assert "report_period=2025-09-27" in c.evidence_image_url
+    assert c.table and any("자산총계" in row for row in c.table)          # balance table rendered
+
+
+def test_evidence_url_for_cash_flow_duration_context():
+    # PH-PROV2c: the cash_flow_statements tool (duration contexts) → evidence link anchored
+    # on operating cash flow (NetCashProvidedByUsedInOperatingActivities).
+    tool = {"name": "sec_edgar__cash_flow_statements", "source": "SEC EDGAR", "connector": "sec_edgar"}
+    data = {"cash_flow_statements": [
+        {"net_cash_flow_from_operations": 118254000000.0, "net_cash_flow_from_investing": 9447000000.0,
+         "net_cash_flow_from_financing": -108488000000.0, "report_period": "2025-09-27",
+         "accession_number": "0000320193-25-000079"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.evidence_image_url and "concept=NetCashProvidedByUsedInOperatingActivities" in c.evidence_image_url
+    assert "report_period=2025-09-27" in c.evidence_image_url
+    assert c.table and any("영업활동CF" in row for row in c.table)        # cash-flow table rendered
+
+
 def test_evidence_url_none_for_non_filing_or_non_us():
     # prices (no filing) → no evidence URL
     c = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance", "connector": "yahoo"},

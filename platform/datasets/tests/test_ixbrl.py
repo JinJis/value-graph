@@ -71,6 +71,19 @@ def test_parenthesized_negative_with_sign_and_instant_context():
     assert assets["status"] == "matched" and assets["element_id"] == "f-assets"  # instant period
 
 
+def test_instant_and_duration_same_report_period_resolve_separately():
+    # PH-PROV2c: a balance figure (instant context) and an income figure (duration context)
+    # can share the SAME report_period end-date — each must resolve to its own element, not
+    # collide. The matcher indexes both context kinds.
+    targets = [
+        {"concept": "us-gaap:Revenues", "report_period": "2024-09-28", "value": 391_035_000_000.0},   # duration
+        {"concept": "us-gaap:Assets", "report_period": "2024-09-28", "value": 352_755_000_000.0},      # instant
+    ]
+    rev, assets = build_pointers_for_filing(IXBRL, targets)
+    assert rev["status"] == "matched" and rev["element_id"] == "f-rev-cur"
+    assert assets["status"] == "matched" and assets["element_id"] == "f-assets"
+
+
 def test_miss_when_no_matching_fact():
     targets = [
         {"concept": "us-gaap:Goodwill", "report_period": "2024-09-28", "value": 5_000_000_000.0},  # only a nil tag

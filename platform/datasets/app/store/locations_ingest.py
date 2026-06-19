@@ -43,51 +43,60 @@ def _as_date(v) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v)[:10])
 
 
-async def precompute_locations_for_ticker(market: str, ticker: str, period: str = "annual", limit: int = 4) -> dict:
-    """Index fact→location pointers for a US ticker's recent filings. Returns a summary."""
-    if market.upper() != "US":  # PH-PROV2a is SEC iXBRL only; KR/DART = PR4 (PyMuPDF, PH-7b)
-        return {"status": "skipped", "reason": "only US (SEC iXBRL) supported in PH-PROV2a"}
+async def precompute_locations_for_ticker(
+    market: str, ticker: str, periods: tuple[str, ...] = ("annual", "quarterly"), limit: int = 4
+) -> dict:
+    """Index fact→location pointers for a US ticker's recent filings. Covers BOTH annual
+    (10-K) and quarterly (10-Q) periods (PH-PROV2c) — "latest revenue" usually surfaces the
+    most recent QUARTER, so quarter-only figures need pointers too. Returns a summary."""
+    if market.upper() != "US":  # SEC iXBRL only; KR/DART = PR4 (PyMuPDF, PH-7b)
+        return {"status": "skipped", "reason": "only US (SEC iXBRL) supported"}
     ref = build_ref(Market.US, ticker)
     cik10 = await _resolve_cik(ref)
     prov = get_financials_provider(Market.US)
-    periods = await prov.as_reported(ref, period, limit)
     docmap = await _primary_doc_map(cik10)
 
-    # group targets by accession → one HTML download per filing (cache-friendly, rate-safe)
-    by_accn: dict[str, list[dict]] = {}
-    for p in periods:
-        rp = p["report_period"]
-        for item in p["line_items"]:
-            accn = item.get("accession_number")
-            if accn:
-                by_accn.setdefault(accn, []).append({
-                    "concept": item["concept"], "report_period": rp,
-                    "value": item.get("value"), "unit": item.get("unit"),
+    rows: list[dict] = []
+    filings = 0
+    for period in periods:
+        try:
+            statement_periods = await prov.as_reported(ref, period, limit)
+        except Exception:  # noqa: BLE001 — a bad period (e.g. no quarterly data) never blocks the rest
+            continue
+        # group targets by accession → one HTML download per filing (cache-friendly, rate-safe)
+        by_accn: dict[str, list[dict]] = {}
+        for p in statement_periods:
+            rp = p["report_period"]
+            for item in p["line_items"]:
+                accn = item.get("accession_number")
+                if accn:
+                    by_accn.setdefault(accn, []).append({
+                        "concept": item["concept"], "report_period": rp,
+                        "value": item.get("value"), "unit": item.get("unit"),
+                    })
+        filings += len(by_accn)
+        for accn, targets in by_accn.items():
+            url = docmap.get(accn)
+            if not url:
+                continue
+            try:
+                html = await fetch_text("sec_edgar", url, headers=_UA)
+                pointers = build_pointers_for_filing(html, targets)
+            except Exception:  # noqa: BLE001 — one bad filing never blocks the rest
+                continue
+            for ptr in pointers:
+                rows.append({
+                    "market": "US", "cik": cik10, "accession_number": accn,
+                    "concept": ptr["concept"], "period": period,
+                    "report_period": _as_date(ptr["report_period"]), "value": ptr.get("value"),
+                    "unit": ptr.get("unit"), "primary_doc_url": url,
+                    "element_id": ptr.get("element_id"), "selector": ptr.get("selector"),
+                    "scale": ptr.get("scale"), "sign": ptr.get("sign"),
+                    "match_rule": ptr.get("match_rule"), "status": ptr["status"],
                 })
 
-    rows: list[dict] = []
-    for accn, targets in by_accn.items():
-        url = docmap.get(accn)
-        if not url:
-            continue
-        try:
-            html = await fetch_text("sec_edgar", url, headers=_UA)
-            pointers = build_pointers_for_filing(html, targets)
-        except Exception:  # noqa: BLE001 — one bad filing never blocks the rest
-            continue
-        for ptr in pointers:
-            rows.append({
-                "market": "US", "cik": cik10, "accession_number": accn,
-                "concept": ptr["concept"], "period": period,
-                "report_period": _as_date(ptr["report_period"]), "value": ptr.get("value"),
-                "unit": ptr.get("unit"), "primary_doc_url": url,
-                "element_id": ptr.get("element_id"), "selector": ptr.get("selector"),
-                "scale": ptr.get("scale"), "sign": ptr.get("sign"),
-                "match_rule": ptr.get("match_rule"), "status": ptr["status"],
-            })
-
     written = await asyncio.to_thread(_upsert, rows)
-    return {"status": "ok", "ticker": ticker.upper(), "filings": len(by_accn),
+    return {"status": "ok", "ticker": ticker.upper(), "filings": filings,
             "pointers": len(rows), "matched": sum(1 for r in rows if r["status"] == "matched"),
             "written": written}
 
