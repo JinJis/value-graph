@@ -11,7 +11,12 @@ from __future__ import annotations
 import hashlib
 
 # bump when the render output format changes → invalidates the on-disk cache
-RENDERER_VERSION = "1"
+RENDERER_VERSION = "2"  # v2: crop a vertical band (highlighted row + context rows), not the lone row
+
+# vertical context kept above & below the highlighted row, as a multiple of the row height
+# (clamped to a pixel floor) so a 1-line row becomes a readable statement excerpt, not a sliver
+_BAND_ROWS = 3
+_BAND_MIN_PX = 54.0
 
 # amber highlight (matches the web filing card's `--mark`/aging palette)
 HIGHLIGHT_CSS = (
@@ -55,12 +60,26 @@ async def render_sec(doc_url: str | None = None, element_id: str | None = None, 
             await loc.evaluate("el => el.classList.add('vg-evidence-hl')")
             await loc.scroll_into_view_if_needed(timeout=5_000)
             bbox = await loc.bounding_box()
-            # screenshot the enclosing row (label + number) for context; fall back to the table, then the cell
-            region = page.locator(f"{target} >> xpath=ancestor-or-self::tr[1]")
-            if not await region.count():
-                region = page.locator(f"{target} >> xpath=ancestor-or-self::table[1]")
-            shot_target = region.first if await region.count() else loc
-            png = await shot_target.screenshot(type="png", timeout=10_000)
+
+            # Crop a vertical BAND: the highlighted row plus a few context rows above/below,
+            # spanning the full table width (labels + period columns stay aligned). A lone row
+            # is ~1264x19 — too thin to read as a thumbnail; a band reads as a real statement
+            # excerpt and the highlight keeps its surrounding line items for context.
+            png = None
+            row = page.locator(f"{target} >> xpath=ancestor-or-self::tr[1]").first
+            table = page.locator(f"{target} >> xpath=ancestor-or-self::table[1]").first
+            if await row.count() and await table.count():
+                rb, tb = await row.bounding_box(), await table.bounding_box()
+                if rb and tb:
+                    pad = max(rb["height"] * _BAND_ROWS, _BAND_MIN_PX)
+                    top = max(tb["y"], rb["y"] - pad)
+                    bottom = min(tb["y"] + tb["height"], rb["y"] + rb["height"] + pad)
+                    clip = {"x": tb["x"], "y": top, "width": tb["width"],
+                            "height": max(bottom - top, rb["height"])}
+                    png = await page.screenshot(type="png", clip=clip, timeout=10_000)
+            if png is None:  # fall back to the bare row, then the element itself
+                shot_target = row if await row.count() else loc
+                png = await shot_target.screenshot(type="png", timeout=10_000)
             return png, {"bbox": bbox}
         finally:
             await browser.close()
