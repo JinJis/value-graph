@@ -399,6 +399,14 @@ select.input { appearance: none; }
 .sv-stage { flex: 1; min-width: 0; background: #E9E9EC; padding: 24px 30px; overflow-y: auto;
   display: flex; flex-direction: column; align-items: center; gap: 16px; }
 /* PH-PROV2: the highlighted source screenshot — the real filing, not a mock */
+/* PH-PROV2: inline evidence teaser on the collapsed source card */
+.sp-evidence { margin: 9px 10px 0; }
+.sp-evidence-img { width: 100%; display: block; border: 1px solid var(--line-2); border-radius: 5px;
+  background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.sp-evidence-cap { margin-top: 5px; font-size: 8px; color: var(--muted); text-align: center; line-height: 1.4; }
+.sp-ev-badge { margin-left: auto; font-size: 8px; color: var(--accent); border: 1px solid var(--line-2);
+  border-radius: 4px; padding: 1px 5px; background: var(--mark); white-space: nowrap; }
+
 .sv-evidence { margin: 0; width: 100%; max-width: 720px; }
 .sv-evidence-img { width: 100%; display: block; border: 1px solid var(--line-2); border-radius: 6px;
   background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.12); }

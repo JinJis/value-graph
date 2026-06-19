@@ -9,6 +9,7 @@
 // We only ever show the extracted snippet + a link to the real document (no full-text
 // redistribution), and surrounding text is drawn as skeleton lines.
 
+import { useState } from "react";
 import { FreshnessDot, FRESH_LABEL, TrustLegend } from "./ui";
 
 export { FreshnessDot, TrustLegend };
@@ -34,6 +35,21 @@ export type Citation = {
 // browser can fetch (carries the session → tenant key).
 export function evidenceSrc(url?: string): string | null {
   return url ? url.replace(/^\/evidence/, "/api/evidence") : null;
+}
+
+// PH-PROV2: inline teaser of the highlighted-filing screenshot, shown right on the
+// card so the evidence is visible without expanding. Lazy-loaded; on 204/error it
+// removes itself (never a broken image). Click the card to open the full viewer.
+function InlineEvidence({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <figure className="sp-evidence">
+      <img className="sp-evidence-img" src={src} loading="lazy"
+           alt="원문에서 인용한 수치 하이라이트" onError={() => setFailed(true)} />
+      <figcaption className="sp-evidence-cap mono">📷 실제 공시 원문 · 노란 박스 = 인용 수치 · 클릭해 확대</figcaption>
+    </figure>
+  );
 }
 
 // A compact extracted-data table for the preview — header row + data rows, the
@@ -73,6 +89,8 @@ const OPEN_LABEL: Record<string, string> = { filing: "원문 ↗", web: "기사 
 export function SourceCard({ c, onExpand }: { c: Citation; onExpand?: (c: Citation) => void }) {
   const shape = sourceShape(c);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
+  const evSrc = evidenceSrc(c.evidence_image_url);  // PH-PROV2: highlighted screenshot, if any
+  const evBadge = evSrc ? <span className="sp-ev-badge mono" title="실제 공시 원문 스크린샷">📷 원문</span> : null;
   const open = c.url ? (
     <a className="sp-open" href={c.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
       {OPEN_LABEL[shape]}
@@ -96,14 +114,17 @@ export function SourceCard({ c, onExpand }: { c: Citation; onExpand?: (c: Citati
             <span className="sp-ic" aria-hidden>📄</span>
             <span className="sp-title">{c.source || "공시 문서"}</span>
             {c.page ? <span className="sp-page mono">{c.page}</span> : null}
+            {evBadge}
           </div>
-          <div className="sp-doc">
-            {c.doc_type && c.doc_type !== "news" ? <div className="sp-doc-sec mono">{c.doc_type}</div> : null}
-            <span className="sp-skel" style={{ width: "82%" }} />
-            {c.snippet ? <div className="sp-quote">{c.snippet}</div> : <span className="sp-skel" style={{ width: "95%" }} />}
-            <span className="sp-skel" style={{ width: "94%" }} />
-            <span className="sp-skel" style={{ width: "60%" }} />
-          </div>
+          {evSrc ? <InlineEvidence src={evSrc} /> : (
+            <div className="sp-doc">
+              {c.doc_type && c.doc_type !== "news" ? <div className="sp-doc-sec mono">{c.doc_type}</div> : null}
+              <span className="sp-skel" style={{ width: "82%" }} />
+              {c.snippet ? <div className="sp-quote">{c.snippet}</div> : <span className="sp-skel" style={{ width: "95%" }} />}
+              <span className="sp-skel" style={{ width: "94%" }} />
+              <span className="sp-skel" style={{ width: "60%" }} />
+            </div>
+          )}
           {foot}
         </>
       )}
@@ -130,10 +151,12 @@ export function SourceCard({ c, onExpand }: { c: Citation; onExpand?: (c: Citati
             <span className="sp-ic" aria-hidden>▤</span>
             <span className="sp-title">{c.source || "추출 데이터"}</span>
             {c.ticker ? <span className="sp-page mono">{c.ticker}</span> : null}
+            {evBadge}
           </div>
           {c.table ? <SrcTable table={c.table} /> : null}
           {c.snippet ? <div className="sp-data mono">{c.snippet}</div>
             : (!c.table ? <div className="sp-data mono">계산에 사용된 값</div> : null)}
+          {evSrc ? <InlineEvidence src={evSrc} /> : null}
           {foot}
         </>
       )}
