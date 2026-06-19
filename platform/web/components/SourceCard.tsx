@@ -27,7 +27,14 @@ export type Citation = {
   page?: string;
   table?: string[][];   // extracted figures (header row first, cited row = first data row)
   used?: boolean;       // evidence flag (set from the answer's [n] / artifact backing)
+  evidence_image_url?: string;  // PH-PROV2: /evidence?… → highlighted screenshot of the filing line
 };
+
+// PH-PROV2: map the agent's gateway-relative /evidence URL to the web BFF route the
+// browser can fetch (carries the session → tenant key).
+export function evidenceSrc(url?: string): string | null {
+  return url ? url.replace(/^\/evidence/, "/api/evidence") : null;
+}
 
 // A compact extracted-data table for the preview — header row + data rows, the
 // cited (latest) row highlighted. Shows the *real* figures the answer used.

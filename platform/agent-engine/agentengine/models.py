@@ -61,6 +61,10 @@ class Citation(BaseModel):
     # the specific figures this citation actually contributed — rendered as an
     # extracted-data table in the preview (header row first, cited row marked).
     table: list[list[str]] | None = None
+    # PH-PROV2: a datasets `/evidence?…` endpoint URL — the frontend fetches a highlighted
+    # screenshot of the exact filing line this figure came from, lazily on viewer-open.
+    # Just the link (deterministic, no render) so the answer stream is never blocked.
+    evidence_image_url: str | None = None
     # evidence flag: True iff this source actually backed the answer (cited [n] or
     # backs an artifact). The Live Context shows only evidence; consulted-but-unused
     # sources stay in the answer's 도구·출처 list.

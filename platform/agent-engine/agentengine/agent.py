@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from urllib.parse import urlencode
+
 from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
@@ -51,6 +53,30 @@ def _filing_link(market, accession, cik=None) -> str | None:
     if m == "US":
         return _sec_index_url(cik, accession)
     return None
+
+
+def _evidence_url(data, accn, cik, market) -> str | None:
+    """PH-PROV2: the datasets `/evidence?…` URL for a US filing-backed result's headline
+    figure (an as-reported line item, which carries an explicit us-gaap concept). The
+    frontend fetches the highlighted screenshot lazily — we only attach the link here, so
+    the answer stream is never blocked on a render. None when there's nothing to point at."""
+    if (market or "").upper() != "US" or not accn or not isinstance(data, dict):
+        return None
+    periods = data.get("periods")  # as-reported shape: [{report_period, line_items:[{concept,value}]}]
+    if not isinstance(periods, list) or not periods:
+        return None
+    p = periods[0] if isinstance(periods[0], dict) else {}
+    items = [it for it in (p.get("line_items") or []) if isinstance(it, dict)]
+    if not items:
+        return None
+    pick = next((it for it in items if "Revenue" in (it.get("concept") or "")), items[0])
+    if pick.get("value") is None or not pick.get("concept"):
+        return None
+    q = {"market": "US", "accession": accn, "concept": pick["concept"],
+         "report_period": p.get("report_period"), "value": pick["value"]}
+    if cik:
+        q["cik"] = cik
+    return "/evidence?" + urlencode(q)
 
 
 def _market_hint(tool: dict, data) -> str | None:
@@ -300,7 +326,8 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
         url = _filing_link(market, accn, cik)
     snippet, table = _evidence(tool, data)              # the real figures + extracted table
     return [Citation(tool=tool["name"], source=src, url=url, kind=ctype, as_of=as_of,
-                     freshness=compute_freshness(as_of), snippet=snippet, table=table, page=accn)]
+                     freshness=compute_freshness(as_of), snippet=snippet, table=table, page=accn,
+                     evidence_image_url=_evidence_url(data, accn, cik, market))]
 
 
 def _num(v) -> float | None:

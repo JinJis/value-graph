@@ -141,6 +141,27 @@ def test_citations_prices_and_generic_show_real_values():
     assert c2.table is not None and c2.url == "https://x"
 
 
+def test_evidence_url_attached_for_us_as_reported_filing():
+    # an as-reported (US) result → the citation carries an /evidence URL for the headline
+    # figure (PH-PROV2); the frontend fetches the highlighted screenshot lazily.
+    tool = {"name": "sec_edgar__as_reported", "source": "SEC EDGAR", "connector": "sec_edgar"}
+    data = {"ticker": "AAPL", "periods": [{"report_period": "2024-09-28", "line_items": [
+        {"concept": "Revenues", "value": 391035000000.0, "accession_number": "0000320193-24-000123", "cik": "320193"},
+        {"concept": "Assets", "value": 352755000000.0, "accession_number": "0000320193-24-000123", "cik": "320193"}]}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.evidence_image_url is not None
+    assert "/evidence?" in c.evidence_image_url
+    assert "concept=Revenues" in c.evidence_image_url and "accession=0000320193-24-000123" in c.evidence_image_url
+    assert "report_period=2024-09-28" in c.evidence_image_url
+
+
+def test_evidence_url_none_for_non_filing_or_non_us():
+    # prices (no filing) → no evidence URL
+    c = A._citations({"name": "yahoo__prices", "source": "Yahoo Finance", "connector": "yahoo"},
+                     {"data": {"ticker": "AAPL", "prices": [{"time": "2026-06-13", "close": 1.0}]}})[0]
+    assert c.evidence_image_url is None
+
+
 def test_rag_citation_builds_canonical_link_from_accession():
     # a RAG chunk with no url but a KR accession → DART viewer link (not linkless)
     tool = {"name": "rag__search", "connector": "rag", "source": "RAG"}

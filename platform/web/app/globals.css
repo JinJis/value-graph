@@ -396,7 +396,13 @@ select.input { appearance: none; }
 .sv-meta { font-size: 10px; color: var(--muted); flex: none; }
 .sv-x { margin-left: auto; background: none; border: none; color: var(--faint); font-size: 15px; cursor: pointer; flex: none; }
 .sv-body { flex: 1; display: flex; min-height: 0; }
-.sv-stage { flex: 1; min-width: 0; background: #E9E9EC; padding: 24px 30px; overflow-y: auto; display: flex; justify-content: center; }
+.sv-stage { flex: 1; min-width: 0; background: #E9E9EC; padding: 24px 30px; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; gap: 16px; }
+/* PH-PROV2: the highlighted source screenshot — the real filing, not a mock */
+.sv-evidence { margin: 0; width: 100%; max-width: 720px; }
+.sv-evidence-img { width: 100%; display: block; border: 1px solid var(--line-2); border-radius: 6px;
+  background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.12); }
+.sv-evidence-cap { margin-top: 8px; font-size: 10px; color: var(--muted); text-align: center; }
 .sv-page { width: 100%; max-width: 560px; background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.1); border-radius: 3px; padding: 30px 36px; height: max-content; }
 .sv-page-hd { font-size: 9px; color: #B0B0B6; letter-spacing: .05em; border-bottom: 1px solid var(--line-3); padding-bottom: 10px; margin-bottom: 16px; }
 .sv-page-h { font-size: 13px; font-weight: 700; color: var(--ink); margin: 0 0 12px; }
