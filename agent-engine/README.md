@@ -20,7 +20,7 @@ caller ─▶ /agent/run (tenant key) ─▶ guardrail ─▶ plan → call tool
 
 ## Run
 ```bash
-cd platform/agent-engine
+cd agent-engine
 uv sync --extra dev
 uv run uvicorn agentengine.main:app --reload --port 8003   # AGENT_GATEWAY_URL=http://127.0.0.1:8010
 uv run pytest -q

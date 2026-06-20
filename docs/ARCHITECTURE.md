@@ -21,7 +21,7 @@ mapping — becomes a *user-cloneable agent template*, not a hardwired product.
 
 **Reframe:** the legacy ValueGraph engine (`/services`, `/apps`, CVE, Deep-Research data acquisition) is
 **excluded as a dependency**. We mine it for only two generic ideas (a Gemini router, the provenance
-schema) and otherwise start fresh from `platform/datasets/`.
+schema) and otherwise start fresh from `datasets/`.
 
 ---
 
@@ -139,7 +139,7 @@ and what the agent engine resolves tools from — so REST, MCP, and the agent al
 
 ## 4. Components (current state)
 
-### 4.1 Data plane — `platform/datasets/`  ✅
+### 4.1 Data plane — `datasets/`  ✅
 A financial datasets API covering the US and Korean markets. Market chosen with `market=US|KR`.
 
 - **Connectors (provider adapters + registry):** SEC EDGAR (US fundamentals/filings/earnings/insider/13F),
@@ -160,7 +160,7 @@ A financial datasets API covering the US and Korean markets. Market chosen with 
 - **Unbuilt endpoints** are grouped under a `🚧 Not Implemented (501)` tag in `/docs`.
 - **62 tests.**
 
-### 4.2 Control plane — `platform/control-plane/`  ✅ (P1)
+### 4.2 Control plane — `control-plane/`  ✅ (P1)
 A gateway in front of the data plane. Package `controlplane` (talks to data plane over HTTP).
 
 - **Store:** `Tenant → Project → ApiKey` (sha256-hashed, prefix lookup) + `Activation` (per-connector
@@ -172,7 +172,7 @@ A gateway in front of the data plane. Package `controlplane` (talks to data plan
 - **Admin (X-Admin-Token):** create tenant/project/key, activate connectors, usage + audit summaries.
 - **6 tests.** Verified live: activate `yahoo` → `/prices` 200; unactivated → 403; usage metered.
 
-### 4.3 MCP server — `platform/mcp/`  ✅ (P2)
+### 4.3 MCP server — `mcp/`  ✅ (P2)
 Exposes connectors to agents as MCP tools (official `mcp` SDK, stdio). Package `mcpserver`.
 
 - **Tool generation:** one tool per catalog resource (`{connector}__{resource}`), input schema from
@@ -182,7 +182,7 @@ Exposes connectors to agents as MCP tools (official `mcp` SDK, stdio). Package `
 - **Config:** per tenant in the MCP client (`MCP_GATEWAY_URL`, `MCP_API_KEY`).
 - **4 tests.** Verified live: 28 tools; `yahoo__prices` (activated) → real data; `sec_edgar__*` → 403.
 
-### 4.4 RAG service — `platform/rag/`  ✅ (P3)
+### 4.4 RAG service — `rag/`  ✅ (P3)
 Provenance-first retrieval: **chunk → embed → vector store → retrieve → (optional) rerank**. Package `rag`.
 
 - **Every chunk carries provenance** (source/doc_type/ticker/market/as_of/url/section/accession) → hits
@@ -204,7 +204,7 @@ Provenance-first retrieval: **chunk → embed → vector store → retrieve → 
 - **9 tests** on the dependency-free default. Verified live: real `oss-cpu` fastembed semantic search,
   and `/rag/search` through the gateway + MCP in the e2e run.
 
-### 4.6 Agent Engine — `platform/agent-engine/`  ✅ (P4)
+### 4.6 Agent Engine — `agent-engine/`  ✅ (P4)
 Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
 
 - **Loop:** guardrail → plan → call tool (through the gateway with the tenant key) → observe → finalize.
@@ -220,7 +220,7 @@ Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
 - **Endpoints:** `POST /agent/run` (X-API-KEY), `POST /agent/compile`, `GET /agent/info`.
 - **7 tests.** Verified live (e2e): refuses advice; uses `yahoo__prices` via the gateway; cites Yahoo Finance.
 
-### 4.7 Product layer — `platform/studio-api/` + `platform/web/`  ✅ (F0)
+### 4.7 Product layer — `studio-api/` + `web/`  ✅ (F0)
 A Claude-style chat product over the platform.
 - **`agent-engine`** gained `POST /agent/chat` (SSE): multi-turn, streams `token`/`tool`/`tool_result`/
   `citation`/`done`. Planner-agnostic (stub + gemini); tool calls still go through the metered gateway.
@@ -265,7 +265,7 @@ Reusable prompts: a personal collection + a seeded community catalog.
   `source_id` appears in the personal library.
 
 ### 4.5 Keystone — the Connector Manifest
-A machine-readable descriptor per connector (`platform/datasets/app/connectors/`). One artifact drives:
+A machine-readable descriptor per connector (`datasets/app/connectors/`). One artifact drives:
 REST docs · **MCP tool generation** · RAG source registration · entitlements (activation) · metering
 (cost tier) · governance (license policy). An integrity test asserts every manifest path is a real route.
 
@@ -284,10 +284,10 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
 
 ## 6. Deployment
 
-- **One command:** `cd platform && docker compose up --build` → data plane (`:8000`) + control-plane
-  gateway (`:8010`), both reading **one shared `platform/.env`** (compose `env_file`).
-- **Single env:** every service reads `env_file=("../.env", ".env")` — shared `platform/.env` first,
-  optional per-service override. `platform/.env` is gitignored; `.env.example` is the template.
+- **One command:** `docker compose up --build` → data plane (`:8000`) + control-plane
+  gateway (`:8010`), both reading **one shared `.env`** (compose `env_file`).
+- **Single env:** every service reads `env_file=("../.env", ".env")` — shared `.env` first,
+  optional per-service override. `.env` is gitignored; `.env.example` is the template.
 - **Stores:** SQLite by default (persistent compose volumes); `DATABASE_URL` → Postgres in prod.
 - MCP runs over stdio (launched by the MCP client, not in compose). RAG runs standalone (`:8002`).
 

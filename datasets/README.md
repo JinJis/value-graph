@@ -13,7 +13,7 @@ GET /prices?ticker=005930&market=KR&interval=day&start_date=2024-01-01&end_date=
 
 US tickers are alphabetic (`AAPL`); KR tickers are the 6-digit issue code (`005930`, `.KS`/`.KQ` accepted).
 
-> **Platform note:** this service is the *data plane* of the new `platform/` workspace. Each data source
+> **Platform note:** this service is the *data plane* of this platform workspace. Each data source
 > is a **connector** that publishes a machine-readable manifest (resources, provenance, freshness, cost,
 > required credential, **license/redistribution policy**). Browse it at `GET /catalog` and
 > `GET /catalog/{id}` — this is the keystone the upcoming control-plane, MCP, RAG, and Agent Engine read.

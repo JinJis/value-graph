@@ -19,7 +19,7 @@ connector the tenant hasn't activated returns the gateway's `403` in the result 
   "mcpServers": {
     "valuegraph-data": {
       "command": "uv",
-      "args": ["run", "--directory", "/abs/path/platform/mcp", "python", "-m", "mcpserver.server"],
+      "args": ["run", "--directory", "/abs/path/mcp", "python", "-m", "mcpserver.server"],
       "env": {
         "MCP_GATEWAY_URL": "http://127.0.0.1:8010",   // the control-plane gateway
         "MCP_API_KEY": "vgk_...."                       // this tenant's key
@@ -34,7 +34,7 @@ The agent then sees only the data behind the tenant's activated connectors, and 
 ## Dev
 
 ```bash
-cd platform/mcp
+cd mcp
 uv sync --extra dev
 uv run pytest -q
 MCP_GATEWAY_URL=http://127.0.0.1:8010 MCP_API_KEY=vgk_... uv run python -m mcpserver.server

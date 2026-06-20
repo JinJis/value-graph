@@ -5,7 +5,7 @@
 #
 #   cd platform && bash scripts/test_all.sh
 #
-# GOOGLE_API_KEY (in platform/.env or env) enables the live-Gemini e2e + the quality
+# GOOGLE_API_KEY (in .env or env) enables the live-Gemini e2e + the quality
 # eval; without it they skip cleanly (not counted as failures). Only `docker` + a
 # POSIX shell are required on the host.
 set -u

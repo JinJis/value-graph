@@ -12,7 +12,7 @@ tenant API key ─▶ control-plane gateway ─▶ (entitlement · rate-limit ·
 ## Run
 
 ```bash
-cd platform/control-plane
+cd control-plane
 uv sync --extra dev
 cp .env.example .env            # set DATASETS_URL to the running data plane, ADMIN_TOKEN, etc.
 uv run uvicorn controlplane.main:app --reload --port 8001

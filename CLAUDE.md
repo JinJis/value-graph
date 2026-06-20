@@ -1,9 +1,8 @@
-# CLAUDE.md — Investment-Agent Data Platform (`platform/`)
+# CLAUDE.md — Investment-Agent Data Platform
 
-> Engineering rules for Claude Code **inside `platform/`**. This is the active product.
-> **The legacy ValueGraph engine (`../services`, `../apps`, CVE, Deep-Research acquisition) is treated as
-> nonexistent here** — not a dependency. The repo-root `../CLAUDE.md` documents that legacy engine; ignore
-> it when working in `platform/`.
+> Engineering rules for Claude Code in this repo. This is the active product.
+> **The legacy ValueGraph engine (`services/`, `apps/`, CVE, Deep-Research acquisition) has been removed**
+> — not a dependency.
 >
 > **Docs map (read before building):**
 > - **What we're building / why it's not a chatbot, screen by screen:** [`docs/UX_SPEC.md`](./docs/UX_SPEC.md)

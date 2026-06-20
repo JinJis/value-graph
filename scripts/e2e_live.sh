@@ -24,9 +24,9 @@ MODEL="${MODEL:-gemini-flash-latest}"
 
 if [ -z "$KEY" ]; then
   cat <<'MSG'
-⏭️  SKIPPED — no GOOGLE_API_KEY found (env or platform/.env).
+⏭️  SKIPPED — no GOOGLE_API_KEY found (env or .env).
    The Gemini live e2e needs a real key. To run it:
-     1) put  GOOGLE_API_KEY=...   in platform/.env   (or export it)
+     1) put  GOOGLE_API_KEY=...   in .env   (or export it)
      2) (optional) AGENT_MODEL=gemini-flash-latest   # any valid Gemini model id
      3) cd platform && bash scripts/e2e_live.sh
    The stub-backed full e2e (no key) is:  bash scripts/e2e.sh

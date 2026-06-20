@@ -272,9 +272,9 @@ def _run_scenario_chat(sc: dict, agent_id: str) -> dict:
 # --- run ------------------------------------------------------------------
 def main() -> int:
     if not GKEY:
-        print("⏭️  EVAL SKIPPED — no GOOGLE_API_KEY / GEMINI_API_KEY (env or platform/.env).")
+        print("⏭️  EVAL SKIPPED — no GOOGLE_API_KEY / GEMINI_API_KEY (env or .env).")
         print("   The eval builds Gemini-backed agents and grades real natural-language answers, so it")
-        print("   needs a key. Set GOOGLE_API_KEY (or GEMINI_API_KEY) in platform/.env, then re-run.")
+        print("   needs a key. Set GOOGLE_API_KEY (or GEMINI_API_KEY) in .env, then re-run.")
         return 2
 
     # optional `--only=<substr>` to run a subset by name (cheap iteration; default = all)

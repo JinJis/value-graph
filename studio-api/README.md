@@ -19,7 +19,7 @@ web BFF (X-Service-Token + X-User-Email) ─▶ studio-api ─▶ control-plane 
 
 ## Run
 ```bash
-cd platform/studio-api
+cd studio-api
 uv sync --extra dev
 uv run uvicorn studioapi.main:app --reload --port 8004
 uv run pytest -q

@@ -1,5 +1,5 @@
 # Whole platform, one command:  docker compose up --build
-# Reads a single shared ./platform/.env (copy from .env.example) for every service.
+# Reads a single shared ./.env (copy from .env.example) for every service.
 name: valuegraph-platform
 
 services:

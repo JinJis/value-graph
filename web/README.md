@@ -14,7 +14,7 @@ which holds the tenant key server-side.
 ## Run (local)
 
 ```bash
-cd platform/web
+cd web
 cp .env.example .env.local      # set STUDIO_API_URL + SERVICE_TOKEN; AUTH_DEV_LOGIN=true for no-Google login
 npm install
 npm run dev                     # http://localhost:3000  (studio-api must be up on :8004)

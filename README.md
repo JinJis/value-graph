@@ -28,7 +28,7 @@ builders develop against a defined interface or via natural language.
 ## Layout
 
 ```
-platform/
+.                  # repo root
   datasets/        # ✅ DATA PLANE — US+KR financial data API (the foundation; built & tested)
                    #    connectors (SEC/DART/Yahoo/FRED/ECOS/news) · point-in-time ingestion store
                    #    · bulk/deep backfill · scheduler · self-test · catalog manifests (P0)
@@ -67,10 +67,9 @@ flagship. Full task tracker in [`docs/ROADMAP.md`](./docs/ROADMAP.md).
 
 ## Run the whole stack (Docker — recommended)
 
-A single `docker compose` brings up **all six services** from one shared `platform/.env`:
+A single `docker compose` brings up **all six services** from one shared `.env`:
 
 ```bash
-cd platform
 cp .env.example .env          # free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true; GOOGLE_API_KEY for Gemini
 docker compose up --build     # datasets :8000 · gateway :8010 · rag :8002 · agent :8003 · studio :8004 · web :3000
 docker compose ps             # health of each service
@@ -103,7 +102,6 @@ Without Docker you can still run any service with `uv run uvicorn <pkg>.main:app
 the `uv` image, the web build is a docker build, and the e2e + eval drive `docker compose`:
 
 ```bash
-cd platform
 bash scripts/test_all.sh          # GOOGLE_API_KEY in .env enables the live e2e + eval; else they skip cleanly
 ```
 
@@ -139,7 +137,6 @@ docker run --rm -v "$PWD/datasets:/app" -w /app ghcr.io/astral-sh/uv:python3.11-
 ## The product (chat UI)
 
 ```bash
-cd platform
 cp .env.example .env                       # AUTH_DEV_LOGIN=true for local login without Google
 docker compose up --build                  # whole stack incl. web on :3000
 # open http://localhost:3000 — ask "삼성전자 최근 실적"; the agent answers with sources.

@@ -22,7 +22,7 @@ Reranker (`RAG_RERANKER_BACKEND`): `none` · `oss-cpu`/`oss-gpu` (BGE-reranker-v
 ## Run
 
 ```bash
-cd platform/rag
+cd rag
 uv sync --extra dev                 # base (hash + memory) — runs anywhere
 # pick a real backend:
 #   uv sync --extra oss   && export RAG_EMBEDDING_BACKEND=oss-cpu
