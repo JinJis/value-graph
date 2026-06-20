@@ -190,10 +190,23 @@ def mark_target(markup: str, value: float, labels: list[str], element_id: str) -
     return lxml_html.tostring(root, encoding="unicode")
 
 
+def _decode_doc(raw: bytes) -> str:
+    """Decode DART document bytes (EUC-KR/CP949 historically; UTF-8 newer)."""
+    for enc in ("utf-8", "euc-kr", "cp949"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 async def fetch_document_markup(rcept_no: str) -> str | None:
     """Download the DART disclosure document (``document.xml`` API → ZIP of markup) for a
-    receipt number and return the largest contained document decoded to text. None on any
-    failure (no key, network, bad zip) — evidence then degrades to the text source card."""
+    receipt number and return its combined markup. A 사업보고서 ZIP bundles the main body
+    **plus separate files** (e.g. the audited financial statements / 감사보고서) — the exact
+    figure we hold often lives in one of those, not the largest file — so we concatenate
+    every document file into one tree. None on any failure (no key, network, bad zip) →
+    evidence then degrades to the text source card."""
     if not settings.opendart_api_key or not rcept_no:
         return None
     url = f"https://opendart.fss.or.kr/api/document.xml?crtfc_key={settings.opendart_api_key}&rcept_no={rcept_no}"
@@ -202,17 +215,23 @@ async def fetch_document_markup(rcept_no: str) -> str | None:
     except Exception:  # noqa: BLE001 — upstream/network → graceful (None)
         return None
     try:
-        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-            names = [n for n in zf.namelist() if n.lower().endswith((".xml", ".html", ".htm"))]
-            if not names:
-                return None
-            name = max(names, key=lambda n: zf.getinfo(n).file_size)
-            raw = zf.read(name)
-    except (zipfile.BadZipFile, KeyError, OSError):
+        zf = zipfile.ZipFile(io.BytesIO(blob))
+    except (zipfile.BadZipFile, OSError):
         return None
-    for enc in ("utf-8", "euc-kr", "cp949"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace")
+    parts: list[str] = []
+    with zf:
+        for name in zf.namelist():
+            if not name.lower().endswith((".xml", ".html", ".htm")):
+                continue
+            try:
+                text = _decode_doc(zf.read(name))
+            except (KeyError, OSError):
+                continue
+            text = _XML_DECL.sub("", text.lstrip())  # drop a leading <?xml …?> so it nests cleanly
+            if text.strip():
+                parts.append(text)
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    return "<html><body>" + "\n".join(parts) + "</body></html>"
