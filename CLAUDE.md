@@ -1,198 +1,137 @@
-# CLAUDE.md — ValueGraph
+# CLAUDE.md — Investment-Agent Data Platform (`platform/`)
 
-> Guidance for Claude Code in this repo.
-> **Spec (what/why):** `ValueGraph_PRD_v5.md` · **Tasks (how/when):** `ValueGraph_BUILD_PLAN.md` · this file = engineering rules (how).
-> **Always pull your next task from `ValueGraph_BUILD_PLAN.md`.** Build one milestone at a time, one task per PR, and don't mark a task done until every acceptance criterion passes. Reference the task tag (e.g. `[M3-REC-04]`) in the branch, commits, and PR title.
-
----
-
-## 1. What we're building
-
-**ValueGraph** = a **B2C, visualization-first supply-chain intelligence tool**. Given an industry (e.g. "AI Data Centers") it maps listed companies as **nodes** (size = live market cap) and **supplier→customer trades** as **edges**, in a WebGL 3D canvas. Differentiators:
-1. A **Gemini-grade Cross-Verification Engine (CVE/VSCA)** quantifying each supplier→customer relationship from public disclosures, reconciling conflicting signals.
-2. **Radical honesty about uncertainty** — every figure shows source, as-of date, freshness, **next-update**, confidence tier (+ interval); **gaps are drawn, not hidden.**
-3. **Staying current** — a per-company **Disclosure Calendar** drives scheduled CVE re-runs; a **Live Context Feed** (news/interviews/filings) gives context and triggers refreshes.
-
-Name = ValueGraph (placeholder, to be revisited): the value chain rendered as a navigable graph.
-
-### ⚠️ Scope (read before building anything)
-- **IN (v1):** supply value chain only (supplier→customer trades, the product, trade size, both-sided exposure %), confidence/freshness/provenance, **admin-driven** ticket filling, Disclosure Calendar, Live Context Feed.
-- **OUT (v1):** ❌ **prediction / forecasting / momentum of any kind** — do NOT build Predict, ghost-node-as-forecast, "expected upside," scored feeds, etc. ❌ trade execution. ❌ `REVENUE_FLOW`/`INVESTS_IN`/`COMPETES_WITH` edges (schema-reserved). ⏭️ **community contribution = Phase 2** (keep the seam clean; don't build it in v1).
-- **"Real-time" ≠ prediction.** Live price/market cap IS in scope. The Live Context Feed shows raw items only — no scoring/forecasting.
-
-### Models: Gemini only
-All LLM calls go through the central router (`services/engine/llm/router.py`); IDs from env. **No other provider.**
-| Tier | Job | Model (env-overridable) |
-|---|---|---|
-| `DEEP` | blueprint analysis, hidden-vendor inference, VSCA-est, Pro re-check of extractions | `gemini-3.1-pro-preview` |
-| `MEDIUM` | precise claim extraction from filings (PDF/img), cost-bucket typing | `gemini-3.5-flash` |
-| `LOW` | source normalization, entity-resolution hints, JSON formatting, feed tagging | `gemini-3.1-flash-lite` |
-| `RESEARCH` | broad worldwide constituent discovery | Gemini Deep Research Agent (preview) |
-
-### Two-Track architecture (memorize)
-```
-Studio (Admin) → STAGING DB --[explicit Publish]--> PRODUCTION DB → Terminal (User)
-  build · run CVE · process tickets   (mutable)            (read-only)        3D canvas
-```
-**Hard invariants — never violate:**
-1. Terminal reads **Production only**. Never expose Staging / raw agent intermediates as fact.
-2. **Publish is an explicit human action.** No auto-publish.
-3. Every exposed figure carries `source_id` + `as_of_date` + `next_expected_update` + `confidence` (+ interval). Missing any → fails the validation gate.
-4. **No number enters the graph without a `Source`.**
-5. **Reconcile, don't overwrite; detect conflicts, don't silently average.**
-6. LLM/API keys server-side only.
-7. `confidence` (verified/derived/estimated) + interval + `freshness` preserved end-to-end and shown in the UI.
+> Engineering rules for Claude Code **inside `platform/`**. This is the active product.
+> **The legacy ValueGraph engine (`../services`, `../apps`, CVE, Deep-Research acquisition) is treated as
+> nonexistent here** — not a dependency. The repo-root `../CLAUDE.md` documents that legacy engine; ignore
+> it when working in `platform/`.
+>
+> **Docs map (read before building):**
+> - **What we're building / why it's not a chatbot, screen by screen:** [`docs/UX_SPEC.md`](./docs/UX_SPEC.md)
+> - **The plan — one prioritised, dependency-ordered task list + test totals (source of truth):**
+>   [`docs/ROADMAP.md`](./docs/ROADMAP.md) ← *pull your next task here*
+> - **How the services fit together (current state):** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+>
+> **Always pull your next task from `docs/ROADMAP.md`** (it merges the old technical + UX roadmaps into one
+> phased plan: PH hardening first, then U2–U5 UX). One task at a time, **one task per PR**; tag the
+> task id in branch/commits/PR (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Don't mark done until every acceptance
+> criterion + the Definition of Done (§7) passes.
 
 ---
 
-## 2. Repo layout (monorepo)
-```
-/apps
-  /studio          # Admin back-office (Next.js)
-  /terminal        # User front-end (Next.js + R3F) — 3D canvas
-/services
-  /engine          # FastAPI + LangGraph — Gemini routing + CVE + graph store + publish
-    /cve           #   S0–S7: ingest→extract→resolve→derive→reconcile→score→gap
-    /blueprint     #   theme analysis + iterative refinement + discovery
-    /tickets       #   generation + state machine + unresolved-state persistence
-    /calendar      #   per-company disclosure calendar
-    /publish       #   assemble + validation gate + publish
-  /pipeline        # feed ingestion, triggers, scheduler
-/packages
-  /graph-schema    # node/edge/claim type defs (single source of truth)
-  /ui              # shared tokens / components (incl. confidence/freshness legend)
-/infra             # docker-compose, db init, migrations
-CLAUDE.md
-ValueGraph_PRD_v5.md
-ValueGraph_BUILD_PLAN.md
-```
-> If the layout drifts, update this section in the same PR.
+## 1. The product in one paragraph
 
----
+A **personal research desk**: the user staffs **standing analysts** (agents) on their own **watchlists**
+of companies. Every analyst works **only from licensed, point-in-time, fully-cited data**, renders
+figures as **live, sourced artifacts**, and **pushes what changed before being asked** (schedule +
+disclosure calendar). It is *not* a chatbot — the differentiators are **trust by construction**,
+**pull→push**, and a **clone-from-others ecosystem**. See `docs/UX_SPEC.md` §1.
 
-## 3. Tech stack
-| Layer | Choice | Notes |
-|---|---|---|
-| Graph DB | **Neo4j** | depth traversal + provenance (Cypher) |
-| Vector DB | **Pinecone** (or pgvector) | entity resolution + claim dedup |
-| RDBMS | **PostgreSQL** | users, tickets, jobs, billing, disclosure calendar |
-| Cache/Queue | **Redis** | job queue, live-feed cache, rate limiting |
-| Backend | **Python 3.11+, FastAPI, LangGraph** | CVE orchestration + Gemini routing |
-| LLM | **Google Gemini only** | single provider |
-| Frontend | **Next.js, React Three Fiber (Three.js)** | WebGL 60fps |
-| Client state | **Zustand + TanStack Query** | canvas + server sync |
+## 2. Architecture invariants — never violate
 
----
+These hold across every service; breaking one fails review.
 
-## 4. Cross-Verification Engine (CVE / VSCA) — get this right (PRD §6, BUILD_PLAN M3)
-**One trade, two ledgers.** Trade A→C is the same dollar amount two ways:
-- supplier view: `trade_value = supplier_rev_share × Revenue_A`
-- customer view: `trade_value = customer_cost_share × CostBucket_C`
+1. **No number without a source.** Every datum/chunk/artifact/brief carries `source` + `as_of` +
+   `freshness` (+ `confidence`/interval where derivable). Unsourced → it doesn't ship to the user.
+2. **The gateway is the only path to data.** Agents, MCP, and external callers reach `datasets`/`rag`
+   **only through the control-plane gateway**, which enforces auth → entitlement → rate-limit →
+   meter/audit. Never call the data plane directly from a product service.
+3. **Entitlement = activation.** A project may use a connector iff it activated it. Don't bypass.
+4. **Keys stay server-side.** Platform upstream keys and the tenant key live server-side (studio-api
+   holds the tenant key; the browser only has an Auth.js session). Never client-side.
+5. **No forecasting / no advice.** Forecasts, price targets, momentum, scored feeds, buy/sell advice are
+   **refused at the agent boundary** — and the refusal/label is **shown** in the UI (it's the trust
+   brand, not fine print). The Live Context Feed shows raw items only.
+6. **Honesty over fake data.** Unbuilt endpoints return `501`; gaps are **drawn**, never fabricated or
+   silently averaged. Reconcile/flag conflicts; don't overwrite.
+7. **Gemini only, one router, one tenancy model.** All LLM calls go through the single router; no other
+   provider; don't fork auth/tenancy across services.
+8. **Two surfaces over one core stay consistent:** the **connector manifest/catalog**
+   (`datasets/app/connectors/`) is the single source REST docs, MCP tools, RAG registration, entitlement,
+   metering, and the agent's tool list all derive from. Touch the manifest, not forked copies.
+9. **Deterministic *data*, not deterministic *logic*.** "Deterministic" describes the **data plane** —
+   connectors are API-based, so figures are reproducible and **always accurately sourced**. It is **not**
+   license to hardcode reasoning. **Answer quality, routing, and orchestration come from Gemini and
+   multi-agent flows — never hand-rolled keyword/heuristic rules.** The `stub` planner's keyword routing
+   exists only as a dev/CI fallback. When a task needs judgment (difficulty, extraction, synthesis,
+   review), reach for an LLM/agent, not an `if`-ladder.
 
-One disclosure yields `trade_value`; both let you cross-check. Worked shape: INTC discloses 21% of revenue from HPQ → `trade_value = 0.21 × Rev_INTC` → `≈ 9.5%` of HPQ COGS.
+## 3. Services (ports = host:container; one `docker compose`, one shared `.env`)
 
-**Three constraints to implement:** (1) 10% disclosure ⇒ undisclosed customer < 10% (hard upper bound); (2) conservation (Σ shares per node ≤ 100% + undisclosed remainder); (3) cost-bucket typing (COGS/CAPEX/R&D/SG&A).
+| Service | Host port | Package | Role |
+|---|---|---|---|
+| `datasets` | 8000 | `app` | data plane: US+KR connectors + ingestion store + `/catalog` |
+| `control-plane` | 8010→8001 | `controlplane` | the **gateway** + tenants/keys/activations admin |
+| `rag` | 8002 | `rag` | provenance-first chunk→embed→retrieve→rerank |
+| `agent-engine` | 8003 | `agentengine` | guardrail→plan(stub\|gemini)→tool loop→citations; `/agent/chat` SSE |
+| `studio-api` | 8004 | `studioapi` | Google user→tenant provisioning; conversations; **holds tenant key**; agents/prompts/(watchlists/briefs) |
+| `web` | 3000 | Next.js | chat UI + builder + prompt library; `/api/*` BFF (Auth.js session only) |
+| `admin` | 8005 | — | out-of-band CRUD/ops console over service DBs (not in the request path) |
+| `mcp` | stdio | `mcpserver` | one tool per catalog resource, routed through the gateway |
 
-**Pipeline S0–S7:** ingest → extract claims (with **verbatim span**) → resolve entities → derive complementary side → **reconcile** (cluster, propagate constraints, **flag conflicts not average**, output point + interval) → estimate gaps (VSCA-est, always `estimated` + wide interval + auto-ticket) → score (tier + interval + freshness + next-update) → gap-detect → tickets.
+Request flow (one chat turn): browser → web BFF (session) → studio-api (tenant key) → agent-engine →
+**gateway** (entitle+meter) → datasets/rag → upstreams. Full diagram in `docs/ARCHITECTURE.md` §2.
 
-**Confidence tiers:** `verified` (primary disclosure corroborated by ≥2 independent sources, or exact math from a primary filing) · `derived` (single disclosure + math) · `estimated` (algorithmic only). **Always ship an interval, never a bare point.** "Dual-verification" = Pro re-checks Flash extraction + multi-source corroboration (not two providers).
+## 4. Where things live (don't fork)
+- **Connector + its manifest:** `datasets/app/connectors/` and `datasets/app/routers/`. New data → new
+  connector + manifest entry (an integrity test asserts every manifest path is a real route).
+- **Tenancy/entitlement/metering:** `control-plane/` (`controlplane`). Gateway is the enforcement point.
+- **Agent loop / planner / guardrails:** `agent-engine/` (`agentengine`). Planner via `AGENT_LLM_BACKEND`.
+- **Product data model** (users, conversations, agents, prompts, and the new **watchlists / standing
+  analysts / briefs / pinned artifacts**): `studio-api/studioapi/models.py`. Extend here; mirror the
+  existing **prompt-import pattern** (`community` + `source_id` + idempotent clone) for analyst cloning.
+- **UI:** `web/` — chat, builder modal, prompt modal, BFF routes under `web/app/api/`. Read
+  `/mnt/skills/public/frontend-design/SKILL.md` before UI work; **never render the graph with DOM nodes**
+  (WebGL/R3F + instanced meshes); **no `localStorage`/`sessionStorage`** in preview/artifact contexts.
 
-**Freshness (keep layers separate):** real-time (`price`/`market_cap` → node size) vs periodic (relationships → only as fresh as last filing). `freshness` ∈ {`fresh` <30d, `aging`, `stale` past next-expected-filing, `gap`}. Always show it.
-
-**Disclosure Calendar:** per-company filing schedule → drives `next_expected_update` and scheduled CVE re-runs.
-
----
-
-## 5. Frontend conventions (Terminal — viz IS the product)
-- **60fps with hundreds of nodes + particle flows.** **Never render graph nodes as DOM** — WebGL via R3F, **instanced meshes**, particle pools; toggle *visibility* on depth/filter change, don't re-mount. LOD + frustum culling beyond ~1k nodes. Node size = live market cap (lerp, don't snap).
-- **Encode data quality visually (signature feature):** edge style solid/dashed/ghost = confidence; freshness dot green/amber/red (`stale` → "update expected" badge); **gaps drawn as ghost "?" edges** (never omitted); always show a legend.
-- **Per-figure provenance card:** value + interval, confidence chip, "as of … · N days old · next: …", source link. (Reserve an "Improve this" hook, disabled in v1 → Phase 2.)
-- **Right panel = Live Context Feed:** raw news/interviews/filings, entity-linked, node-select filters it. **No score, no momentum, no forecast.**
-- Real-time (price/mktcap) vs periodic (relationships) visually distinct in the drawer.
-- **No `localStorage`/`sessionStorage`** in artifact-style previews; in-memory state only.
-- Read `/mnt/skills/public/frontend-design/SKILL.md` before UI work.
-
----
-
-## 6. Data & compliance guardrails
-- **"Not investment advice"** disclaimer stays. We are not lawyers — flag scraping/redistribution, market-data licensing, and (Phase-2) community-liability questions to a professional; don't invent legal conclusions.
-- **Don't redistribute filing/report full text** — store extracted numbers + source link, minimal quoting. Respect source ToS/robots.
-- Live price/market cap needs a **licensed feed**; default to delayed until confirmed.
-- Billing/PII isolated in Postgres; payments via a PG provider.
-
----
-
-## 7. Commands
-> Keep current as the repo materializes.
+## 5. Commands
 ```bash
-pnpm install                        # JS workspaces
-uv sync                             # or: pip install -e services/engine
+cd platform
+cp .env.example .env                 # free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true; GOOGLE_API_KEY for Gemini
+docker compose up --build            # datasets:8000 gateway:8010 rag:8002 agent:8003 studio:8004 web:3000 admin:8005
+docker compose up -d --build web     # rebuild one service after a change
+docker compose logs -f studio-api    # follow a service
+docker compose down                  # stop (-v also wipes SQLite/volumes)
 
-pnpm --filter terminal dev
-pnpm --filter studio dev
-uvicorn services.engine.main:app --reload
-
-docker compose -f infra/docker-compose.yml up -d   # neo4j, postgres, redis
-
-pnpm lint && pnpm typecheck
-ruff check services && mypy services
-pnpm test ; pytest services
+# Tests — only Docker required (no host uv/npm). See README "Run the tests".
+bash scripts/test_all.sh             # everything; live e2e+eval need GOOGLE_API_KEY (else skip cleanly)
+bash scripts/coverage.sh             # EVERY catalog tool through the gateway
+bash scripts/e2e.sh                  # stub planner, whole product chain, deterministic
+bash scripts/e2e_functional.sh       # real upstream data + MCP + semantic RAG (oss-cpu)
+GOOGLE_API_KEY=... bash scripts/e2e_live.sh   # real Gemini, grounded+cited
+python3 eval/run_eval.py             # quality eval (stack up first; skips without GOOGLE_API_KEY)
 ```
+**Definition of Done for a task:** its acceptance criteria pass · unit tests added/updated for the
+service(s) touched · the relevant e2e/coverage harness still green · **the quality eval
+(`python3 eval/run_eval.py`, deep-model rubric — see `eval/RUBRIC.md`) run before push and still above the
+bar; if the task adds a tool / endpoint / feature, add an eval scenario (with `criteria`) for it** ·
+`docs/ROADMAP.md` test totals + the task status updated in the same PR.
 
----
-
-## 8. Environment variables (Gemini only)
-Never commit secrets. Document new keys here.
+## 6. Environment (Gemini only; never commit secrets — document new keys in `.env.example`)
 ```
-GOOGLE_API_KEY=
-NEO4J_URI= / NEO4J_USER= / NEO4J_PASSWORD=
-DATABASE_URL=            # Postgres
-REDIS_URL=
-PINECONE_API_KEY=
-MARKET_DATA_API_KEY=     # licensed price/market-cap feed
-# model ids (overridable)
-MODEL_DEEP=gemini-3.1-pro-preview
-MODEL_MEDIUM=gemini-3.5-flash
-MODEL_LOW=gemini-3.1-flash-lite
-MODEL_RESEARCH=deep-research-preview-04-2026   # Deep Research agent (Interactions API)
-DEEP_RESEARCH_TIMEOUT_SECONDS=3600             # Deep Research request timeout (separate from
-                                               # GEMINI_TIMEOUT_SECONDS, which is fast calls only)
-DEEP_RESEARCH_RETRIEVE_SECONDS=300             # how long to poll the stored interaction for the
-                                               # final report after the progress stream closes
+GOOGLE_API_KEY=                      # (or GEMINI_API_KEY) — enables the gemini planner + live tests
+AGENT_LLM_BACKEND=stub|gemini        # default stub (deterministic, no key)
+AUTH_DEV_LOGIN=true                  # local login without Google
+DATABASE_URL=                        # SQLite by default; Postgres in prod
+OPENDART_API_KEY= / ECOS_API_KEY= / FRED_API_KEY=    # free KR/US data keys
+RAG_EMBEDDING_BACKEND=hash|oss-cpu|oss-gpu|tei|gcp
+RAG_RERANKER_BACKEND=none|oss-cpu|oss-gpu|tei|gcp
+RAG_VECTOR_STORE=memory|pgvector
+X-Admin-Token (dev: dev-admin-token) # control-plane admin
 ```
+Model IDs are env-overridable and Gemini-only; verify exact IDs/SDK details against current Google docs,
+not memory.
 
----
-
-## 9. Working style for Claude Code
-- **Pull the next task from `ValueGraph_BUILD_PLAN.md`; read the referenced PRD sections.** Match terminology exactly (Studio/Terminal, Staging/Production, CVE/VSCA, Claim, ticket, blueprint, confidence/freshness, Disclosure Calendar, Live Context Feed).
-- One task per PR; satisfy every acceptance criterion + the global Definition of Done before "done."
-- Respect the suggested PR sequence / critical path (M0→M1→M2→M3→M4; M5/M6 after a sample publish; M7 on M3+M6).
-- Touch the schema only in `packages/graph-schema` and propagate — don't fork type defs.
-- Prefer iterative refinement over rewrites; preserve working code.
-- Verify Gemini model IDs / SDK details against current Google docs, not memory.
-
-**Do:** keep Two-Track separation airtight · tag every number (source+as_of+next_update+confidence+interval) · reconcile not overwrite, flag conflicts not average · draw gaps, show freshness · route all model calls through the router.
-
-**Don't:** build any prediction/forecasting (v1) · build the community layer (v1) · expose Staging/intermediates to users · auto-publish · put API keys client-side · render the graph with DOM nodes · use any non-Gemini model.
-
----
-
-## 10. Glossary
-| Term | Meaning |
-|---|---|
-| Node | a listed company (size = live market cap) |
-| Edge (`SUPPLIES`) | a supplier→customer trade (the core v1 relationship) |
-| Blueprint | the LLM-analyzed, iteratively-refined plan of what's needed to build a theme's chain |
-| CVE / VSCA | Cross-Verification Engine / ValueGraph Supply Chain Algorithm (derive + reconcile + estimate) |
-| Claim | one atomic, sourced assertion extracted from a document (with verbatim span) |
-| two ledgers | deriving/cross-checking a trade from supplier-side and customer-side disclosures |
-| conservation / 10% rule | constraints that bound under-determined edges |
-| confidence | verified / derived / estimated (+ interval) |
-| freshness | fresh / aging / stale / gap |
-| Disclosure Calendar | per-company filing schedule → next-update + scheduled re-runs |
-| Live Context Feed | right-panel raw news/interview/filing stream (context only, no forecast) |
-| ticket | structured request to fill/verify a gap; unresolved states persist & feed CVE |
-| Staging / Production | mutable work DB / published read-only DB |
-| Publish | admin-approved Staging→Production sync |
-
-> Docs are English; the consumer Terminal UI will likely be Korean-localized — keep user-visible strings in an i18n layer, not hardcoded.
+## 7. Working style
+- **Pull the next task from `docs/ROADMAP.md`**; read the `UX_SPEC.md` section it implements. Match
+  terminology exactly (Desk/analyst/watchlist/@group,
+  brief, Live Context Feed, source-preview card, freshness/confidence, Disclosure Calendar, template↔
+  instance/clone, Staging-free — everything is gateway-entitled production data).
+- **One task per PR.** Prefer iterative refinement over rewrites; preserve working code and tests.
+- **Keep docs in sync in the same PR:** if architecture drifts, update `docs/ARCHITECTURE.md`; if you
+  finish/advance a task, update its status + test totals in `docs/ROADMAP.md`.
+- **Do:** tag every figure (source+as_of+next_update+freshness+confidence) · route all data through the
+  gateway · draw gaps & show freshness · show the guardrail label · reuse the manifest/catalog and the
+  prompt-import clone pattern.
+- **Don't:** build prediction/forecasting · expose unsourced numbers · call the data plane outside the
+  gateway · put keys client-side · render the graph with DOM nodes · use a non-Gemini model · fork the
+  router/tenancy/schema.
