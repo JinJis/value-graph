@@ -35,37 +35,30 @@ from app.models.generated import (
 from app.providers.search_util import rank_company_matches
 from app.symbols import SecurityRef
 
+# Concept maps + parsing/period helpers live in siblings; re-exported here so
+# existing imports (registry, tests) keep resolving them via this module.
+from app.providers.kr.opendart_concepts import (  # noqa: F401
+    BALANCE_MAP,
+    CASHFLOW_MAP,
+    INCOME_MAP,
+)
+from app.providers.kr.opendart_parse import (  # noqa: F401
+    _ANNUAL,
+    _amount,
+    _extract,
+    _fiscal_period,
+    _kr_date,
+    _periods,
+)
+
 _BASE = "https://opendart.fss.or.kr/api"
 _CORP_CLS = {"Y": "KOSPI", "K": "KOSDAQ", "N": "KONEX", "E": "ETC"}
-
-# reprt_code -> (period label, fiscal month-end)
-_ANNUAL = "11011"
-_QUARTER_CODES = [("11014", 9), ("11012", 6), ("11013", 3)]  # Q3, half, Q1 (cumulative)
 
 
 def _key() -> str:
     if not settings.opendart_api_key:
         raise bad_request("OPENDART_API_KEY is not configured.")
     return settings.opendart_api_key
-
-
-def _kr_date(raw: str | None) -> str | None:
-    """Normalize a DART date (8-digit or separator-laden) to YYYY-MM-DD."""
-    if not raw:
-        return None
-    digits = "".join(ch for ch in str(raw) if ch.isdigit())
-    if len(digits) < 8:
-        return None
-    return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
-
-
-def _amount(raw: str | None) -> float | None:
-    if raw in (None, "", "-"):
-        return None
-    try:
-        return float(str(raw).replace(",", ""))
-    except ValueError:
-        return None
 
 
 async def _corp_map() -> dict[str, dict]:
@@ -113,73 +106,6 @@ async def _dart_json(path: str, params: dict) -> dict:
     if status and status != "000":
         raise upstream_error("opendart", f"{status}: {data.get('message')}")
     return data  # type: ignore[return-value]
-
-
-# --- statement concept maps (account_id -> field) -------------------------
-INCOME_MAP = {
-    "ifrs-full_Revenue": "revenue",
-    "ifrs_Revenue": "revenue",
-    "ifrs-full_CostOfSales": "cost_of_revenue",
-    "ifrs-full_GrossProfit": "gross_profit",
-    "dart_OperatingIncomeLoss": "operating_income",
-    "ifrs-full_ProfitLossFromOperatingActivities": "operating_income",
-    "ifrs-full_ProfitLoss": "net_income",
-    "ifrs-full_IncomeTaxExpenseContinuingOperations": "income_tax_expense",
-    "ifrs-full_BasicEarningsLossPerShare": "earnings_per_share",
-    "ifrs-full_DilutedEarningsLossPerShare": "earnings_per_share_diluted",
-}
-BALANCE_MAP = {
-    "ifrs-full_Assets": "total_assets",
-    "ifrs-full_CurrentAssets": "current_assets",
-    "ifrs-full_NoncurrentAssets": "non_current_assets",
-    "ifrs-full_CashAndCashEquivalents": "cash_and_equivalents",
-    "ifrs-full_Inventories": "inventory",
-    "ifrs-full_Liabilities": "total_liabilities",
-    "ifrs-full_CurrentLiabilities": "current_liabilities",
-    "ifrs-full_NoncurrentLiabilities": "non_current_liabilities",
-    "ifrs-full_Equity": "shareholders_equity",
-    "ifrs-full_RetainedEarnings": "retained_earnings",
-}
-CASHFLOW_MAP = {
-    "ifrs-full_CashFlowsFromUsedInOperatingActivities": "net_cash_flow_from_operations",
-    "ifrs-full_CashFlowsFromUsedInInvestingActivities": "net_cash_flow_from_investing",
-    "ifrs-full_CashFlowsFromUsedInFinancingActivities": "net_cash_flow_from_financing",
-}
-
-
-def _extract(rows: list[dict], field_map: dict[str, str], sj_divs: set[str]) -> dict:
-    out: dict = {}
-    for row in rows:
-        if row.get("sj_div") not in sj_divs:
-            continue
-        field = field_map.get((row.get("account_id") or "").strip())
-        if field and field not in out:
-            amt = _amount(row.get("thstrm_amount"))
-            if amt is not None:
-                out[field] = amt
-    return out
-
-
-_REPRT_LABEL = {"11011": "FY", "11013": "Q1", "11012": "H1", "11014": "Q3"}
-
-
-def _fiscal_period(year: int, code: str) -> str:
-    return f"{year}-{_REPRT_LABEL.get(code, '')}"
-
-
-def _periods(period: str, limit: int) -> list[tuple[int, str, str]]:
-    """Return (bsns_year, reprt_code, report_period_date) newest first."""
-    this_year = date.today().year
-    out: list[tuple[int, str, str]] = []
-    if period == "quarterly":
-        for year in range(this_year, this_year - 4, -1):
-            for code, month in _QUARTER_CODES:
-                end_day = 30 if month in (6, 9) else 31
-                out.append((year, code, f"{year}-{month:02d}-{end_day:02d}"))
-    else:  # annual / ttm
-        for year in range(this_year - 1, this_year - 1 - (limit + 3), -1):
-            out.append((year, _ANNUAL, f"{year}-12-31"))
-    return out[: limit + 4]
 
 
 class OpenDartProvider:
