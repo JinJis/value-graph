@@ -10,7 +10,6 @@ the mounted sqladmin sub-apps).
 
 from __future__ import annotations
 
-import html
 
 import httpx
 from fastapi import FastAPI, Form, Request
@@ -22,6 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from adminpanel.config import DATABASES, settings
+from adminpanel.views import HEAD, STYLE, _cell, _esc, render
 
 app = FastAPI(title="ValueGraph Admin")
 
@@ -94,24 +94,11 @@ async def healthz() -> dict:
     return {"status": "ok"}
 
 
-_LOGIN_HTML = """<!doctype html><meta charset=utf-8><title>VG Admin · login</title>
-<style>body{{background:#0b0e14;color:#e7ecf3;font-family:system-ui;display:flex;height:100vh;
-align-items:center;justify-content:center;margin:0}}.c{{background:#141925;border:1px solid #232b3a;
-border-radius:16px;padding:32px;width:320px}}h1{{margin:0 0 16px;font-size:18px}}input{{width:100%;
-box-sizing:border-box;background:#0b0e14;border:1px solid #232b3a;color:#e7ecf3;padding:10px;
-border-radius:10px;margin-bottom:10px}}button{{width:100%;background:#4f8cff;color:#fff;border:0;
-padding:11px;border-radius:10px;font-weight:600;cursor:pointer}}.e{{color:#ff6b6b;font-size:13px;margin-bottom:8px}}</style>
-<div class=c><h1>ValueGraph Admin</h1>{err}<form method=post action=/login>
-<input name=username placeholder=username autofocus>
-<input name=password type=password placeholder=password>
-<button>Sign in</button></form></div>"""
-
-
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
     if request.session.get("authed"):
         return RedirectResponse("/", status_code=302)
-    return _LOGIN_HTML.format(err="")
+    return render("login", err="")
 
 
 @app.post("/login")
@@ -119,7 +106,7 @@ async def login(request: Request, username: str = Form(""), password: str = Form
     if username == settings.adminui_username and password == settings.adminui_password:
         request.session["authed"] = True
         return RedirectResponse("/", status_code=302)
-    return HTMLResponse(_LOGIN_HTML.format(err="<div class=e>Invalid credentials.</div>"), status_code=401)
+    return HTMLResponse(render("login", err="<div class=e>Invalid credentials.</div>"), status_code=401)
 
 
 @app.get("/logout")
@@ -135,10 +122,6 @@ async def _safe_get(client: httpx.AsyncClient, url: str) -> dict:
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"_status": r.status_code}
     except Exception as e:
         return {"_error": str(e)[:120]}
-
-
-def _esc(v) -> str:
-    return html.escape(str(v))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -216,14 +199,14 @@ async def dashboard(request: Request, msg: str = ""):
     # while a backfill runs, refresh every 4s so progress advances on screen
     refresh = "<meta http-equiv=refresh content=4>" if running else ""
 
-    body = _DASH_BODY.format(
+    body = render("dashboard", 
         msg=f"<div class=flash>{_esc(msg)}</div>" if msg else "",
         dbcards=dbcards,
         tool_count=_esc(tool_count), rag_backend=_esc(rag_backend),
         sched_state=_esc(sched_state), fact_rows=_esc(fact_rows),
         store_html=store_html, jobs_html=jobs_html, preset_opts=preset_opts,
     )
-    return _HEAD + refresh + _STYLE + body
+    return HEAD + refresh + STYLE + body
 
 
 @app.post("/ops/scheduler/{action}")
@@ -304,7 +287,7 @@ async def ops_rag_search(request: Request, query: str = Form(...)):
         f"<tr><td>{_esc(round(h.get('score', 0), 3))}</td><td>{_esc((h.get('provenance') or {}).get('source'))}</td>"
         f"<td>{_esc(h.get('text', '')[:200])}</td></tr>" for h in hits
     ) or "<tr><td colspan=3 class=muted>no hits</td></tr>"
-    return _HEAD + _STYLE + _SEARCH_BODY.format(query=_esc(query), rows=rows)
+    return HEAD + STYLE + render("search", query=_esc(query), rows=rows)
 
 
 # --- self-contained DB browser (no sqladmin static deps; relative URLs only) ---
@@ -327,21 +310,12 @@ def _table_counts(key: str) -> dict[str, int]:
     return out
 
 
-def _cell(v, limit: int = 0) -> str:
-    if v is None:
-        return "<span class=muted>NULL</span>"
-    s = str(v)
-    if limit and len(s) > limit:
-        s = s[:limit] + "…"
-    return _esc(s)
-
-
 @app.get("/db/{key}/{table}", response_class=HTMLResponse)
 async def browse_table(request: Request, key: str, table: str, page: int = 0):
     info = DB_STATUS.get(key)
     meta = (info or {}).get("meta", {})
     if not info or table not in meta:
-        return HTMLResponse(_HEAD + _STYLE + "<h1>unknown table</h1><a href=/>← back</a>", status_code=404)
+        return HTMLResponse(HEAD + STYLE + "<h1>unknown table</h1><a href=/>← back</a>", status_code=404)
     engine = ENGINES[key]
     cols = meta[table]["columns"]
     pk = meta[table]["pk"]
@@ -371,11 +345,11 @@ async def browse_table(request: Request, key: str, table: str, page: int = 0):
     if page < last:
         nav += f"<a class=pg href='/db/{key}/{table}?page={page + 1}'>next →</a>"
 
-    body = _BROWSE_BODY.format(
+    body = render("browse", 
         title=info["title"], key=_esc(key), table=_esc(table),
         head=head, rows=trs, nav=nav,
     )
-    return _HEAD + _STYLE + body
+    return HEAD + STYLE + body
 
 
 @app.get("/db/{key}/{table}/row/{offset}", response_class=HTMLResponse)
@@ -383,7 +357,7 @@ async def row_detail(request: Request, key: str, table: str, offset: int):
     info = DB_STATUS.get(key)
     meta = (info or {}).get("meta", {})
     if not info or table not in meta:
-        return HTMLResponse(_HEAD + _STYLE + "<h1>unknown table</h1><a href=/>← back</a>", status_code=404)
+        return HTMLResponse(HEAD + STYLE + "<h1>unknown table</h1><a href=/>← back</a>", status_code=404)
     engine = ENGINES[key]
     cols = meta[table]["columns"]
     pk = meta[table]["pk"]
@@ -395,120 +369,17 @@ async def row_detail(request: Request, key: str, table: str, offset: int):
             {"off": offset},
         ).fetchone()
     if row is None:
-        return HTMLResponse(_HEAD + _STYLE + "<h1>row not found</h1>"
+        return HTMLResponse(HEAD + STYLE + "<h1>row not found</h1>"
                             f"<a href='/db/{key}/{table}'>← back</a>", status_code=404)
     back_page = offset // _PAGE_SIZE
     kv = "".join(
         f"<tr><th class=kvk>{_esc(c)}</th><td class=kvv>{_cell(v)}</td></tr>"
         for c, v in zip(cols, row)
     )
-    body = _ROW_BODY.format(
+    body = render("row", 
         title=info["title"], key=_esc(key), table=_esc(table),
         offset=offset, back_page=back_page, kv=kv,
     )
-    return _HEAD + _STYLE + body
+    return HEAD + STYLE + body
 
 
-_STYLE = """<style>body{background:#0b0e14;color:#e7ecf3;font-family:system-ui;margin:0;padding:24px;max-width:1100px;margin:auto}
-a{color:#4f8cff;text-decoration:none}h1{font-size:20px}h2{font-size:15px;color:#93a0b4;margin-top:28px;border-bottom:1px solid #232b3a;padding-bottom:6px}
-h3{font-size:14px;margin:0 0 8px}.muted{color:#93a0b4;font-weight:400;font-size:12px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
-.card{background:#141925;border:1px solid #232b3a;border-radius:12px;padding:14px}.tbls{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-.tbl{background:#1b2230;border:1px solid #232b3a;border-radius:8px;padding:4px 8px;font-size:12px}.open{font-size:13px}
-.stat{display:inline-block;background:#141925;border:1px solid #232b3a;border-radius:10px;padding:10px 14px;margin:0 8px 8px 0}
-.stat b{display:block;font-size:18px}.err{color:#ff6b6b;font-size:12px}.flash{background:#16321f;border:1px solid #2e6b3f;color:#9be8a8;padding:8px 12px;border-radius:8px;margin-bottom:14px}
-form.ops{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}input,button,textarea{background:#0b0e14;border:1px solid #232b3a;color:#e7ecf3;border-radius:8px;padding:7px 9px}
-button{background:#1b2230;cursor:pointer}button.p{background:#4f8cff;color:#fff;border:0}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #232b3a;padding:6px;text-align:left;vertical-align:top}
-.top{display:flex;justify-content:space-between;align-items:center}
-.warn{background:#3a2a16;border:1px solid #6b4e2e;color:#e8c79b;padding:10px 12px;border-radius:8px;margin:6px 0}
-td.success{color:#9be8a8}td.error{color:#ff8a8a}td.running{color:#e0c060}
-.cnt{background:#0b0e14;border:1px solid #232b3a;border-radius:6px;padding:0 5px;margin-left:3px;font-size:11px;color:#93a0b4}
-.rowlink{cursor:pointer}.rowlink:hover td{background:#1b2230}
-.pg{background:#1b2230;border:1px solid #232b3a;border-radius:8px;padding:5px 10px;margin-right:10px}
-.nav{display:flex;gap:12px;align-items:center;margin:14px 0}
-.kvk{width:220px;color:#93a0b4;font-weight:500;white-space:nowrap}.kvv{white-space:pre-wrap;word-break:break-word}
-.crumb{font-size:13px;margin-bottom:6px}</style>"""
-
-_HEAD = "<!doctype html><meta charset=utf-8><title>ValueGraph Admin</title>"
-
-_DASH_BODY = """
-<div class=top><h1>ValueGraph Admin</h1><a href=/logout>logout</a></div>{msg}
-<h2>Live status</h2>
-<div class=stat><span class=muted>catalog tools</span><b>{tool_count}</b></div>
-<div class=stat><span class=muted>RAG embedder</span><b>{rag_backend}</b></div>
-<div class=stat><span class=muted>scheduler</span><b>{sched_state}</b></div>
-<div class=stat><span class=muted>store rows</span><b>{fact_rows}</b></div>
-
-<h2>Databases — browse &amp; edit every table</h2>
-<div class=grid>{dbcards}</div>
-
-<h2>Ingestion store</h2>
-{store_html}
-<form class=ops method=post action=/ops/backfill>
-  <label class=muted>universe</label>
-  <select name=preset>{preset_opts}</select>
-  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
-  <button class=p>Backfill universe</button>
-</form>
-<form class=ops method=post action=/ops/backfill>
-  <label class=muted>or custom</label>
-  <select name=market><option>US</option><option>KR</option></select>
-  <input name=tickers placeholder="explicit tickers e.g. AAPL MSFT / 005930" size=34>
-  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
-  <button>Backfill tickers</button>
-</form>
-<p class=muted>📷 <b>evidence</b> = also precompute <b>visual-evidence pointers</b> (PH-PROV2): downloads each
-US ticker's SEC filings, matches every as-reported figure to its inline-XBRL line, and stores a
-<code>FactLocation</code> so the chat can show a <b>highlighted screenshot of the source</b>. US only;
-runs in the background (kind <b>locations</b> below).</p>
-
-<h2>News → RAG index</h2>
-<p class=muted>Pull Google News headlines into the RAG index so <code>rag__search</code> returns
-recent context. Indexed as a global corpus (visible to every tenant). Shows up in jobs below (kind <b>news</b>).</p>
-<form class=ops method=post action=/ops/news>
-  <select name=market><option>US</option><option>KR</option></select>
-  <input name=tickers placeholder="tickers e.g. AAPL MSFT / 005930 (blank = market news)" size=40>
-  <button class=p>Pull news → RAG</button>
-</form>
-
-<h2>Recent ingestion jobs</h2>
-{jobs_html}
-
-<h2>Data pipeline (scheduler)</h2>
-<form class=ops method=post action=/ops/scheduler/run><button class=p>Run scheduled ingestion now</button></form>
-<form class=ops method=post action=/ops/scheduler/pause><button>Pause</button></form>
-<form class=ops method=post action=/ops/scheduler/resume><button>Resume</button></form>
-<form class=ops method=post action=/ops/selftest><button>Run self-test</button></form>
-
-<h2>RAG</h2>
-<form class=ops method=post action=/ops/rag/ingest>
-  <input name=text placeholder="document text" size=44 required>
-  <input name=source placeholder=source value=admin size=10>
-  <input name=ticker placeholder=ticker size=8>
-  <input name=url placeholder=url size=16>
-  <button class=p>Ingest</button></form>
-<form class=ops method=post action=/ops/rag/search>
-  <input name=query placeholder="semantic query" size=44 required><button>Search</button></form>
-
-<h2>MCP &amp; catalog</h2>
-<p class=muted>The MCP server exposes one tool per catalog resource; the gateway reports
-<b>{tool_count}</b> connector resources. Browse them in the data-plane admin or via <code>/catalog</code>.</p>
-"""
-
-_SEARCH_BODY = """
-<div class=top><h1>RAG search</h1><a href=/>← back</a></div>
-<p class=muted>query: <b>{query}</b></p>
-<table><tr><th>score</th><th>source</th><th>text</th></tr>{rows}</table>"""
-
-_BROWSE_BODY = """
-<div class=crumb><a href=/>ValueGraph Admin</a> / {title} <span class=muted>({key})</span></div>
-<div class=top><h1>{table}</h1><a href='/{key}'>open CRUD editor →</a></div>
-<div class=nav>{nav}</div>
-<table><tr>{head}</tr>{rows}</table>
-<p class=muted>Click any row to see its full detail.</p>"""
-
-_ROW_BODY = """
-<div class=crumb><a href=/>ValueGraph Admin</a> / {title} <span class=muted>({key})</span> /
-<a href='/db/{key}/{table}'>{table}</a> / row #{offset}</div>
-<div class=top><h1>{table} <span class=muted>row #{offset}</span></h1>
-<a href='/db/{key}/{table}?page={back_page}'>← back to list</a></div>
-<table>{kv}</table>"""
