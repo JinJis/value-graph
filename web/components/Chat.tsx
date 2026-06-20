@@ -159,6 +159,9 @@ export default function Chat({ name }: { name: string }) {
                 tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
                 doc_type: ev.doc_type, as_of: ev.as_of, freshness: ev.freshness,
                 snippet: ev.snippet, ticker: ev.ticker, page: ev.page,
+                // PH-PROV2: carry the extracted table + the highlighted-filing screenshot URL,
+                // else the Live Context / source card can never show the visual evidence.
+                table: ev.table, evidence_image_url: ev.evidence_image_url,
               };
               const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
               if (!dup) a.citations = [...(a.citations || []), cite];

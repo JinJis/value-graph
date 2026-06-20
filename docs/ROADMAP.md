@@ -194,9 +194,15 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       render time and injects a unique `#id` (DART markup parsed by lxml vs. Chromium diverge —
       `<tbody>`/tag-case — so a positional XPath isn't reused) for the existing `/render/sec` HTML path;
       cache key stays unique per fact. agent-engine `_evidence_url` composes the KR link (market=KR,
-      field-name concept). Web unchanged (evidence is market-agnostic). datasets 99→105, agent-engine
-      69→70. *(Real-DART verification needs an `OPENDART_API_KEY` on the deployment stack; the matcher
-      is unit-tested against a DART-shaped fixture and every gap degrades to the text source card.)*
+      field-name concept). datasets 99→105, agent-engine 69→70. *(Real-DART verification needs an
+      `OPENDART_API_KEY` on the deployment stack; the matcher is unit-tested against a DART-shaped fixture
+      and every gap degrades to the text source card.)*
+      - **Bugfix (PH-PROV2 web, US+KR):** the chat SSE→state capture (`web/components/Chat.tsx`)
+        reconstructed each citation field-by-field and **dropped `evidence_image_url` + `table`**, so the
+        highlighted-filing screenshot (and the extracted-data table) could **never** render in the Live
+        Context / source card even when the backend served them — the actual reason evidence wasn't
+        showing end-to-end. Now carried through. (The agent emits them via `c.model_dump()`; studio-api +
+        gateway proxy `/evidence` correctly; renderer is wired in compose.)
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
