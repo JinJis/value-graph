@@ -110,7 +110,7 @@ message + citations, and the answer streams back to the browser as SSE (`token` 
 | **control-plane** | 8010 | the **gateway**: auth → entitlement → rate-limit → meter/audit → proxy; tenants/keys/activations admin | datasets, rag |
 | **datasets** | 8000 | REST data plane: connectors (SEC/Yahoo/FRED/DART/ECOS/News) + point-in-time ingestion store + `/catalog` | upstream APIs, (Postgres) |
 | **rag** | 8002 | provenance-first retrieval: chunk→embed→store→retrieve→rerank; pluggable backends | (vector store, embed backend) |
-| **renderer** | 8006 | PH-PROV2: highlighted screenshot of a cited figure in its source filing (Playwright/Chromium, isolated). Internal-only; reached from datasets via `RENDERER_URL`, cache-first on a volume | (none; called by datasets) |
+| **renderer** | 8006 | PH-PROV2: highlighted screenshot of a cited figure in its source filing — US SEC iXBRL (element match) + KR DART disclosure document (label-anchored text match, document.xml markup) (Playwright/Chromium, isolated). Internal-only; reached from datasets via `RENDERER_URL`, cache-first on a volume | (none; called by datasets) |
 | *mcp* | stdio | one tool per catalog resource, routed through the gateway with the tenant key (entitled + metered) | control-plane |
 | **admin** | 8005 | Django-admin-style CRUD over every service DB (SQLAlchemy reflection + sqladmin) + ops console (scheduler · self-test · RAG · catalog). Out-of-band tool, not in the request path | controlplane/studio/datasets DB volumes |
 

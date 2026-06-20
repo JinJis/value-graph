@@ -15,12 +15,28 @@ from datetime import date
 from sqlalchemy import select
 
 from app.http import fetch_text
+from app.providers.kr.dart_document import (
+    KR_LABELS,
+    build_pointers_for_document,
+    fetch_document_markup,
+)
+from app.providers.kr.opendart import _corp_code
 from app.providers.registry import get_financials_provider
 from app.providers.us.ixbrl import build_pointers_for_filing
 from app.providers.us.sec_edgar import _UA, _resolve_cik, _submissions
 from app.store.db import SessionLocal, init_db
 from app.store.models import FactLocation
+from app.store.provenance import dart_url
 from app.symbols import Market, build_ref
+
+# Per-statement headline fields to anchor KR evidence on (mirrors agent-engine
+# evidence._STATEMENT_HEADLINES; KR_LABELS gives each field its DART account labels).
+_KR_STATEMENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("income_statements", ("revenue", "net_income", "operating_income", "gross_profit")),
+    ("balance_sheets", ("total_assets", "total_liabilities", "shareholders_equity", "cash_and_equivalents")),
+    ("cash_flow_statements", ("net_cash_flow_from_operations", "net_cash_flow_from_investing",
+                              "net_cash_flow_from_financing")),
+)
 
 
 async def _primary_doc_map(cik10: str) -> dict[str, str]:
@@ -49,8 +65,10 @@ async def precompute_locations_for_ticker(
     """Index fact→location pointers for a US ticker's recent filings. Covers BOTH annual
     (10-K) and quarterly (10-Q) periods (PH-PROV2c) — "latest revenue" usually surfaces the
     most recent QUARTER, so quarter-only figures need pointers too. Returns a summary."""
-    if market.upper() != "US":  # SEC iXBRL only; KR/DART = PR4 (PyMuPDF, PH-7b)
-        return {"status": "skipped", "reason": "only US (SEC iXBRL) supported"}
+    if market.upper() == "KR":  # PH-PROV2d: DART document-markup text match (no iXBRL/PDF)
+        return await _precompute_kr(ticker, periods, limit)
+    if market.upper() != "US":
+        return {"status": "skipped", "reason": "only US (SEC iXBRL) and KR (DART) supported"}
     ref = build_ref(Market.US, ticker)
     cik10 = await _resolve_cik(ref)
     prov = get_financials_provider(Market.US)
@@ -97,6 +115,69 @@ async def precompute_locations_for_ticker(
 
     written = await asyncio.to_thread(_upsert, rows)
     return {"status": "ok", "ticker": ticker.upper(), "filings": filings,
+            "pointers": len(rows), "matched": sum(1 for r in rows if r["status"] == "matched"),
+            "written": written}
+
+
+async def _precompute_kr(ticker: str, periods: tuple[str, ...], limit: int) -> dict:
+    """Index fact→location pointers for a KR ticker via the DART disclosure document.
+
+    DART gives no iXBRL/PDF, so we match the figures we already hold from the
+    financial-statements API to their cell in the ``document.xml`` markup (label-anchored,
+    multi-scale exact value match). One document download per filing; best-effort."""
+    ref = build_ref(Market.KR, ticker)
+    prov = get_financials_provider(Market.KR)
+    try:
+        corp = await _corp_code(ref)
+    except Exception:  # noqa: BLE001 — no corp_code → cik stays None (lookup keys on accession)
+        corp = None
+
+    # Accumulate targets across all statements/periods, grouped by filing (one download each).
+    by_accn: dict[str, dict] = {}
+    for period in periods:
+        for method_name, fields in _KR_STATEMENTS:
+            method = getattr(prov, method_name, None)
+            if method is None:
+                continue
+            try:
+                statements = await method(ref, period, limit)
+            except Exception:  # noqa: BLE001 — a missing statement/period never blocks the rest
+                continue
+            for st in statements:
+                accn = getattr(st, "accession_number", None)
+                rp = getattr(st, "report_period", None)
+                if not accn or not rp:
+                    continue
+                slot = by_accn.setdefault(accn, {"doc_url": getattr(st, "filing_url", None),
+                                                 "period": period, "targets": []})
+                for field in fields:
+                    val = getattr(st, field, None)
+                    if val is None:
+                        continue
+                    slot["targets"].append({"concept": field, "report_period": rp,
+                                            "value": float(val), "labels": KR_LABELS.get(field, [])})
+
+    rows: list[dict] = []
+    for accn, info in by_accn.items():
+        markup = await fetch_document_markup(accn)
+        if not markup:
+            continue
+        try:
+            pointers = build_pointers_for_document(markup, info["targets"])
+        except Exception:  # noqa: BLE001 — one bad document never blocks the rest
+            continue
+        for ptr in pointers:
+            rows.append({
+                "market": "KR", "cik": corp, "accession_number": accn,
+                "concept": ptr["concept"], "period": info["period"],
+                "report_period": _as_date(ptr["report_period"]), "value": ptr.get("value"),
+                "unit": "KRW", "primary_doc_url": info["doc_url"] or dart_url(accn),
+                "element_id": None, "selector": ptr.get("label"), "scale": ptr.get("scale"),
+                "sign": None, "match_rule": ptr.get("match_rule"), "status": ptr["status"],
+            })
+
+    written = await asyncio.to_thread(_upsert, rows)
+    return {"status": "ok", "ticker": ticker.upper(), "filings": len(by_accn),
             "pointers": len(rows), "matched": sum(1 for r in rows if r["status"] == "matched"),
             "written": written}
 

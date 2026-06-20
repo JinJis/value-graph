@@ -505,10 +505,16 @@ def test_admin_precompute_locations_preset_and_non_us(monkeypatch):
     assert client.post("/admin/precompute-locations", json={"preset": "us_mega"}).json()["started"] is True
     assert "AAPL" in fired["tickers"] and fired["market"] == "US"
 
-    # non-US is skipped, not fabricated
+    # KR is supported (PH-PROV2d: DART document evidence) → started with explicit tickers
     fired.clear()
-    body = client.post("/admin/precompute-locations", json={"market": "KR", "tickers": ["005930"]}).json()
-    assert body["started"] is False and "US" in body["detail"] and not fired
+    assert client.post("/admin/precompute-locations",
+                       json={"market": "KR", "tickers": ["005930"]}).json()["started"] is True
+    assert fired["tickers"] == ["005930"] and fired["market"] == "KR"
+
+    # an unsupported market is rejected, not fabricated
+    fired.clear()
+    body = client.post("/admin/precompute-locations", json={"market": "JP", "tickers": ["7203"]}).json()
+    assert body["started"] is False and not fired
 
 
 async def test_ingest_ticker_precomputes_locations_for_us_when_flagged(monkeypatch):
