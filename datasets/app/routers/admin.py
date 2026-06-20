@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.deps import ApiKeyDep
 from app.scheduler import scheduler
 from app.selftest import run_selftest
+from app.store.evidence_docs import run_build_evidence_docs
 from app.store.jobs import backfill_running, list_jobs, run_backfill
 from app.store.locations_ingest import run_precompute_locations
 from app.store.news_ingest import news_ingest_running, run_news_ingest
@@ -118,6 +119,32 @@ async def precompute_locations(body: PrecomputeLocationsRequest) -> dict:
         return {"started": False, "detail": "tickers required"}
     asyncio.create_task(run_precompute_locations(market, tickers))
     return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
+
+
+class EvidenceDocsRequest(BaseModel):
+    market: str = "US"
+    tickers: list[str] | None = None  # explicit tickers (watchlist-scoped)
+
+
+@router.post(
+    "/evidence-docs",
+    dependencies=[ApiKeyDep],
+    summary="▶ PH-PROV3: cache filings as PDFs for on-demand evidence (US + KR)",
+    description=(
+        "Downloads each ticker's recent filings and stores each as a PDF-normalized "
+        "`EvidenceDoc` (US iXBRL HTML / KR DART markup → PDF). At query time PyMuPDF "
+        "highlights whatever a figure cited — coverage is the whole document, not a fixed "
+        "concept list. Runs in the background; progress in `/admin/jobs`."
+    ),
+)
+async def evidence_docs(body: EvidenceDocsRequest) -> dict:
+    market = body.market
+    if market not in ("US", "KR"):
+        return {"started": False, "detail": "US + KR only", "market": market}
+    if not body.tickers:
+        return {"started": False, "detail": "tickers required"}
+    asyncio.create_task(run_build_evidence_docs(market, body.tickers))
+    return {"started": True, "target": f"{market}:{body.tickers}", "see": "/admin/jobs"}
 
 
 @router.post(

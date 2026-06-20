@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from app.render import cache_key, render_sec
+from app.render import cache_key, render_pdf, render_sec
 
 app = FastAPI(title="ValueGraph Renderer", version="0.1.0")
 
@@ -35,9 +35,26 @@ class RenderRequest(BaseModel):
     html: str | None = None   # caller-supplied filing HTML (preferred; SEC 403s Chromium directly)
 
 
+class PdfRequest(BaseModel):
+    html: str | None = None        # filing HTML / DART markup (preferred)
+    doc_url: str | None = None     # fallback: let Chromium fetch it
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "service": "renderer"}
+
+
+@app.post("/pdf/from-html")
+async def pdf_from_html(req: PdfRequest):
+    """PH-PROV3: normalize a filing document to PDF at ingest (one-shot). 502 on failure."""
+    if not (req.html or req.doc_url):
+        return JSONResponse({"error": "no html or doc_url"}, status_code=400)
+    try:
+        pdf = await render_pdf(html=req.html, doc_url=req.doc_url, ua=SEC_UA)
+    except Exception as exc:  # noqa: BLE001 — never 500; datasets skips storing on 502
+        return JSONResponse({"error": str(exc)[:200]}, status_code=502)
+    return Response(content=pdf, media_type="application/pdf", headers={"content-disposition": "inline"})
 
 
 @app.post("/render/sec")

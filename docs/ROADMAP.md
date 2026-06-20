@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 255 unit** — datasets 106 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 70 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
+> **Test totals (current): 260 unit** — datasets 108 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 70 · studio-api 34 (+ admin 12, renderer 8) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -209,7 +209,32 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         persisted** → `/evidence` always 204 (US matched because its path uses plain-str dict values).
         Coerced to `str`; verified live (Samsung revenue → matched, scale=6). +1 regression test → 106.
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
+      *(folded into PH-PROV3 below — same PDF + on-demand-locate mechanism.)*
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
+  - 🚧 **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
+    concept-precompute model; approved 2026-06-20)*. The pointer-precompute (PH-PROV2a–d) only covered a
+    **fixed set of headline concepts** per filing — it can't answer the *many* arbitrary questions users
+    ask, is slow to precompute, and never covered narrative text. Invert it: **cache the whole filing as a
+    PDF once** (universal coverage, one render/filing) and **locate + highlight on demand** whatever the
+    answer actually cited (figures by value-match, passages by span-match), with the renderer out of the
+    query hot-path. Decisions: PyMuPDF lives in `datasets` (no renderer hop at query time); migration is
+    additive (build the PDF path beside the old one, switch `/evidence`, then retire the concept-pointer
+    path); ingestion is **watchlist-scoped**. US iXBRL HTML / KR DART markup → PDF at ingest (no forced
+    PDF where none exists — US has no official PDF, so we normalize). Other sources keep their natural
+    evidence (news/web = snippet+link; prices/macro = data card).
+    - ✅ **PH-PROV3a · PDF document store + ingest normalization.** New `EvidenceDoc` model (cached
+      PDF per filing, keyed `market`+`accession`, with the canonical `원문 열기` link). Renderer
+      `POST /pdf/from-html` (Chromium `page.pdf()`, one-shot at ingest — query-time stays browser-free).
+      `app/store/evidence_docs.py`: `ensure_doc` (fetch source → renderer → write PDF to the data volume
+      → index; idempotent), `build_evidence_docs_for_ticker` / `run_build_evidence_docs` (watchlist-scoped,
+      recorded as an `IngestionJob` kind `evidence_docs`); `POST /admin/evidence-docs` trigger. KR
+      `filing_url` AnyUrl coerced to str (same hazard as PH-PROV2d). datasets 106→108, renderer 5→8.
+    - ⬜ **PH-PROV3b · PyMuPDF on-demand highlight.** Add PyMuPDF to `datasets`; `/evidence` opens the
+      cached PDF, locates the cited value/passage, highlights + rasterizes the page region (cache the PNG),
+      and `/evidence/doc` streams the real PDF for `원문 열기`. Replaces the Chromium hot-path.
+    - ⬜ **PH-PROV3c · generalize + agent wiring + retire concept-precompute.** RAG/news passage evidence,
+      prices/macro data-card evidence, agent citations on the new path; consolidate the filing-accession
+      resolution and remove the now-dead `FactLocation` concept-pointer precompute.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---

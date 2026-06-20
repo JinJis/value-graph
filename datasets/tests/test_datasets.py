@@ -1320,3 +1320,53 @@ def test_ph_prov2d_kr_evidence_persists_anyurl_and_renders(monkeypatch):
     r = client.get("/evidence?market=KR&accession=20260310002820&concept=revenue"
                    "&report_period=2025-12-31&value=333605938000000")
     assert r.status_code == 200 and r.content == b"\x89PNG-kr"
+
+
+# --- PH-PROV3a: PDF-normalized evidence document store --------------------
+@respx.mock
+async def test_ph_prov3a_ensure_doc_caches_pdf(tmp_path, monkeypatch):
+    """A filing is fetched once, normalized to PDF by the renderer, written to the data
+    volume, and indexed as an EvidenceDoc; the second call is served from cache."""
+    import app.store.evidence_docs as ED
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+
+    async def _fake_src(market, accession, fetch_url):
+        return "<TABLE><TR><TD>매출액</TD><TD>333,605,938</TD></TR></TABLE>"
+
+    monkeypatch.setattr(ED, "_source_markup", _fake_src)
+    route = respx.post("http://renderer:8006/pdf/from-html").mock(
+        return_value=httpx.Response(200, content=b"%PDF-1.7 doc", headers={"content-type": "application/pdf"}))
+
+    r1 = await ED.ensure_doc("KR", "005930", "20260310002820",
+                             canonical_url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260310002820")
+    assert r1 == "stored"
+    assert (tmp_path / "KR" / "20260310002820.pdf").read_bytes().startswith(b"%PDF")
+    doc = ED.get_evidence_doc("KR", "20260310002820")
+    assert doc and doc["status"] == "stored" and doc["pdf_path"].endswith(".pdf")
+    assert "dart.fss.or.kr" in doc["source_url"]
+
+    r2 = await ED.ensure_doc("KR", "005930", "20260310002820", canonical_url="x")  # idempotent
+    assert r2 == "cached" and route.call_count == 1  # no second render
+
+    # renderer down → skipped, never crashes (no doc written for a new accession)
+    route.mock(return_value=httpx.Response(502, json={"error": "boom"}))
+    assert await ED.ensure_doc("KR", "005930", "99999999999999", canonical_url="x") == "skipped"
+    assert ED.get_evidence_doc("KR", "99999999999999") is None
+
+
+def test_ph_prov3a_admin_evidence_docs_endpoint(monkeypatch):
+    import app.routers.admin as A
+
+    fired: dict = {}
+
+    async def _fake_run(market, tickers):
+        fired["market"], fired["tickers"] = market, tickers
+
+    monkeypatch.setattr(A, "run_build_evidence_docs", _fake_run)
+    assert client.post("/admin/evidence-docs", json={"market": "KR", "tickers": ["005930"]}).json()["started"] is True
+    assert fired == {"market": "KR", "tickers": ["005930"]}
+    # unsupported market / no tickers → not started
+    assert client.post("/admin/evidence-docs", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
+    assert client.post("/admin/evidence-docs", json={"market": "US"}).json()["started"] is False
