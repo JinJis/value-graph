@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 247 unit** — datasets 99 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 251 unit** — datasets 103 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 69 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -288,10 +288,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 >
 > **Finish the data substance**
 > 1. ✅ **PH-5** — cheap universe-enumeration endpoints.  *(filing-text `/filings/items` → PH-RAG)*
-> 2. **PH-MACRO** — cloud-safe macro (DBnomics / Treasury).  ← **next**
+> 2. ✅ **PH-MACRO** — cloud-safe macro (keyless DBnomics/BIS fallback for FRED).
 > 3. ✅ **PH-6a** — historical financial-metrics (store-backed ratios) → MCP tool.  · **PH-6b** (13F
 >    ticker-mode / reverse-CUSIP) deferred — needs a 13F-holdings index, not the facts store.
-> 4. **PH-8** — index / ETF holdings (US = SEC N-PORT; KR = KIS-ETF below).
+> 4. **PH-8** — index / ETF holdings (US = SEC N-PORT; KR = KIS-ETF below).  ← **next**
 > 5. 🚧 **PH-7a** — XBRL as-reported (US) → MCP tool `sec_edgar__as_reported`.  · **PH-7b** (segments +
 >    statement-specific as-reported + KR DART XBRL) deferred (dimensional/heavier parse).
 > 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
@@ -366,13 +366,19 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   index per tenant (reusing the PH-2b news pipeline shape). Turns `rag__search` from news-only into the
   full document corpus. *(datasets/rag; M)* — ↳ PH-5 (+ PH-7) for the text.
 - ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering). *(↳ PH-RAG text)*
-- ⬜ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfed.org` serves a
-  **JS bot-wall (not JSON) from datacenter IPs** even with a valid key (confirmed: `coverage.sh` shows
-  FRED `503 · datacenter IP wall`) → US macro breaks in cloud. Add a `macro_provider_us` selection (mirror
-  `prices_provider_*`) with a **keyless, cloud-safe** backend — **DBnomics** (`api.db.nomics.world`,
-  mirrors FRED series ids → drop-in for FED/ECB/BOE/BOJ rates) and/or **US Treasury FiscalData** (par
-  yields) — and fall back FRED→DBnomics automatically. Keeps series semantics + the manifest; same trust
-  envelope. *(datasets; S–M)* — ties to PH-11 (cloud deploy). KR ECOS unaffected.
+- ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a
+  **JS bot-wall (not JSON) from datacenter IPs** even with a valid key → US macro breaks in cloud. Added a
+  `macro_provider_us` selection (mirrors `prices_provider_*`): `auto` (default) | `fred` | `dbnomics`.
+  New **keyless, cloud-safe `DBnomicsProvider`** (`app/providers/us/dbnomics.py`) serves the BIS
+  *Central bank policy rates* dataset (`BIS/WS_CBPOL`, daily) for the same `bank` enum (FED→US, ECB→XM,
+  BOE→GB, BOJ→JP) — no key, no datacenter gate (FRED is **not** mirrored on DBnomics; BIS is the unified
+  cloud-safe source). `AutoMacroProvider` (`macro_auto.py`) tries FRED only when `FRED_API_KEY` is set and
+  **falls back to DBnomics on the bot-wall / any upstream failure**; with no key it goes straight to
+  DBnomics → US macro works out of the box, keyless, in the cloud. Manifest preserved (the `fred`
+  connector is now `requires_key=False`, name/desc/provenance updated to reflect the BIS/DBnomics default —
+  no new MCP tools); gaps never faked (`NA` dropped). `.env.example` + datasets README + coverage label
+  updated. *(datasets)* +4 tests → 103. KR ECOS unaffected. *(US Treasury FiscalData par-yields = a future
+  add — a different resource shape, out of scope for this drop-in.)*
 - ⬜ **PH-DEFER · Paid adapters (#24)** (Polygon/Tiingo/FMP; KR majorstock 5%) — needs keys; platform-held
   + subscription-metered (KIS realtime is now its own `KIS-PRICES`, below).
 

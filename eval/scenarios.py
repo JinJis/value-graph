@@ -63,6 +63,17 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # PH-MACRO: US macro must answer keyless/cloud-safe — the FRED connector now
+        # falls back to DBnomics (BIS policy rates) when FRED is bot-walled / unkeyed.
+        "name": "Macro → US Fed (FRED/DBnomics, cloud-safe)",
+        "agent": {"name": "Eval Macro US", "model": "gemini", "data_sources": ["fred"]},
+        "question": "What is the current US Federal Reserve policy interest rate?",
+        "criteria": "state the current US Fed policy rate as a concrete percentage, attributed to its "
+                    "source (FRED or BIS central-bank policy rates); no forecast.",
+        "checks": {"expect_connector": "fred__", "expect_status": 200, "expect_cite": "FRED",
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "RAG retrieval → cited disclosure (rag-only agent)",
         "agent": {"name": "Eval Disclosure", "model": "gemini", "data_sources": ["rag"]},
         "rag_docs": [

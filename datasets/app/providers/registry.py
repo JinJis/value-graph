@@ -107,9 +107,20 @@ def get_filings_provider(market: Market) -> FilingsProvider:
 @cache
 def get_macro_provider(market: Market) -> MacroProvider:
     if market is Market.US:
-        from app.providers.us.fred import FredProvider
+        choice = settings.macro_provider_us
+        if choice == "auto":
+            from app.providers.us.macro_auto import AutoMacroProvider
 
-        return FredProvider()
+            return AutoMacroProvider()
+        if choice == "fred":
+            from app.providers.us.fred import FredProvider
+
+            return FredProvider()
+        if choice == "dbnomics":
+            from app.providers.us.dbnomics import DBnomicsProvider
+
+            return DBnomicsProvider()
+        _unbuilt(f"macro(provider={choice})", market)
     if market is Market.KR:
         from app.providers.kr.ecos import EcosProvider
 

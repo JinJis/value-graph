@@ -110,10 +110,11 @@ CONNECTORS: list[ConnectorManifest] = [
         ],
     ),
     ConnectorManifest(
-        id="fred", name="FRED (US macro)", domain="macro",
-        description="US/global central-bank interest rates (FED/ECB/BOE/BOJ).",
+        id="fred", name="FRED / DBnomics (US macro)", domain="macro",
+        description="US/global central-bank policy rates (FED/ECB/BOE/BOJ). Keyless and cloud-safe by "
+                    "default via DBnomics (BIS); falls back to FRED only when FRED_API_KEY is set.",
         markets=["US"],
-        upstream=UpstreamCredential(requires_key=True, key_env="FRED_API_KEY", signup_url="https://fred.stlouisfed.org/docs/api/api_key.html"),
+        upstream=UpstreamCredential(requires_key=False),
         license=LIC_FRED,
         resources=[
             Resource(name="interest_rates", description="Historical interest rates.", path="/macro/interest-rates",
