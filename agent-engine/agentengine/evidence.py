@@ -41,40 +41,49 @@ _STATEMENT_HEADLINES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def _ev_qs(accn, cik, concept, report_period, value) -> str | None:
+def _ev_qs(market, accn, cik, concept, report_period, value) -> str | None:
     if not (accn and concept and report_period):
         return None
-    q = {"market": "US", "accession": accn, "concept": concept, "report_period": report_period, "value": value}
+    q = {"market": market, "accession": accn, "concept": concept, "report_period": report_period, "value": value}
     if cik:
         q["cik"] = cik
     return "/evidence?" + urlencode(q)
 
 
-def _evidence_url(data, accn, cik, market) -> str | None:
-    """PH-PROV2: the datasets `/evidence?…` URL for a US filing-backed result's headline
-    figure. The frontend fetches the highlighted screenshot lazily — we only attach the
-    link (deterministic, no render), so the answer stream is never blocked. Handles both
-    the as-reported shape (explicit us-gaap concept) and the income-statement shape (our
-    normalized fields → candidate concepts). None when there's nothing to point at."""
-    if (market or "").upper() != "US" or not accn or not isinstance(data, dict):
-        return None
-    # as-reported: explicit us-gaap concept per line item
-    periods = data.get("periods")
-    if isinstance(periods, list) and periods and isinstance(periods[0], dict):
-        p = periods[0]
-        items = [it for it in (p.get("line_items") or []) if isinstance(it, dict)]
-        pick = next((it for it in items if "Revenue" in (it.get("concept") or "")), items[0] if items else None)
-        if pick and pick.get("value") is not None and pick.get("concept"):
-            return _ev_qs(pick.get("accession_number") or accn, cik, pick["concept"],
-                          p.get("report_period"), pick["value"])
-    # financial statements (income / balance / cash-flow): normalized fields → candidate
-    # concepts, anchored on the newest period's first available headline figure.
+def _statement_url(market, data, accn, cik) -> str | None:
+    """Financial statements (income / balance / cash-flow) → /evidence for the newest
+    period's first available headline figure. US anchors candidate us-gaap concepts; KR
+    anchors the field name directly (the DART matcher resolves it to the account label)."""
     for key, headlines in _STATEMENT_HEADLINES:
         rows = [r for r in (data.get(key) or []) if isinstance(r, dict) and r.get("report_period")]
         rows.sort(key=lambda r: str(r.get("report_period")), reverse=True)
         for r in rows:
             for field in headlines:
                 if r.get(field) is not None:
-                    return _ev_qs(r.get("accession_number") or accn, cik, ",".join(_FIELD_CONCEPTS[field]),
+                    concept = field if market == "KR" else ",".join(_FIELD_CONCEPTS[field])
+                    return _ev_qs(market, r.get("accession_number") or accn, cik, concept,
                                   r.get("report_period"), r.get(field))
     return None
+
+
+def _evidence_url(data, accn, cik, market) -> str | None:
+    """PH-PROV2: the datasets `/evidence?…` URL for a filing-backed result's headline figure.
+    The frontend fetches the highlighted screenshot lazily — we only attach the link
+    (deterministic, no render), so the answer stream is never blocked. US handles both the
+    as-reported shape (explicit us-gaap concept) and the statement shape; KR (PH-PROV2d) uses
+    the statement shape, anchored on the field name. None when there's nothing to point at."""
+    m = (market or "").upper()
+    if m not in ("US", "KR") or not accn or not isinstance(data, dict):
+        return None
+    if m == "KR":  # DART has no as-reported XBRL — statement figures only
+        return _statement_url("KR", data, accn, cik)
+    # US as-reported: explicit us-gaap concept per line item
+    periods = data.get("periods")
+    if isinstance(periods, list) and periods and isinstance(periods[0], dict):
+        p = periods[0]
+        items = [it for it in (p.get("line_items") or []) if isinstance(it, dict)]
+        pick = next((it for it in items if "Revenue" in (it.get("concept") or "")), items[0] if items else None)
+        if pick and pick.get("value") is not None and pick.get("concept"):
+            return _ev_qs("US", pick.get("accession_number") or accn, cik, pick["concept"],
+                          p.get("report_period"), pick["value"])
+    return _statement_url("US", data, accn, cik)

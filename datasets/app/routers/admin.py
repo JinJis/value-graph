@@ -94,24 +94,26 @@ async def backfill(body: BackfillRequest) -> dict:
 @router.post(
     "/precompute-locations",
     dependencies=[ApiKeyDep],
-    summary="▶ PH-PROV2: index where each fact appears in its filing (US iXBRL)",
+    summary="▶ PH-PROV2: index where each fact appears in its filing (US iXBRL · KR DART)",
     description=(
-        "Downloads each ticker's recent SEC filings, matches every as-reported fact to its "
-        "inline-XBRL element, and stores a `FactLocation` pointer (powers the highlighted "
-        "evidence image at `/evidence`). Runs in the background; progress in `/admin/jobs`."
+        "Downloads each ticker's recent filings and stores a `FactLocation` pointer per "
+        "headline figure (US: match the as-reported fact to its inline-XBRL element; KR: "
+        "label-anchored exact match in the DART disclosure document). Powers the highlighted "
+        "evidence image at `/evidence`. Runs in the background; progress in `/admin/jobs`."
     ),
 )
 async def precompute_locations(body: PrecomputeLocationsRequest) -> dict:
-    # Visual evidence is SEC iXBRL only (PH-PROV2): resolve a preset to its US tickers,
-    # and skip any non-US request rather than indexing filings we can't match.
+    # Visual evidence: US (SEC iXBRL) + KR (DART document, PH-PROV2d). Presets are US-only
+    # universes; KR runs via explicit tickers. Reject other markets rather than indexing
+    # filings we can't match.
     market, tickers = body.market, body.tickers
     if body.preset:
         preset = get_preset(body.preset)
         if not preset:
             return {"started": False, "detail": f"unknown preset {body.preset!r}"}
         market, tickers = preset["market"], preset["tickers"]
-    if market != "US":
-        return {"started": False, "detail": "visual evidence is US (SEC iXBRL) only for now", "market": market}
+    if market not in ("US", "KR"):
+        return {"started": False, "detail": "visual evidence is US (SEC iXBRL) + KR (DART) only", "market": market}
     if not tickers:
         return {"started": False, "detail": "tickers required"}
     asyncio.create_task(run_precompute_locations(market, tickers))

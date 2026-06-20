@@ -172,6 +172,22 @@ def test_evidence_url_for_income_statements_uses_candidate_concepts():
     assert "Revenues" in c.evidence_image_url
 
 
+def test_evidence_url_for_kr_dart_statements():
+    # PH-PROV2d: KR income_statements (OpenDART) → an /evidence URL anchored on the field
+    # name (the DART matcher resolves it to the account label); market=KR, no us-gaap concept.
+    tool = {"name": "opendart__income_statements", "source": "OpenDART (FSS)", "connector": "opendart"}
+    data = {"income_statements": [
+        {"revenue": 300870903000000.0, "net_income": 34451351000000.0, "report_period": "2024-12-31",
+         "accession_number": "20250311000736"},
+        {"revenue": 258935494000000.0, "report_period": "2023-12-31", "accession_number": "20240312000736"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.evidence_image_url and "/evidence?" in c.evidence_image_url
+    assert "market=KR" in c.evidence_image_url
+    assert "concept=revenue" in c.evidence_image_url          # field name, not a us-gaap tag
+    assert "accession=20250311000736" in c.evidence_image_url  # newest period
+    assert "report_period=2024-12-31" in c.evidence_image_url
+
+
 def test_evidence_url_for_balance_sheet_instant_context():
     # PH-PROV2c: the balance_sheets tool (instant XBRL contexts) → evidence link for the
     # headline figure (total_assets → us-gaap:Assets), plus an extracted balance table.

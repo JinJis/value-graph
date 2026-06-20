@@ -182,7 +182,21 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       Scheduler/deep-backfill wiring: `ingest_ticker` best-effort precomputes US pointers behind
       `PRECOMPUTE_LOCATIONS` (the scheduler's `ingest_universe` goes through it → manual + scheduled both
       covered). datasets 97→99, agent-engine 67→69.
-    - ⬜ **PH-PROV2d** — DART/PDF evidence via PyMuPDF (no Chromium). ↳ PH-7b (KR raw XBRL).
+    - ✅ **PH-PROV2d · KR DART document evidence.** DART exposes no PDF/iXBRL — the OpenDART
+      `document.xml` API returns a ZIP of the disclosure document as HTML-ish markup. New
+      deterministic matcher `datasets/app/providers/kr/dart_document.py` (KR analog of `ixbrl.py`):
+      **label-anchors the statement row** by its Korean account name (매출액/영업이익/자산총계…) and
+      **exact-matches the value cell** at the unit scales DART tables use (원/천원/백만원/억원, △/()
+      negatives) — pure text match, no LLM, gaps → `miss`/`unavailable` never faked. `FactLocation`
+      gains KR rows (market="KR"); `locations_ingest._precompute_kr` downloads each filing's document
+      once and indexes its headline figures; `/admin/precompute-locations` + the ingest hook now accept
+      KR. **Renderer reused** (no PyMuPDF, no new dep): the `/evidence` KR path re-finds the cell at
+      render time and injects a unique `#id` (DART markup parsed by lxml vs. Chromium diverge —
+      `<tbody>`/tag-case — so a positional XPath isn't reused) for the existing `/render/sec` HTML path;
+      cache key stays unique per fact. agent-engine `_evidence_url` composes the KR link (market=KR,
+      field-name concept). Web unchanged (evidence is market-agnostic). datasets 99→105, agent-engine
+      69→70. *(Real-DART verification needs an `OPENDART_API_KEY` on the deployment stack; the matcher
+      is unit-tested against a DART-shaped fixture and every gap degrades to the text source card.)*
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).

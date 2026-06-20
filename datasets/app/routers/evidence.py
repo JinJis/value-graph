@@ -11,6 +11,7 @@ source card. Never fabricates a location.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import httpx
 from fastapi import APIRouter, Response
@@ -18,24 +19,45 @@ from fastapi import APIRouter, Response
 from app.config import settings
 from app.deps import ApiKeyDep
 from app.http import fetch_text
+from app.providers.kr.dart_document import KR_LABELS, fetch_document_markup, mark_target
 from app.providers.us.sec_edgar import _UA
 from app.store.locations_ingest import lookup_location
 
 router = APIRouter(tags=["Evidence"])
 
 
-async def _render(loc) -> bytes | None:
+async def _payload_us(loc) -> dict:
     # Fetch the filing HTML here (SEC accepts our httpx User-Agent + it's cached) and hand it
     # to the renderer — SEC 403s headless Chromium, and this avoids a second network fetch.
-    html = None
     try:
         html = await fetch_text("sec_edgar", loc.primary_doc_url, headers=_UA)
     except Exception:  # noqa: BLE001 — fall back to letting the renderer try goto()
         html = None
-    payload = {
-        "doc_url": loc.primary_doc_url, "accession": loc.accession_number,
-        "element_id": loc.element_id, "selector": loc.selector, "html": html,
-    }
+    return {"doc_url": loc.primary_doc_url, "accession": loc.accession_number,
+            "element_id": loc.element_id, "selector": loc.selector, "html": html}
+
+
+async def _payload_kr(loc) -> dict | None:
+    # DART markup is parsed by lxml at precompute but rendered by Chromium here — positional
+    # XPaths diverge (implicit <tbody>, tag-case), so re-find the figure and inject a robust
+    # unique #id the renderer targets. Unique per fact → no cross-fact cache-key collision.
+    markup = await fetch_document_markup(loc.accession_number)
+    if not markup:
+        return None
+    labels = KR_LABELS.get(loc.concept) or ([loc.selector] if loc.selector else [])
+    eid = "vg-ev-" + hashlib.sha256(
+        f"{loc.concept}|{loc.report_period}|{loc.value}".encode()).hexdigest()[:16]
+    html = mark_target(markup, loc.value, labels, eid)
+    if not html:
+        return None
+    return {"doc_url": loc.primary_doc_url, "accession": loc.accession_number,
+            "element_id": eid, "selector": None, "html": html}
+
+
+async def _render(loc) -> bytes | None:
+    payload = await (_payload_kr(loc) if (loc.market or "").upper() == "KR" else _payload_us(loc))
+    if payload is None:
+        return None
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 30) as client:
             resp = await client.post(f"{settings.renderer_url}/render/sec", json=payload)
