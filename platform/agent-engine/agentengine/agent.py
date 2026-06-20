@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from urllib.parse import urlencode
+
 from agentengine import guardrails
 from agentengine.client import PlatformClient
 from agentengine.config import settings
@@ -50,6 +52,78 @@ def _filing_link(market, accession, cik=None) -> str | None:
         return f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={accession}"
     if m == "US":
         return _sec_index_url(cik, accession)
+    return None
+
+
+# PH-PROV2b: our normalized income-statement fields → ordered candidate us-gaap concepts
+# (mirror of datasets INCOME_MAP; same field maps to different tags across filers, so the
+# /evidence lookup tries each in order). Headline order = what we'd point a viewer at first.
+_FIELD_CONCEPTS: dict[str, list[str]] = {
+    # income statement (duration contexts)
+    "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
+                "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"],
+    "net_income": ["NetIncomeLoss", "ProfitLoss"],
+    "operating_income": ["OperatingIncomeLoss"],
+    "gross_profit": ["GrossProfit"],
+    # balance sheet (instant contexts)
+    "total_assets": ["Assets"],
+    "total_liabilities": ["Liabilities"],
+    "shareholders_equity": ["StockholdersEquity",
+                            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+    "cash_and_equivalents": ["CashAndCashEquivalentsAtCarryingValue",
+                             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
+    # cash-flow statement (duration contexts)
+    "net_cash_flow_from_operations": ["NetCashProvidedByUsedInOperatingActivities"],
+    "net_cash_flow_from_investing": ["NetCashProvidedByUsedInInvestingActivities"],
+    "net_cash_flow_from_financing": ["NetCashProvidedByUsedInFinancingActivities"],
+}
+# per-statement result key (datasets shape) → ordered headline fields to anchor evidence on.
+# Mirrors the provider's concept maps; balance sheets resolve against instant XBRL contexts,
+# income/cash-flow against duration contexts — the matcher already indexes both (PH-PROV2c).
+_STATEMENT_HEADLINES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("income_statements", ("revenue", "net_income", "operating_income", "gross_profit")),
+    ("balance_sheets", ("total_assets", "total_liabilities", "shareholders_equity", "cash_and_equivalents")),
+    ("cash_flow_statements", ("net_cash_flow_from_operations", "net_cash_flow_from_investing",
+                              "net_cash_flow_from_financing")),
+)
+
+
+def _ev_qs(accn, cik, concept, report_period, value) -> str | None:
+    if not (accn and concept and report_period):
+        return None
+    q = {"market": "US", "accession": accn, "concept": concept, "report_period": report_period, "value": value}
+    if cik:
+        q["cik"] = cik
+    return "/evidence?" + urlencode(q)
+
+
+def _evidence_url(data, accn, cik, market) -> str | None:
+    """PH-PROV2: the datasets `/evidence?…` URL for a US filing-backed result's headline
+    figure. The frontend fetches the highlighted screenshot lazily — we only attach the
+    link (deterministic, no render), so the answer stream is never blocked. Handles both
+    the as-reported shape (explicit us-gaap concept) and the income-statement shape (our
+    normalized fields → candidate concepts). None when there's nothing to point at."""
+    if (market or "").upper() != "US" or not accn or not isinstance(data, dict):
+        return None
+    # as-reported: explicit us-gaap concept per line item
+    periods = data.get("periods")
+    if isinstance(periods, list) and periods and isinstance(periods[0], dict):
+        p = periods[0]
+        items = [it for it in (p.get("line_items") or []) if isinstance(it, dict)]
+        pick = next((it for it in items if "Revenue" in (it.get("concept") or "")), items[0] if items else None)
+        if pick and pick.get("value") is not None and pick.get("concept"):
+            return _ev_qs(pick.get("accession_number") or accn, cik, pick["concept"],
+                          p.get("report_period"), pick["value"])
+    # financial statements (income / balance / cash-flow): normalized fields → candidate
+    # concepts, anchored on the newest period's first available headline figure.
+    for key, headlines in _STATEMENT_HEADLINES:
+        rows = [r for r in (data.get(key) or []) if isinstance(r, dict) and r.get("report_period")]
+        rows.sort(key=lambda r: str(r.get("report_period")), reverse=True)
+        for r in rows:
+            for field in headlines:
+                if r.get(field) is not None:
+                    return _ev_qs(r.get("accession_number") or accn, cik, ",".join(_FIELD_CONCEPTS[field]),
+                                  r.get("report_period"), r.get(field))
     return None
 
 
@@ -117,6 +191,11 @@ _METRIC_COLS = (("gross_margin", "매출총이익률", _fmt_ratio), ("operating_
                 ("net_margin", "순이익률", _fmt_ratio), ("return_on_equity", "ROE", _fmt_ratio))
 _INCOME_COLS = (("revenue", "매출", _fmt_amt), ("operating_income", "영업이익", _fmt_amt),
                 ("net_income", "순이익", _fmt_amt))
+_BALANCE_COLS = (("total_assets", "자산총계", _fmt_amt), ("total_liabilities", "부채총계", _fmt_amt),
+                 ("shareholders_equity", "자본총계", _fmt_amt))
+_CASHFLOW_COLS = (("net_cash_flow_from_operations", "영업활동CF", _fmt_amt),
+                  ("net_cash_flow_from_investing", "투자활동CF", _fmt_amt),
+                  ("net_cash_flow_from_financing", "재무활동CF", _fmt_amt))
 
 
 def _shape_table(rows: list[dict], period_key: str, cols, period_label: str):
@@ -144,6 +223,10 @@ def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
         return _shape_table(data["metrics"], "report_period", _METRIC_COLS, "기간")
     if isinstance(data.get("income_statements"), list):
         return _shape_table(data["income_statements"], "report_period", _INCOME_COLS, "기간")
+    if isinstance(data.get("balance_sheets"), list):
+        return _shape_table(data["balance_sheets"], "report_period", _BALANCE_COLS, "기간")
+    if isinstance(data.get("cash_flow_statements"), list):
+        return _shape_table(data["cash_flow_statements"], "report_period", _CASHFLOW_COLS, "기간")
     if isinstance(data.get("prices"), list):
         rows = [r for r in data["prices"] if isinstance(r, dict)]
         rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]
@@ -300,7 +383,8 @@ def _citations(tool: dict, result: dict) -> list[Citation]:
         url = _filing_link(market, accn, cik)
     snippet, table = _evidence(tool, data)              # the real figures + extracted table
     return [Citation(tool=tool["name"], source=src, url=url, kind=ctype, as_of=as_of,
-                     freshness=compute_freshness(as_of), snippet=snippet, table=table, page=accn)]
+                     freshness=compute_freshness(as_of), snippet=snippet, table=table, page=accn,
+                     evidence_image_url=_evidence_url(data, accn, cik, market))]
 
 
 def _num(v) -> float | None:

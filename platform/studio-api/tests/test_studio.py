@@ -536,3 +536,21 @@ def test_watchlists_are_user_scoped(monkeypatch):
     other = client.post("/watchlists", headers=_hdr("intruder@u.com"), json={"name": "남그룹"}).json()
     assert client.post(f"/watchlists/{other['id']}/items", headers=_hdr("intruder@u.com"),
                        json={"market": "US", "ticker": "TSLA"}).status_code == 200
+
+
+@respx.mock
+def test_evidence_proxy_streams_png_or_204(monkeypatch):
+    """PH-PROV2: studio-api proxies the highlighted-evidence PNG from the gateway with the
+    user's tenant key, and degrades to 204 when the gateway has nothing."""
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/evidence")
+    route.mock(return_value=httpx.Response(200, content=b"\x89PNG-ev", headers={"content-type": "image/png"}))
+    q = "market=US&accession=0000320193-24-000123&concept=Revenues&report_period=2024-09-28"
+    r = client.get(f"/evidence?{q}", headers=_hdr("e@u.com"))
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/")
+    assert r.content == b"\x89PNG-ev"
+
+    route.mock(return_value=httpx.Response(204))  # gateway → no evidence
+    r2 = client.get(f"/evidence?{q}", headers=_hdr("e@u.com"))
+    assert r2.status_code == 204

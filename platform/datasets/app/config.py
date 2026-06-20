@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Headlines fetched per ticker per news-ingest run.
     news_ingest_limit: int = 8
 
+    # --- PH-PROV2: deterministic visual evidence --------------------------
+    # The renderer service that turns a fact locator into a highlighted screenshot.
+    renderer_url: str = "http://renderer:8006"
+    # Precompute fact→location pointers as part of ingest (off by default until proven).
+    precompute_locations: bool = False
+
     @property
     def accepted_api_keys(self) -> set[str]:
         return {k.strip() for k in self.datasets_api_keys.split(",") if k.strip()}

@@ -7,7 +7,92 @@
 
 ---
 
-## 1. The Insight Canvas — a composable, live-sourced authoring surface
+## 1. Pin-to-Dashboard — chat → sourced live artifacts → your own financial dashboard ("Datadog for investing")
+*(captured 2026-06-19)*
+
+**The idea (the north-star loop).** You **ask** anything — economy, finance, an investment idea, a single
+ticker — in **chat**. The desk answers not with prose but with **graphs, tables, and live data, each carrying
+its `source` + `as_of` + `freshness`** (and, via [PH-PROV2](#), a **highlighted screenshot of the exact filing
+line** the number came from). Any of those artifacts you find worth watching, you **📌 pin** — and they live on
+**your own dashboard** that **auto-refreshes** like a Datadog/Grafana monitoring board. The one-off *pull* (an
+ask) becomes a durable, self-curated, always-current **monitoring surface** you built yourself.
+
+**Why it fits.** This is the literal realization of the three pillars: **trust by construction** (every pinned
+figure stays sourced + freshness-stamped, gaps drawn), **pull→push** (a pinned card auto-refreshes and feeds
+brief/alert triggers), **clone ecosystem** (a board is shareable/cloneable with the reader's own watchlist
+substituted). It's "not a chatbot" made concrete — the chat is the *query bar* of a personal Bloomberg, and the
+dashboard is the product you keep coming back to.
+
+**Status: PARTIALLY BUILT.** **U3 Board** is exactly the MVP of this — `📌 핀` on every chat artifact card →
+the **보드** rail → a grid of pinned live cards with `↻새로고침` (U3-03a/03b, both ✅). The **open frontier**
+(IDEA): turning that grid into a real dashboard — layout/resize, **grouping by watchlist / `@group`**, multiple
+boards, alert tie-in to **briefs + the Disclosure Calendar** ("this pinned figure changed"), and pinning the
+*PH-PROV2 evidence screenshot* itself, not just the number. Cross-links the [Research Desk as a tool](#2-the-research-desk-as-a-tool--frameworks-live-blocks-hypothesis-journaling-portfolio-check-up)
+(frameworks/portfolio) and the [Insight Canvas](#3-the-insight-canvas--a-composable-live-sourced-authoring-surface)
+(prose around the same live blocks). **Do not expand the roadmap without approval.**
+
+## 2. The Research Desk as a *tool* — frameworks, live blocks, hypothesis journaling, portfolio check-up
+*(captured 2026-06-19)*
+
+**The idea.** Lean hard into "**not a chatbot, a productivity tool**" — a modern, web-native personal
+Bloomberg + an investor's journaling/collaboration surface. The user does the thinking; we give them the
+**best kitchen** (live, sourced data + frameworks) to cook with. Three motivating vignettes:
+- **나만의 인사이트 노트** — today people screenshot, draw on tables, color-code, hand-collect… too fiddly.
+  Instead: collect material conversationally (chat) → **pin to the Board** → spin it into a report. *(This is
+  exactly the [Insight Canvas](#3-the-insight-canvas--a-composable-live-sourced-authoring-surface) below —
+  the Board is its MVP substrate.)*
+- **반려주식 관리 ("pet stocks")** — people get stuck holding losers and feel they must study endlessly;
+  there's too much to learn. Make finding the *relevant, sourced* facts easy — and **kill hallucination**
+  (every figure traced to its filing — this is what PH-PROV2 visual evidence is for).
+- **포트폴리오 점검** — paste a screenshot of your brokerage portfolio → the desk checks it against
+  frameworks/simulations: macro/micro, FX, P&L state, **risk-reward (손익비)** math, what-if "if I took
+  action X, how could it move" laid out game-theory-style, and classic investor traps to watch.
+
+**Why it fits — and why it's clean, legally.** Nobody thinks Excel / Notion / TradingView *recommends*
+stocks; they're tools the user drives. Framing the desk as a **tool** (user pulls data and composes it),
+not an advisor, keeps it clear of investment-advisory regulation — *and* matches our existing **guardrail**
+(no advice / no forecasting, shown not hidden). Targets **high-engagement mid/advanced investors** building
+their own philosophy → higher retention + willingness to pay (subscription, not BYO-key).
+
+**Concrete features (sketches).**
+- **Framework templates ("framework as a template").** Don't start from a blank board — ship famous
+  investor models / book formulas as plug-in templates. *e.g.* 손익비 & Kelly-bet sizing board, Minervini
+  VCP (volatility-contraction) tracker, rate-cycle asset-allocation view. (Generalizes prompt-import + the
+  gallery clone pattern to **board/framework templates**.)
+- **Live data blocks.** Notion-block-style: drop a watchlist company's live valuation/chart next to your
+  prose (reuses the U3 artifact spec — live, sourced, freshness-stamped). = the Insight Canvas blocks.
+- **Hypothesis-verification journaling.** At buy time, record *why* (the thesis). The system tracks the
+  post-thesis price + fundamentals via the data plane and helps you **retrospect** ("was your hypothesis
+  right?") weeks later. A deterministic, sourced feedback loop on your own decisions.
+- **Portfolio check-up.** Import holdings (brokerage screenshot → OCR, or manual/CSV) → run framework
+  calculators (risk-reward, exposure, concentration), **user-parameterized** what-if, and a "common traps"
+  checklist. Calculators are deterministic; the data is sourced.
+
+**What it touches.** `web` (board/canvas + template gallery — big lift) · `studio-api` (Note/Board template
+models, portfolio model; mirror the prompt-import clone pattern) · `agent-engine` (framework calculators as
+**deterministic tools**, never hand-rolled advice) · OCR for screenshot import (a new capability;
+PaddleOCR/Upstage for KR) · governance/metering (PH-11/PH-12) for live-block refresh quotas.
+
+**Open questions / risks.**
+- **Guardrail tension (important).** "Simulation / what-if / strategy check / 손익비" must stay
+  **user-parameterized + sourced + deterministic** — a calculator the user drives, never a model-generated
+  forecast, score, or buy/sell suggestion. Reconcile every such feature with invariant #5 (no
+  forecasting/advice, shown). If a framework implies a recommendation, it's out.
+- **Hallucination = the whole brand.** Every figure must trace to a source (PH-PROV2). Frameworks compute
+  from sourced inputs only; gaps drawn, never filled.
+- **OCR reliability** for brokerage screenshots (formats vary, KR/EN); wrong import → wrong analysis. Needs
+  a verify-before-use step.
+- **Framework IP/licensing** (named methods/books) — attribute; check before shipping branded templates.
+- **Surface sprawl.** chat (pull) · standing analysts (push) · Board/Canvas (compose) · portfolio (check) —
+  decide the north-star ordering before committing; the Board is the shared substrate to build first.
+- *User's open question to revisit:* which **investment frameworks/formulas (손익비, …)** to ship first as
+  the flagship board templates?
+
+**Status:** IDEA. Strong fit with the "research desk = tool" north star; **do not add to the roadmap without
+approval.** Natural sequence: **Board (U3-03, done) → evaluate Canvas (#2) → framework templates → portfolio
+check-up.** Depends on PH-PROV2 (no-hallucination) being solid first.
+
+## 3. The Insight Canvas — a composable, live-sourced authoring surface
 *(captured 2026-06-15)*
 
 **The idea.** Professional investors organize their thinking by screenshotting charts/tables/filings and

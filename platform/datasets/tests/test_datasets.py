@@ -483,6 +483,71 @@ def test_admin_news_ingest_endpoint(monkeypatch):
     assert r.status_code == 200 and r.json()["started"] is True
 
 
+def test_admin_precompute_locations_preset_and_non_us(monkeypatch):
+    # PH-PROV2: precompute resolves a preset to its US tickers, and refuses non-US
+    # (visual evidence is SEC iXBRL only) — never silently indexes what it can't match.
+    import app.routers.admin as A
+
+    fired = {}
+
+    async def fake_run(market, tickers):
+        fired["market"], fired["tickers"] = market, tickers
+
+    monkeypatch.setattr(A, "run_precompute_locations", fake_run)
+
+    # explicit US tickers → started
+    assert client.post("/admin/precompute-locations",
+                       json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
+    assert fired["tickers"] == ["AAPL"]
+
+    # a preset is resolved server-side to its US tickers
+    fired.clear()
+    assert client.post("/admin/precompute-locations", json={"preset": "us_mega"}).json()["started"] is True
+    assert "AAPL" in fired["tickers"] and fired["market"] == "US"
+
+    # non-US is skipped, not fabricated
+    fired.clear()
+    body = client.post("/admin/precompute-locations", json={"market": "KR", "tickers": ["005930"]}).json()
+    assert body["started"] is False and "US" in body["detail"] and not fired
+
+
+async def test_ingest_ticker_precomputes_locations_for_us_when_flagged(monkeypatch):
+    # PH-PROV2c: with PRECOMPUTE_LOCATIONS on, a US backfill (manual OR scheduled/deep — both
+    # go through ingest_ticker) also indexes visual-evidence pointers; non-US is skipped.
+    import app.store.ingest as I
+    from app.symbols import Market
+
+    class _Ref:
+        ticker = "AAPL"
+        cik = "0000320193"
+
+    class _Prov:
+        async def income_statements(self, *a, **k): return []
+        async def balance_sheets(self, *a, **k): return []
+        async def cash_flow_statements(self, *a, **k): return []
+        async def company_facts(self, *a, **k): raise RuntimeError("skip")
+
+    monkeypatch.setattr(I, "build_ref", lambda market, ticker: _Ref())
+    monkeypatch.setattr(I, "get_financials_provider", lambda m: _Prov())
+    monkeypatch.setattr(I, "get_company_provider", lambda m: _Prov())
+
+    calls = []
+    import app.store.locations_ingest as L
+
+    async def fake_precompute(market, ticker, *a, **k):
+        calls.append((market, ticker))
+        return {}
+    monkeypatch.setattr(L, "precompute_locations_for_ticker", fake_precompute)
+    monkeypatch.setattr(I.settings, "precompute_locations", True)
+
+    await I.ingest_ticker(Market.US, "AAPL")
+    assert calls == [("US", "AAPL")]                 # US + flag on → precomputed
+
+    calls.clear()
+    await I.ingest_ticker(Market.KR, "005930")       # non-US → skipped (SEC iXBRL only)
+    assert calls == []
+
+
 # --- PH-5: cheap universe-enumeration endpoints ---------------------------
 _SEC_TICKERS = {
     "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
@@ -1171,3 +1236,40 @@ def test_catalog_has_rag_connector_routed_to_rag_service():
     assert ("POST", "/rag/search") not in all_resource_paths()
     assert ("POST", "/rag/search") in all_resource_paths(service="rag")
     assert rag.license.redistribution is False
+
+
+@respx.mock
+def test_ph_prov2_evidence_endpoint_streams_png_or_204():
+    """PH-PROV2: /evidence returns the highlighted screenshot when a FactLocation pointer
+    exists + the renderer succeeds, and 204 (graceful fallback) otherwise."""
+    from datetime import date
+
+    from app.store.locations_ingest import _upsert
+
+    # no pointer → 204 (UI falls back to the text source card)
+    r0 = client.get("/evidence?market=US&accession=none&concept=Revenues&report_period=2024-09-28")
+    assert r0.status_code == 204
+
+    _upsert([{
+        "market": "US", "cik": "320193", "accession_number": "0000320193-24-000999",
+        "concept": "Revenues", "period": "annual", "report_period": date(2024, 9, 28),
+        "value": 391_035_000_000.0, "unit": "USD",
+        "primary_doc_url": "https://www.sec.gov/Archives/edgar/data/320193/x/aapl.htm",
+        "element_id": "f-rev", "selector": None, "scale": 6, "sign": None,
+        "match_rule": "exact", "status": "matched",
+    }])
+
+    route = respx.post("http://renderer:8006/render/sec")
+    route.mock(return_value=httpx.Response(200, content=b"\x89PNG-evidence", headers={"content-type": "image/png"}))
+    r = client.get("/evidence?market=US&accession=0000320193-24-000999&concept=us-gaap:Revenues"
+                   "&report_period=2024-09-28&value=391035000000&cik=320193")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.content == b"\x89PNG-evidence"
+
+    meta = client.get("/evidence/meta?market=US&accession=0000320193-24-000999&concept=Revenues&report_period=2024-09-28")
+    assert meta.json()["available"] is True
+
+    # renderer fails → 204, never 500
+    route.mock(return_value=httpx.Response(502, json={"error": "boom"}))
+    r2 = client.get("/evidence?market=US&accession=0000320193-24-000999&concept=Revenues&report_period=2024-09-28")
+    assert r2.status_code == 204

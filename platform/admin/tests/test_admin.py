@@ -131,6 +131,45 @@ def test_ops_backfill_posts_to_datasets(monkeypatch):
     assert r2.status_code == 303 and captured["json"] == {"preset": "us_mega", "deep": True}
 
 
+def test_ops_backfill_precompute_checkbox_also_indexes_evidence(monkeypatch):
+    # PH-PROV2: ticking "📷 evidence" fires a second call to /admin/precompute-locations
+    # in the same submit (one click → backfill + visual-evidence pointers).
+    import httpx as _httpx
+
+    client.post("/login", data={"username": "admin", "password": "secret"})
+    calls = []
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"started": True}
+
+    class _Client:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): ...
+        async def post(self, url, json=None, timeout=None):
+            calls.append((url, json))
+            return _Resp()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _Client)
+    r = client.post("/ops/backfill",
+                    data={"market": "US", "tickers": "AAPL", "precompute": "1"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    paths = [u for u, _ in calls]
+    assert any(u.endswith("/admin/backfill") for u in paths)
+    assert any(u.endswith("/admin/precompute-locations") for u in paths)
+    pc = next(j for u, j in calls if u.endswith("/admin/precompute-locations"))
+    assert pc == {"market": "US", "tickers": ["AAPL"]}
+    # a preset submit forwards the preset (datasets resolves it to US tickers)
+    calls.clear()
+    client.post("/ops/backfill", data={"preset": "us_mega", "precompute": "1"}, follow_redirects=False)
+    pc2 = next(j for u, j in calls if u.endswith("/admin/precompute-locations"))
+    assert pc2 == {"preset": "us_mega"}
+
+
 def test_db_browser_lists_rows_and_relative_urls():
     client.post("/login", data={"username": "admin", "password": "secret"})
     # the self-contained browser pages the real rows (no sqladmin statics)

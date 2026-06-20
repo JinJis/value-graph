@@ -13,6 +13,7 @@ from datetime import date
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.providers.registry import get_company_provider, get_financials_provider
 from app.store.db import SessionLocal, init_db
 from app.store.models import Company, FinancialFact
@@ -98,6 +99,16 @@ async def ingest_ticker(market: Market, ticker: str, period: str = "annual", lim
             db.commit()
 
     await asyncio.to_thread(_write)
+
+    # PH-PROV2c: best-effort precompute of visual-evidence pointers (US SEC iXBRL only), so a
+    # backfill — manual or scheduled/deep — also indexes WHERE each figure sits in its filing.
+    # Behind a flag (default off); awaited so it shares the SEC rate limiter, never fails ingest.
+    if settings.precompute_locations and market is Market.US:
+        try:
+            from app.store.locations_ingest import precompute_locations_for_ticker
+            await precompute_locations_for_ticker(market.value, ref.ticker)
+        except Exception:
+            pass
     return len(rows)
 
 

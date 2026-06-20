@@ -8,7 +8,7 @@
 // fabricated full document.
 
 import { useState } from "react";
-import { Citation, sourceShape, hostOf, SrcTable } from "./SourceCard";
+import { Citation, sourceShape, hostOf, SrcTable, evidenceSrc } from "./SourceCard";
 import { FreshnessDot, FRESH_LABEL } from "./ui";
 
 const TABS: { key: "filing" | "web" | "data"; label: string }[] = [
@@ -20,7 +20,11 @@ const TABS: { key: "filing" | "web" | "data"; label: string }[] = [
 export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void }) {
   const shape = sourceShape(c);
   const [copied, setCopied] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
+  // PH-PROV2: the deterministic highlighted screenshot of the filing line (fetched lazily;
+  // falls back to the text rendering below on 204 / error — never fabricated).
+  const evSrc = evidenceSrc(c.evidence_image_url);
 
   async function copyCite() {
     const text = `“${c.snippet ?? ""}” — ${c.source ?? ""}${c.as_of ? ` (${c.as_of})` : ""}${c.url ? ` ${c.url}` : ""}`.trim();
@@ -41,6 +45,13 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
 
         <div className="sv-body">
           <div className="sv-stage">
+            {evSrc && !imgFailed && (
+              <figure className="sv-evidence">
+                <img className="sv-evidence-img" src={evSrc} loading="lazy"
+                     alt="원문에서 인용 부분 하이라이트" onError={() => setImgFailed(true)} />
+                <figcaption className="sv-evidence-cap mono">📷 실제 공시 원문 · 노란 박스가 인용한 수치</figcaption>
+              </figure>
+            )}
             {shape === "filing" && (
               <article className="sv-page">
                 <div className="sv-page-hd mono">{c.source || "공시 문서"}{c.page ? ` · ${c.page}` : ""}</div>
