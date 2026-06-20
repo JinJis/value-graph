@@ -1279,3 +1279,44 @@ def test_ph_prov2_evidence_endpoint_streams_png_or_204():
     route.mock(return_value=httpx.Response(502, json={"error": "boom"}))
     r2 = client.get("/evidence?market=US&accession=0000320193-24-000999&concept=Revenues&report_period=2024-09-28")
     assert r2.status_code == 204
+
+
+@respx.mock
+def test_ph_prov2d_kr_evidence_persists_anyurl_and_renders(monkeypatch):
+    """PH-PROV2d regression: KR statement models expose filing_url as a pydantic AnyUrl
+    (not a str) — it MUST be coerced before SQLite, else `_upsert` fails ('type AnyUrl is
+    not supported') and NO KR pointer persists → /evidence always 204. Then the KR
+    /evidence path re-finds the cell in the DART markup, injects an id, and renders."""
+    from datetime import date
+
+    from app.models.generated import IncomeStatement
+    from app.store.locations_ingest import _upsert, lookup_location
+
+    st = IncomeStatement(ticker="005930", period="annual", currency="KRW",
+                         report_period="2025-12-31", revenue=333_605_938_000_000.0,
+                         accession_number="20260310002820",
+                         filing_url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260310002820")
+    assert not isinstance(st.filing_url, str)  # AnyUrl — the exact hazard we coerce
+
+    assert _upsert([{
+        "market": "KR", "cik": "00126380", "accession_number": "20260310002820",
+        "concept": "revenue", "period": "annual", "report_period": date(2025, 12, 31),
+        "value": 333_605_938_000_000.0, "unit": "KRW",
+        "primary_doc_url": str(st.filing_url), "element_id": None, "selector": "매출액",
+        "scale": 6, "sign": None, "match_rule": "exact", "status": "matched",
+    }]) == 1
+    loc = lookup_location("KR", "20260310002820", "revenue", "2025-12-31")
+    assert loc is not None and loc.status == "matched" and isinstance(loc.primary_doc_url, str)
+
+    # /evidence (KR): re-fetch DART markup → re-find the 매출액 cell (백만원 scale) → inject id → render
+    import app.routers.evidence as EV
+
+    async def _fake_doc(_rcept):
+        return "<TABLE><TR><TD>매출액</TD><TD>333,605,938</TD></TR></TABLE>"
+
+    monkeypatch.setattr(EV, "fetch_document_markup", _fake_doc)
+    respx.post("http://renderer:8006/render/sec").mock(
+        return_value=httpx.Response(200, content=b"\x89PNG-kr", headers={"content-type": "image/png"}))
+    r = client.get("/evidence?market=KR&accession=20260310002820&concept=revenue"
+                   "&report_period=2025-12-31&value=333605938000000")
+    assert r.status_code == 200 and r.content == b"\x89PNG-kr"

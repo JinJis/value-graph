@@ -171,7 +171,9 @@ async def _precompute_kr(ticker: str, periods: tuple[str, ...], limit: int) -> d
                 "market": "KR", "cik": corp, "accession_number": accn,
                 "concept": ptr["concept"], "period": info["period"],
                 "report_period": _as_date(ptr["report_period"]), "value": ptr.get("value"),
-                "unit": "KRW", "primary_doc_url": info["doc_url"] or dart_url(accn),
+                # st.filing_url is a pydantic AnyUrl (not a str) — coerce, else SQLite
+                # refuses to bind it and the whole _upsert fails (no KR rows written).
+                "unit": "KRW", "primary_doc_url": str(info["doc_url"]) if info["doc_url"] else dart_url(accn),
                 "element_id": None, "selector": ptr.get("label"), "scale": ptr.get("scale"),
                 "sign": None, "match_rule": ptr.get("match_rule"), "status": ptr["status"],
             })

@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 254 unit** — datasets 105 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 255 unit** — datasets 106 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 70 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
@@ -203,6 +203,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         Context / source card even when the backend served them — the actual reason evidence wasn't
         showing end-to-end. Now carried through. (The agent emits them via `c.model_dump()`; studio-api +
         gateway proxy `/evidence` correctly; renderer is wired in compose.)
+      - **Bugfix (PH-PROV2d, KR persist):** KR statement models expose `filing_url` as a pydantic
+        `AnyUrl` (not a str); writing it straight into `FactLocation.primary_doc_url` made SQLite reject
+        the bind (`type 'AnyUrl' is not supported`) so the KR `_upsert` failed and **no KR pointer ever
+        persisted** → `/evidence` always 204 (US matched because its path uses plain-str dict values).
+        Coerced to `str`; verified live (Samsung revenue → matched, scale=6). +1 regression test → 106.
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
