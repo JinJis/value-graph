@@ -17,7 +17,6 @@ provision user → POST /agents (chosen data_sources) → POST /chat/stream → 
 Needs the stack up (Gemini backend for real natural-language answers):
 
 ```bash
-cd platform
 docker compose up -d                 # AGENT_LLM_BACKEND=gemini in .env, GOOGLE_API_KEY set
 python3 eval/run_eval.py             # stdlib only — no extra deps
 ```

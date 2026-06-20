@@ -84,7 +84,6 @@ Request flow (one chat turn): browser → web BFF (session) → studio-api (tena
 
 ## 5. Commands
 ```bash
-cd platform
 cp .env.example .env                 # free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true; GOOGLE_API_KEY for Gemini
 docker compose up --build            # datasets:8000 gateway:8010 rag:8002 agent:8003 studio:8004 web:3000 admin:8005
 docker compose up -d --build web     # rebuild one service after a change

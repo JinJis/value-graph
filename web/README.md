@@ -24,5 +24,5 @@ For Google login set `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` / `AUTH_SECRET` (an
 For real streamed answers, run the agent engine with `AGENT_LLM_BACKEND=gemini` + `GOOGLE_API_KEY`
 (the `stub` planner returns a sourced, canned answer with no key).
 
-Bring up the backend first: `cd platform && docker compose up --build` (datasets, control-plane, rag,
+Bring up the backend first: `docker compose up --build` (datasets, control-plane, rag,
 agent-engine, studio-api).

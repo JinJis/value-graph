@@ -10,7 +10,7 @@ grounded the answer in real data, cited the source, and respected its data-sourc
 restrictions / guardrails. An optional Gemini LLM-judge scores answer quality.
 
 Needs the stack up (default ports). Stdlib only — run with system python3:
-    cd platform && python3 eval/run_eval.py
+    python3 eval/run_eval.py
 Env: STUDIO_URL, RAG_URL, SERVICE_TOKEN, EVAL_USER, GOOGLE_API_KEY, AGENT_MODEL.
 """
 

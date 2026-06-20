@@ -7,7 +7,7 @@
 # Requires GOOGLE_API_KEY (Gemini). Without it the script SKIPS the LLM leg and
 # tells you exactly what to set — it never silently passes.
 #
-# Usage:  cd platform && bash scripts/e2e_live.sh
+# Usage:  bash scripts/e2e_live.sh
 #         GOOGLE_API_KEY=... AGENT_MODEL=gemini-flash-latest bash scripts/e2e_live.sh
 set -u
 cd "$(dirname "$0")/.."
@@ -28,7 +28,7 @@ if [ -z "$KEY" ]; then
    The Gemini live e2e needs a real key. To run it:
      1) put  GOOGLE_API_KEY=...   in .env   (or export it)
      2) (optional) AGENT_MODEL=gemini-flash-latest   # any valid Gemini model id
-     3) cd platform && bash scripts/e2e_live.sh
+     3) bash scripts/e2e_live.sh
    The stub-backed full e2e (no key) is:  bash scripts/e2e.sh
 MSG
   exit 2

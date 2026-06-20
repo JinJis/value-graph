@@ -3,7 +3,7 @@
 # Unit tests run in the uv base image (source mounted, deps cached in volumes); the
 # web build is a docker build; the e2e harnesses + eval drive `docker compose`.
 #
-#   cd platform && bash scripts/test_all.sh
+#   bash scripts/test_all.sh
 #
 # GOOGLE_API_KEY (in .env or env) enables the live-Gemini e2e + the quality
 # eval; without it they skip cleanly (not counted as failures). Only `docker` + a

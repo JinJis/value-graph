@@ -16,7 +16,6 @@ pieces (data-pipeline scheduler, self-test, RAG ingest/search, MCP/catalog).
 ## Run (in the stack)
 
 ```bash
-cd platform
 docker compose up -d admin          # http://localhost:8005  (login: admin / admin)
 ```
 

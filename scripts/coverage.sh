@@ -3,7 +3,7 @@
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
-#   cd platform && bash scripts/coverage.sh
+#   bash scripts/coverage.sh
 set -u
 cd "$(dirname "$0")/.."
 . "$(dirname "$0")/_viz.sh"

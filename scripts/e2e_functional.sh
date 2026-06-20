@@ -6,7 +6,7 @@
 #
 # Assertions check real CONTENT (Apple's name, a positive AAPL close, Samsung's
 # KRW revenue, the right RAG document for a zero-keyword-overlap query) — not just
-# HTTP 200. Run:  cd platform && bash scripts/e2e_functional.sh
+# HTTP 200. Run:  bash scripts/e2e_functional.sh
 set -u
 cd "$(dirname "$0")/.."
 . "$(dirname "$0")/_viz.sh"   # colored ok/fail/has/num/section/result

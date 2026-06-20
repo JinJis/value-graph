@@ -3,7 +3,7 @@
 #   catalog -> tenant/key -> entitlement (403/200) -> data plane + RAG through the
 #   gateway -> metering -> MCP tools. Exits non-zero on any failed assertion.
 #
-# Usage:  cd platform && bash scripts/e2e.sh
+# Usage:  bash scripts/e2e.sh
 set -u
 cd "$(dirname "$0")/.."
 . "$(dirname "$0")/_viz.sh"   # colored ok/fail/check/has/section/result

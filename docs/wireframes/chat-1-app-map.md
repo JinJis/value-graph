@@ -14,7 +14,7 @@ GitHub's connected! Paste any github.com repository URL (repo, folder, or file) 
 
 ## User
 
-https://github.com/JinJis/value-graph/tree/main/platform 이거 서비스 분석해서 와이어프레임 작성해. 
+https://github.com/JinJis/value-graph/tree/main 이거 서비스 분석해서 와이어프레임 작성해. 
 
 Admin 관련한거는 무시하고 특히 https://github.com/JinJis/value-graph/blob/main/docs/ROADMAP.md, https://github.com/JinJis/value-graph/blob/main/docs/UX_SPEC.md, https://github.com/JinJis/value-graph/blob/main/docs/ARCHITECTURE.md
 
