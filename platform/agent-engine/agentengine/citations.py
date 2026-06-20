@@ -8,105 +8,41 @@ backed the answer (evidence vs merely consulted).
 
 from __future__ import annotations
 
-import re
-
 from agentengine.evidence import _evidence_url
 from agentengine.freshness import compute_freshness
-from agentengine.models import Artifact, Citation
+from agentengine.models import Citation
 from agentengine.provenance import (
-    _PROV_KEYS,
     _canonical_provenance,
     _filing_link,
     _market_hint,
     _rag_link,
 )
 
+# Figure extraction (formatters, statement column specs, table shaping, as-of date)
+# and the inline-anchor / evidence-marking concern live in siblings; re-exported here
+# so importers (agent.py) keep resolving them via ``agentengine.citations``.
+from agentengine.figures import (  # noqa: F401
+    _BALANCE_COLS,
+    _CASHFLOW_COLS,
+    _INCOME_COLS,
+    _METRIC_COLS,
+    _collect_dates,
+    _evidence,
+    _fmt_amt,
+    _fmt_ratio,
+    _latest_date,
+    _shape_table,
+)
+from agentengine.anchors import (  # noqa: F401
+    anchor_markers,
+    has_anchors,
+    mark_evidence,
+)
+
 # filing-ish doc_type hints (RAG provenance) → the "filing" preview-card variant.
 _FILING_HINTS = ("10-k", "10-q", "8-k", "20-f", "6-k", "s-1", "filing", "annual", "quarterly")
 # datasets tools whose citation renders as a "metric computation" card, not raw data.
 _METRIC_HINTS = ("price", "metric", "snapshot", "financ", "ratio", "screener", "earnings")
-
-
-def _fmt_ratio(v) -> str:
-    return f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "—"
-
-
-def _fmt_amt(v) -> str:
-    if not isinstance(v, (int, float)):
-        return "—"
-    a = abs(v)
-    if a >= 1e12:
-        return f"{v / 1e12:.2f}T"
-    if a >= 1e9:
-        return f"{v / 1e9:.2f}B"
-    if a >= 1e6:
-        return f"{v / 1e6:.2f}M"
-    return f"{v:,.0f}" if a >= 1 else f"{v:.4f}"
-
-
-# known result shapes → (snippet, table[header-first]) showing the SPECIFIC figures used.
-_METRIC_COLS = (("gross_margin", "매출총이익률", _fmt_ratio), ("operating_margin", "영업이익률", _fmt_ratio),
-                ("net_margin", "순이익률", _fmt_ratio), ("return_on_equity", "ROE", _fmt_ratio))
-_INCOME_COLS = (("revenue", "매출", _fmt_amt), ("operating_income", "영업이익", _fmt_amt),
-                ("net_income", "순이익", _fmt_amt))
-_BALANCE_COLS = (("total_assets", "자산총계", _fmt_amt), ("total_liabilities", "부채총계", _fmt_amt),
-                 ("shareholders_equity", "자본총계", _fmt_amt))
-_CASHFLOW_COLS = (("net_cash_flow_from_operations", "영업활동CF", _fmt_amt),
-                  ("net_cash_flow_from_investing", "투자활동CF", _fmt_amt),
-                  ("net_cash_flow_from_financing", "재무활동CF", _fmt_amt))
-
-
-def _shape_table(rows: list[dict], period_key: str, cols, period_label: str):
-    rows = [r for r in rows if isinstance(r, dict)][:6]
-    use = [(k, lbl, fn) for k, lbl, fn in cols if any(r.get(k) is not None for r in rows)]
-    if not rows or not use:
-        return None, None
-    header = [period_label] + [lbl for _, lbl, _ in use]
-    table = [header]
-    for r in rows:
-        table.append([str(r.get(period_key) or "—")] + [fn(r.get(k)) for k, _, fn in use])
-    top = rows[0]
-    snippet = " · ".join(f"{lbl} {fn(top.get(k))}" for k, lbl, fn in use if top.get(k) is not None)
-    if top.get(period_key):
-        snippet += f" ({top.get(period_key)})"
-    return snippet or None, table
-
-
-def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
-    """The specific figures a structured result contributed — a one-line computation
-    summary + a small extracted table — so the preview shows real data, not a label."""
-    if not isinstance(data, dict):
-        return None, None
-    if isinstance(data.get("metrics"), list):
-        return _shape_table(data["metrics"], "report_period", _METRIC_COLS, "기간")
-    if isinstance(data.get("income_statements"), list):
-        return _shape_table(data["income_statements"], "report_period", _INCOME_COLS, "기간")
-    if isinstance(data.get("balance_sheets"), list):
-        return _shape_table(data["balance_sheets"], "report_period", _BALANCE_COLS, "기간")
-    if isinstance(data.get("cash_flow_statements"), list):
-        return _shape_table(data["cash_flow_statements"], "report_period", _CASHFLOW_COLS, "기간")
-    if isinstance(data.get("prices"), list):
-        rows = [r for r in data["prices"] if isinstance(r, dict)]
-        rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]
-        pr = [r for r in rows if r.get("close") is not None]
-        if pr:
-            table = [["날짜", "종가"]] + [[str(r.get("time"))[:10], _fmt_amt(r.get("close"))] for r in pr]
-            top = pr[0]
-            return f"종가 {_fmt_amt(top.get('close'))} ({str(top.get('time'))[:10]})", table
-    # generic fallback: first list-of-dicts → a compact table of its real values
-    for v in data.values():
-        if isinstance(v, list) and v and isinstance(v[0], dict):
-            rows = [r for r in v if isinstance(r, dict)][:6]
-            keys = [k for k in rows[0] if k.lower() not in _PROV_KEYS
-                    and isinstance(rows[0].get(k), (int, float, str))][:4]
-            if not keys:
-                break
-            header = keys
-            table = [header] + [[_fmt_amt(r.get(k)) if isinstance(r.get(k), (int, float)) else str(r.get(k) or "—")
-                                 for k in keys] for r in rows]
-            snippet = " · ".join(f"{k} {table[1][i]}" for i, k in enumerate(keys))
-            return snippet or None, table
-    return None, None
 
 
 def _rag_type(prov: dict) -> str:
@@ -120,29 +56,6 @@ def _rag_type(prov: dict) -> str:
 
 def _datasets_type(tool: dict) -> str:
     return "metric" if any(h in tool["name"].lower() for h in _METRIC_HINTS) else "data"
-
-
-_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-
-
-def _collect_dates(obj, out: list) -> None:
-    """Gather YYYY-MM-DD values under date-ish keys (report_period / as_of / date / filing_date)."""
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, str) and _DATE_RE.match(v) and any(t in k.lower() for t in ("date", "period", "as_of")):
-                out.append(v[:10])
-            else:
-                _collect_dates(v, out)
-    elif isinstance(obj, list):
-        for x in obj[:50]:
-            _collect_dates(x, out)
-
-
-def _latest_date(data) -> str | None:
-    """Most recent date-ish value in a datasets response — the figure's as-of."""
-    found: list[str] = []
-    _collect_dates(data, found)
-    return max(found) if found else None
 
 
 def _news_citations(tool: dict, data) -> list[Citation] | None:
@@ -253,35 +166,3 @@ def dedup_citations(cites: list[Citation]) -> list[Citation]:
         c.index = len(out) + 1  # 1-based [n] anchor
         out.append(c)
     return out
-
-
-# --- PH-4c: inline [n] source anchors -----------------------------------------
-_ANCHOR_RE = re.compile(r"\[\d+\]")
-
-
-def has_anchors(text: str | None) -> bool:
-    """True if the prose already carries inline [n] markers (e.g. gemini wrote them)."""
-    return bool(_ANCHOR_RE.search(text or ""))
-
-
-def anchor_markers(indices) -> str:
-    """Compact trailing anchor group: [1][2][3] (the deterministic floor when the
-    model didn't place markers inline — keeps every answer source-anchored)."""
-    return "".join(f"[{i}]" for i in indices if i)
-
-
-def mark_evidence(cites: list[Citation], answer: str, artifacts: list[Artifact]) -> list[Citation]:
-    """Flag which citations are *evidence* (actually backed the answer) vs merely
-    consulted. Evidence = cited by [n] in the prose OR backs a rendered artifact.
-    The Live Context shows only evidence; everything consulted stays in 도구·출처.
-    When the model wrote no inline [n] at all, evidence falls back to the citations
-    that actually returned data (a url / snippet / table) — never the bare labels."""
-    cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer or "")}
-    art_tools = {a.tool for a in artifacts if a.tool}
-    for c in cites:
-        c.used = (c.index in cited) or (c.tool in art_tools)
-    if cites and not any(c.used for c in cites):
-        data_bearing = [c for c in cites if c.url or c.snippet or c.table]
-        for c in (data_bearing or cites):
-            c.used = True
-    return cites
