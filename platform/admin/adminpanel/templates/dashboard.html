@@ -1,0 +1,62 @@
+
+<div class=top><h1>ValueGraph Admin</h1><a href=/logout>logout</a></div>{msg}
+<h2>Live status</h2>
+<div class=stat><span class=muted>catalog tools</span><b>{tool_count}</b></div>
+<div class=stat><span class=muted>RAG embedder</span><b>{rag_backend}</b></div>
+<div class=stat><span class=muted>scheduler</span><b>{sched_state}</b></div>
+<div class=stat><span class=muted>store rows</span><b>{fact_rows}</b></div>
+
+<h2>Databases — browse &amp; edit every table</h2>
+<div class=grid>{dbcards}</div>
+
+<h2>Ingestion store</h2>
+{store_html}
+<form class=ops method=post action=/ops/backfill>
+  <label class=muted>universe</label>
+  <select name=preset>{preset_opts}</select>
+  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
+  <button class=p>Backfill universe</button>
+</form>
+<form class=ops method=post action=/ops/backfill>
+  <label class=muted>or custom</label>
+  <select name=market><option>US</option><option>KR</option></select>
+  <input name=tickers placeholder="explicit tickers e.g. AAPL MSFT / 005930" size=34>
+  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
+  <button>Backfill tickers</button>
+</form>
+<p class=muted>📷 <b>evidence</b> = also precompute <b>visual-evidence pointers</b> (PH-PROV2): downloads each
+US ticker's SEC filings, matches every as-reported figure to its inline-XBRL line, and stores a
+<code>FactLocation</code> so the chat can show a <b>highlighted screenshot of the source</b>. US only;
+runs in the background (kind <b>locations</b> below).</p>
+
+<h2>News → RAG index</h2>
+<p class=muted>Pull Google News headlines into the RAG index so <code>rag__search</code> returns
+recent context. Indexed as a global corpus (visible to every tenant). Shows up in jobs below (kind <b>news</b>).</p>
+<form class=ops method=post action=/ops/news>
+  <select name=market><option>US</option><option>KR</option></select>
+  <input name=tickers placeholder="tickers e.g. AAPL MSFT / 005930 (blank = market news)" size=40>
+  <button class=p>Pull news → RAG</button>
+</form>
+
+<h2>Recent ingestion jobs</h2>
+{jobs_html}
+
+<h2>Data pipeline (scheduler)</h2>
+<form class=ops method=post action=/ops/scheduler/run><button class=p>Run scheduled ingestion now</button></form>
+<form class=ops method=post action=/ops/scheduler/pause><button>Pause</button></form>
+<form class=ops method=post action=/ops/scheduler/resume><button>Resume</button></form>
+<form class=ops method=post action=/ops/selftest><button>Run self-test</button></form>
+
+<h2>RAG</h2>
+<form class=ops method=post action=/ops/rag/ingest>
+  <input name=text placeholder="document text" size=44 required>
+  <input name=source placeholder=source value=admin size=10>
+  <input name=ticker placeholder=ticker size=8>
+  <input name=url placeholder=url size=16>
+  <button class=p>Ingest</button></form>
+<form class=ops method=post action=/ops/rag/search>
+  <input name=query placeholder="semantic query" size=44 required><button>Search</button></form>
+
+<h2>MCP &amp; catalog</h2>
+<p class=muted>The MCP server exposes one tool per catalog resource; the gateway reports
+<b>{tool_count}</b> connector resources. Browse them in the data-plane admin or via <code>/catalog</code>.</p>
