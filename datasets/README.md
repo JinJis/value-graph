@@ -126,6 +126,8 @@ Set `AUTH_DISABLED=true` for local dev to skip `X-API-KEY` checks. Optional paid
 
 > **FRED** sometimes serves a JS bot-challenge to datacenter IPs (returns 503 with a clear message);
 > it responds normally from a residential IP / your own machine. The self-test marks this `skipped`.
+> In the cloud, leave `MACRO_PROVIDER_US=auto` (default): US macro then falls back to the keyless,
+> bot-wall-free **DBnomics** (BIS central-bank policy rates) and keeps working without a FRED key.
 
 ---
 
@@ -219,6 +221,7 @@ Going earlier needs legacy-filing parsing or a licensed dataset.
 | `AUTH_DISABLED` | `false` | `true` skips `X-API-KEY` checks (dev) |
 | `DATABASE_URL` | `sqlite:///./datasets.db` | `postgresql://…` in prod |
 | `PRICES_PROVIDER_US` / `_KR` | `yahoo` | `yahoo`\|`stooq`\|`pykrx` |
+| `MACRO_PROVIDER_US` | `auto` | `auto`\|`fred`\|`dbnomics` — `auto` falls back FRED→DBnomics (cloud-safe, keyless) |
 | `CACHE_TTL_SECONDS` | `900` | upstream response cache TTL |
 | `SCHEDULER_ENABLED` | `false` | enable periodic ingestion |
 | `SCHEDULER_INTERVAL_SECONDS` | `3600` | refresh interval |

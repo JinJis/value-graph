@@ -76,7 +76,7 @@ section "Yahoo Finance — prices (2 tools)"
 tool "prices"          GET "/prices?ticker=AAPL&interval=day&start_date=2024-01-02&end_date=2024-01-08&market=US" "" 'close'
 tool "price_snapshot"  GET "/prices/snapshot?$US"                               "" 'snapshot'
 
-section "FRED — US macro (2 tools · bot-walled from this IP)"
+section "FRED / DBnomics — US macro (2 tools · cloud-safe via DBnomics/BIS fallback)"
 tool "interest_rates"          GET "/macro/interest-rates?bank=FED&market=US"          "" 'interest'
 tool "interest_rates_snapshot" GET "/macro/interest-rates/snapshot?bank=FED&market=US" "" 'interest'
 
