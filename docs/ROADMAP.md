@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 256 unit** — datasets 107 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 257 unit** — datasets 108 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 73 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (22 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (23 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -482,7 +482,31 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   [PH-PROV3e](#) (text from the cached evidence PDFs — one artifact = corpus + evidence)**, instead of a
   separate `/filings/items` ingest. PH-RAG remains the umbrella for *other* text sources (earnings-call
   transcripts, PH-SOURCES alt-data) ingested through the same pipeline shape. *(was PH-2c.)*
-- ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering). *(↳ PH-RAG text)*
+- 🚧 **PH-DATA · Data-source coverage (Valley-benchmarked, provenance-differentiated).** *(approved
+  2026-06-21)* Match the data BREADTH of competitor **Valley AI** (NeuroFusion / 월가아재), but cover only
+  the **descriptive, sourceable** types and put our wedge on each: **every datum provenance-linked to the
+  real filing (PROV3), and we never fabricate forecasts** (the guardrail is the brand). Valley's
+  forecast/model features — **DCF/DDM/RIM/Reverse-DCF/NTM, analyst estimates/consensus** — we deliberately
+  **do NOT** copy (they clash with "no forecasting/advice"); that refusal IS the differentiation.
+  Prioritized gaps (each → connector + MCP tool + provenance):
+  - ✅ **PH-DATA-1 · Superinvestor / "거장" portfolios** — `/gurus` (15 verified investors:
+    Buffett/Burry/Ackman/Dalio/Klarman/Icahn/Marks/Cohen/…) → `?slug=` returns that filer's latest **13F**
+    holdings via the existing provider, every position carrying its accession → cited to the SEC 13F. New
+    MCP tool `sec_edgar__gurus`; verified live (Buffett → Amex/Coca-Cola/Apple). +1 test, eval +1, coverage
+    "all 35". Cross-guru **common holdings** = a later add. *(Valley: 거장 매매/포트폴리오/공통보유종목)*
+  - ⬜ **PH-DATA-2 · Peer comparables**  ← **next** — current + historical **multiples vs sector peers** (descriptive,
+    each figure cited). *(Valley: 상대가치평가/historical multiples)*
+  - ⬜ **PH-DATA-3 · Corporate actions** — dividends + splits history (SEC/DART + prices). *(basic coverage
+    every platform has; we lack it)*
+  - ⬜ **PH-DATA-4 · Economic calendar + indicators DB** — broaden macro beyond rates; ties to the
+    Disclosure Calendar. *(Valley: 경제지표 일정/열람)*
+  - ⬜ **PH-DATA-5 · KPIs + earnings-call transcripts → RAG** = **PH-9** (KPI extraction from the PROV3e
+    filing-text corpus, each KPI cited to its passage) + transcripts via PH-RAG. *(Valley: KPI/실적·전망)*
+  - ⬜ **PH-DATA-6 · Technical indicators / sector heatmap** — computed from prices (descriptive). *(Valley:
+    기술지표/섹터 히트맵)*  · short interest, ownership breakdown — later.
+  *(KR realtime/flow/rankings come via the KIS connector; estimates/valuation-models intentionally excluded.)*
+- ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **folded into
+  PH-DATA-5**. *(↳ PH-RAG text, now via PROV3e)*
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a
   **JS bot-wall (not JSON) from datacenter IPs** even with a valid key → US macro breaks in cloud. Added a
   `macro_provider_us` selection (mirrors `prices_provider_*`): `auto` (default) | `fred` | `dbnomics`.

@@ -1495,3 +1495,30 @@ def test_ph8_index_funds_endpoint(monkeypatch):
     assert client.get("/index-funds").status_code == 400
     t = client.get("/index-funds/tickers").json()
     assert "SPY" in t["tickers"] and t["resource"] == "index_funds"
+
+
+# --- PH-DATA-1: superinvestor (거장) 13F portfolios -----------------------
+def test_phdata1_gurus_list_and_holdings(monkeypatch):
+    from app.models.generated import InstitutionalHolding
+    import app.routers.gurus as G
+
+    # list mode → curated registry (every entry has a verified CIK)
+    body = client.get("/gurus").json()
+    slugs = {g["slug"] for g in body["gurus"]}
+    assert {"buffett", "burry", "ackman"} <= slugs
+    assert all(g["cik"] and g["investor"] for g in body["gurus"])
+
+    # slug mode → that filer's 13F holdings (provider mocked; each carries an accession)
+    class _Fake:
+        async def by_filer(self, cik, limit):
+            assert cik == "0001067983"
+            return [InstitutionalHolding(name_of_issuer="Apple Inc", cusip="037833100",
+                                         value_usd=1000, accession_number="0001067983-26-000001")]
+    monkeypatch.setattr(G, "get_institutional_provider", lambda m: _Fake())
+    b = client.get("/gurus?slug=buffett&limit=5").json()
+    assert b["guru"]["investor"] == "Warren Buffett" and b["filer_cik"] == "0001067983"
+    assert b["holdings"][0]["cusip"] == "037833100"
+    assert b["holdings"][0]["accession_number"] == "0001067983-26-000001"  # → provenance to SEC 13F
+
+    # unknown slug → 404
+    assert client.get("/gurus?slug=nobody").status_code == 404

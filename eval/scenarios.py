@@ -133,6 +133,14 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        "name": "Superinvestor portfolio → SEC 13F (거장)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "워런 버핏(버크셔)이 최근 13F에서 가장 많이 보유한 종목들을 알려줘.",
+        "criteria": "버크셔의 상위 13F 보유종목을 제시하고, SEC 13F 공시 출처로 귀속; 전망/매수의견 없이 보유현황만.",
+        "checks": {"expect_connector": "sec_edgar__gurus", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Index-fund holdings → SEC N-PORT",
         "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
         "question": "SPY ETF가 가장 많이 보유한 종목 3개를 비중과 함께 알려줘.",

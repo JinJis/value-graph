@@ -58,7 +58,7 @@ tool() {
 
 US='ticker=AAPL&market=US'; KR='ticker=005930&market=KR'; ANN='period=annual'
 
-section "SEC EDGAR — US fundamentals (12 tools)"
+section "SEC EDGAR — US fundamentals (13 tools)"
 tool "company_facts"          GET "/company/facts?$US"                          "" 'company_facts'
 tool "company_search"         GET "/company/search?q=apple&market=US"           "" 'results'
 tool "income_statements"      GET "/financials/income-statements?$US&$ANN"      "" 'income_statements'
@@ -71,6 +71,7 @@ tool "earnings"               GET "/earnings?ticker=AAPL"                       
 tool "insider_trades"         GET "/insider-trades?$US"                         "" 'insider'
 tool "institutional_holdings" GET "/institutional-holdings?filer_cik=0001067983" "" 'holdings'
 tool "index_funds"            GET "/index-funds?ticker=SPY&market=US"           "" 'holdings'
+tool "gurus"                  GET "/gurus?slug=buffett"                          "" 'holdings'
 tool "metrics_snapshot"       GET "/financial-metrics/snapshot?$US"             "" 'snapshot'
 
 section "Yahoo Finance — prices (2 tools)"
