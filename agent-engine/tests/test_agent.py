@@ -1196,3 +1196,41 @@ def test_chart_markers_skip_other_ticker():
     history = [(_D(), {"data": {"ticker": "MSFT", "dividends": [{"ex_date": "2024-02-09", "amount": 0.75}]}})]
     enrich_chart_markers([a], history)
     assert a.markers == []   # MSFT events never bleed onto the AAPL chart
+
+
+def test_chart_annotation_validate_drops_future_and_out_of_range():
+    # PH-VIZ-3: only historical, in-range, sane-price annotations survive (no projection).
+    from agentengine.annotations import _validate
+    raw = {
+        "lines": [{"x1": "2024-02-01", "y1": 170, "x2": "2024-06-01", "y2": 200, "label": "저점→고점"},
+                  {"x1": "2099-01-01", "y1": 170, "x2": "2024-06-01", "y2": 200}],   # future endpoint → dropped
+        "hlines": [{"price": 195, "label": "저항"}, {"price": 999999}],               # absurd price → dropped
+        "vlines": [{"time": "2024-03-15", "label": "x"}, {"time": "2030-01-01"}],      # future → dropped
+    }
+    ann = _validate(raw, "2024-01-01", "2024-12-31", 150.0, 210.0)
+    assert ann and len(ann.lines) == 1 and ann.lines[0].label == "저점→고점"
+    assert len(ann.hlines) == 1 and ann.hlines[0].price == 195
+    assert len(ann.vlines) == 1 and ann.vlines[0].time == "2024-03-15"
+
+
+async def test_annotate_charts_attaches_validated_spec(monkeypatch):
+    from agentengine import annotations as AN
+    from agentengine.models import Artifact, ArtifactCandle
+    a = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL", candles=[
+        ArtifactCandle(time="2024-01-02", open=180, high=190, low=170, close=185),
+        ArtifactCandle(time="2024-06-03", open=185, high=210, low=180, close=200)])
+
+    async def fake(model, q, digest, tk):
+        return {"lines": [{"x1": "2024-01-02", "y1": 170, "x2": "2024-06-03", "y2": 210, "label": "L"}], "note": "n"}
+    monkeypatch.setattr(AN, "_gemini_annotate", fake)
+    await AN.annotate_charts([a], "2024 저점에서 고점까지 선 그어줘", "gemini-x", "gemini")
+    assert a.annotations and a.annotations.lines[0].label == "L" and a.annotations.note == "n"
+
+
+async def test_annotate_charts_noop_on_stub_backend():
+    from agentengine import annotations as AN
+    from agentengine.models import Artifact, ArtifactCandle
+    a = Artifact(kind="candlestick", title="x", ticker="AAPL",
+                 candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
+    await AN.annotate_charts([a], "q", "m", "stub")   # no LLM judgment on the stub path
+    assert a.annotations is None

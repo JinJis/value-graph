@@ -24,6 +24,7 @@ from agentengine.agent import (
     filter_tools, has_anchors, number_sources,
 )
 from agentengine.client import PlatformClient
+from agentengine.config import settings
 from agentengine.evidence import evidence_url_for_answer
 from agentengine.models import AgentSpec
 from agentengine.planner import get_planner
@@ -160,6 +161,10 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # `artifact` events went out before the later tool results existed).
     from agentengine.artifacts import enrich_chart_markers
     enrich_chart_markers(art_objs, history)
+    # PH-VIZ-3: Gemini annotates the price chart from the question (lines/levels/zones),
+    # validated to historical points only (no projection). Gemini-only; best-effort.
+    from agentengine.annotations import annotate_charts
+    await annotate_charts(art_objs, task, settings.model, spec.backend if spec else settings.llm_backend)
     if art_objs:
         artifacts = [o.model_dump() for o in art_objs]
 

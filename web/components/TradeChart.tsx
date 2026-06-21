@@ -112,6 +112,36 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
           color: m.color ?? "#4f8cff", shape: MARKER_SHAPE[m.kind ?? ""] ?? "circle", text: m.label,
         });
       });
+
+      // PH-VIZ-3: agent-authored annotations — trend lines (2-pt line series), level lines
+      // (price lines), date marks + zone edges (markers). Historical only (validated server-side).
+      const ann = a.annotations;
+      if (ann) {
+        (ann.lines ?? []).forEach((l) => {
+          const pts = [{ time: l.x1, value: l.y1 }, { time: l.x2, value: l.y2 }]
+            .sort((p, q) => (p.time < q.time ? -1 : 1));
+          const ls = chart.addLineSeries({
+            color: l.color ?? "#4f8cff", lineWidth: 2, lastValueVisible: false,
+            priceLineVisible: false, crosshairMarkerVisible: false, title: l.label ?? "",
+          });
+          ls.setData(pts.map((p) => ({ time: p.time as Time, value: p.value })));
+        });
+        (ann.hlines ?? []).forEach((h) =>
+          candle.createPriceLine({
+            price: h.price, color: h.color ?? "#9aa7bd", lineStyle: LineStyle.Dotted,
+            lineWidth: 1, axisLabelVisible: true, title: h.label ?? "",
+          }));
+        (ann.vlines ?? []).forEach((v) => {
+          const t = snap(v.time);
+          if (t) marks.push({ time: t as Time, position: "aboveBar", color: v.color ?? "#D9A300", shape: "arrowDown", text: v.label ?? "" });
+        });
+        (ann.zones ?? []).forEach((z) => {
+          const a0 = snap(z.t0), a1 = snap(z.t1);
+          if (a0) marks.push({ time: a0 as Time, position: "belowBar", color: "#4f8cff", shape: "square", text: z.label ? `▸ ${z.label}` : "▸" });
+          if (a1) marks.push({ time: a1 as Time, position: "belowBar", color: "#4f8cff", shape: "square", text: "◂" });
+        });
+      }
+
       if (marks.length) {
         marks.sort((x, y) => ((x.time as string) < (y.time as string) ? -1 : 1));
         candle.setMarkers(marks);
@@ -174,6 +204,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
         </div>
       </div>
       <div ref={box} className="tc-canvas" />
+      {a.annotations?.note && <div className="tc-note">✎ {a.annotations.note}</div>}
     </div>
   );
 }

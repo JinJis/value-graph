@@ -21,6 +21,14 @@ export type ArtifactMarker = {
   color?: string | null; source?: string | null; url?: string | null; snippet?: string | null;
 };
 export type ArtifactPriceLine = { price: number; label: string; color?: string | null };
+export type ChartAnnotations = {
+  lines?: { x1: string; y1: number; x2: string; y2: number; label?: string | null; color?: string | null }[];
+  hlines?: { price: number; label?: string | null; color?: string | null }[];
+  vlines?: { time: string; label?: string | null; color?: string | null }[];
+  zones?: { t0: string; t1: string; label?: string | null; color?: string | null }[];
+  rebase?: boolean;
+  note?: string | null;
+};
 export type Artifact = {
   kind: string;
   title: string;
@@ -28,6 +36,7 @@ export type Artifact = {
   candles?: ArtifactCandle[];  // kind=candlestick (prices): real OHLCV → candles + volume
   markers?: ArtifactMarker[];  // PH-VIZ-2: sourced events on the time axis (click → evidence)
   pricelines?: ArtifactPriceLine[];  // PH-VIZ-2: descriptive period high/low lines
+  annotations?: ChartAnnotations | null;  // PH-VIZ-3: agent-authored lines/levels/zones
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   source?: string | null;
   as_of?: string | null;

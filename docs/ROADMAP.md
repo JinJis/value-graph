@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 277 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 84 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 280 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 87 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -556,14 +556,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     existing **SourceViewer** (a data card with the event + source). Descriptive **period high/low price
     lines** drawn from the price data itself. +2 agent tests (82→84). *(filing/macro markers + shaded period
     bands = follow-on.)*
-  - ⬜ **PH-VIZ-3 · Agent-driven annotations (request → overlay).** An annotation spec
-    (`{lines:[{from:{t,price},to:{t,price}}], hlines:[{price,label}], vlines:[{t,label}], zones:[{t0,t1}],
-    markers:[{t,text,src}], range:{t0,t1}, rebase:bool}`) attached to the chart artifact. **Gemini decides
-    *what* to annotate from the question/answer** (no hardcoded keyword rules — invariant #9): "draw a line
-    from the 2024 low to the 2025 high", "mark every earnings in 2024", "highlight 2024-09-28", "rebase
-    AAPL vs MSFT to 100". Drawing primitives are **descriptive only** (trend/level lines over *historical*
-    points, zones, labels) — **no future projection**. Each agent-placed line/zone references the data
-    points (and their source) it was drawn from.
+  - ✅ **PH-VIZ-3 · Agent-driven annotations (request → overlay).** `annotations.py`: when a price chart
+    exists, **Gemini** reads the question + the real candle digest and returns a structured spec
+    (`ChartAnnotations`: lines / hlines / vlines / zones / rebase / note) — no hardcoded keyword rules
+    (invariant #9). Validated server-side: every point must fall **inside the chart's date range (no future
+    = no projection)** and a sane price band, else dropped. `<TradeChart>` renders trend lines (2-pt line
+    series), level lines (price lines), date/zone marks + a note caption. Gemini-only (stub = no-op).
+    +3 agent tests (84→87). *(zone shading + cross-ticker rebase compare = follow-on.)*
   - ⬜ **PH-VIZ-4 · Technical overlays on the chart** — render PH-DATA-6's SMA/EMA/Bollinger as price-pane
     overlays and RSI/MACD as sub-panes, descriptive labels, sourced "computed from Yahoo". (PH-DATA-6 =
     the data; PH-VIZ-4 = the rendering.)

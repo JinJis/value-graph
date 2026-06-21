@@ -235,6 +235,10 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     # earnings from this turn) to the price chart, so the chart shows the cited events.
     from agentengine.artifacts import enrich_chart_markers
     enrich_chart_markers(artifacts, history)
+    # PH-VIZ-3: let Gemini annotate the price chart from the question (lines/levels/zones),
+    # validated to historical points only (no projection). Gemini-only; best-effort.
+    from agentengine.annotations import annotate_charts
+    await annotate_charts(artifacts, task, settings.model, spec.backend if spec else settings.llm_backend)
 
     cites = dedup_citations(citations)
     # Mark which citations are evidence (cited [n] or back an artifact) vs consulted.

@@ -126,6 +126,48 @@ class ArtifactPriceLine(BaseModel):
     color: str | None = None
 
 
+class ChartLine(BaseModel):
+    """PH-VIZ-3: a trend/segment line between two HISTORICAL points (never projected)."""
+
+    x1: str            # 'YYYY-MM-DD'
+    y1: float
+    x2: str
+    y2: float
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartHLine(BaseModel):
+    price: float
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartVLine(BaseModel):
+    time: str          # 'YYYY-MM-DD'
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartZone(BaseModel):
+    t0: str
+    t1: str
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartAnnotations(BaseModel):
+    """PH-VIZ-3: agent-authored overlays. Gemini decides WHAT to draw from the question/
+    answer; descriptive over historical data only — no future projection / price target."""
+
+    lines: list[ChartLine] = []
+    hlines: list[ChartHLine] = []
+    vlines: list[ChartVLine] = []
+    zones: list[ChartZone] = []
+    rebase: bool = False
+    note: str | None = None
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
     it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
@@ -138,6 +180,8 @@ class Artifact(BaseModel):
     # PH-VIZ-2: sourced event markers + descriptive reference lines on a price chart.
     markers: list[ArtifactMarker] = []
     pricelines: list[ArtifactPriceLine] = []
+    # PH-VIZ-3: agent-authored annotations driven by the question (lines/zones/levels).
+    annotations: ChartAnnotations | None = None
     # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
     # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
     table: list[list[str]] | None = None
