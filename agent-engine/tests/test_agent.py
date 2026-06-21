@@ -188,6 +188,21 @@ def test_evidence_url_for_kr_dart_statements():
     assert "report_period=2024-12-31" in c.evidence_image_url
 
 
+def test_macro_citation_is_a_clean_data_card():
+    # PH-PROV3f: a non-document source (macro rates) → data-card evidence (exact values +
+    # source + as_of), no PDF/evidence image.
+    tool = {"name": "fred__interest_rates", "source": "BIS / FRED (central-bank policy rates)",
+            "connector": "fred"}
+    data = {"interest_rates": [
+        {"bank": "FED", "name": "U.S. Federal Reserve", "rate": 4.375, "date": "2025-07-08"},
+        {"bank": "FED", "name": "U.S. Federal Reserve", "rate": 4.5, "date": "2024-07-08"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["기관", "금리", "기준일"]
+    assert c.table[1] == ["U.S. Federal Reserve", "4.375%", "2025-07-08"]   # newest first
+    assert c.snippet and "4.375%" in c.snippet and c.as_of == "2025-07-08"
+    assert c.evidence_image_url is None  # no document → no highlight, just the data card
+
+
 def test_rag_filing_citation_carries_passage_evidence():
     # PH-PROV3e: a RAG hit from a filing (has an accession) → evidence link in text mode;
     # a news hit (no accession) gets none.

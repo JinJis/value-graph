@@ -71,6 +71,16 @@ def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
         return _shape_table(data["balance_sheets"], "report_period", _BALANCE_COLS, "기간")
     if isinstance(data.get("cash_flow_statements"), list):
         return _shape_table(data["cash_flow_statements"], "report_period", _CASHFLOW_COLS, "기간")
+    if isinstance(data.get("interest_rates"), list):
+        rows = sorted([r for r in data["interest_rates"] if isinstance(r, dict)],
+                      key=lambda r: str(r.get("date") or ""), reverse=True)
+        rr = [r for r in rows if r.get("rate") is not None][:6]
+        if rr:
+            table = [["기관", "금리", "기준일"]] + [
+                [str(r.get("name") or r.get("bank") or "—"), f"{r.get('rate')}%", str(r.get("date") or "—")[:10]]
+                for r in rr]
+            top = rr[0]
+            return f"{top.get('name') or top.get('bank')} {top.get('rate')}% ({str(top.get('date'))[:10]})", table
     if isinstance(data.get("prices"), list):
         rows = [r for r in data["prices"] if isinstance(r, dict)]
         rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]

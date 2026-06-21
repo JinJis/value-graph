@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 253 unit** — datasets 105 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 72 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 254 unit** — datasets 105 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 73 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -211,8 +211,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
       *(folded into PH-PROV3 below — same PDF + on-demand-locate mechanism.)*
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
-  - 🚧 **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
-    concept-precompute model; approved 2026-06-20)*. The pointer-precompute (PH-PROV2a–d) only covered a
+  - ✅ **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
+    concept-precompute model; approved 2026-06-20; a–f all shipped)*. The pointer-precompute (PH-PROV2a–d) only covered a
     **fixed set of headline concepts** per filing — it can't answer the *many* arbitrary questions users
     ask, is slow to precompute, and never covered narrative text. Invert it: **cache the whole filing as a
     PDF once** (universal coverage, one render/filing) and **locate + highlight on demand** whatever the
@@ -290,9 +290,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       - ✅ **agent wiring (slice 3).** `_rag_citations` attaches `rag_evidence_url(market, accession, text)`
         for filing hits (news/web hits have no accession → none), so a narrative answer's RAG source
         highlights its passage in the cached PDF. agent-engine 71→72; datasets 104→105.
-    - ⬜ **PH-PROV3f · non-document datasources.** prices/macro/metrics → **data-card evidence** (the
-      exact values used + source link + as_of; no PDF); news/web → publisher snippet + link. Closes the
-      trust envelope across every source, each with the evidence shape that fits it.
+    - ✅ **PH-PROV3f · non-document datasources → data-card evidence.** prices/macro/metrics/financials
+      render the **exact values used + source + as_of + freshness** as a data card (no PDF, by design) —
+      that IS their evidence. Added a clean macro **interest-rate shaper** (`기관·금리·기준일`); prices /
+      metrics / statements already had shapers; other row shapes use the generic extractor. news/web →
+      publisher snippet + link. Trust envelope now closed across every source. agent-engine 72→73.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---
