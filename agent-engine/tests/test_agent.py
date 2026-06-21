@@ -188,6 +188,23 @@ def test_evidence_url_for_kr_dart_statements():
     assert "report_period=2024-12-31" in c.evidence_image_url
 
 
+def test_rag_filing_citation_carries_passage_evidence():
+    # PH-PROV3e: a RAG hit from a filing (has an accession) → evidence link in text mode;
+    # a news hit (no accession) gets none.
+    tool = {"name": "rag__search", "connector": "rag", "source": "RAG"}
+    filing = {"hits": [{"text": "TSMC fabricates Apple's custom silicon under a multi-year supply agreement.",
+                        "provenance": {"source": "SEC EDGAR", "doc_type": "filing", "market": "US",
+                                       "accession": "0000320193-24-000123", "ticker": "AAPL",
+                                       "section": "p.12", "url": "https://sec.gov/i"}}]}
+    c = A._citations(tool, {"data": filing})[0]
+    assert c.evidence_image_url and "text=" in c.evidence_image_url
+    assert "accession=0000320193-24-000123" in c.evidence_image_url and "market=US" in c.evidence_image_url
+
+    news = {"hits": [{"text": "Apple shares rose.",
+                      "provenance": {"source": "Reuters", "doc_type": "news", "market": "US", "url": "https://r"}}]}
+    assert A._citations(tool, {"data": news})[0].evidence_image_url is None
+
+
 def test_evidence_anchors_on_the_figure_the_answer_cites():
     # PH-PROV3d: evidence highlights the line the ANSWER cites (net income), not always revenue.
     from agentengine.evidence import evidence_url_for_answer

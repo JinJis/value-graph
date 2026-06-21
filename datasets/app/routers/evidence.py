@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 
 from app.deps import ApiKeyDep
 from app.store.evidence_docs import get_evidence_doc
-from app.store.evidence_render import highlight_png, labels_for
+from app.store.evidence_render import highlight_png, highlight_text_png, labels_for
 
 router = APIRouter(tags=["Evidence"])
 log = logging.getLogger(__name__)
@@ -30,17 +30,22 @@ _PNG_CACHE = {"cache-control": "public, max-age=86400"}
             summary="PH-PROV3: highlighted source-filing image for a cited figure",
             description="Returns image/png, or 204 when no source location is available "
                         "(the UI then falls back to the text source card).")
-async def evidence(market: str, accession: str, concept: str, report_period: str,
-                   value: float | None = None, cik: str | None = None):
-    # cached PDF + PyMuPDF highlight (no browser in the hot path)
-    if value is not None:
+async def evidence(market: str, accession: str, concept: str | None = None,
+                   report_period: str | None = None, value: float | None = None,
+                   text: str | None = None, cik: str | None = None):
+    # cached PDF + PyMuPDF highlight (no browser in the hot path). Two modes:
+    #   value+concept → a statement figure;  text → a cited passage (RAG, PH-PROV3e).
+    if value is not None or text:
         doc = await asyncio.to_thread(get_evidence_doc, market, accession)
         if doc and doc["status"] == "stored":
-            png = await asyncio.to_thread(highlight_png, doc["pdf_path"], value, labels_for(market, concept))
+            if text:
+                png = await asyncio.to_thread(highlight_text_png, doc["pdf_path"], text)
+            else:
+                png = await asyncio.to_thread(highlight_png, doc["pdf_path"], value, labels_for(market, concept or ""))
             if png:
                 return Response(content=png, media_type="image/png", headers=_PNG_CACHE)
-    log.info("evidence 204: %s %s concept=%s value=%s (no cached PDF match)",
-             market, accession, concept, value)
+    log.info("evidence 204: %s %s concept=%s value=%s text=%s (no cached PDF match)",
+             market, accession, concept, value, bool(text))
     return Response(status_code=204)
 
 

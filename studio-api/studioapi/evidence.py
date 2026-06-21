@@ -21,17 +21,18 @@ router = APIRouter(tags=["Evidence"], dependencies=[Depends(require_service)])
 async def evidence(
     market: str = Query("US"),
     accession: str = Query(...),
-    concept: str = Query(...),
-    report_period: str = Query(...),
+    concept: str | None = Query(None),
+    report_period: str | None = Query(None),
     value: float | None = Query(None),
+    text: str | None = Query(None),       # PH-PROV3e: highlight a cited passage (text mode)
     cik: str | None = Query(None),
     user: User = Depends(current_user),
 ):
-    params: dict = {"market": market, "accession": accession, "concept": concept, "report_period": report_period}
-    if value is not None:
-        params["value"] = value
-    if cik:
-        params["cik"] = cik
+    params: dict = {"market": market, "accession": accession}
+    for k, v in (("concept", concept), ("report_period", report_period),
+                 ("value", value), ("text", text), ("cik", cik)):
+        if v is not None:
+            params[k] = v
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 40) as client:
             resp = await client.get(

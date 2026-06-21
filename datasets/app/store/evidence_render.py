@@ -140,6 +140,58 @@ def _render(pdf_path: str, value: float, labels: list[str]) -> bytes | None:
         doc.close()
 
 
+def _text_slice(text: str, n: int) -> str:
+    return " ".join((text or "").split()[:n])
+
+
+def _render_text(pdf_path: str, text: str) -> bytes | None:
+    """Find a distinctive leading slice of the passage on a page, highlight it, rasterize the
+    band. Tries progressively shorter slices (long phrases wrap across lines and won't match)."""
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        for n in (10, 6, 4):
+            slc = _text_slice(text, n)
+            if len(slc) < 8:
+                continue
+            for pno in range(doc.page_count):
+                rects = doc[pno].search_for(slc)
+                if not rects:
+                    continue
+                page = doc[pno]
+                page.add_highlight_annot(rects[0])
+                vr = rects[0]
+                band = fitz.Rect(0, max(0, vr.y0 - _BAND_PAD), page.rect.width,
+                                 min(page.rect.height, vr.y1 + _BAND_PAD * 2))
+                return page.get_pixmap(matrix=fitz.Matrix(_ZOOM, _ZOOM), clip=band).tobytes("png")
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        doc.close()
+
+
+def highlight_text_png(pdf_path: str, text: str) -> bytes | None:
+    """Cache-first highlighted PNG of a cited *passage* in the cached filing PDF (or None)."""
+    slc = _text_slice(text, 10)
+    if len(slc) < 8:
+        return None
+    key = hashlib.sha256(f"{RENDER_VERSION}|txt|{pdf_path}|{slc}".encode()).hexdigest()[:32]
+    cache = pathlib.Path(settings.evidence_docs_dir) / "cache" / f"{key}.png"
+    if cache.exists():
+        return cache.read_bytes()
+    png = _render_text(pdf_path, text)
+    if png is None:
+        log.info("evidence text MISS %r… in %s", slc[:40], pathlib.Path(pdf_path).name)
+        return None
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(png)
+    log.info("evidence text hit %r… (%d B) in %s", slc[:40], len(png), pathlib.Path(pdf_path).name)
+    return png
+
+
 def highlight_png(pdf_path: str, value: float, labels: list[str]) -> bytes | None:
     """Cache-first highlighted PNG of ``value`` in the cached filing PDF (or None)."""
     key = hashlib.sha256(

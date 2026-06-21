@@ -1426,3 +1426,23 @@ def test_ph_prov3e_admin_filings_ingest_endpoint(monkeypatch):
     assert client.post("/admin/filings/ingest", json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
     assert fired == {"market": "US", "tickers": ["AAPL"]}
     assert client.post("/admin/filings/ingest", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
+
+
+def test_ph_prov3e_text_evidence_endpoint(tmp_path, monkeypatch):
+    """/evidence text mode highlights a cited PASSAGE in the cached filing PDF."""
+    from app.config import settings
+    from app.store.evidence_docs import _upsert_doc
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+    pdf = tmp_path / "f.pdf"
+    _make_pdf(pdf, "Net sales were 391,035 and supply chain risks remain significant.")
+    _upsert_doc({"market": "US", "ticker": "AAPL", "accession_number": "0000320193-24-000123",
+                 "source_url": "https://sec.gov/i.htm", "pdf_path": str(pdf), "page_count": 1, "status": "stored"})
+
+    r = client.get("/evidence", params={"market": "US", "accession": "0000320193-24-000123",
+                                        "text": "Net sales were 391,035 and supply chain risks remain"})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    # a passage that isn't in the doc → 204 (graceful)
+    r2 = client.get("/evidence", params={"market": "US", "accession": "0000320193-24-000123",
+                                         "text": "totally unrelated sentence not present anywhere here"})
+    assert r2.status_code == 204

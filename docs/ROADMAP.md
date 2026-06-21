@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 251 unit** — datasets 104 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 71 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 253 unit** — datasets 105 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 72 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -273,7 +273,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         `/render/sec` screenshot path; `/evidence` is now PDF-only (no FactLocation fallback, no
         `/evidence/meta`); `_primary_doc_map` moved into `evidence_docs`. renderer 8→4, datasets 115→102
         (dead tests removed). The cached PDF + PyMuPDF is the single evidence path.
-    - 🚧 **PH-PROV3e · every PASSAGE searchable + evidenced — full filing text → RAG (the big one).**
+    - ✅ **PH-PROV3e · every PASSAGE searchable + evidenced — full filing text → RAG (the big one).**
       *This is what makes "search all info in all datasources" real; folds in PH-RAG + PH-PROV2e.*
       One PDF = corpus + evidence. *(supersedes standalone PH-RAG for the SEC/DART text corpus; news
       stays its own global corpus.)*
@@ -283,10 +283,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         `accession`+`section` through to hits — no RAG change). `POST /admin/filings/ingest` (preset +
         watchlist-scoped, ensures the PDFs first), IngestionJob kind `filing_text`. So `rag__search`
         can now return real filing passages. datasets 102→104.
-      - ⬜ **text-span evidence (slice 2).** `/evidence` `text=` mode → PyMuPDF `search_for` a
-        distinctive slice of the cited passage → highlight + page; "원문 열기" opens that page.
-      - ⬜ **agent wiring (slice 3).** Attach the evidence link for **RAG filing citations** (market +
-        accession + text) so a narrative answer's source highlights in the PDF too.
+      - ✅ **text-span evidence (slice 2).** `/evidence` `text=` mode → `evidence_render.highlight_text_png`
+        PyMuPDF `search_for`s a distinctive leading slice of the cited passage (tries 10→6→4 words as
+        long phrases wrap) → highlights + rasterizes the band. studio-api `/evidence` now forwards `text`
+        (concept/report_period made optional); web already forwards all params.
+      - ✅ **agent wiring (slice 3).** `_rag_citations` attaches `rag_evidence_url(market, accession, text)`
+        for filing hits (news/web hits have no accession → none), so a narrative answer's RAG source
+        highlights its passage in the cached PDF. agent-engine 71→72; datasets 104→105.
     - ⬜ **PH-PROV3f · non-document datasources.** prices/macro/metrics → **data-card evidence** (the
       exact values used + source link + as_of; no PDF); news/web → publisher snippet + link. Closes the
       trust envelope across every source, each with the evidence shape that fits it.

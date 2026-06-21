@@ -90,6 +90,15 @@ def _statement_url(market, data, accn, cik) -> str | None:
     return None
 
 
+def rag_evidence_url(market, accession, text: str | None) -> str | None:
+    """PH-PROV3e: `/evidence` for a cited filing PASSAGE — highlight the text span in the
+    cached PDF (text mode). Only filing hits carry an accession; news/web hits don't."""
+    m = (market or "").upper()
+    if m not in ("US", "KR") or not accession or not text:
+        return None
+    return "/evidence?" + urlencode({"market": m, "accession": accession, "text": text[:200]})
+
+
 def _fmt_variants(value) -> set[str]:
     """How a figure may appear in prose: thousands-comma'd at each unit scale (a $391,035M
     line is written '391,035' or '391.0' etc.). Used to detect which figure the answer cites."""
