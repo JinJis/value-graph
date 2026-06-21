@@ -44,3 +44,26 @@ async def evidence(
     except httpx.HTTPError:
         pass
     return Response(status_code=204)  # graceful fallback → UI shows the text source card
+
+
+@router.get("/evidence/doc", summary="The cached source-filing PDF for '원문 열기' (via the gateway)")
+async def evidence_doc(
+    market: str = Query("US"),
+    accession: str = Query(...),
+    user: User = Depends(current_user),
+):
+    """Stream the real filing PDF (PH-PROV3) from the data plane through the gateway with the
+    user's tenant key, so '원문 열기' opens the exact document. 204 when none is cached."""
+    try:
+        async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 40) as client:
+            resp = await client.get(
+                f"{settings.control_plane_url}/evidence/doc",
+                params={"market": market, "accession": accession},
+                headers={"X-API-KEY": user.api_key},
+            )
+        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
+            return Response(content=resp.content, media_type="application/pdf",
+                            headers={"cache-control": "private, max-age=86400"})
+    except httpx.HTTPError:
+        pass
+    return Response(status_code=204)

@@ -132,8 +132,8 @@ def test_ops_backfill_posts_to_datasets(monkeypatch):
 
 
 def test_ops_backfill_precompute_checkbox_also_indexes_evidence(monkeypatch):
-    # PH-PROV2: ticking "📷 evidence" fires a second call to /admin/precompute-locations
-    # in the same submit (one click → backfill + visual-evidence pointers).
+    # PH-PROV3: ticking "📷 evidence" fires a second call to /admin/evidence-docs in the same
+    # submit (one click → backfill + cache the filings as PDFs for /evidence).
     import httpx as _httpx
 
     client.post("/login", data={"username": "admin", "password": "secret"})
@@ -160,13 +160,13 @@ def test_ops_backfill_precompute_checkbox_also_indexes_evidence(monkeypatch):
     assert r.status_code == 303
     paths = [u for u, _ in calls]
     assert any(u.endswith("/admin/backfill") for u in paths)
-    assert any(u.endswith("/admin/precompute-locations") for u in paths)
-    pc = next(j for u, j in calls if u.endswith("/admin/precompute-locations"))
+    assert any(u.endswith("/admin/evidence-docs") for u in paths)
+    pc = next(j for u, j in calls if u.endswith("/admin/evidence-docs"))
     assert pc == {"market": "US", "tickers": ["AAPL"]}
-    # a preset submit forwards the preset (datasets resolves it to US tickers)
+    # a preset submit forwards the preset (datasets resolves it to its tickers)
     calls.clear()
     client.post("/ops/backfill", data={"preset": "us_mega", "precompute": "1"}, follow_redirects=False)
-    pc2 = next(j for u, j in calls if u.endswith("/admin/precompute-locations"))
+    pc2 = next(j for u, j in calls if u.endswith("/admin/evidence-docs"))
     assert pc2 == {"preset": "us_mega"}
 
 

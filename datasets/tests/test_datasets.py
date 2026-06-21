@@ -517,15 +517,12 @@ def test_admin_precompute_locations_preset_and_non_us(monkeypatch):
     assert body["started"] is False and not fired
 
 
-async def test_ingest_ticker_precomputes_locations_for_us_when_flagged(monkeypatch):
-    # PH-PROV2c: with PRECOMPUTE_LOCATIONS on, a US backfill (manual OR scheduled/deep — both
-    # go through ingest_ticker) also indexes visual-evidence pointers; non-US is skipped.
+async def test_ingest_ticker_builds_evidence_docs_when_flagged(monkeypatch):
+    # PH-PROV3: with PRECOMPUTE_LOCATIONS on, a backfill (manual OR scheduled/deep — both go
+    # through ingest_ticker) also caches each filing as a PDF so /evidence works — US AND KR.
+    import app.store.evidence_docs as ED
     import app.store.ingest as I
     from app.symbols import Market
-
-    class _Ref:
-        ticker = "AAPL"
-        cik = "0000320193"
 
     class _Prov:
         async def income_statements(self, *a, **k): return []
@@ -533,25 +530,22 @@ async def test_ingest_ticker_precomputes_locations_for_us_when_flagged(monkeypat
         async def cash_flow_statements(self, *a, **k): return []
         async def company_facts(self, *a, **k): raise RuntimeError("skip")
 
-    monkeypatch.setattr(I, "build_ref", lambda market, ticker: _Ref())
+    monkeypatch.setattr(I, "build_ref", lambda market, ticker: type("R", (), {"ticker": ticker, "cik": "0"})())
     monkeypatch.setattr(I, "get_financials_provider", lambda m: _Prov())
     monkeypatch.setattr(I, "get_company_provider", lambda m: _Prov())
 
     calls = []
-    import app.store.locations_ingest as L
 
-    async def fake_precompute(market, ticker, *a, **k):
+    async def fake_build(market, ticker, *a, **k):
         calls.append((market, ticker))
         return {}
-    monkeypatch.setattr(L, "precompute_locations_for_ticker", fake_precompute)
+
+    monkeypatch.setattr(ED, "build_evidence_docs_for_ticker", fake_build)
     monkeypatch.setattr(I.settings, "precompute_locations", True)
 
     await I.ingest_ticker(Market.US, "AAPL")
-    assert calls == [("US", "AAPL")]                 # US + flag on → precomputed
-
-    calls.clear()
-    await I.ingest_ticker(Market.KR, "005930")       # non-US → skipped (SEC iXBRL only)
-    assert calls == []
+    await I.ingest_ticker(Market.KR, "005930")
+    assert calls == [("US", "AAPL"), ("KR", "005930")]   # both markets cache evidence PDFs
 
 
 # --- PH-5: cheap universe-enumeration endpoints ---------------------------

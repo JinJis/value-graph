@@ -554,3 +554,20 @@ def test_evidence_proxy_streams_png_or_204(monkeypatch):
     route.mock(return_value=httpx.Response(204))  # gateway → no evidence
     r2 = client.get(f"/evidence?{q}", headers=_hdr("e@u.com"))
     assert r2.status_code == 204
+
+
+@respx.mock
+def test_evidence_doc_proxy_streams_pdf_or_204(monkeypatch):
+    """PH-PROV3: studio-api proxies the real source-filing PDF (원문 열기) from the gateway
+    with the user's tenant key, and degrades to 204 when none is cached."""
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/evidence/doc")
+    route.mock(return_value=httpx.Response(200, content=b"%PDF-1.4 ev", headers={"content-type": "application/pdf"}))
+    q = "market=KR&accession=20260310002820"
+    r = client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com"))
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.content == b"%PDF-1.4 ev"
+
+    route.mock(return_value=httpx.Response(204))
+    assert client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com")).status_code == 204

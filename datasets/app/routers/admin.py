@@ -122,6 +122,7 @@ async def precompute_locations(body: PrecomputeLocationsRequest) -> dict:
 
 
 class EvidenceDocsRequest(BaseModel):
+    preset: str | None = None  # a universe preset id (US); takes precedence
     market: str = "US"
     tickers: list[str] | None = None  # explicit tickers (watchlist-scoped)
 
@@ -138,13 +139,18 @@ class EvidenceDocsRequest(BaseModel):
     ),
 )
 async def evidence_docs(body: EvidenceDocsRequest) -> dict:
-    market = body.market
+    market, tickers = body.market, body.tickers
+    if body.preset:
+        preset = get_preset(body.preset)
+        if not preset:
+            return {"started": False, "detail": f"unknown preset {body.preset!r}"}
+        market, tickers = preset["market"], preset["tickers"]
     if market not in ("US", "KR"):
         return {"started": False, "detail": "US + KR only", "market": market}
-    if not body.tickers:
+    if not tickers:
         return {"started": False, "detail": "tickers required"}
-    asyncio.create_task(run_build_evidence_docs(market, body.tickers))
-    return {"started": True, "target": f"{market}:{body.tickers}", "see": "/admin/jobs"}
+    asyncio.create_task(run_build_evidence_docs(market, tickers))
+    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
 
 
 @router.post(

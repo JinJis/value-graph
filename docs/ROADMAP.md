@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 251 unit** — datasets 103 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 69 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
+> **Test totals (current): 261 unit** — datasets 115 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 70 · studio-api 35 (+ admin 12, renderer 8) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -242,9 +242,17 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       highlights the cell, rasterizes the page band → PNG (cache-first). `/evidence` serves the PDF path
       first (browser-free), falling back to the legacy FactLocation+renderer screenshot; new
       `/evidence/doc` streams the real PDF for `원문 열기`. `pymupdf` added to datasets. datasets 108→111.
-    - ⬜ **PH-PROV3c · generalize + agent wiring + retire concept-precompute.** RAG/news passage evidence,
-      prices/macro data-card evidence, agent citations on the new path; consolidate the filing-accession
-      resolution and remove the now-dead `FactLocation` concept-pointer precompute.
+    - ✅ **PH-PROV3c · auto-build evidence docs + "원문 열기" = the real PDF.** The ingest hook
+      (`PRECOMPUTE_LOCATIONS`) and the admin "📷 evidence" checkbox now **cache filings as PDFs**
+      (`build_evidence_docs`, US + KR) instead of the old concept pointers, so evidence works for a
+      backfilled/watchlist ticker with no separate step; `/admin/evidence-docs` gained preset support.
+      "원문 열기" now opens the **actual cached PDF**: datasets `/evidence/doc` → studio-api proxy →
+      web `/api/evidence/doc`; `SourceViewer` links to it once the highlight image has loaded (so the
+      PDF is known to exist), else the official source page. studio-api 34→35.
+    - ⬜ **PH-PROV3d · generalize + retire the legacy path.** RAG/news passage evidence + prices/macro
+      data-card evidence; then remove the now-dead `FactLocation` concept-pointer precompute
+      (`/admin/precompute-locations`, `locations_ingest`, renderer `/render/sec` screenshot, the
+      `/evidence` legacy fallback) and consolidate the filing-accession resolution.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---

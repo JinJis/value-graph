@@ -73,9 +73,10 @@ class Settings(BaseSettings):
     # --- PH-PROV2: deterministic visual evidence --------------------------
     # The renderer service that turns a fact locator into a highlighted screenshot.
     renderer_url: str = "http://renderer:8006"
-    # Precompute fact→location pointers as part of ingest (off by default until proven).
+    # PH-PROV3: cache each filing as a PDF during ingest so /evidence works for it
+    # (US iXBRL→render · KR official PDF). Off by default (adds fetch/render time to ingest).
     precompute_locations: bool = False
-    # PH-PROV3: where cached PDF-normalized filings live (on the datasets data volume).
+    # Where cached PDF-normalized filings live (on the datasets data volume).
     evidence_docs_dir: str = "/data/evidence_docs"
 
     @property

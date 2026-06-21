@@ -8,7 +8,7 @@
 // fabricated full document.
 
 import { useState } from "react";
-import { Citation, sourceShape, hostOf, SrcTable, evidenceSrc } from "./SourceCard";
+import { Citation, sourceShape, hostOf, SrcTable, evidenceSrc, evidenceDocSrc } from "./SourceCard";
 import { FreshnessDot, FRESH_LABEL } from "./ui";
 
 const TABS: { key: "filing" | "web" | "data"; label: string }[] = [
@@ -21,10 +21,13 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
   const shape = sourceShape(c);
   const [copied, setCopied] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  const [imgOk, setImgOk] = useState(false);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
   // PH-PROV2: the deterministic highlighted screenshot of the filing line (fetched lazily;
   // falls back to the text rendering below on 204 / error — never fabricated).
   const evSrc = evidenceSrc(c.evidence_image_url);
+  // PH-PROV3: if the highlight loaded, the real PDF exists → "원문 열기" opens it.
+  const docSrc = evidenceDocSrc(c.evidence_image_url);
 
   async function copyCite() {
     const text = `“${c.snippet ?? ""}” — ${c.source ?? ""}${c.as_of ? ` (${c.as_of})` : ""}${c.url ? ` ${c.url}` : ""}`.trim();
@@ -48,7 +51,8 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
             {evSrc && !imgFailed && (
               <figure className="sv-evidence">
                 <img className="sv-evidence-img" src={evSrc} loading="lazy"
-                     alt="원문에서 인용 부분 하이라이트" onError={() => setImgFailed(true)} />
+                     alt="원문에서 인용 부분 하이라이트"
+                     onLoad={() => setImgOk(true)} onError={() => setImgFailed(true)} />
                 <figcaption className="sv-evidence-cap mono">📷 실제 공시 원문 · 노란 박스가 인용한 수치</figcaption>
               </figure>
             )}
@@ -107,7 +111,11 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
               {c.page ? <div>{c.page}</div> : null}
             </div>
             <div className="sv-ctx-actions">
-              {c.url ? <a className="sv-act primary" href={c.url} target="_blank" rel="noreferrer">원문 열기 ↗</a> : null}
+              {imgOk && docSrc ? (
+                <a className="sv-act primary" href={docSrc} target="_blank" rel="noreferrer">원문 PDF 열기 ↗</a>
+              ) : c.url ? (
+                <a className="sv-act primary" href={c.url} target="_blank" rel="noreferrer">원문 열기 ↗</a>
+              ) : null}
               <button className="sv-act" onClick={copyCite}>{copied ? "복사됨 ✓" : "인용 복사"}</button>
             </div>
           </aside>

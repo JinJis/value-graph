@@ -37,6 +37,17 @@ export function evidenceSrc(url?: string): string | null {
   return url ? url.replace(/^\/evidence/, "/api/evidence") : null;
 }
 
+// PH-PROV3: the real source-filing PDF for "원문 열기", derived from the same /evidence
+// params (market + accession). Null if the citation carries no evidence link.
+export function evidenceDocSrc(url?: string): string | null {
+  const q = url?.split("?")[1];
+  if (!q) return null;
+  const p = new URLSearchParams(q);
+  const market = p.get("market"), accession = p.get("accession");
+  if (!market || !accession) return null;
+  return `/api/evidence/doc?market=${encodeURIComponent(market)}&accession=${encodeURIComponent(accession)}`;
+}
+
 // PH-PROV2: inline teaser of the highlighted-filing screenshot, shown right on the
 // card so the evidence is visible without expanding. Lazy-loaded; on 204/error it
 // removes itself (never a broken image). Click the card to open the full viewer.

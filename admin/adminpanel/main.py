@@ -229,14 +229,14 @@ async def ops_backfill(request: Request, preset: str = Form(""), market: str = F
     async with httpx.AsyncClient() as c:
         r = await c.post(f"{settings.datasets_url}/admin/backfill", json=payload, timeout=20)
         ok = r.status_code == 200
-        # Same trigger, one click: also index visual-evidence pointers (US SEC iXBRL).
+        # Same trigger, one click: also cache the filings as PDFs for /evidence (US + KR).
         # Independent of the backfill job (it reads filings live), so fire-and-forget here;
-        # the datasets endpoint resolves the preset and skips non-US tickers itself.
+        # the datasets endpoint resolves the preset itself.
         ev = ""
         if precompute:
             pc = {"preset": preset} if preset else {"market": market, "tickers": tick}
-            pr = await c.post(f"{settings.datasets_url}/admin/precompute-locations", json=pc, timeout=20)
-            ev = "+evidence" if pr.status_code == 200 and pr.json().get("started") else "+(evidence+skipped:+US+only)"
+            pr = await c.post(f"{settings.datasets_url}/admin/evidence-docs", json=pc, timeout=20)
+            ev = "+evidence" if pr.status_code == 200 and pr.json().get("started") else "+(evidence+failed)"
     return RedirectResponse(
         f"/?msg=backfill+{'started' if ok else 'failed'}+{label}{ev}+(watch+progress+below)", status_code=303
     )

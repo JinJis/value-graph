@@ -14,20 +14,19 @@
 <form class=ops method=post action=/ops/backfill>
   <label class=muted>universe</label>
   <select name=preset>{preset_opts}</select>
-  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
+  <label class=muted title="Cache each filing as a PDF (US + KR) so the chat can highlight the cited figure in the real document"><input type=checkbox name=precompute value=1> 📷 evidence</label>
   <button class=p>Backfill universe</button>
 </form>
 <form class=ops method=post action=/ops/backfill>
   <label class=muted>or custom</label>
   <select name=market><option>US</option><option>KR</option></select>
   <input name=tickers placeholder="explicit tickers e.g. AAPL MSFT / 005930" size=34>
-  <label class=muted title="Index where each figure sits in its SEC filing (US iXBRL), for highlighted evidence images"><input type=checkbox name=precompute value=1> 📷 evidence</label>
+  <label class=muted title="Cache each filing as a PDF (US + KR) so the chat can highlight the cited figure in the real document"><input type=checkbox name=precompute value=1> 📷 evidence</label>
   <button>Backfill tickers</button>
 </form>
-<p class=muted>📷 <b>evidence</b> = also precompute <b>visual-evidence pointers</b> (PH-PROV2): downloads each
-US ticker's SEC filings, matches every as-reported figure to its inline-XBRL line, and stores a
-<code>FactLocation</code> so the chat can show a <b>highlighted screenshot of the source</b>. US only;
-runs in the background (kind <b>locations</b> below).</p>
+<p class=muted>📷 <b>evidence</b> = also cache each filing as a <b>PDF</b> (PH-PROV3): US iXBRL is rendered to PDF,
+KR pulls DART's official PDF; the chat then highlights the cited figure in the real document (PyMuPDF) and
+"원문 열기" opens the PDF. US + KR; runs in the background (kind <b>evidence_docs</b> below).</p>
 
 <h2>News → RAG index</h2>
 <p class=muted>Pull Google News headlines into the RAG index so <code>rag__search</code> returns
