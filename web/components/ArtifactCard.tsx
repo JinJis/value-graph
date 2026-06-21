@@ -2,16 +2,24 @@
 
 import { useState } from "react";
 import { FreshnessDot } from "./ui";
+import { TradeChart } from "./TradeChart";
 
-// U3-02: render a connector-backed Artifact as an interactive card — a dependency-free
-// SVG line chart (matte palette) with a 차트/표 toggle, source + freshness, drawn gaps.
+// U3-02 / PH-VIZ-1: render a connector-backed Artifact as an interactive card. Time-series
+// and price (candlestick) artifacts delegate to <TradeChart> (TradingView Lightweight
+// Charts); a 차트/표 toggle keeps the extracted-figures table; KPI/table artifacts render
+// as a sourced matrix.
 
 type ArtifactPoint = { x: string; y: number | null };
 type ArtifactSeries = { label: string; unit?: string | null; points: ArtifactPoint[] };
+type ArtifactCandle = {
+  time: string; open?: number | null; high?: number | null; low?: number | null;
+  close?: number | null; volume?: number | null;
+};
 export type Artifact = {
   kind: string;
   title: string;
   series: ArtifactSeries[];
+  candles?: ArtifactCandle[];  // kind=candlestick (prices): real OHLCV → candles + volume
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   source?: string | null;
   as_of?: string | null;
@@ -21,7 +29,7 @@ export type Artifact = {
   tool?: string | null;
 };
 
-const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // dark→light gray on light cards, then sparse trust accent
+const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // table-view legend swatches
 
 // PH-DATA-5: a table/KPI artifact (no time series) — render the header-first matrix as a
 // card so a pinned KPI card shows on the Board too. Pin/remove reuse the chart-card chrome.
@@ -86,13 +94,8 @@ export function ArtifactCard(
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
   }
   const xs = Array.from(new Set(a.series.flatMap((s) => s.points.map((p) => p.x)))).sort();
-  const ys = a.series.flatMap((s) => s.points.map((p) => p.y)).filter((v): v is number => v != null);
-  const unit = a.series[0]?.unit;
-  if (xs.length === 0 || ys.length === 0) return null;
-  const yMin = Math.min(...ys), yMax = Math.max(...ys);
-  const W = 520, H = 150, PAD = 10;
-  const xPos = (x: string) => (xs.length <= 1 ? W / 2 : PAD + (xs.indexOf(x) / (xs.length - 1)) * (W - 2 * PAD));
-  const yPos = (y: number) => (yMax === yMin ? H / 2 : H - PAD - ((y - yMin) / (yMax - yMin)) * (H - 2 * PAD));
+  const hasCandles = (a.candles?.length ?? 0) > 0;
+  if (xs.length === 0 && !hasCandles) return null;
 
   return (
     <div className="artifact">
@@ -135,31 +138,17 @@ export function ArtifactCard(
           </tbody>
         </table>
       ) : (
-        <svg className="artifact-svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={a.title}>
-          {a.series.map((s, i) => {
-            const pts = s.points.filter((p) => p.y != null);
-            const d = pts.map((p, j) => `${j === 0 ? "M" : "L"} ${xPos(p.x).toFixed(1)} ${yPos(p.y as number).toFixed(1)}`).join(" ");
-            const stroke = STROKES[i % STROKES.length];
-            return (
-              <g key={s.label}>
-                <path d={d} fill="none" stroke={stroke} strokeWidth={1.6}
-                  strokeDasharray={a.has_gap ? "4 3" : undefined} />
-                {pts.map((p) => <circle key={p.x} cx={xPos(p.x)} cy={yPos(p.y as number)} r={2.2} fill={stroke} />)}
-              </g>
-            );
-          })}
-        </svg>
+        <TradeChart a={a} />
       )}
 
-      {!table && (
-        <div className="artifact-xaxis mono"><span>{xs[0]}</span><span>{xs[xs.length - 1]}</span></div>
-      )}
       <div className="artifact-foot">
-        <div className="artifact-legend">
-          {a.series.map((s, i) => (
-            <span key={s.label}><i style={{ background: STROKES[i % STROKES.length] }} /> {s.label}</span>
-          ))}
-        </div>
+        {!hasCandles && (
+          <div className="artifact-legend">
+            {a.series.map((s, i) => (
+              <span key={s.label}><i style={{ background: STROKES[i % STROKES.length] }} /> {s.label}</span>
+            ))}
+          </div>
+        )}
         <span className="artifact-src">
           {a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}
           {a.has_gap ? <span className="artifact-gap"> · 일부 구간 공백</span> : null}

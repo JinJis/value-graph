@@ -471,3 +471,15 @@ select.input { appearance: none; }
 .kpi-ev-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .kpi-ev-head h4 { margin: 0; font-size: 13px; }
 .kpi-ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+
+/* ── TradeChart (PH-VIZ-1) ─────────────────────────────────────────────── */
+.tradechart { width: 100%; }
+.tc-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 8px; flex-wrap: wrap; }
+.tc-ranges, .tc-toggles { display: inline-flex; gap: 2px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 2px; }
+.tc-ranges button, .tc-toggles button {
+  background: none; border: 0; color: var(--muted); font-family: var(--mono); font-size: 11px;
+  padding: 4px 8px; border-radius: 6px; cursor: pointer; line-height: 1;
+}
+.tc-ranges button:hover, .tc-toggles button:hover { color: var(--text); }
+.tc-ranges button.on, .tc-toggles button.on { background: var(--ink); color: var(--on-ink); }
+.tc-canvas { width: 100%; height: 260px; }

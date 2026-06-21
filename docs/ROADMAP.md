@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 274 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 81 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 275 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 82 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -544,10 +544,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   rendering routes through one `<TradeChart>` component** (don't fork chart code per surface). Guardrail:
   **no forecast/projection lines, no price targets, no buy/sell signals on charts** — overlays are
   descriptive and labeled, and the refusal still shows.
-  - ⬜ **PH-VIZ-1 · Chart engine swap.** Add `lightweight-charts`; new `<TradeChart>` renders a
-    `timeseries`/`candlestick` artifact from real OHLCV (prices already return open/high/low/close/volume).
-    `ArtifactCard` delegates timeseries to it (keep the tiny SVG only for inline sparklines). Candles +
-    volume pane + crosshair + range selector (1M/3M/6M/1Y/5Y/MAX) + log/linear & %-rebase toggles.
+  - ✅ **PH-VIZ-1 · Chart engine swap.** Added `lightweight-charts` (Apache-2.0); new `<TradeChart>` renders
+    real **candlesticks + a volume pane** when an artifact carries OHLCV, else line series — crosshair,
+    time/price scales, range selector (1M/3M/6M/1Y/5Y/MAX), log & %-rebase toggles. `ArtifactCard` delegates
+    the chart view to it (the 표 toggle keeps the figures table). agent-engine emits a `candlestick` artifact
+    with real OHLCV `candles` for prices (`Artifact.candles`/`ArtifactCandle`); +1 agent test (81→82).
   - ⬜ **PH-VIZ-2 · Sourced event markers (chart = evidence).** Overlay markers from **real, cited** events
     on the time axis — earnings dates (`earnings`), ex-dividend + splits (`corporate_actions`), filing
     dates (`filings`), macro releases (`economic_indicators`). Each marker carries source+as_of; clicking a

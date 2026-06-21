@@ -92,13 +92,26 @@ class ArtifactSeries(BaseModel):
     points: list[ArtifactPoint] = []
 
 
+class ArtifactCandle(BaseModel):
+    """One OHLCV bar for a candlestick artifact (PH-VIZ-1) — real prices, not synthesized."""
+
+    time: str                    # 'YYYY-MM-DD'
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
-    it as an interactive card; gaps are drawn, never hidden."""
+    it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
 
-    kind: str                    # timeseries | compare | table | kpi
+    kind: str                    # timeseries | candlestick | compare | table | kpi
     title: str
     series: list[ArtifactSeries] = []
+    # for kind=candlestick (prices): real OHLCV bars rendered as candles + a volume pane.
+    candles: list[ArtifactCandle] = []
     # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
     # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
     table: list[list[str]] | None = None

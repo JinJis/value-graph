@@ -1140,3 +1140,15 @@ def test_technical_indicator_citation_data_card():
     assert c.table and c.table[0] == ["지표", "최신값"]
     assert any(row[0] == "SMA(20)" for row in c.table) and any(row[0] == "RSI(14)" for row in c.table)
     assert "서술적" in (c.snippet or "")  # labeled descriptive, never a trading signal
+
+
+def test_artifacts_prices_with_ohlc_become_candlestick():
+    # PH-VIZ-1: real OHLCV → candlestick artifact (+ a close line kept for the table view).
+    tool = {"name": "yahoo__prices", "source": "Yahoo Finance"}
+    result = {"data": {"ticker": "AAPL", "prices": [
+        {"time": "2024-01-02", "open": 184.0, "high": 186.0, "low": 183.0, "close": 185.6, "volume": 1000},
+        {"time": "2024-01-03", "open": 185.0, "high": 185.5, "low": 183.0, "close": 184.2, "volume": 1200}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "candlestick" and len(a.candles) == 2
+    assert a.candles[0].open == 184.0 and a.candles[0].volume == 1000
+    assert a.series[0].label == "종가" and a.as_of == "2024-01-03"

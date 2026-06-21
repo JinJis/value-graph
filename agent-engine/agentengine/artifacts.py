@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from agentengine.client import PlatformClient
 from agentengine.freshness import compute_freshness
-from agentengine.models import Artifact, ArtifactPoint, ArtifactSeries
+from agentengine.models import Artifact, ArtifactCandle, ArtifactPoint, ArtifactSeries
 from agentengine.provenance import _canonical_provenance, _filing_link, _market_hint
 
 
@@ -47,12 +47,22 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
 
     if name.endswith("__prices") and isinstance(data.get("prices"), list):
         # the Price model's date lives in `time` (no `date` field); take the date part.
-        pts = [ArtifactPoint(x=str(p.get("time"))[:10], y=_num(p.get("close")))
-               for p in data["prices"] if p.get("time")]
-        a = _timeseries(f"{data.get('ticker') or ''} 종가", [ArtifactSeries(label="종가", points=pts)],
-                        src, name, data.get("ticker"), url)
-        if a:
-            out.append(a)
+        rows = sorted((p for p in data["prices"] if p.get("time")), key=lambda p: str(p.get("time")))
+        # PH-VIZ-1: real OHLCV → candlestick + volume. Keep a close-line series too (table view).
+        candles = [ArtifactCandle(time=str(p.get("time"))[:10], open=_num(p.get("open")), high=_num(p.get("high")),
+                                  low=_num(p.get("low")), close=_num(p.get("close")), volume=_num(p.get("volume")))
+                   for p in rows]
+        has_ohlc = any(c.open is not None and c.high is not None and c.low is not None for c in candles)
+        pts = [ArtifactPoint(x=c.time, y=c.close) for c in candles]
+        series = [ArtifactSeries(label="종가", points=pts)]
+        as_of = max((p.x for p in pts if p.x), default=None)
+        if pts:
+            out.append(Artifact(
+                kind="candlestick" if has_ohlc else "timeseries",
+                title=f"{data.get('ticker') or ''} 주가".strip(), series=series,
+                candles=candles if has_ohlc else [], source=src, as_of=as_of,
+                freshness=compute_freshness(as_of), ticker=data.get("ticker"), url=url, tool=name,
+            ))
 
     if name.endswith("__metrics_history") and isinstance(data.get("metrics"), list):
         rows = data["metrics"]
