@@ -11,11 +11,27 @@ from datetime import date
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
+from app.errors import not_found
 from app.models.generated import InterestRatesResponse
+from app.providers.macro_indicators import fetch_indicator, list_indicators
 from app.providers.registry import get_macro_provider
 from app.symbols import Market
 
 router = APIRouter(tags=["Macroeconomics"])
+
+
+@router.get("/macro/indicators", dependencies=[ApiKeyDep],
+            summary="Economic indicators (CPI, unemployment, GDP, …) — DBnomics, sourced")
+async def get_macro_indicators(
+    indicator: str | None = Query(None, description="Indicator slug (e.g. cpi); omit to list all."),
+    limit: int = Query(24, ge=1, le=240, description="Recent observations to return."),
+) -> dict:
+    if not indicator:
+        return {"resource": "economic_indicators", "indicators": list_indicators()}
+    res = await fetch_indicator(indicator, limit)
+    if not res:
+        raise not_found(f"Unknown or unavailable indicator '{indicator}'. See GET /macro/indicators.")
+    return res
 
 
 @router.get("/macro/interest-rates", response_model=InterestRatesResponse, dependencies=[ApiKeyDep])

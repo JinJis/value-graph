@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool coverage — calls EVERY catalog tool (all 38) through the metered gateway with
+# Tool coverage — calls EVERY catalog tool (all 39) through the metered gateway with
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
@@ -80,9 +80,10 @@ tool "prices"          GET "/prices?ticker=AAPL&interval=day&start_date=2024-01-
 tool "price_snapshot"  GET "/prices/snapshot?$US"                               "" 'snapshot'
 tool "corporate_actions" GET "/corporate-actions?ticker=AAPL&market=US"          "" 'dividends'
 
-section "FRED / DBnomics — US macro (2 tools · cloud-safe via DBnomics/BIS fallback)"
+section "FRED / DBnomics — US macro (3 tools · cloud-safe via DBnomics/BIS fallback)"
 tool "interest_rates"          GET "/macro/interest-rates?bank=FED&market=US"          "" 'interest'
 tool "interest_rates_snapshot" GET "/macro/interest-rates/snapshot?bank=FED&market=US" "" 'interest'
+tool "economic_indicators"     GET "/macro/indicators?indicator=cpi"                   "" 'observations'
 
 section "OpenDART — KR fundamentals (11 tools)"
 tool "company_facts"        GET "/company/facts?$KR"                            "" 'company_facts'

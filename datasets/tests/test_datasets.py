@@ -1575,3 +1575,25 @@ def test_phdata3_corporate_actions_endpoint(monkeypatch):
     b = client.get("/corporate-actions?ticker=AAPL&market=US&years=10").json()
     assert b["ticker"] == "AAPL" and b["currency"] == "USD"
     assert b["dividends"][0]["amount"] == 0.25 and b["splits"][0]["ratio"] == "4:1"
+
+
+# --- PH-DATA-4: economic indicators DB (DBnomics) -------------------------
+@respx.mock
+async def test_phdata4_indicators_fetch():
+    from app.providers.macro_indicators import fetch_indicator, list_indicators
+
+    payload = {"series": {"docs": [{"period": ["2025-11", "2025-12"], "value": ["NA", 319.1]}]}}
+    respx.get("https://api.db.nomics.world/v22/series/BLS/cu/CUSR0000SA0").mock(
+        return_value=httpx.Response(200, json=payload))
+    res = await fetch_indicator("cpi", 24)
+    assert res["source"] == "DBnomics" and res["source_url"].endswith("BLS/cu/CUSR0000SA0")
+    assert res["observations"] == [{"date": "2025-12", "value": 319.1}]  # "NA" dropped, never faked
+    assert any(i["slug"] == "cpi" for i in list_indicators())
+    assert await fetch_indicator("nope") is None
+
+
+def test_phdata4_indicators_endpoint():
+    b = client.get("/macro/indicators").json()  # list mode, no upstream
+    assert b["resource"] == "economic_indicators"
+    assert {"cpi", "unemployment", "gdp_growth"} <= {i["slug"] for i in b["indicators"]}
+    assert client.get("/macro/indicators?indicator=nope").status_code == 404  # unknown → 404

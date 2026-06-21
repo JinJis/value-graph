@@ -1044,3 +1044,11 @@ def test_schema_maps_param_descriptions():
     assert "description" not in schema["properties"]["interval"]
 
 
+def test_economic_indicator_citation_data_card():
+    # PH-DATA-4: economic indicator (DBnomics) → data-card evidence (values + source).
+    tool = {"name": "fred__economic_indicators", "source": "DBnomics", "connector": "fred"}
+    data = {"slug": "cpi", "name": "US CPI", "unit": "index", "source": "DBnomics",
+            "source_url": "https://db.nomics.world/BLS/cu/CUSR0000SA0",
+            "observations": [{"date": "2025-11", "value": 318.0}, {"date": "2025-12", "value": 319.1}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["기간", "US CPI"] and c.table[1][0] == "2025-12"  # newest first

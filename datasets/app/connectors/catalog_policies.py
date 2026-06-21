@@ -51,5 +51,6 @@ PROV_YAHOO = Provenance(source="Yahoo Finance", as_of_field="time", freshness=Fr
 PROV_FRED = Provenance(source="BIS / FRED (central-bank policy rates)", as_of_field="date", freshness=Freshness.periodic)
 PROV_DART = Provenance(source="OpenDART (FSS)", as_of_field="report_period", source_link_field="filing_url", freshness=Freshness.periodic)
 PROV_ECOS = Provenance(source="Bank of Korea ECOS", as_of_field="date", freshness=Freshness.periodic)
+PROV_DBNOMICS = Provenance(source="DBnomics", as_of_field="date", source_link_field="source_url", freshness=Freshness.periodic)
 PROV_NEWS = Provenance(source="Google News", as_of_field="date", source_link_field="url", freshness=Freshness.realtime)
 PROV_DART_FILINGS = Provenance(source="OpenDART (FSS)", as_of_field="filing_date", source_link_field="url", freshness=Freshness.periodic)

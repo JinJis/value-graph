@@ -64,6 +64,15 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # PH-DATA-4: economic-indicators DB via DBnomics (keyless, cloud-safe).
+        "name": "Economic indicators → US CPI (DBnomics)",
+        "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 소비자물가지수(CPI) 최근 추이를 알려줘.",
+        "criteria": "최근 CPI 관측치(기간+값)를 DBnomics 출처로 사실만 제시; 인플레이션 전망/예측은 하지 않음.",
+        "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Macro → Bank of Korea ECOS",
         "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["ecos", "fred"]},
         "question": "한국은행 기준금리는 지금 몇 퍼센트야?",

@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 261 unit** — datasets 111 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 74 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 264 unit** — datasets 113 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 75 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (25 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (26 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -501,10 +501,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     eval +1. *(Valley: 상대가치평가/historical multiples)*
   - ✅ **PH-DATA-3 · Corporate actions** — `/corporate-actions?ticker=` → dividends (ex-date+amount) + stock
     splits (ratio) from Yahoo events (US+KR). MCP tool `yahoo__corporate_actions`; data-card evidence
-    (source+values+date; no document). coverage "all 38", +2 tests, eval +1. *(basic coverage  ← next: PH-DATA-4
+    (source+values+date; no document). coverage "all 38", +2 tests, eval +1. *(basic coverage
     every platform has; we lack it)*
-  - ⬜ **PH-DATA-4 · Economic calendar + indicators DB** — broaden macro beyond rates; ties to the
-    Disclosure Calendar. *(Valley: 경제지표 일정/열람)*
+  - ✅ **PH-DATA-4 · Economic indicators DB** — `/macro/indicators` → CPI/core-CPI/unemployment/payrolls/
+    GDP/PCE/10Y/EU-HICP via **DBnomics** (keyless, cloud-safe; FRED is datacenter bot-walled). MCP tool
+    `fred__economic_indicators`; data-card evidence (observations + `db.nomics.world` source link + as_of;
+    "NA" dropped, never faked). coverage "all 39", +2 datasets +1 agent tests, eval +1. *(Valley: 경제지표 일정/열람
+    ← next: PH-DATA-5)*
   - ⬜ **PH-DATA-5 · KPIs + earnings-call transcripts → RAG** = **PH-9** (KPI extraction from the PROV3e
     filing-text corpus, each KPI cited to its passage) + transcripts via PH-RAG. *(Valley: KPI/실적·전망)*
   - ⬜ **PH-DATA-6 · Technical indicators / sector heatmap** — computed from prices (descriptive). *(Valley:

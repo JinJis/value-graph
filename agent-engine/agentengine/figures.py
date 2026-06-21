@@ -87,6 +87,15 @@ def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
             table = [["배당락일", "배당금"]] + [[str(r.get("ex_date")), _fmt_amt(r.get("amount"))] for r in rows]
             top = rows[0]
             return f"배당 {_fmt_amt(top.get('amount'))} ({top.get('ex_date')})", table
+    if isinstance(data.get("observations"), list) and data.get("name"):  # economic indicator (PH-DATA-4)
+        rows = [r for r in data["observations"] if isinstance(r, dict) and r.get("value") is not None][-6:][::-1]
+        if rows:
+            pct = data.get("unit") == "%"
+            def _v(x):
+                return f"{x:g}%" if pct else (_fmt_amt(x) if abs(x) >= 1000 else f"{x:g}")
+            table = [["기간", str(data["name"])]] + [[str(r.get("date")), _v(r.get("value"))] for r in rows]
+            top = rows[0]
+            return f"{data['name']} {_v(top.get('value'))} ({top.get('date')})", table
     if isinstance(data.get("prices"), list):
         rows = [r for r in data["prices"] if isinstance(r, dict)]
         rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]
