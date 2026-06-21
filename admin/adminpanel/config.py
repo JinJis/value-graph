@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     datasets_url: str = "http://datasets:8000"
     rag_url: str = "http://rag:8002"
     gateway_url: str = "http://control-plane:8001"
+    agent_engine_url: str = "http://agent-engine:8003"   # AGENT_ENGINE_URL (agent /agent/info)
     admin_token: str = "dev-admin-token"          # ADMIN_TOKEN, for control-plane admin proxies
 
 

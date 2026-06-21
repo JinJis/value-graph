@@ -15,7 +15,7 @@
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
 > **Test totals (current): 274 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 81 · studio-api 36 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> semantic) · agent-engine 81 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -570,36 +570,26 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     with the Board pin** so a pinned chart keeps its drawings and refreshes the underlying data live.
   - ⬜ **PH-VIZ-6 · Chart snapshot as exportable evidence** — render the annotated chart to a PNG (with the
     source footer) so a chart can be cited/shared like any other source-preview card.
-- 🔭 **PH-ADMIN · Operations console overhaul** — *(make the admin panel a real mission-control for running
-  the platform, not a top-down feature dump)*. Today `admin/` is custom dashboard + `/db` browser (dark,
-  inline-styled, OK) **plus sqladmin auto-CRUD mounted at `/{key}` whose static assets don't load behind the
-  auth guard → tables render as unstyled raw HTML** (the reported breakage). Rebuild around **how the
-  platform is actually operated**, organized by operator job-to-be-done:
-  - ⬜ **PH-ADMIN-1 · Fix the broken table UI.** Either serve sqladmin's static assets correctly behind the
-    guard (allow + reverse-proxy its `/statics`), or replace the auto-CRUD with our own styled table/edit
-    views (the `/db` browser already proves the pattern) so **every table is readable + editable in the panel
-    theme**, no raw-HTML fallback. One shared design system (tokens, table, form, badge, nav) across all
-    admin pages.
-  - ⬜ **PH-ADMIN-2 · "What the service offers" at a glance.** A **Catalog/Capabilities** view rendering the
-    live manifest: every **data source/connector** (markets, license, key-required, cost tier), every
-    **resource → REST path → MCP tool** (`{connector}__{resource}`), **RAG** (embedder/reranker/vector store,
-    corpus size by source), and the **agent tool list** — all from `/catalog` + `/rag/info` + agent
-    `/agent/info`, so it's never a hand-maintained list. Per item: health/last-checked + a "try it" probe.
-  - ⬜ **PH-ADMIN-3 · Pipelines & backfill at a glance (mission control).** One **operations board** for
-    everything that ingests/precomputes: ingestion-store backfill, evidence-PDF precompute, news ingest,
-    filing-text→RAG ingest, scheduler state — each as a **live progress card** (job kind, market/spec,
-    done/total bar, rows, started, errors), auto-refreshing while running, with run/pause/resume/trigger
-    controls and a job history. Driven by `/admin/jobs` + `/admin/scheduler` + `/admin/universes`.
-  - ⬜ **PH-ADMIN-4 · Data & store health.** Ingestion-store coverage by market (tickers, facts, report-period
-    range), empty-state warnings drawn not silent, RAG corpus breakdown, evidence-doc cache size — the
-    "is the raw data actually there?" panel.
-  - ⬜ **PH-ADMIN-5 · Users, tenants & entitlements.** Control-plane view: tenants → projects → API keys →
-    **activations** (which connectors a project entitled) + **usage/metering** + audit log — the
-    "who can use what, and what did they use" panel (read-friendly, not just raw rows).
-  - ⬜ **PH-ADMIN-6 · Information architecture.** A left-nav console (Overview · Catalog · Pipelines · Data ·
-    Users · DB browser) with a single **Overview** that surfaces the one-glance health of every subsystem
-    (sources up, tools count, RAG backend, scheduler, store rows, running jobs, recent errors) — operator
-    opens it and immediately understands system state. *(admin is out-of-band; not in the request path.)*
+- ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
+  operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
+  One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.
+  - ✅ **PH-ADMIN-1 · Fixed the broken table UI.** Removed sqladmin (its static assets didn't load behind the
+    auth guard → unstyled raw HTML) and built **our own styled CRUD** (view · edit · create · delete) on the
+    reflected tables; relative URLs only (proxy/tunnel-safe). Typed coercion via the reflected `Table`.
+  - ✅ **PH-ADMIN-2 · Catalog view.** Live from `/catalog` + `/rag/info` + `/agent/info`: every connector
+    (markets · license · keyless/key-required), each resource → REST path → **MCP tool**
+    (`{connector}__{resource}`) + source, plus RAG + agent backends. Never hand-maintained. *(per-item "try
+    it" probe = future.)*
+  - ✅ **PH-ADMIN-3 · Pipelines board.** All ingest/precompute jobs as live progress cards (kind · market ·
+    spec · status badge · done/total bar · rows · started · error), page auto-refreshes while running;
+    trigger/pause/resume/self-test + RAG ingest/search controls. From `/admin/jobs`+`/admin/scheduler`+`/admin/universes`.
+  - ✅ **PH-ADMIN-4 · Data & store health.** Ingestion-store coverage by market (empty-state drawn, not
+    silent), RAG backends, stored-rows-per-table. *(evidence-doc cache size = future.)*
+  - ✅ **PH-ADMIN-5 · Users, tenants & entitlements.** Control-plane tenants → projects → API keys →
+    activations → usage + studio users (read-friendly, link into the DB browser to edit).
+  - ✅ **PH-ADMIN-6 · Information architecture.** Left-nav console (Overview · Catalog · Pipelines · Data ·
+    Users · DB browser) with a one-glance **Overview** (tiles + per-subsystem health dots + recent errors).
+    *(admin is out-of-band; not in the request path.)*
 - 🔁 **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **delivered by
   PH-DATA-5 slice 1** (`/agent/kpis`). *(↳ PH-RAG text, now via PROV3e)*
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a

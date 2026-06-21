@@ -1,17 +1,25 @@
-# admin — Django-admin-style control panel
+# admin — operations console
 
-One login, then **browse and edit every table** across the platform's databases
-(control-plane · studio · data plane) plus an **operations console** for the runtime
-pieces (data-pipeline scheduler, self-test, RAG ingest/search, MCP/catalog).
+One login, then a **left-nav mission-control** over the whole platform, organized by
+operator job-to-be-done. Out-of-band (not in the request path).
 
-- **CRUD over every table** — [sqladmin](https://aminalaee.dev/sqladmin/) auto-generates
-  list/create/edit/delete views by **reflecting** each service's SQLite DB (no model
-  imports, no coupling). Mount the three data volumes and it discovers the schema.
-- **Ops console** — live status (catalog tool count, RAG embedder, scheduler state,
-  store rows) + actions: run/pause/resume ingestion, run the data-plane self-test,
-  ingest a RAG document, run a semantic search.
-- **Auth** — a single session login gates the whole panel, including the mounted
-  admin sub-apps. Set `ADMINUI_USERNAME` / `ADMINUI_PASSWORD` (defaults `admin`/`admin`).
+- **Overview** — at-a-glance tiles (data sources, catalog tools, RAG embedder, scheduler,
+  store facts, running jobs) + per-subsystem health dots + recent errors.
+- **Catalog** — live from the manifest (`/catalog` · `/rag/info` · `/agent/info`): every
+  data source/connector (markets · license · key-required), each resource → REST path →
+  **MCP tool** (`{connector}__{resource}`), plus RAG + agent backends. Never hand-maintained.
+- **Pipelines** — every ingest/precompute job (backfill · evidence PDFs · news → RAG ·
+  scheduler) as a **live progress card**, auto-refreshing while running, with trigger/
+  pause/resume/self-test controls. Driven by `/admin/jobs` · `/admin/scheduler`.
+- **Data** — ingestion-store coverage by market (empty-state drawn, not silent), RAG
+  backends, stored-rows-per-table.
+- **Users** — control-plane tenants → projects → API keys → activations (entitlements) →
+  usage, plus studio users.
+- **DB browser** — our **own styled CRUD** (view · edit · create · delete) over every
+  **reflected** service table (no model imports, no coupling). Replaces sqladmin so there
+  is **no unstyled raw-HTML fallback**; all links are relative (proxy/tunnel-safe).
+- **Auth** — a single session login gates everything. Set `ADMINUI_USERNAME` /
+  `ADMINUI_PASSWORD` (defaults `admin`/`admin`).
 
 ## Run (in the stack)
 
