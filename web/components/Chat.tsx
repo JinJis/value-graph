@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
+import KpiPanel from "./KpiPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard } from "./SourceCard";
@@ -49,7 +50,7 @@ export default function Chat({ name }: { name: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // shell view + watchlists / @groups
-  const [view, setView] = useState<"desk" | "watch" | "board">("desk");
+  const [view, setView] = useState<"desk" | "watch" | "board" | "kpi">("desk");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pins, setPins] = useState<{ id: string; spec: Artifact }[]>([]);  // U3-03 Board
@@ -225,6 +226,9 @@ export default function Chat({ name }: { name: string }) {
         <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => { setView("board"); loadPins(); }}>
           <span className="ic">📊</span><span className="lbl">보드</span>
         </button>
+        <button className={`rail-item ${view === "kpi" ? "on" : ""}`} onClick={() => setView("kpi")}>
+          <span className="ic">📈</span><span className="lbl">지표</span>
+        </button>
         <div className="rail-item soon" title="곧"><span className="ic">🧑‍💼</span><span className="lbl">분석가</span><span className="soon-tag">곧</span></div>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
           <span className="ic">⭐</span><span className="lbl">관심</span>
@@ -245,6 +249,8 @@ export default function Chat({ name }: { name: string }) {
       <div className="main">
         {view === "watch" ? (
           <Watchlists embedded onChanged={loadHandles} />
+        ) : view === "kpi" ? (
+          <KpiPanel onPin={pinArtifact} onExpand={setViewer} />
         ) : view === "board" ? (
           <div className="board">
             <div className="board-head"><h3>📊 보드</h3><span className="sub">핀한 라이브 아티팩트 · 열 때마다 출처·신선도 갱신</span></div>

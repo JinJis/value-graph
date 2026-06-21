@@ -12,6 +12,7 @@ export type Artifact = {
   kind: string;
   title: string;
   series: ArtifactSeries[];
+  table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   source?: string | null;
   as_of?: string | null;
   freshness?: string | null;
@@ -21,6 +22,47 @@ export type Artifact = {
 };
 
 const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // dark→light gray on light cards, then sparse trust accent
+
+// PH-DATA-5: a table/KPI artifact (no time series) — render the header-first matrix as a
+// card so a pinned KPI card shows on the Board too. Pin/remove reuse the chart-card chrome.
+function TableArtifact(
+  { a, onPin, onRemove }: { a: Artifact; onPin?: () => void; onRemove?: () => void },
+) {
+  const [pinned, setPinned] = useState(false);
+  const t = a.table ?? [];
+  const [head, ...rows] = t;
+  if (!head || rows.length === 0) return null;
+  return (
+    <div className="artifact kpi-card">
+      <div className="artifact-head">
+        <span className="artifact-title">{a.title}</span>
+        <FreshnessDot f={a.freshness ?? undefined} />
+        <span className="grow" />
+        {onPin && (
+          <button type="button" className="artifact-toggle" disabled={pinned}
+            onClick={() => { onPin(); setPinned(true); }}>{pinned ? "📌 핀됨" : "📌 핀"}</button>
+        )}
+        {onRemove && (
+          <button type="button" className="artifact-toggle" onClick={onRemove} title="보드에서 제거">✕</button>
+        )}
+      </div>
+      <table className="artifact-table kpi-table">
+        <thead><tr>{head.map((h, i) => <th key={i} className={i === 0 ? "" : "mono"}>{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr key={ri}>{r.map((cell, ci) => <td key={ci} className={ci === 0 ? "" : "mono"}>{cell}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="artifact-foot">
+        <span className="artifact-src">
+          {a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}
+          <span className="kpi-evlabel"> · 각 수치는 공시 원문에 인용</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function fmt(y: number | null | undefined, unit?: string | null) {
   if (y == null) return "—";
@@ -39,6 +81,10 @@ export function ArtifactCard(
   const [table, setTable] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [busy, setBusy] = useState(false);
+  // a KPI / table artifact carries a matrix instead of time series — render that shape.
+  if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
+    return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
+  }
   const xs = Array.from(new Set(a.series.flatMap((s) => s.points.map((p) => p.x)))).sort();
   const ys = a.series.flatMap((s) => s.points.map((p) => p.y)).filter((v): v is number => v != null);
   const unit = a.series[0]?.unit;

@@ -517,6 +517,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       `POST /kpis` (tenant key → entitled+metered) + web BFF `/api/kpis`. +5 agent +1 studio tests; also
       fixed studio-api test isolation (ephemeral DB) — 4 pre-existing rerun failures. *(eval is chat-path
       only; this is a dedicated endpoint, covered by unit tests.)*
+    - ✅ **KPI UI.** New **지표(KPI)** desk view (`KpiPanel`): company search → pull reported KPIs → a
+      pinnable `kpi` table card + per-KPI **source-preview cards** (open the same evidence viewer; highlight
+      in the real filing). `ArtifactCard` now renders `kind=kpi|table` matrices, so a pinned KPI card shows
+      on the Board too. Honest empty/no-key state drawn, not hidden.
     - ⬜ **Earnings-call transcripts (slice 2).** Needs a **licensed transcript source** (no current
       connector provides them; SeekingAlpha/Motley Fool are redistribution-restricted) → ingest via PH-RAG
       once a source is cleared. Deferred behind per-source legal clearance.

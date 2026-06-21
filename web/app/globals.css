@@ -440,3 +440,34 @@ select.input { appearance: none; }
 .sv-act { font-size: 12px; color: var(--text-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px; text-align: center; background: #fff; cursor: pointer; text-decoration: none; }
 .sv-act.primary { color: #fff; background: var(--ink); border-color: var(--ink); }
 .sv-act:hover { border-color: var(--ink); }
+
+/* ── 지표(KPI) desk — PH-DATA-5 ─────────────────────────────────────────── */
+.kpi-view { padding: 18px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.kpi-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.kpi-head h3 { margin: 0; font-size: 16px; }
+.kpi-head .sub { color: var(--muted); font-size: 12px; }
+.kpi-search { display: flex; align-items: flex-start; gap: 8px; }
+.kpi-searchbox { position: relative; flex: 1; max-width: 560px; }
+.kpi-searchbox .input { width: 100%; }
+.kpi-results { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; z-index: 20;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: var(--shadow-pop); max-height: 240px; overflow-y: auto; padding: 4px; }
+.kpi-result { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+  background: none; border: 0; text-align: left; padding: 7px 9px; border-radius: 7px; cursor: pointer; color: var(--text); }
+.kpi-result:hover { background: var(--panel-3); }
+.kpi-result .tk { color: var(--muted); font-size: 11px; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; }
+.seg button { background: var(--panel); border: 0; padding: 7px 12px; font-size: 12px; font-family: var(--mono);
+  color: var(--muted); cursor: pointer; }
+.seg button.on { background: var(--ink); color: var(--on-ink); }
+.kpi-empty { color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 620px; }
+.kpi-empty.err { color: var(--danger); }
+.kpi-result-body { display: flex; flex-direction: column; gap: 16px; }
+.kpi-card .artifact-head .grow { flex: 1; }
+.kpi-table th, .kpi-table td { text-align: left; }
+.kpi-table td.mono, .kpi-table th.mono { text-align: right; }
+.kpi-evlabel { color: var(--muted); }
+.kpi-evidence { display: flex; flex-direction: column; gap: 8px; }
+.kpi-ev-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.kpi-ev-head h4 { margin: 0; font-size: 13px; }
+.kpi-ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
