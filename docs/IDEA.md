@@ -7,6 +7,73 @@
 
 ---
 
+## 4. Multi-agent (A2A) re-architecture — orchestrator + capability-carded sub-agents
+*(captured 2026-06-21)*
+
+**The idea.** Re-cast the engine as the Google **A2A (Agent2Agent)** pattern: every datasource and every
+capability becomes a **sub-agent** that publishes an **Agent Card** (a JSON "business card": identity,
+endpoint, auth, streaming, and **skills** — each skill's id/description/input-output). An **orchestrator
+agent** reads the cards, decides *which* sub-agents to call and *how*, then aggregates their results into one
+sourced response. Sub-agents we'd carve out: **financials (SEC/DART), prices, macro, news, filing-research
+(RAG), watchlist/@group resolver, and the provenance/evidence agent** (find the cited figure/passage in the
+PDF and highlight it). Refs: [A2A AgentCard](https://agent2agent.info/docs/concepts/agentcard/) ·
+[A2A spec](https://a2a-protocol.org/latest/specification/) ·
+[ADK multi-agent (supervisor→sub-agents)](https://codelabs.developers.google.com/instavibe-adk-multi-agents/instructions) ·
+[Gemini Enterprise Agent Platform / Agent Engine](https://cloud.google.com/blog/products/ai-machine-learning/introducing-gemini-enterprise-agent-platform).
+
+**Honest assessment — we already have the seeds, so this is *formalization*, not a from-scratch rewrite.**
+- The **connector manifest/`/catalog`** is already a capability registry → a proto-Agent-Card (provenance,
+  params, cost, entitlement per resource). **Agent Cards can be *generated* from it.**
+- The **agent-engine planner** (Gemini function-calling over catalog-derived tools) is already an orchestrator.
+- The **gateway** already does discovery-time auth/entitlement/metering. **Entitlement maps cleanly onto A2A
+  discovery: a tenant only "sees" the Agent Cards for connectors it activated.**
+So the gap is: (1) emit standard Agent Cards, (2) reshape the single tool-loop into explicit
+orchestrator↔sub-agent delegation, (3) keep our invariants (Gemini-only one router · gateway-only data ·
+deterministic data).
+
+**The key design judgment (CLAUDE.md §9 — "deterministic *data*, not deterministic *logic*").** Do **not**
+turn every datasource into an LLM agent — that adds an LLM hop (latency + cost + non-determinism) where a
+deterministic API call sufficed. Two tiers of sub-agent:
+- **Skill/tool agents (deterministic, no LLM):** the datasource fetchers and **especially the evidence/PDF-
+  highlight agent** — they get an Agent Card + uniform A2A interface but stay pure API/PyMuPDF. This is most
+  of what was listed (재무제표, provenance, pdf 하이라이트).
+- **Reasoning sub-agents (LLM, only where judgment is real):** e.g. a **filing-research/RAG** agent
+  (synthesize narrative), maybe a **financial-analysis** specialist. These earn their LLM cost.
+The orchestrator (LLM) is the only mandatory reasoning layer; everything deterministic stays deterministic.
+
+**Why it fits.** (1) **Ecosystem** pillar — A2A is interop: external agents can call *our* sub-agents, and we
+can call *external* A2A data agents; "clone an analyst" becomes "compose carded agents." (2) **Modularity** —
+each domain (and the evidence engine) is independently testable/scalable/ownable. (3) **Trust** — the
+provenance/evidence agent as a first-class carded skill makes "show me the source" a composable capability.
+
+**Rough shape (incremental — each phase ships value alone; no big-bang).**
+- **P0 · Agent Cards from the catalog (cheap, standards-aligned).** Serve `/.well-known/agent-card.json` per
+  domain, generated from the manifest; entitlement-filtered per tenant. No internal change → instant A2A
+  discoverability + a clean capability contract.
+- **P1 · Orchestrator refactor.** Turn the planner loop into an explicit **supervisor** that delegates to
+  **deterministic skill-agents** (still gateway-entitled; Gemini for the supervisor only). Same data path,
+  clearer structure; provenance/evidence becomes a skill-agent.
+- **P2 · LLM specialist sub-agents** where they add value (filing-research/RAG synthesis; financial-analysis).
+- **P3 · A2A server/client edges** — expose our sub-agents over A2A (others call us) + call external A2A
+  agents, all through the gateway's auth/meter.
+- **P4 · Runtime (optional).** Consider **ADK** as a *self-hosted library* for graph orchestration (the user
+  runs their own server — prefer self-host over the managed Agent Engine to avoid lock-in); adopt only if it
+  beats our own loop.
+
+**What it touches.** `agent-engine` (planner→orchestrator; sub-agent runtime), `datasets`/`control-plane`
+(Agent-Card emission + entitlement-filtered discovery), the eval harness (must score multi-agent flows), and
+`docs/ARCHITECTURE.md`. Reuses: catalog, gateway, Gemini router, the PH-PROV3 evidence engine (becomes the
+evidence skill-agent).
+
+**Open questions / risks.** Multi-hop **latency + token cost** (mitigate: deterministic tiers, parallel
+sub-agent calls, caching); **determinism** (keep data/evidence deterministic — only the supervisor reasons);
+**partial-result aggregation + error handling** across sub-agents; **eval** must cover orchestration quality;
+**self-host ADK vs managed Agent Engine** (lean self-host per the "user runs own server" constraint); whether
+the payoff (interop/ecosystem) justifies the complexity now vs. after the PH-PROV3 evidence work lands.
+**Recommendation:** start at **P0 (Agent Cards from the catalog)** — low-cost, standards-compliant, reversible
+— and commit to P1+ only once the evidence generalization (PH-PROV3d/e) lands. **Do not expand the roadmap
+without approval.**
+
 ## 1. Pin-to-Dashboard — chat → sourced live artifacts → your own financial dashboard ("Datadog for investing")
 *(captured 2026-06-19)*
 
