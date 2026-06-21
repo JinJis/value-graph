@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 275 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 82 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 277 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 84 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -549,12 +549,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     time/price scales, range selector (1M/3M/6M/1Y/5Y/MAX), log & %-rebase toggles. `ArtifactCard` delegates
     the chart view to it (the 표 toggle keeps the figures table). agent-engine emits a `candlestick` artifact
     with real OHLCV `candles` for prices (`Artifact.candles`/`ArtifactCandle`); +1 agent test (81→82).
-  - ⬜ **PH-VIZ-2 · Sourced event markers (chart = evidence).** Overlay markers from **real, cited** events
-    on the time axis — earnings dates (`earnings`), ex-dividend + splits (`corporate_actions`), filing
-    dates (`filings`), macro releases (`economic_indicators`). Each marker carries source+as_of; clicking a
-    marker opens the existing **SourceViewer** (filing highlight / data card). Price lines (52w hi/lo,
-    report-period close). Shaded period bands (e.g. a fiscal quarter). The agent attaches markers it
-    actually cited → the chart literally *shows the evidence on the timeline*.
+  - ✅ **PH-VIZ-2 · Sourced event markers (chart = evidence).** The price (candlestick) artifact carries
+    **sourced markers** gathered from the same turn's results — ex-dividends + splits (`corporate_actions`),
+    earnings dates (`earnings`) — each with its source; the agent enriches the chart post-loop
+    (`enrich_chart_markers`, snapped to the nearest bar in the renderer). Clicking a marker opens the
+    existing **SourceViewer** (a data card with the event + source). Descriptive **period high/low price
+    lines** drawn from the price data itself. +2 agent tests (82→84). *(filing/macro markers + shaded period
+    bands = follow-on.)*
   - ⬜ **PH-VIZ-3 · Agent-driven annotations (request → overlay).** An annotation spec
     (`{lines:[{from:{t,price},to:{t,price}}], hlines:[{price,label}], vlines:[{t,label}], zones:[{t0,t1}],
     markers:[{t,text,src}], range:{t0,t1}, rebase:bool}`) attached to the chart artifact. **Gemini decides

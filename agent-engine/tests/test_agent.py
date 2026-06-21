@@ -1152,3 +1152,47 @@ def test_artifacts_prices_with_ohlc_become_candlestick():
     assert a.kind == "candlestick" and len(a.candles) == 2
     assert a.candles[0].open == 184.0 and a.candles[0].volume == 1000
     assert a.series[0].label == "종가" and a.as_of == "2024-01-03"
+
+
+def test_chart_markers_and_pricelines_from_turn_events():
+    # PH-VIZ-2: a price chart gets sourced event markers (this turn's corporate actions /
+    # earnings) + descriptive period high/low lines from its own candles.
+    from agentengine.artifacts import enrich_chart_markers
+    from agentengine.models import Artifact, ArtifactCandle
+
+    a = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL", candles=[
+        ArtifactCandle(time="2024-01-02", open=180, high=190, low=175, close=185),
+        ArtifactCandle(time="2024-03-01", open=185, high=200, low=170, close=195)])
+
+    class _D:
+        tool = "yahoo__corporate_actions"
+
+    class _E:
+        tool = "sec_edgar__earnings"
+    history = [
+        (_D(), {"data": {"ticker": "AAPL", "dividends": [{"ex_date": "2024-02-09", "amount": 0.24}],
+                         "splits": [{"date": "2024-06-10", "ratio": "4:1"}]}}),
+        (_E(), {"data": {"ticker": "AAPL", "market": "US",
+                         "earnings": [{"filing_date": "2024-02-01", "filing_url": "https://sec.gov/x"}]}}),
+    ]
+    enrich_chart_markers([a], history)
+    by_kind = {m.kind: m for m in a.markers}
+    assert {"dividend", "split", "earnings"} <= set(by_kind)
+    assert by_kind["dividend"].time == "2024-02-09" and by_kind["dividend"].source == "Yahoo Finance"
+    assert "0.24" in (by_kind["dividend"].snippet or "")
+    assert by_kind["earnings"].source == "SEC EDGAR" and by_kind["earnings"].url == "https://sec.gov/x"
+    assert {pl.price for pl in a.pricelines} == {200.0, 170.0}  # period high/low from candles
+
+
+def test_chart_markers_skip_other_ticker():
+    from agentengine.artifacts import enrich_chart_markers
+    from agentengine.models import Artifact, ArtifactCandle
+
+    a = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL",
+                 candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
+
+    class _D:
+        tool = "yahoo__corporate_actions"
+    history = [(_D(), {"data": {"ticker": "MSFT", "dividends": [{"ex_date": "2024-02-09", "amount": 0.75}]}})]
+    enrich_chart_markers([a], history)
+    assert a.markers == []   # MSFT events never bleed onto the AAPL chart

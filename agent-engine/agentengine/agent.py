@@ -231,6 +231,11 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         # Honest degrade on a planner/LLM error rather than a 500.
         answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
 
+    # PH-VIZ-2: attach descriptive price lines + sourced event markers (dividends/splits/
+    # earnings from this turn) to the price chart, so the chart shows the cited events.
+    from agentengine.artifacts import enrich_chart_markers
+    enrich_chart_markers(artifacts, history)
+
     cites = dedup_citations(citations)
     # Mark which citations are evidence (cited [n] or back an artifact) vs consulted.
     mark_evidence(cites, answer, artifacts)

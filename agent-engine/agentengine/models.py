@@ -103,6 +103,29 @@ class ArtifactCandle(BaseModel):
     volume: float | None = None
 
 
+class ArtifactMarker(BaseModel):
+    """PH-VIZ-2: a sourced event on the chart's time axis (earnings / dividend / split /
+    filing). Clicking it opens the source in the evidence viewer — the chart IS evidence."""
+
+    time: str                    # 'YYYY-MM-DD' (renderer snaps to the nearest bar)
+    label: str
+    kind: str = "event"          # earnings | dividend | split | filing
+    position: str = "aboveBar"   # aboveBar | belowBar
+    color: str | None = None
+    source: str | None = None
+    url: str | None = None
+    snippet: str | None = None
+
+
+class ArtifactPriceLine(BaseModel):
+    """PH-VIZ-2: a horizontal reference line (e.g. 52-week high/low) — descriptive, drawn
+    from the price data itself."""
+
+    price: float
+    label: str
+    color: str | None = None
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
     it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
@@ -112,6 +135,9 @@ class Artifact(BaseModel):
     series: list[ArtifactSeries] = []
     # for kind=candlestick (prices): real OHLCV bars rendered as candles + a volume pane.
     candles: list[ArtifactCandle] = []
+    # PH-VIZ-2: sourced event markers + descriptive reference lines on a price chart.
+    markers: list[ArtifactMarker] = []
+    pricelines: list[ArtifactPriceLine] = []
     # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
     # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
     table: list[list[str]] | None = None

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
+import type { Citation } from "./SourceCard";
 
 // U3-02 / PH-VIZ-1: render a connector-backed Artifact as an interactive card. Time-series
 // and price (candlestick) artifacts delegate to <TradeChart> (TradingView Lightweight
@@ -15,11 +16,18 @@ type ArtifactCandle = {
   time: string; open?: number | null; high?: number | null; low?: number | null;
   close?: number | null; volume?: number | null;
 };
+export type ArtifactMarker = {
+  time: string; label: string; kind?: string; position?: string;
+  color?: string | null; source?: string | null; url?: string | null; snippet?: string | null;
+};
+export type ArtifactPriceLine = { price: number; label: string; color?: string | null };
 export type Artifact = {
   kind: string;
   title: string;
   series: ArtifactSeries[];
   candles?: ArtifactCandle[];  // kind=candlestick (prices): real OHLCV → candles + volume
+  markers?: ArtifactMarker[];  // PH-VIZ-2: sourced events on the time axis (click → evidence)
+  pricelines?: ArtifactPriceLine[];  // PH-VIZ-2: descriptive period high/low lines
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   source?: string | null;
   as_of?: string | null;
@@ -83,8 +91,9 @@ function fmt(y: number | null | undefined, unit?: string | null) {
 }
 
 export function ArtifactCard(
-  { a, onPin, onRemove, onRefresh }:
-  { a: Artifact; onPin?: () => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void },
+  { a, onPin, onRemove, onRefresh, onEvidence }:
+  { a: Artifact; onPin?: () => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void;
+    onEvidence?: (c: Citation) => void },
 ) {
   const [table, setTable] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -138,7 +147,7 @@ export function ArtifactCard(
           </tbody>
         </table>
       ) : (
-        <TradeChart a={a} />
+        <TradeChart a={a} onEvidence={onEvidence} />
       )}
 
       <div className="artifact-foot">

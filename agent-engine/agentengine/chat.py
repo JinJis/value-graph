@@ -74,6 +74,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     citations: list[dict] = []
     cite_ctx: list[tuple[dict, dict, object]] = []  # (citation, tool, data) → re-anchor evidence post-answer
     artifacts: list[dict] = []
+    art_objs: list = []          # the Artifact objects → enrich with chart markers post-loop
     seen_artifacts: set = set()
     seen_cites: set = set()
     answered = False
@@ -139,6 +140,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                     continue
                 seen_artifacts.add(a.title)
                 a.args = decision.args or {}     # so a pinned card can re-fetch (U3-03)
+                art_objs.append(a)
                 art = a.model_dump()
                 artifacts.append(art)
                 yield {"type": "artifact", "artifact": art}
@@ -152,6 +154,14 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # A planner/LLM error (e.g. bad model id, missing key, upstream outage)
         # degrades to an honest message instead of breaking the stream.
         yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
+
+    # PH-VIZ-2: attach sourced event markers (dividends/splits/earnings this turn) + price
+    # lines to the price chart, then re-emit the enriched artifacts in `done` (the streamed
+    # `artifact` events went out before the later tool results existed).
+    from agentengine.artifacts import enrich_chart_markers
+    enrich_chart_markers(art_objs, history)
+    if art_objs:
+        artifacts = [o.model_dump() for o in art_objs]
 
     # PH-PROV3d: re-anchor each filing citation's evidence image on the figure the ANSWER
     # actually cites (net income / R&D / assets …), not always the first headline (revenue).

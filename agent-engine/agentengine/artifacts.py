@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from agentengine.client import PlatformClient
 from agentengine.freshness import compute_freshness
-from agentengine.models import Artifact, ArtifactCandle, ArtifactPoint, ArtifactSeries
+from agentengine.models import (
+    Artifact,
+    ArtifactCandle,
+    ArtifactMarker,
+    ArtifactPoint,
+    ArtifactPriceLine,
+    ArtifactSeries,
+)
 from agentengine.provenance import _canonical_provenance, _filing_link, _market_hint
 
 
@@ -90,6 +97,85 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
             out.append(a)
 
     return out
+
+
+def _is_date(s: str) -> bool:
+    import re
+    return bool(re.match(r"^\d{4}-\d{2}-\d{2}$", s or ""))
+
+
+def _price_lines(a: Artifact) -> list[ArtifactPriceLine]:
+    """PH-VIZ-2: descriptive period high/low reference lines, drawn from the price data
+    itself (no extra source needed). 52-week label only when the span really covers ~1y."""
+    highs = [c.high for c in a.candles if c.high is not None]
+    lows = [c.low for c in a.candles if c.low is not None]
+    if not highs or not lows:
+        closes = [p.y for s in a.series for p in s.points if p.y is not None]
+        if not closes:
+            return []
+        highs, lows = closes, closes
+    n = len(a.candles) if a.candles else (len(a.series[0].points) if a.series else 0)
+    span = "52주" if n >= 200 else "기간"
+    return [ArtifactPriceLine(price=round(max(highs), 4), label=f"{span} 고가", color="#1FA463"),
+            ArtifactPriceLine(price=round(min(lows), 4), label=f"{span} 저가", color="#D1483A")]
+
+
+def _event_markers(history: list, ticker: str | None) -> list[ArtifactMarker]:
+    """Sourced event markers for the price chart, gathered from THIS turn's corporate-actions
+    + earnings results (same ticker). Each marker keeps its source so a click opens evidence."""
+    tk = (ticker or "").upper()
+    out: list[ArtifactMarker] = []
+    for dec, res in history:
+        data = (res or {}).get("data")
+        if not isinstance(data, dict):
+            continue
+        name = getattr(dec, "tool", "") or ""
+        dtk = str(data.get("ticker") or "").upper()
+        if tk and dtk and dtk != tk:
+            continue
+        if name.endswith("__corporate_actions"):
+            for d in (data.get("dividends") or []):
+                ex = str((d or {}).get("ex_date") or "")[:10]
+                amt = (d or {}).get("amount")
+                if _is_date(ex):
+                    out.append(ArtifactMarker(time=ex, label="배당", kind="dividend", position="belowBar",
+                                              color="#4f8cff", source="Yahoo Finance",
+                                              snippet=f"배당락일 {ex}" + (f" · 주당 {amt}" if amt is not None else "")))
+            for s in (data.get("splits") or []):
+                dt = str((s or {}).get("date") or "")[:10]
+                ratio = (s or {}).get("ratio")
+                if _is_date(dt):
+                    out.append(ArtifactMarker(time=dt, label="분할", kind="split", position="belowBar",
+                                              color="#D9A300", source="Yahoo Finance",
+                                              snippet=f"주식분할 {dt}" + (f" · {ratio}" if ratio else "")))
+        elif name.endswith("__earnings"):
+            mkt = str(data.get("market") or "").upper()
+            esrc = "OpenDART (FSS)" if mkt == "KR" else "SEC EDGAR"
+            for e in (data.get("earnings") or []):
+                dt = str((e or {}).get("filing_date") or (e or {}).get("report_period") or "")[:10]
+                if _is_date(dt):
+                    out.append(ArtifactMarker(time=dt, label="실적", kind="earnings", position="aboveBar",
+                                              color="#9aa7bd", source=esrc, url=(e or {}).get("filing_url"),
+                                              snippet=f"실적 공시 {dt}"))
+    seen, dedup = set(), []
+    for m in sorted(out, key=lambda m: m.time):
+        k = (m.time, m.kind)
+        if k not in seen:
+            seen.add(k)
+            dedup.append(m)
+    return dedup[:50]
+
+
+def enrich_chart_markers(artifacts: list[Artifact], history: list) -> None:
+    """PH-VIZ-2: attach descriptive price lines + sourced event markers to price charts.
+    Mutates the artifacts in place. The chart literally shows the cited events on the timeline."""
+    for a in artifacts:
+        if a.kind != "candlestick" or not a.candles:  # markers/lines belong on the price chart
+            continue
+        if not a.pricelines:
+            a.pricelines = _price_lines(a)
+        if not a.markers:
+            a.markers = _event_markers(history, a.ticker)
 
 
 async def refresh_artifact(tool_name: str, args: dict | None, api_key: str | None, title: str | None = None) -> Artifact | None:

@@ -181,6 +181,11 @@ export default function Chat({ name }: { name: string }) {
                   table: c.table, evidence_image_url: c.evidence_image_url, used: c.used,
                 }));
               }
+              // PH-VIZ-2: the done list carries the chart artifacts enriched with sourced
+              // event markers + price lines (added after later tool results landed).
+              if (Array.isArray(ev.artifacts) && ev.artifacts.length) {
+                a.artifacts = ev.artifacts as Artifact[];
+              }
             }
             next[next.length - 1] = a;
             return next;
@@ -319,7 +324,7 @@ export default function Chat({ name }: { name: string }) {
                   )}
                   {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
                     <div className="artifacts">
-                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={() => pinArtifact(a)} />)}
+                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={() => pinArtifact(a)} onEvidence={setViewer} />)}
                     </div>
                   )}
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (

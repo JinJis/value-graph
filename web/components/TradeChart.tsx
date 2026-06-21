@@ -5,10 +5,17 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  LineStyle,
   type IChartApi,
+  type SeriesMarker,
   type Time,
 } from "lightweight-charts";
-import type { Artifact } from "./ArtifactCard";
+import type { Artifact, ArtifactMarker } from "./ArtifactCard";
+import type { Citation } from "./SourceCard";
+
+const MARKER_SHAPE: Record<string, "circle" | "arrowUp" | "arrowDown" | "square"> = {
+  dividend: "circle", split: "square", earnings: "arrowUp", filing: "arrowDown",
+};
 
 // PH-VIZ-1: a professional trader chart (TradingView Lightweight Charts, Apache-2.0,
 // client-side canvas — no data egress, no paid API). Renders an artifact as real
@@ -33,7 +40,7 @@ function daysBefore(last: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function TradeChart({ a }: { a: Artifact }) {
+export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Citation) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const isCandle = (a.candles?.length ?? 0) > 0;
   const lineCount = a.series?.length ?? 0;
@@ -80,6 +87,45 @@ export function TradeChart({ a }: { a: Artifact }) {
         })));
       }
       lastTime = rows.length ? rows[rows.length - 1].t : null;
+
+      // PH-VIZ-2: descriptive price lines + sourced event markers (snapped to the nearest bar);
+      // clicking a marker opens its source in the evidence viewer — the chart IS evidence.
+      (a.pricelines ?? []).forEach((pl) =>
+        candle.createPriceLine({
+          price: pl.price, color: pl.color ?? "#86868C", lineStyle: LineStyle.Dashed,
+          lineWidth: 1, axisLabelVisible: true, title: pl.label,
+        }));
+      const times = rows.map((r) => r.t);
+      const snap = (d: string): string | null => {
+        let r: string | null = null;
+        for (const t of times) { if (t <= d) r = t; else break; }
+        return r;
+      };
+      const byTime = new Map<string, ArtifactMarker>();
+      const marks: SeriesMarker<Time>[] = [];
+      (a.markers ?? []).forEach((m) => {
+        const t = snap(m.time);
+        if (!t) return;
+        byTime.set(t, m);
+        marks.push({
+          time: t as Time, position: m.position === "aboveBar" ? "aboveBar" : "belowBar",
+          color: m.color ?? "#4f8cff", shape: MARKER_SHAPE[m.kind ?? ""] ?? "circle", text: m.label,
+        });
+      });
+      if (marks.length) {
+        marks.sort((x, y) => ((x.time as string) < (y.time as string) ? -1 : 1));
+        candle.setMarkers(marks);
+      }
+      if (onEvidence) {
+        chart.subscribeClick((param) => {
+          const t = param.time as string | undefined;
+          const m = t ? byTime.get(t) : undefined;
+          if (m) onEvidence({
+            tool: "chart", source: m.source ?? undefined, url: m.url ?? undefined,
+            snippet: m.snippet ?? m.label, kind: "data", page: m.label, ticker: a.ticker ?? undefined,
+          });
+        });
+      }
     } else {
       a.series.forEach((s, i) => {
         const pts = s.points
