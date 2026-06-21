@@ -1052,3 +1052,74 @@ def test_economic_indicator_citation_data_card():
             "observations": [{"date": "2025-11", "value": 318.0}, {"date": "2025-12", "value": 319.1}]}
     c = A._citations(tool, {"data": data})[0]
     assert c.table and c.table[0] == ["기간", "US CPI"] and c.table[1][0] == "2025-12"  # newest first
+
+
+# --- PH-DATA-5 / PH-9: KPI extraction from the filing-text corpus ---------
+_KPI_TOOLS = {"rag__search": {"name": "rag__search", "connector": "rag", "path": "/rag/search",
+                              "method": "POST", "params": [{"name": "query", "required": True}],
+                              "markets": ["US", "KR"], "source": "Platform RAG"}}
+_KPI_HITS = [{"text": "Total net sales were $391,035 million in fiscal 2024, up 2% year over year.",
+              "score": 0.94, "provenance": {"source": "SEC EDGAR", "accession": "0000320193-24-000123",
+              "ticker": "AAPL", "market": "US", "section": "p.30", "doc_type": "filing",
+              "url": "https://www.sec.gov/x", "as_of": "2024-09-28"}}]
+
+
+class _FakeClient:
+    def __init__(self, hits):
+        self._hits = hits
+
+    async def call_tool(self, tool, args):
+        return {"status": 200, "connector": "rag", "data": {"hits": self._hits}}
+
+
+async def test_kpi_extraction_assembles_sourced_kpis(monkeypatch):
+    from agentengine import kpi as K
+
+    async def fake_extract(model, ticker, passages):  # the LLM step, stubbed
+        return [{"name": "Total net sales", "value": "391,035", "unit": "$M",
+                 "period": "FY2024", "passage_index": 0}]
+    monkeypatch.setattr(K, "_gemini_extract", fake_extract)
+    out = await K.extract_kpis(_FakeClient(_KPI_HITS), _KPI_TOOLS, "AAPL", "US", backend="gemini", model="m")
+    k = out["kpis"][0]
+    assert k["name"] == "Total net sales" and k["value"] == "391,035"
+    assert "accession=0000320193-24-000123" in (k["evidence_image_url"] or "")  # cited to the real filing line
+    art = out["artifact"]
+    assert art["kind"] == "kpi" and art["table"][0] == ["지표", "값", "기간"] and art["table"][1][0] == "Total net sales"
+    assert out["citations"][0]["used"] is True and out["citations"][0]["evidence_image_url"]
+
+
+async def test_kpi_extraction_drops_unsourced_or_bad_index(monkeypatch):
+    from agentengine import kpi as K
+
+    async def fake_extract(model, ticker, passages):
+        return [{"name": "Made up", "value": "9", "passage_index": 7},      # index out of range → dropped
+                {"name": "No value", "value": "", "passage_index": 0},      # no value → dropped
+                {"name": "Net sales", "value": "391,035", "passage_index": 0}]
+    monkeypatch.setattr(K, "_gemini_extract", fake_extract)
+    out = await K.extract_kpis(_FakeClient(_KPI_HITS), _KPI_TOOLS, "AAPL", "US", backend="gemini", model="m")
+    assert [k["name"] for k in out["kpis"]] == ["Net sales"]  # only the passage-tied, valued KPI survives
+
+
+async def test_kpi_stub_backend_returns_passages_not_fabricated():
+    from agentengine import kpi as K
+    out = await K.extract_kpis(_FakeClient(_KPI_HITS), _KPI_TOOLS, "AAPL", "US", backend="stub", model="m")
+    assert out["kpis"] == [] and out["artifact"] is None      # no key → never fabricate KPIs
+    assert out["citations"][0]["evidence_image_url"] and "gemini" in out["note"]  # still show sourced passages
+
+
+async def test_kpi_empty_corpus_is_honest():
+    from agentengine import kpi as K
+    out = await K.extract_kpis(_FakeClient([]), _KPI_TOOLS, "AAPL", "US", backend="gemini", model="m")
+    assert out["kpis"] == [] and out["artifact"] is None and "indexed" in out["note"]
+
+
+@respx.mock
+def test_kpi_endpoint_routes_through_gateway(monkeypatch):
+    _gw(monkeypatch)
+    _catalog()
+    respx.post("http://gw.test/rag/search").mock(return_value=httpx.Response(200, json={"hits": _KPI_HITS}))
+    r = client.post("/agent/kpis", json={"ticker": "AAPL", "market": "US"})  # autouse fixture → stub backend
+    assert r.status_code == 200
+    b = r.json()
+    assert b["ticker"] == "AAPL" and b["market"] == "US"
+    assert b["citations"][0]["evidence_image_url"]  # sourced passage evidence even on the stub path

@@ -571,3 +571,18 @@ def test_evidence_doc_proxy_streams_pdf_or_204(monkeypatch):
 
     route.mock(return_value=httpx.Response(204))
     assert client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com")).status_code == 204
+
+
+@respx.mock
+def test_kpis_proxies_to_agent_engine(monkeypatch):
+    # PH-DATA-5: /kpis forwards the user's tenant key to agent-engine /agent/kpis.
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    payload = {"ticker": "AAPL", "market": "US", "kpis": [{"name": "Net sales", "value": "391,035"}],
+               "citations": [{"tool": "rag__search", "evidence_image_url": "/evidence?x=1"}],
+               "artifact": {"kind": "kpi", "title": "AAPL — 핵심 지표 (KPI)"}}
+    route = respx.post("http://ae.test/agent/kpis").mock(return_value=httpx.Response(200, json=payload))
+    r = client.post("/kpis", json={"ticker": "AAPL", "market": "US"}, headers=_hdr("kpi@u.com"))
+    assert r.status_code == 200
+    assert r.json()["artifact"]["kind"] == "kpi"
+    assert route.calls.last.request.headers["X-API-KEY"] == "vgk_demo"  # tenant key forwarded → entitled + metered

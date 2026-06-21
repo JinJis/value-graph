@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 264 unit** — datasets 113 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 75 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 270 unit** — datasets 113 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 80 · studio-api 36 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (26 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -508,13 +508,23 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     `fred__economic_indicators`; data-card evidence (observations + `db.nomics.world` source link + as_of;
     "NA" dropped, never faked). coverage "all 39", +2 datasets +1 agent tests, eval +1. *(Valley: 경제지표 일정/열람
     ← next: PH-DATA-5)*
-  - ⬜ **PH-DATA-5 · KPIs + earnings-call transcripts → RAG** = **PH-9** (KPI extraction from the PROV3e
-    filing-text corpus, each KPI cited to its passage) + transcripts via PH-RAG. *(Valley: KPI/실적·전망)*
+  - 🔁 **PH-DATA-5 · KPIs + earnings-call transcripts → RAG** = **PH-9**. *(Valley: KPI/실적·전망)*
+    - ✅ **KPI extraction (slice 1).** `POST /agent/kpis` (agent-engine) → `rag__search` over the company's
+      PROV3e filing-text corpus through the gateway → **Gemini structured extraction of REPORTED KPIs only**
+      (no forecasts/targets — guardrail), each KPI **cited to its source passage + an `/evidence` text
+      highlight** in the cached filing PDF. Returns a pinnable `kpi` table artifact + per-KPI citations.
+      No key (stub) → returns the sourced passages, never fabricated KPIs (honesty). Proxied via studio-api
+      `POST /kpis` (tenant key → entitled+metered) + web BFF `/api/kpis`. +5 agent +1 studio tests; also
+      fixed studio-api test isolation (ephemeral DB) — 4 pre-existing rerun failures. *(eval is chat-path
+      only; this is a dedicated endpoint, covered by unit tests.)*
+    - ⬜ **Earnings-call transcripts (slice 2).** Needs a **licensed transcript source** (no current
+      connector provides them; SeekingAlpha/Motley Fool are redistribution-restricted) → ingest via PH-RAG
+      once a source is cleared. Deferred behind per-source legal clearance.
   - ⬜ **PH-DATA-6 · Technical indicators / sector heatmap** — computed from prices (descriptive). *(Valley:
     기술지표/섹터 히트맵)*  · short interest, ownership breakdown — later.
   *(KR realtime/flow/rankings come via the KIS connector; estimates/valuation-models intentionally excluded.)*
-- ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **folded into
-  PH-DATA-5**. *(↳ PH-RAG text, now via PROV3e)*
+- 🔁 **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **delivered by
+  PH-DATA-5 slice 1** (`/agent/kpis`). *(↳ PH-RAG text, now via PROV3e)*
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a
   **JS bot-wall (not JSON) from datacenter IPs** even with a valid key → US macro breaks in cloud. Added a
   `macro_provider_us` selection (mirrors `prices_provider_*`): `auto` (default) | `fred` | `dbnomics`.

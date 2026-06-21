@@ -35,6 +35,16 @@ class CompileRequest(BaseModel):
     description: str
 
 
+class KpiRequest(BaseModel):
+    """PH-DATA-5 / PH-9: extract a company's reported KPIs from its filing-text corpus,
+    each KPI cited to (and highlighted in) the source filing passage."""
+
+    ticker: str
+    market: str | None = None      # US | KR (inferred from the ticker when omitted)
+    top_k: int | None = None       # filing passages to consider (default in kpi.py)
+    spec: AgentSpec | None = None  # planner-backend override (stub|gemini)
+
+
 class ArtifactRefreshRequest(BaseModel):
     """Re-run a pinned artifact's tool+args to refresh it (U3-03b)."""
 
@@ -86,9 +96,12 @@ class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
     it as an interactive card; gaps are drawn, never hidden."""
 
-    kind: str                    # timeseries | compare | table
+    kind: str                    # timeseries | compare | table | kpi
     title: str
     series: list[ArtifactSeries] = []
+    # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
+    # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
+    table: list[list[str]] | None = None
     source: str | None = None
     as_of: str | None = None
     freshness: str | None = None
