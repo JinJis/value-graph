@@ -64,6 +64,15 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # PH-DATA-6: descriptive technical indicators computed from prices (no signals).
+        "name": "Technical indicators → AAPL moving averages & RSI",
+        "agent": {"name": "Eval Market", "model": "gemini", "data_sources": ["yahoo"]},
+        "question": "애플의 20일·50일 이동평균선과 RSI(14) 현재 수치를 알려줘.",
+        "criteria": "SMA(20)/SMA(50)/RSI(14)의 최근 값을 Yahoo 기반 계산값으로 사실만 제시; 매수/매도 신호나 전망은 하지 않음.",
+        "checks": {"expect_connector": "yahoo__technical_indicators", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # PH-DATA-4: economic-indicators DB via DBnomics (keyless, cloud-safe).
         "name": "Economic indicators → US CPI (DBnomics)",
         "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},

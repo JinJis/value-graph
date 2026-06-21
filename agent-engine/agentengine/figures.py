@@ -96,6 +96,19 @@ def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
             table = [["기간", str(data["name"])]] + [[str(r.get("date")), _v(r.get("value"))] for r in rows]
             top = rows[0]
             return f"{data['name']} {_v(top.get('value'))} ({top.get('date')})", table
+    if isinstance(data.get("indicators"), list) and data["indicators"] and \
+            isinstance(data["indicators"][0], dict) and "lines" in data["indicators"][0]:  # technical (PH-DATA-6)
+        table = [["지표", "최신값"]]
+        for ind in data["indicators"]:
+            for ln in (ind.get("lines") or []):
+                if ln.get("latest") is not None:
+                    lbl = ln.get("label") or ind.get("name")
+                    pct = ind.get("unit") == "percent"
+                    val = f"{ln['latest']:g}%" if pct else (_fmt_amt(ln["latest"]) if abs(ln["latest"]) >= 1000 else f"{ln['latest']:g}")
+                    table.append([str(lbl), val])
+        if len(table) > 1:
+            head = table[1]
+            return f"{head[0]} {head[1]} (as of {data.get('as_of')}) · 서술적 지표(신호 아님)", table
     if isinstance(data.get("prices"), list):
         rows = [r for r in data["prices"] if isinstance(r, dict)]
         rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]

@@ -41,6 +41,7 @@ from app.connectors.catalog_policies import (
     PROV_NEWS,
     PROV_SEC,
     PROV_SEC_FILINGS,
+    PROV_TECHNICAL,
     PROV_YAHOO,
 )
 
@@ -124,6 +125,14 @@ CONNECTORS: list[ConnectorManifest] = [
                      output_model="CorporateActionsResponse", cost_tier=CostTier.free,
                      params=[P_TICKER_REQ, ResourceParam(name="years", type="integer", description="Look-back years."), P_MARKET],
                      provenance=PROV_YAHOO),
+            Resource(name="technical_indicators",
+                     description="Descriptive technical indicators (SMA/EMA/RSI/MACD/Bollinger/volatility) computed from prices — not signals.",
+                     path="/technical-indicators", output_model="TechnicalIndicatorsResponse", cost_tier=CostTier.free,
+                     params=[P_TICKER_REQ,
+                             ResourceParam(name="indicators", description="Comma list e.g. sma_50,ema_20,rsi_14,macd,bbands_20."),
+                             ResourceParam(name="interval", enum=["day", "week", "month", "year"]),
+                             ResourceParam(name="start_date", type="date"), ResourceParam(name="end_date", type="date"), P_MARKET],
+                     provenance=PROV_TECHNICAL),
         ],
     ),
     ConnectorManifest(

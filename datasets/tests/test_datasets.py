@@ -1597,3 +1597,48 @@ def test_phdata4_indicators_endpoint():
     assert b["resource"] == "economic_indicators"
     assert {"cpi", "unemployment", "gdp_growth"} <= {i["slug"] for i in b["indicators"]}
     assert client.get("/macro/indicators?indicator=nope").status_code == 404  # unknown → 404
+
+
+# --- PH-DATA-6: technical indicators (descriptive, computed from prices) ----
+def test_phdata6_compute_funcs():
+    from app.store.technical import _sma, _ema, _rsi, _macd, _bbands, _volatility
+    c = [float(x) for x in range(1, 41)]  # strictly rising
+    sma = _sma(c, 5)
+    assert sma[3] is None and sma[4] == 3.0          # mean(1..5) = 3
+    ema = _ema(c, 5)
+    assert ema[3] is None and ema[4] == 3.0          # seeded with the SMA
+    rsi = _rsi(c, 14)
+    assert rsi[13] is None and rsi[14] == 100.0      # all gains → RSI 100
+    macd, signal, hist = _macd(c)
+    assert macd[24] is None and macd[25] is not None  # defined once both EMAs exist
+    assert signal[-1] is not None and hist[-1] is not None
+    up, mid, lo = _bbands(c, 5)
+    assert up[4] > mid[4] > lo[4]                     # bands straddle the middle
+    assert _volatility(c, 20)[-1] is not None
+
+
+async def test_phdata6_endpoint(monkeypatch):
+    import app.store.technical as T
+    from datetime import date, timedelta
+    from app.models.generated import Price
+    base = date(2024, 1, 1)
+    series = [Price(time=str(base + timedelta(days=i)), open=100.0 + i, high=100.0 + i,
+                    low=100.0 + i, close=100.0 + i, volume=1000) for i in range(40)]
+
+    class _FakeP:
+        async def prices(self, ref, interval, start, end):
+            return series
+    monkeypatch.setattr(T, "get_prices_provider", lambda m: _FakeP())
+
+    b = client.get("/technical-indicators?ticker=AAPL&indicators=sma_5,rsi_14,macd&interval=day").json()
+    assert b["ticker"] == "AAPL" and b["source"].startswith("Technical indicators")
+    assert b["as_of"] == str(base + timedelta(days=39)) and b["note"]  # descriptive label present
+    assert {i["key"] for i in b["indicators"]} == {"sma_5", "rsi_14", "macd"}
+    sma = next(i for i in b["indicators"] if i["key"] == "sma_5")
+    assert sma["pane"] == "price" and sma["lines"][0]["latest"] is not None  # sourced latest, not faked
+    macd = next(i for i in b["indicators"] if i["key"] == "macd")
+    assert {ln["label"] for ln in macd["lines"]} == {"MACD", "Signal", "Histogram"}
+
+
+def test_phdata6_bad_interval_400():
+    assert client.get("/technical-indicators?ticker=AAPL&interval=minute").status_code == 400

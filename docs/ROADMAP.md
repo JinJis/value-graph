@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 270 unit** — datasets 113 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 80 · studio-api 36 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 274 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 81 · studio-api 36 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (26 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -524,9 +524,52 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     - ⬜ **Earnings-call transcripts (slice 2).** Needs a **licensed transcript source** (no current
       connector provides them; SeekingAlpha/Motley Fool are redistribution-restricted) → ingest via PH-RAG
       once a source is cleared. Deferred behind per-source legal clearance.
-  - ⬜ **PH-DATA-6 · Technical indicators / sector heatmap** — computed from prices (descriptive). *(Valley:
+  - 🔁 **PH-DATA-6 · Technical indicators / sector heatmap** — computed from prices (descriptive). *(Valley:
     기술지표/섹터 히트맵)*  · short interest, ownership breakdown — later.
+    - ✅ **Technical indicators (slice 1).** `/technical-indicators?ticker=&indicators=` computes
+      **descriptive** overlays from the prices provider's real OHLCV (US+KR): SMA/EMA(n), RSI(14),
+      MACD(12,26,9), Bollinger(20,2σ), realized volatility. Each series tagged source="computed from
+      Yahoo Finance" + the price `as_of`; **labeled descriptive, never a signal/advice** (guardrail).
+      Catalog `yahoo__technical_indicators`; data-card / chart-ready series (feeds PH-VIZ overlays).
+    - ⬜ **Sector heatmap (slice 2).** Needs sector membership (sector-ETF set or GICS map) → per-sector
+      return grid. Deferred until a sourced sector-classification input is wired.
   *(KR realtime/flow/rankings come via the KIS connector; estimates/valuation-models intentionally excluded.)*
+- 🔭 **PH-VIZ · Professional trader charts + chart-as-evidence** — *(new; replaces the dependency-free SVG
+  artifact chart with a real trading chart engine, and makes the chart itself a sourced, annotatable
+  artifact the agent can drive)*. **Engine choice:** [TradingView **Lightweight Charts**](https://github.com/tradingview/lightweight-charts)
+  (Apache-2.0, ~45 KB, **client-side canvas — no data egress, no paid API, keys stay server-side**): real
+  candlestick/OHLC + volume histogram, line/area/baseline, crosshair, time & price scales, log/%
+  scaling. Heavier TradingView *Advanced Charts* (free but license-gated, self-hosted) is a **later**
+  option only if built-in drawing UX is required; default to Lightweight + custom primitives. **All chart
+  rendering routes through one `<TradeChart>` component** (don't fork chart code per surface). Guardrail:
+  **no forecast/projection lines, no price targets, no buy/sell signals on charts** — overlays are
+  descriptive and labeled, and the refusal still shows.
+  - ⬜ **PH-VIZ-1 · Chart engine swap.** Add `lightweight-charts`; new `<TradeChart>` renders a
+    `timeseries`/`candlestick` artifact from real OHLCV (prices already return open/high/low/close/volume).
+    `ArtifactCard` delegates timeseries to it (keep the tiny SVG only for inline sparklines). Candles +
+    volume pane + crosshair + range selector (1M/3M/6M/1Y/5Y/MAX) + log/linear & %-rebase toggles.
+  - ⬜ **PH-VIZ-2 · Sourced event markers (chart = evidence).** Overlay markers from **real, cited** events
+    on the time axis — earnings dates (`earnings`), ex-dividend + splits (`corporate_actions`), filing
+    dates (`filings`), macro releases (`economic_indicators`). Each marker carries source+as_of; clicking a
+    marker opens the existing **SourceViewer** (filing highlight / data card). Price lines (52w hi/lo,
+    report-period close). Shaded period bands (e.g. a fiscal quarter). The agent attaches markers it
+    actually cited → the chart literally *shows the evidence on the timeline*.
+  - ⬜ **PH-VIZ-3 · Agent-driven annotations (request → overlay).** An annotation spec
+    (`{lines:[{from:{t,price},to:{t,price}}], hlines:[{price,label}], vlines:[{t,label}], zones:[{t0,t1}],
+    markers:[{t,text,src}], range:{t0,t1}, rebase:bool}`) attached to the chart artifact. **Gemini decides
+    *what* to annotate from the question/answer** (no hardcoded keyword rules — invariant #9): "draw a line
+    from the 2024 low to the 2025 high", "mark every earnings in 2024", "highlight 2024-09-28", "rebase
+    AAPL vs MSFT to 100". Drawing primitives are **descriptive only** (trend/level lines over *historical*
+    points, zones, labels) — **no future projection**. Each agent-placed line/zone references the data
+    points (and their source) it was drawn from.
+  - ⬜ **PH-VIZ-4 · Technical overlays on the chart** — render PH-DATA-6's SMA/EMA/Bollinger as price-pane
+    overlays and RSI/MACD as sub-panes, descriptive labels, sourced "computed from Yahoo". (PH-DATA-6 =
+    the data; PH-VIZ-4 = the rendering.)
+  - ⬜ **PH-VIZ-5 · User drawing tools + pinnable annotated chart.** Let the user draw trend/horizontal
+    lines + notes directly on `<TradeChart>` (Lightweight primitives), and **persist the annotation spec
+    with the Board pin** so a pinned chart keeps its drawings and refreshes the underlying data live.
+  - ⬜ **PH-VIZ-6 · Chart snapshot as exportable evidence** — render the annotated chart to a PNG (with the
+    source footer) so a chart can be cited/shared like any other source-preview card.
 - 🔁 **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **delivered by
   PH-DATA-5 slice 1** (`/agent/kpis`). *(↳ PH-RAG text, now via PROV3e)*
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a

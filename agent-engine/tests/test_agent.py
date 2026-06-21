@@ -1123,3 +1123,20 @@ def test_kpi_endpoint_routes_through_gateway(monkeypatch):
     b = r.json()
     assert b["ticker"] == "AAPL" and b["market"] == "US"
     assert b["citations"][0]["evidence_image_url"]  # sourced passage evidence even on the stub path
+
+
+def test_technical_indicator_citation_data_card():
+    # PH-DATA-6: technical indicators (computed from Yahoo) → descriptive data-card, not a signal.
+    tool = {"name": "yahoo__technical_indicators", "connector": "yahoo",
+            "source": "Technical indicators (computed from Yahoo Finance)"}
+    data = {"ticker": "AAPL", "market": "US", "as_of": "2025-06-01", "note": "Descriptive…",
+            "source": "Technical indicators (computed from Yahoo Finance)",
+            "indicators": [
+                {"key": "sma_20", "name": "SMA(20)", "pane": "price", "unit": "price",
+                 "lines": [{"label": "SMA(20)", "latest": 195.5, "points": [{"date": "2025-06-01", "value": 195.5}]}]},
+                {"key": "rsi_14", "name": "RSI(14)", "pane": "sub", "unit": "ratio_0_100",
+                 "lines": [{"label": "RSI(14)", "latest": 62.3, "points": [{"date": "2025-06-01", "value": 62.3}]}]}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["지표", "최신값"]
+    assert any(row[0] == "SMA(20)" for row in c.table) and any(row[0] == "RSI(14)" for row in c.table)
+    assert "서술적" in (c.snippet or "")  # labeled descriptive, never a trading signal
