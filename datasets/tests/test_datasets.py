@@ -1540,3 +1540,38 @@ def test_phdata2_comparables(monkeypatch):
     assert len(b["comparables"]) == 3
     assert b["comparables"][0]["price_to_earnings_ratio"] == 30.0
     assert client.get("/comparables?tickers=&market=US").status_code == 400  # no tickers
+
+
+# --- PH-DATA-3: corporate actions (dividends + splits) --------------------
+@respx.mock
+async def test_phdata3_yahoo_corporate_actions_parse():
+    from datetime import date as _date
+
+    from app.providers.us.yahoo import YahooProvider
+    from app.symbols import Market, build_ref
+
+    payload = {"chart": {"result": [{"meta": {"currency": "USD"}, "events": {
+        "dividends": {"1": {"amount": 0.24, "date": 1700000000}, "2": {"amount": 0.25, "date": 1710000000}},
+        "splits": {"1": {"date": 1598880600, "numerator": 4.0, "denominator": 1.0, "splitRatio": "4:1"}},
+    }}]}}
+    respx.get("https://query1.finance.yahoo.com/v8/finance/chart/AAPL").mock(
+        return_value=httpx.Response(200, json=payload))
+    data = await YahooProvider().corporate_actions(build_ref(Market.US, "AAPL"), _date(2020, 1, 1), _date(2026, 1, 1))
+    assert data["currency"] == "USD"
+    assert [d["amount"] for d in data["dividends"]] == [0.25, 0.24]  # newest first
+    assert data["splits"][0]["ratio"] == "4:1"
+
+
+def test_phdata3_corporate_actions_endpoint(monkeypatch):
+    import app.routers.corporate_actions as C
+
+    class _Fake:
+        async def corporate_actions(self, ref, start, end):
+            return {"currency": "USD",
+                    "dividends": [{"ex_date": "2026-02-07", "amount": 0.25}],
+                    "splits": [{"date": "2020-08-31", "ratio": "4:1", "numerator": 4.0, "denominator": 1.0}]}
+
+    monkeypatch.setattr(C, "get_prices_provider", lambda m: _Fake())
+    b = client.get("/corporate-actions?ticker=AAPL&market=US&years=10").json()
+    assert b["ticker"] == "AAPL" and b["currency"] == "USD"
+    assert b["dividends"][0]["amount"] == 0.25 and b["splits"][0]["ratio"] == "4:1"

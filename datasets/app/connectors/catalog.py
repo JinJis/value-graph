@@ -119,6 +119,10 @@ CONNECTORS: list[ConnectorManifest] = [
                          ResourceParam(name="end_date", required=True, type="date"), P_MARKET], provenance=PROV_YAHOO),
             Resource(name="price_snapshot", description="Latest price snapshot.", path="/prices/snapshot",
                      output_model="PriceSnapshotResponse", cost_tier=CostTier.free, params=[P_TICKER_REQ, P_MARKET], provenance=PROV_YAHOO),
+            Resource(name="corporate_actions", description="Dividends + stock splits history.", path="/corporate-actions",
+                     output_model="CorporateActionsResponse", cost_tier=CostTier.free,
+                     params=[P_TICKER_REQ, ResourceParam(name="years", type="integer", description="Look-back years."), P_MARKET],
+                     provenance=PROV_YAHOO),
         ],
     ),
     ConnectorManifest(

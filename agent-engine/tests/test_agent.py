@@ -188,6 +188,18 @@ def test_evidence_url_for_kr_dart_statements():
     assert "report_period=2024-12-31" in c.evidence_image_url
 
 
+def test_corporate_actions_citation_is_a_dividend_data_card():
+    # PH-DATA-3: dividends/splits (Yahoo, no document) → data-card evidence (real values + source).
+    tool = {"name": "yahoo__corporate_actions", "source": "Yahoo Finance", "connector": "yahoo"}
+    data = {"ticker": "AAPL", "currency": "USD",
+            "dividends": [{"ex_date": "2026-02-07", "amount": 0.25}, {"ex_date": "2025-11-07", "amount": 0.25}],
+            "splits": [{"date": "2020-08-31", "ratio": "4:1"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["배당락일", "배당금"]
+    assert c.table[1][0] == "2026-02-07" and "배당" in (c.snippet or "")
+    assert c.evidence_image_url is None  # no document → data card only
+
+
 def test_macro_citation_is_a_clean_data_card():
     # PH-PROV3f: a non-document source (macro rates) → data-card evidence (exact values +
     # source + as_of), no PDF/evidence image.

@@ -81,6 +81,12 @@ def _evidence(tool: dict, data) -> tuple[str | None, list[list[str]] | None]:
                 for r in rr]
             top = rr[0]
             return f"{top.get('name') or top.get('bank')} {top.get('rate')}% ({str(top.get('date'))[:10]})", table
+    if isinstance(data.get("dividends"), list) and data["dividends"]:
+        rows = [r for r in data["dividends"] if isinstance(r, dict) and r.get("amount") is not None][:6]
+        if rows:
+            table = [["배당락일", "배당금"]] + [[str(r.get("ex_date")), _fmt_amt(r.get("amount"))] for r in rows]
+            top = rows[0]
+            return f"배당 {_fmt_amt(top.get('amount'))} ({top.get('ex_date')})", table
     if isinstance(data.get("prices"), list):
         rows = [r for r in data["prices"] if isinstance(r, dict)]
         rows = sorted(rows, key=lambda r: str(r.get("time") or ""), reverse=True)[:6]

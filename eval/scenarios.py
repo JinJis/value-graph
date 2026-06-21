@@ -56,6 +56,14 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        "name": "Corporate actions → dividends & splits",
+        "agent": {"name": "Eval Market", "model": "gemini", "data_sources": ["yahoo", "google_news"]},
+        "question": "애플의 최근 배당 내역과 주식분할 이력을 알려줘.",
+        "criteria": "최근 배당(배당락일+금액)과 분할(예: 4:1)을 Yahoo 출처로 사실만 제시; 전망/배당 예측 없음.",
+        "checks": {"expect_connector": "yahoo__corporate_actions", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Macro → Bank of Korea ECOS",
         "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["ecos", "fred"]},
         "question": "한국은행 기준금리는 지금 몇 퍼센트야?",

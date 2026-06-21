@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 258 unit** — datasets 109 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 73 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 261 unit** — datasets 111 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 74 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (24 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (25 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -499,7 +499,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     caller/agent supplies the peer set → no universe needed). Descriptive, derived from filings + price
     (no forecast). MCP tools `sec_edgar__comparables` + `opendart__comparables`; coverage "all 37"; +1 test,
     eval +1. *(Valley: 상대가치평가/historical multiples)*
-  - ⬜ **PH-DATA-3 · Corporate actions** — dividends + splits history (SEC/DART + prices). *(basic coverage  ← next
+  - ✅ **PH-DATA-3 · Corporate actions** — `/corporate-actions?ticker=` → dividends (ex-date+amount) + stock
+    splits (ratio) from Yahoo events (US+KR). MCP tool `yahoo__corporate_actions`; data-card evidence
+    (source+values+date; no document). coverage "all 38", +2 tests, eval +1. *(basic coverage  ← next: PH-DATA-4
     every platform has; we lack it)*
   - ⬜ **PH-DATA-4 · Economic calendar + indicators DB** — broaden macro beyond rates; ties to the
     Disclosure Calendar. *(Valley: 경제지표 일정/열람)*
