@@ -249,10 +249,36 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       "원문 열기" now opens the **actual cached PDF**: datasets `/evidence/doc` → studio-api proxy →
       web `/api/evidence/doc`; `SourceViewer` links to it once the highlight image has loaded (so the
       PDF is known to exist), else the official source page. studio-api 34→35.
-    - ⬜ **PH-PROV3d · generalize + retire the legacy path.** RAG/news passage evidence + prices/macro
-      data-card evidence; then remove the now-dead `FactLocation` concept-pointer precompute
-      (`/admin/precompute-locations`, `locations_ingest`, renderer `/render/sec` screenshot, the
-      `/evidence` legacy fallback) and consolidate the filing-accession resolution.
+    > **▶ Generalization goal (approved 2026-06-21): evidence for EVERY figure and EVERY passage in
+    > every SEC/DART filing — not just headline revenue.** The unlock is that the **cached PDF is one
+    > artifact with two uses**: (1) the **full-text corpus** the agent searches (RAG), and (2) the
+    > **evidence source** it highlights. So "search any info" and "show its evidence" become the same
+    > pipeline over the same PDF. Today only ~4 headline fields are wired and only structured figures —
+    > d/e/f below close that. SEC/DART first; prices/macro/news keep their natural (non-PDF) evidence.
+    - 🚧 **PH-PROV3d · every STRUCTURED figure gets evidence (SEC/DART) + retire legacy.** Widen
+      `agent-engine evidence._evidence_url` + the label maps beyond the 4 headlines to **every field the
+      statement models expose** and **every `sec_edgar__as_reported` concept** (as-reported already
+      carries concept+value+rendered-label per line → fully general for US; extend KR_LABELS + KR
+      `as_reported` once PH-7b lands). Carry the cited row's **label + period** to `/evidence` so the
+      PyMuPDF matcher disambiguates an arbitrary value by its line + statement/page (not value-only).
+      Then remove the now-dead `FactLocation` concept-pointer path (`/admin/precompute-locations`,
+      `locations_ingest`, renderer `/render/sec` screenshot, the `/evidence` legacy fallback) and
+      consolidate filing-accession resolution. *(datasets + agent-engine)*
+    - ⬜ **PH-PROV3e · every PASSAGE searchable + evidenced — full filing text → RAG (the big one).**
+      *This is what makes "search all info in all datasources" real; folds in PH-RAG + PH-PROV2e.*
+      Extract text from each **cached filing PDF** (PyMuPDF, page-aware) → chunk (section/page-aware) →
+      embed → **RAG corpus** with provenance `{market, ticker, accession, page, source}` (reuse the
+      PH-2b news-pipeline shape + per-tenant/global rules). `rag__search` then returns **filing
+      passages** (MD&A, risk factors, notes, segments — anything), so the agent answers arbitrary
+      qualitative questions, grounded. **Text-span evidence:** `/evidence` gains a `text=` mode →
+      PyMuPDF `search_for` a distinctive slice of the cited passage in the same cached PDF → highlight
+      the sentence(s) + page; the agent attaches the evidence link for **RAG citations** (market +
+      accession + text), and "원문 열기" opens the PDF at that page. One PDF = corpus + evidence.
+      *(datasets/rag + agent-engine)* ↳ builds directly on PH-PROV3a–c. *(supersedes standalone PH-RAG
+      for the SEC/DART text corpus; news stays its own global corpus.)*
+    - ⬜ **PH-PROV3f · non-document datasources.** prices/macro/metrics → **data-card evidence** (the
+      exact values used + source link + as_of; no PDF); news/web → publisher snippet + link. Closes the
+      trust envelope across every source, each with the evidence shape that fits it.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---
@@ -362,8 +388,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 4. **PH-8** — index / ETF holdings (US = SEC N-PORT; KR = KIS-ETF below).  ← **next**
 > 5. 🚧 **PH-7a** — XBRL as-reported (US) → MCP tool `sec_edgar__as_reported`.  · **PH-7b** (segments +
 >    statement-specific as-reported + KR DART XBRL) deferred (dimensional/heavier parse).
-> 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
->    segment/MD&A from PH-7, transcripts, … + news ✅) → chunk·embed·index.  ↳ PH-5 / PH-7 text  *(was PH-2c)*
+> 6. **PH-RAG** — unified RAG corpus. **SEC/DART filing text now comes from [PH-PROV3e]** (the cached
+>    evidence PDFs → text → chunk·embed·index; one artifact = corpus + evidence). PH-RAG = umbrella for
+>    other text (transcripts, PH-SOURCES) + news ✅.  *(was PH-2c)*
 > 7. **PH-9** — KPIs via Gemini from filings/earnings text.  ↳ PH-RAG
 > 8. **PH-SOURCES** *(later)* — alt-data corpus: brokerage/market reports, investor blogs, Threads/Reddit,
 >    finance books → into PH-RAG.  ↳ PH-RAG + **per-source legal/licensing clearance**
@@ -428,11 +455,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     `…/as-reported` splits; and **KR DART XBRL** as-reported. Heavier parse — deferred. *(datasets; L)*
 - ⬜ **PH-8 · Index/ETF holdings (#19).** **US** = SEC N-PORT; **KR** = `KIS-ETF` (component stocks + NAV
   via the KIS connector). *(M)*
-- ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then
-  done once.)* When the text-bearing endpoints land (filing text via PH-5 `/filings/items`, segment/MD&A
-  text via PH-7, earnings-call transcripts, …), ingest them **all** through one pipeline → chunk → embed →
-  index per tenant (reusing the PH-2b news pipeline shape). Turns `rag__search` from news-only into the
-  full document corpus. *(datasets/rag; M)* — ↳ PH-5 (+ PH-7) for the text.
+- 🔁 **PH-RAG · Unified RAG corpus ingestion** → **for SEC/DART filing text, now delivered by
+  [PH-PROV3e](#) (text from the cached evidence PDFs — one artifact = corpus + evidence)**, instead of a
+  separate `/filings/items` ingest. PH-RAG remains the umbrella for *other* text sources (earnings-call
+  transcripts, PH-SOURCES alt-data) ingested through the same pipeline shape. *(was PH-2c.)*
 - ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering). *(↳ PH-RAG text)*
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a
   **JS bot-wall (not JSON) from datacenter IPs** even with a valid key → US macro breaks in cloud. Added a
