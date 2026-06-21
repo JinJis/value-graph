@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 262 unit** — datasets 115 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 71 · studio-api 35 (+ admin 12, renderer 8) — plus the web build, four docker harnesses
+> **Test totals (current): 249 unit** — datasets 102 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 71 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -255,7 +255,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     > **evidence source** it highlights. So "search any info" and "show its evidence" become the same
     > pipeline over the same PDF. Today only ~4 headline fields are wired and only structured figures —
     > d/e/f below close that. SEC/DART first; prices/macro/news keep their natural (non-PDF) evidence.
-    - 🚧 **PH-PROV3d · every STRUCTURED figure gets evidence (SEC/DART) + retire legacy.**
+    - ✅ **PH-PROV3d · every STRUCTURED figure gets evidence (SEC/DART) + retire legacy.**
       - ✅ **answer-aware anchoring + widened coverage.** The evidence image now anchors on the figure
         the **answer actually cites** (`evidence_url_for_answer`: scan every statement field, newest
         period, for a value that appears in the answer text → net income / R&D / assets / cash-flow get
@@ -268,10 +268,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         `except` blocks swallowed failures. Added `app/logging_config.py` (LOG_LEVEL, default INFO) + INFO
         logs across the evidence pipeline (doc build stored/skipped, DART pdf fetch, PyMuPDF hit/miss,
         `/evidence` 204 reason).
-      - ⬜ **retire legacy.** Remove the now-dead `FactLocation` concept-pointer path
-        (`/admin/precompute-locations`, `locations_ingest`, `providers/us/ixbrl.py`, renderer
-        `/render/sec` screenshot, the `/evidence` legacy fallback) and consolidate filing-accession
-        resolution. *(next)*
+      - ✅ **retired the legacy path.** Deleted `FactLocation` (model), `store/locations_ingest.py`,
+        `providers/us/ixbrl.py` (+ its tests), `/admin/precompute-locations`, and the renderer's
+        `/render/sec` screenshot path; `/evidence` is now PDF-only (no FactLocation fallback, no
+        `/evidence/meta`); `_primary_doc_map` moved into `evidence_docs`. renderer 8→4, datasets 115→102
+        (dead tests removed). The cached PDF + PyMuPDF is the single evidence path.
     - ⬜ **PH-PROV3e · every PASSAGE searchable + evidenced — full filing text → RAG (the big one).**
       *This is what makes "search all info in all datasources" real; folds in PH-RAG + PH-PROV2e.*
       Extract text from each **cached filing PDF** (PyMuPDF, page-aware) → chunk (section/page-aware) →

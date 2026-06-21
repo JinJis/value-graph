@@ -4,11 +4,8 @@ US iXBRL HTML / KR DART markup → PDF via the renderer (one-shot, at ingest). A
 PyMuPDF (PH-PROV3b) highlights whatever the answer actually cited in the cached PDF — so
 coverage is the whole document (any question), not a precomputed concept list, and the heavy
 headless render is paid at most once per filing. Best-effort + idempotent: a failure for one
-filing never blocks the rest.
-
-NOTE (PH-PROV3c): filing-accession resolution here overlaps `locations_ingest`; the old
-concept-pointer path is retired once this is wired into `/evidence`, and the shared
-resolution will be consolidated then.
+filing never blocks the rest. (PH-PROV3d retired the old `FactLocation` concept-pointer
+path; this is now the sole evidence-document source.)
 """
 
 from __future__ import annotations
@@ -24,9 +21,8 @@ from app.config import settings
 from app.http import fetch_text
 from app.providers.kr.dart_document import fetch_dart_pdf, fetch_document_markup
 from app.providers.registry import get_financials_provider
-from app.providers.us.sec_edgar import _UA, _resolve_cik
+from app.providers.us.sec_edgar import _UA, _resolve_cik, _submissions
 from app.store.db import SessionLocal, init_db
-from app.store.locations_ingest import _primary_doc_map
 from app.store.models import EvidenceDoc
 from app.store.provenance import dart_url, sec_index_url
 from app.symbols import Market, build_ref
@@ -34,6 +30,21 @@ from app.symbols import Market, build_ref
 log = logging.getLogger(__name__)
 
 _STMT_METHODS = ("income_statements", "balance_sheets", "cash_flow_statements")
+
+
+async def _primary_doc_map(cik10: str) -> dict[str, str]:
+    """accession_number → primary-document URL, from the SEC submissions index (same URL
+    shape `SecEdgarProvider.filings` builds)."""
+    sub = await _submissions(cik10)
+    recent = (sub.get("filings") or {}).get("recent") or {}
+    accns = recent.get("accessionNumber") or []
+    prim = recent.get("primaryDocument") or []
+    out: dict[str, str] = {}
+    for i, accn in enumerate(accns):
+        doc = prim[i] if i < len(prim) and prim[i] else ""
+        if accn and doc:
+            out[accn] = f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{accn.replace('-', '')}/{doc}"
+    return out
 
 
 def _pdf_path(market: str, accession: str) -> pathlib.Path:

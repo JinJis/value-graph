@@ -483,40 +483,6 @@ def test_admin_news_ingest_endpoint(monkeypatch):
     assert r.status_code == 200 and r.json()["started"] is True
 
 
-def test_admin_precompute_locations_preset_and_non_us(monkeypatch):
-    # PH-PROV2: precompute resolves a preset to its US tickers, and refuses non-US
-    # (visual evidence is SEC iXBRL only) — never silently indexes what it can't match.
-    import app.routers.admin as A
-
-    fired = {}
-
-    async def fake_run(market, tickers):
-        fired["market"], fired["tickers"] = market, tickers
-
-    monkeypatch.setattr(A, "run_precompute_locations", fake_run)
-
-    # explicit US tickers → started
-    assert client.post("/admin/precompute-locations",
-                       json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
-    assert fired["tickers"] == ["AAPL"]
-
-    # a preset is resolved server-side to its US tickers
-    fired.clear()
-    assert client.post("/admin/precompute-locations", json={"preset": "us_mega"}).json()["started"] is True
-    assert "AAPL" in fired["tickers"] and fired["market"] == "US"
-
-    # KR is supported (PH-PROV2d: DART document evidence) → started with explicit tickers
-    fired.clear()
-    assert client.post("/admin/precompute-locations",
-                       json={"market": "KR", "tickers": ["005930"]}).json()["started"] is True
-    assert fired["tickers"] == ["005930"] and fired["market"] == "KR"
-
-    # an unsupported market is rejected, not fabricated
-    fired.clear()
-    body = client.post("/admin/precompute-locations", json={"market": "JP", "tickers": ["7203"]}).json()
-    assert body["started"] is False and not fired
-
-
 async def test_ingest_ticker_builds_evidence_docs_when_flagged(monkeypatch):
     # PH-PROV3: with PRECOMPUTE_LOCATIONS on, a backfill (manual OR scheduled/deep — both go
     # through ingest_ticker) also caches each filing as a PDF so /evidence works — US AND KR.
@@ -1311,84 +1277,6 @@ def test_catalog_has_rag_connector_routed_to_rag_service():
     assert ("POST", "/rag/search") not in all_resource_paths()
     assert ("POST", "/rag/search") in all_resource_paths(service="rag")
     assert rag.license.redistribution is False
-
-
-@respx.mock
-def test_ph_prov2_evidence_endpoint_streams_png_or_204():
-    """PH-PROV2: /evidence returns the highlighted screenshot when a FactLocation pointer
-    exists + the renderer succeeds, and 204 (graceful fallback) otherwise."""
-    from datetime import date
-
-    from app.store.locations_ingest import _upsert
-
-    # no pointer → 204 (UI falls back to the text source card)
-    r0 = client.get("/evidence?market=US&accession=none&concept=Revenues&report_period=2024-09-28")
-    assert r0.status_code == 204
-
-    _upsert([{
-        "market": "US", "cik": "320193", "accession_number": "0000320193-24-000999",
-        "concept": "Revenues", "period": "annual", "report_period": date(2024, 9, 28),
-        "value": 391_035_000_000.0, "unit": "USD",
-        "primary_doc_url": "https://www.sec.gov/Archives/edgar/data/320193/x/aapl.htm",
-        "element_id": "f-rev", "selector": None, "scale": 6, "sign": None,
-        "match_rule": "exact", "status": "matched",
-    }])
-
-    route = respx.post("http://renderer:8006/render/sec")
-    route.mock(return_value=httpx.Response(200, content=b"\x89PNG-evidence", headers={"content-type": "image/png"}))
-    r = client.get("/evidence?market=US&accession=0000320193-24-000999&concept=us-gaap:Revenues"
-                   "&report_period=2024-09-28&value=391035000000&cik=320193")
-    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
-    assert r.content == b"\x89PNG-evidence"
-
-    meta = client.get("/evidence/meta?market=US&accession=0000320193-24-000999&concept=Revenues&report_period=2024-09-28")
-    assert meta.json()["available"] is True
-
-    # renderer fails → 204, never 500
-    route.mock(return_value=httpx.Response(502, json={"error": "boom"}))
-    r2 = client.get("/evidence?market=US&accession=0000320193-24-000999&concept=Revenues&report_period=2024-09-28")
-    assert r2.status_code == 204
-
-
-@respx.mock
-def test_ph_prov2d_kr_evidence_persists_anyurl_and_renders(monkeypatch):
-    """PH-PROV2d regression: KR statement models expose filing_url as a pydantic AnyUrl
-    (not a str) — it MUST be coerced before SQLite, else `_upsert` fails ('type AnyUrl is
-    not supported') and NO KR pointer persists → /evidence always 204. Then the KR
-    /evidence path re-finds the cell in the DART markup, injects an id, and renders."""
-    from datetime import date
-
-    from app.models.generated import IncomeStatement
-    from app.store.locations_ingest import _upsert, lookup_location
-
-    st = IncomeStatement(ticker="005930", period="annual", currency="KRW",
-                         report_period="2025-12-31", revenue=333_605_938_000_000.0,
-                         accession_number="20260310002820",
-                         filing_url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260310002820")
-    assert not isinstance(st.filing_url, str)  # AnyUrl — the exact hazard we coerce
-
-    assert _upsert([{
-        "market": "KR", "cik": "00126380", "accession_number": "20260310002820",
-        "concept": "revenue", "period": "annual", "report_period": date(2025, 12, 31),
-        "value": 333_605_938_000_000.0, "unit": "KRW",
-        "primary_doc_url": str(st.filing_url), "element_id": None, "selector": "매출액",
-        "scale": 6, "sign": None, "match_rule": "exact", "status": "matched",
-    }]) == 1
-    loc = lookup_location("KR", "20260310002820", "revenue", "2025-12-31")
-    assert loc is not None and loc.status == "matched" and isinstance(loc.primary_doc_url, str)
-
-    # /evidence (KR): re-fetch DART markup → re-find the 매출액 cell (백만원 scale) → inject id → render
-    import app.routers.evidence as EV
-
-    async def _fake_doc(_rcept):
-        return "<TABLE><TR><TD>매출액</TD><TD>333,605,938</TD></TR></TABLE>"
-
-    monkeypatch.setattr(EV, "fetch_document_markup", _fake_doc)
-    respx.post("http://renderer:8006/render/sec").mock(
-        return_value=httpx.Response(200, content=b"\x89PNG-kr", headers={"content-type": "image/png"}))
-    r = client.get("/evidence?market=KR&accession=20260310002820&concept=revenue"
-                   "&report_period=2025-12-31&value=333605938000000")
-    assert r.status_code == 200 and r.content == b"\x89PNG-kr"
 
 
 # --- PH-PROV3: PDF-normalized evidence document store ---------------------

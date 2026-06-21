@@ -12,7 +12,6 @@ from app.scheduler import scheduler
 from app.selftest import run_selftest
 from app.store.evidence_docs import run_build_evidence_docs
 from app.store.jobs import backfill_running, list_jobs, run_backfill
-from app.store.locations_ingest import run_precompute_locations
 from app.store.news_ingest import news_ingest_running, run_news_ingest
 from app.store.screener import store_stats
 from app.store.universes import get_preset, list_presets
@@ -32,12 +31,6 @@ class NewsIngestRequest(BaseModel):
     market: str = "US"
     tickers: list[str] | None = None  # omit for broad market news
     limit: int | None = None
-
-
-class PrecomputeLocationsRequest(BaseModel):
-    preset: str | None = None   # a universe preset id (takes precedence); its US tickers are indexed
-    market: str = "US"          # PH-PROV2 = US (SEC iXBRL) only — non-US tickers are skipped
-    tickers: list[str] | None = None  # explicit tickers to index
 
 
 @router.get(
@@ -90,35 +83,6 @@ async def backfill(body: BackfillRequest) -> dict:
     ))
     target = body.preset or f"{body.market}:{body.tickers}"
     return {"started": True, "target": target, "see": "/admin/jobs"}
-
-
-@router.post(
-    "/precompute-locations",
-    dependencies=[ApiKeyDep],
-    summary="▶ PH-PROV2: index where each fact appears in its filing (US iXBRL · KR DART)",
-    description=(
-        "Downloads each ticker's recent filings and stores a `FactLocation` pointer per "
-        "headline figure (US: match the as-reported fact to its inline-XBRL element; KR: "
-        "label-anchored exact match in the DART disclosure document). Powers the highlighted "
-        "evidence image at `/evidence`. Runs in the background; progress in `/admin/jobs`."
-    ),
-)
-async def precompute_locations(body: PrecomputeLocationsRequest) -> dict:
-    # Visual evidence: US (SEC iXBRL) + KR (DART document, PH-PROV2d). Presets are US-only
-    # universes; KR runs via explicit tickers. Reject other markets rather than indexing
-    # filings we can't match.
-    market, tickers = body.market, body.tickers
-    if body.preset:
-        preset = get_preset(body.preset)
-        if not preset:
-            return {"started": False, "detail": f"unknown preset {body.preset!r}"}
-        market, tickers = preset["market"], preset["tickers"]
-    if market not in ("US", "KR"):
-        return {"started": False, "detail": "visual evidence is US (SEC iXBRL) + KR (DART) only", "market": market}
-    if not tickers:
-        return {"started": False, "detail": "tickers required"}
-    asyncio.create_task(run_precompute_locations(market, tickers))
-    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
 
 
 class EvidenceDocsRequest(BaseModel):
