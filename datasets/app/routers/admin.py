@@ -11,6 +11,7 @@ from app.deps import ApiKeyDep
 from app.scheduler import scheduler
 from app.selftest import run_selftest
 from app.store.evidence_docs import run_build_evidence_docs
+from app.store.filing_ingest import run_filing_text_ingest
 from app.store.jobs import backfill_running, list_jobs, run_backfill
 from app.store.news_ingest import news_ingest_running, run_news_ingest
 from app.store.screener import store_stats
@@ -114,6 +115,31 @@ async def evidence_docs(body: EvidenceDocsRequest) -> dict:
     if not tickers:
         return {"started": False, "detail": "tickers required"}
     asyncio.create_task(run_build_evidence_docs(market, tickers))
+    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
+
+
+@router.post(
+    "/filings/ingest",
+    dependencies=[ApiKeyDep],
+    summary="▶ PH-PROV3e: index filing PDF text into RAG (full-text search + passage evidence)",
+    description=(
+        "Caches each ticker's filings as PDFs (if needed) and indexes their page text into RAG, "
+        "so `rag__search` returns real filing passages (MD&A, notes, any line) and `/evidence` can "
+        "highlight the cited passage. Global corpus; runs in the background, progress in `/admin/jobs`."
+    ),
+)
+async def filings_ingest(body: EvidenceDocsRequest) -> dict:
+    market, tickers = body.market, body.tickers
+    if body.preset:
+        preset = get_preset(body.preset)
+        if not preset:
+            return {"started": False, "detail": f"unknown preset {body.preset!r}"}
+        market, tickers = preset["market"], preset["tickers"]
+    if market not in ("US", "KR"):
+        return {"started": False, "detail": "US + KR only", "market": market}
+    if not tickers:
+        return {"started": False, "detail": "tickers required"}
+    asyncio.create_task(run_filing_text_ingest(market, tickers))
     return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
 
 

@@ -1389,3 +1389,40 @@ def test_ph_prov3a_admin_evidence_docs_endpoint(monkeypatch):
     # unsupported market / no tickers → not started
     assert client.post("/admin/evidence-docs", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
     assert client.post("/admin/evidence-docs", json={"market": "US"}).json()["started"] is False
+
+
+# --- PH-PROV3e: filing PDF text → RAG corpus ------------------------------
+def test_ph_prov3e_pdf_to_docs(tmp_path):
+    """Each non-empty PDF page → one RAG IngestDoc carrying accession + section (p.N) so a
+    search hit points back to the exact page for evidence highlighting."""
+    import fitz
+
+    from app.store.filing_ingest import _pdf_to_docs
+
+    pdf = tmp_path / "f.pdf"
+    d = fitz.open()
+    d.new_page().insert_text((72, 200), "Net sales were 391,035; risks include supply concentration.")
+    d.new_page()  # 2nd page near-empty → skipped
+    d.save(str(pdf))
+    d.close()
+
+    docs = _pdf_to_docs(str(pdf), "US", "AAPL", "0000320193-24-000123", "SEC EDGAR", "https://sec.gov/x")
+    assert len(docs) == 1  # empty page dropped
+    doc = docs[0]
+    assert doc["section"] == "p.1" and doc["accession"] == "0000320193-24-000123"
+    assert doc["doc_type"] == "filing" and doc["ticker"] == "AAPL" and doc["market"] == "US"
+    assert "Net sales" in doc["text"]
+
+
+def test_ph_prov3e_admin_filings_ingest_endpoint(monkeypatch):
+    import app.routers.admin as A
+
+    fired: dict = {}
+
+    async def _fake_run(market, tickers):
+        fired["market"], fired["tickers"] = market, tickers
+
+    monkeypatch.setattr(A, "run_filing_text_ingest", _fake_run)
+    assert client.post("/admin/filings/ingest", json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
+    assert fired == {"market": "US", "tickers": ["AAPL"]}
+    assert client.post("/admin/filings/ingest", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False

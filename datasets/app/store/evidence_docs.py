@@ -205,6 +205,21 @@ def _upsert_doc(row: dict) -> None:
         db.commit()
 
 
+def evidence_docs_for_ticker(market: str, ticker: str) -> list[dict]:
+    """All cached PDFs for a ticker — the corpus the filing-text RAG ingest reads (PH-PROV3e)."""
+    init_db()
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(EvidenceDoc).where(
+                EvidenceDoc.market == market.upper(),
+                EvidenceDoc.ticker == (ticker or "").upper(),
+                EvidenceDoc.status == "stored",
+            )
+        ).scalars().all()
+        return [{"accession": r.accession_number, "pdf_path": r.pdf_path, "source_url": r.source_url}
+                for r in rows]
+
+
 def get_evidence_doc(market: str, accession: str) -> dict | None:
     """The cached PDF record for the /evidence reader + '원문 열기' (PH-PROV3b)."""
     init_db()
