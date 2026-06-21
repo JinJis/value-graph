@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 281 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 88 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 282 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 89 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -581,8 +581,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     returns a short natural-language plan ("what I'll look up"), shown as thinking and **injected into the
     system prompt** so tool selection + synthesis follow it. Gemini-only (stub = budget only, no plan).
     +1 agent test (87→88). *(replaces the old `assess_budget` call in chat.)*
-  - ⬜ **Next: deeper orchestration** — explicit verify/refine sub-agent pass over the gathered evidence
-    before synthesis; per-source confidence; parallel multi-source gather. *(builds on docs/IDEA.md A2A.)*
+  - ✅ **Verify/refine pass (quality).** Before the forced synthesis, a reviewer pass (`refine_evidence`,
+    Gemini) reads the gathered evidence and writes a short brief (which sources/figures to use, conflicts,
+    a one-line outline) that's **injected into the synthesis prompt** + shown as a "근거를 교차검증하는 중…"
+    thinking step. Gemini-only, best-effort (never blocks). +1 test (88→89).
+  - ⬜ **Next: deeper orchestration** — per-source confidence scoring; parallel multi-source gather;
+    full A2A orchestrator + sub-agent cards. *(builds on docs/IDEA.md A2A.)*
 - ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
   operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
   One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.

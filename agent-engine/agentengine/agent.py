@@ -153,6 +153,45 @@ async def analyze_task(task: str, backend: str | None = None) -> tuple[int, str 
         return default, None
 
 
+_REFINE_PROMPT = (
+    "You are a meticulous research reviewer. Given the user's question and the evidence the "
+    "agent gathered (each item: source + snippet/figures), write a SHORT synthesis brief "
+    "(2-4 lines, SAME LANGUAGE as the question) that: (1) names which sources actually answer "
+    "the question and the key figures to use; (2) flags any conflicts or gaps; (3) gives a "
+    "one-line outline for the final answer. Do NOT write the answer itself, do NOT add numbers "
+    "that aren't in the evidence, do NOT forecast.\n\nQuestion: {task}\n\nEvidence:\n{ev}"
+)
+
+
+async def refine_evidence(task: str, citations: list[dict], model: str, backend: str | None = None) -> str | None:
+    """PH-THINK (verify/refine): a reviewer pass over the gathered evidence → a short brief
+    that grounds the final synthesis (names the sources/figures to use, flags conflicts).
+    Gemini-only, best-effort; None when stub / no evidence / on error."""
+    if (backend or settings.llm_backend) != "gemini" or not citations:
+        return None
+    lines = []
+    for c in citations[:12]:
+        bit = c.get("snippet") or ""
+        if not bit and c.get("table"):
+            bit = " · ".join(" ".join(map(str, row)) for row in (c.get("table") or [])[:3])
+        lines.append(f"- [{c.get('index')}] {c.get('source') or '?'}: {str(bit)[:220]}")
+    ev = "\n".join(lines)
+    try:
+        import asyncio
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client()
+        resp = await asyncio.to_thread(
+            client.models.generate_content, model=model,
+            contents=_REFINE_PROMPT.format(task=(task or "")[:400], ev=ev[:4000]),
+            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=300))
+        return (getattr(resp, "text", "") or "").strip() or None
+    except Exception as exc:  # noqa: BLE001 — never block the answer on the review pass
+        logger.warning("evidence refine failed (%s); skipping", exc)
+        return None
+
+
 def call_sig(decision) -> str | None:
     """Stable signature of a tool call, to detect an identical consecutive repeat."""
     if not getattr(decision, "tool", None):

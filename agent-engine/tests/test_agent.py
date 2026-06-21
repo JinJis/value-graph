@@ -1251,3 +1251,10 @@ async def test_chat_stream_emits_thinking_progress(monkeypatch):
     assert events[0]["type"] == "thinking" and events[0]["phase"] == "analyze"  # narration starts immediately
     found = next(e for e in events if e.get("phase") == "found")
     assert "근거" in found["text"]
+
+
+async def test_refine_evidence_noop_without_gemini_or_evidence():
+    # PH-THINK verify pass: stub backend / no evidence → no review note (never blocks).
+    from agentengine.agent import refine_evidence
+    assert await refine_evidence("q", [{"index": 1, "source": "SEC", "snippet": "x"}], "m", "stub") is None
+    assert await refine_evidence("q", [], "m", "gemini") is None

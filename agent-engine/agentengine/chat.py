@@ -22,7 +22,7 @@ from typing import AsyncIterator
 from agentengine import guardrails
 from agentengine.agent import (
     _artifacts, _citations, analyze_task, anchor_markers, call_sig, fallback_answer,
-    filter_tools, has_anchors, number_sources,
+    filter_tools, has_anchors, number_sources, refine_evidence,
 )
 from agentengine.client import PlatformClient
 from agentengine.config import settings
@@ -90,8 +90,20 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     seen_artifacts: set = set()
     seen_cites: set = set()
     answered = False
+    refined = False              # run the verify/refine pass once, just before synthesis
     final_text = ""
     last_sig = None
+
+    async def _maybe_refine():
+        # PH-THINK verify pass: review the gathered evidence and ground the synthesis.
+        nonlocal refined, system
+        if refined or not citations:
+            return None
+        refined = True
+        note = await refine_evidence(task, citations, settings.model, bk)
+        if note:
+            system = ((system or "") + f"\n\n[검증 메모] {note}").strip()
+        return note
 
     async def _finalize(force: bool):
         # one synthesis call; never leak an empty/limit message to the user.
@@ -103,6 +115,10 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         planner = get_planner(spec.backend if spec else None)
         for step in range(max_steps):
             is_last = step == max_steps - 1  # reserve the last step for guaranteed synthesis
+            if is_last and not refined and citations:  # verify/refine just before the forced synthesis
+                if (bk or settings.llm_backend) == "gemini":
+                    yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
+                await _maybe_refine()
             decision = await planner.plan(task, tools, history, system, conversation=messages,
                                           force_final=is_last, sources=number_sources(citations))
             if is_last or decision.final is not None:
@@ -123,6 +139,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             # an identical consecutive call means the model is stuck — synthesize now
             sig = call_sig(decision)
             if sig and sig == last_sig:
+                if not refined and citations and (bk or settings.llm_backend) == "gemini":
+                    yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
+                await _maybe_refine()
                 yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
                 final_text = await _finalize(force=True)
                 for ch in _chunks(final_text):
