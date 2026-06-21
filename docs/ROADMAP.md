@@ -194,11 +194,57 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       render time and injects a unique `#id` (DART markup parsed by lxml vs. Chromium diverge —
       `<tbody>`/tag-case — so a positional XPath isn't reused) for the existing `/render/sec` HTML path;
       cache key stays unique per fact. agent-engine `_evidence_url` composes the KR link (market=KR,
-      field-name concept). Web unchanged (evidence is market-agnostic). datasets 99→105, agent-engine
-      69→70. *(Real-DART verification needs an `OPENDART_API_KEY` on the deployment stack; the matcher
-      is unit-tested against a DART-shaped fixture and every gap degrades to the text source card.)*
+      field-name concept). datasets 99→105, agent-engine 69→70. *(Real-DART verification needs an
+      `OPENDART_API_KEY` on the deployment stack; the matcher is unit-tested against a DART-shaped fixture
+      and every gap degrades to the text source card.)*
+      - **Bugfix (PH-PROV2 web, US+KR):** the chat SSE→state capture (`web/components/Chat.tsx`)
+        reconstructed each citation field-by-field and **dropped `evidence_image_url` + `table`**, so the
+        highlighted-filing screenshot (and the extracted-data table) could **never** render in the Live
+        Context / source card even when the backend served them — the actual reason evidence wasn't
+        showing end-to-end. Now carried through. (The agent emits them via `c.model_dump()`; studio-api +
+        gateway proxy `/evidence` correctly; renderer is wired in compose.)
+      - **Bugfix (PH-PROV2d, KR persist):** KR statement models expose `filing_url` as a pydantic
+        `AnyUrl` (not a str); writing it straight into `FactLocation.primary_doc_url` made SQLite reject
+        the bind (`type 'AnyUrl' is not supported`) so the KR `_upsert` failed and **no KR pointer ever
+        persisted** → `/evidence` always 204 (US matched because its path uses plain-str dict values).
+        Coerced to `str`; verified live (Samsung revenue → matched, scale=6). +1 regression test → 106.
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
+      *(folded into PH-PROV3 below — same PDF + on-demand-locate mechanism.)*
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
+  - 🚧 **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
+    concept-precompute model; approved 2026-06-20)*. The pointer-precompute (PH-PROV2a–d) only covered a
+    **fixed set of headline concepts** per filing — it can't answer the *many* arbitrary questions users
+    ask, is slow to precompute, and never covered narrative text. Invert it: **cache the whole filing as a
+    PDF once** (universal coverage, one render/filing) and **locate + highlight on demand** whatever the
+    answer actually cited (figures by value-match, passages by span-match), with the renderer out of the
+    query hot-path. Decisions: PyMuPDF lives in `datasets` (no renderer hop at query time); migration is
+    additive (build the PDF path beside the old one, switch `/evidence`, then retire the concept-pointer
+    path); ingestion is **watchlist-scoped**. US iXBRL HTML / KR DART markup → PDF at ingest (no forced
+    PDF where none exists — US has no official PDF, so we normalize). Other sources keep their natural
+    evidence (news/web = snippet+link; prices/macro = data card).
+    **Source decision (verified 2026-06-21): KR = DART's official PDF** (`pdf/download/pdf.do`, keyless,
+    Chromium-free, the full 540-page report) **· US = render iXBRL HTML→PDF ourselves** (no SEC PDF
+    exists; sec-api.io offers a paid render API but it's the same operation outsourced — self-host the
+    one-shot Chromium render instead). So Chromium is gone from KR entirely and from the query hot-path
+    for both; it remains only for the one-shot US ingest render.
+    - ✅ **PH-PROV3a · PDF document store + ingest normalization.** New `EvidenceDoc` model (cached
+      PDF per filing, keyed `market`+`accession`, with the canonical `원문 열기` link). Renderer
+      `POST /pdf/from-html` (Chromium `page.pdf()`, one-shot at ingest — query-time stays browser-free).
+      `app/store/evidence_docs.py`: `ensure_doc` (fetch source → renderer → write PDF to the data volume
+      → index; idempotent), `build_evidence_docs_for_ticker` / `run_build_evidence_docs` (watchlist-scoped,
+      recorded as an `IngestionJob` kind `evidence_docs`); `POST /admin/evidence-docs` trigger. KR
+      `filing_url` AnyUrl coerced to str (same hazard as PH-PROV2d). datasets 106→108, renderer 5→8.
+    - ✅ **PH-PROV3b · PyMuPDF on-demand highlight + KR official PDF.** KR ingest now pulls DART's
+      **official PDF** (`dart_document.fetch_dart_pdf`: resolve the main `dcmNo` from the viewer →
+      `pdf/download/pdf.do`; document.xml→renderer kept as fallback) — **no Chromium for KR**. New
+      `app/store/evidence_render.py` (PyMuPDF): finds the cited value in the cached PDF at the unit scales
+      statements use (ones/천/백만/억), anchored on its account label (KR_LABELS / US gaap→label map),
+      highlights the cell, rasterizes the page band → PNG (cache-first). `/evidence` serves the PDF path
+      first (browser-free), falling back to the legacy FactLocation+renderer screenshot; new
+      `/evidence/doc` streams the real PDF for `원문 열기`. `pymupdf` added to datasets. datasets 108→111.
+    - ⬜ **PH-PROV3c · generalize + agent wiring + retire concept-precompute.** RAG/news passage evidence,
+      prices/macro data-card evidence, agent citations on the new path; consolidate the filing-accession
+      resolution and remove the now-dead `FactLocation` concept-pointer precompute.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---

@@ -24,7 +24,10 @@ import zipfile
 from lxml import html as lxml_html
 
 from app.config import settings
-from app.http import fetch_bytes
+from app.http import fetch_bytes, fetch_text
+
+_DART_UA = {"User-Agent": "Mozilla/5.0 (compatible; ValueGraphDatasets/0.1)"}
+_DCM_RE = re.compile(r"node1\['dcmNo'\]\s*=\s*\"(\d+)\"")
 
 # Normalized statement field → candidate DART account labels (account_nm), ordered.
 # Keyed by the same field names the agent anchors evidence on (see agent-engine
@@ -190,10 +193,56 @@ def mark_target(markup: str, value: float, labels: list[str], element_id: str) -
     return lxml_html.tostring(root, encoding="unicode")
 
 
+async def _resolve_dcm_no(rcept_no: str) -> str | None:
+    """The main document number for a receipt, from the DART viewer tree (needed by the
+    official PDF endpoint). Public website — no OpenDART key required."""
+    try:
+        html = await fetch_text("dart", f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}",
+                                headers=_DART_UA)
+    except Exception:  # noqa: BLE001
+        return None
+    m = _DCM_RE.search(html)
+    return m.group(1) if m else None
+
+
+async def fetch_dart_pdf(rcept_no: str) -> bytes | None:
+    """The OFFICIAL DART filing PDF (the full report, financials included) via the public
+    ``pdf/download/pdf.do`` endpoint. Keyless and Chromium-free — this is why KR evidence
+    needs no headless render. None on any failure → caller falls back to markup→render.
+
+    NB: this is the DART website (not the OpenDART API), so it needs a Referer and may
+    change; the document.xml→renderer path stays as a fallback."""
+    if not rcept_no:
+        return None
+    dcm = await _resolve_dcm_no(rcept_no)
+    if not dcm:
+        return None
+    referer = f"https://dart.fss.or.kr/pdf/download/main.do?rcp_no={rcept_no}&dcm_no={dcm}"
+    url = f"https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no={rcept_no}&dcm_no={dcm}"
+    try:
+        pdf = await fetch_bytes("dart", url, headers={**_DART_UA, "Referer": referer})
+    except Exception:  # noqa: BLE001
+        return None
+    return pdf if pdf[:4] == b"%PDF" else None
+
+
+def _decode_doc(raw: bytes) -> str:
+    """Decode DART document bytes (EUC-KR/CP949 historically; UTF-8 newer)."""
+    for enc in ("utf-8", "euc-kr", "cp949"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 async def fetch_document_markup(rcept_no: str) -> str | None:
     """Download the DART disclosure document (``document.xml`` API → ZIP of markup) for a
-    receipt number and return the largest contained document decoded to text. None on any
-    failure (no key, network, bad zip) — evidence then degrades to the text source card."""
+    receipt number and return its combined markup. A 사업보고서 ZIP bundles the main body
+    **plus separate files** (e.g. the audited financial statements / 감사보고서) — the exact
+    figure we hold often lives in one of those, not the largest file — so we concatenate
+    every document file into one tree. None on any failure (no key, network, bad zip) →
+    evidence then degrades to the text source card."""
     if not settings.opendart_api_key or not rcept_no:
         return None
     url = f"https://opendart.fss.or.kr/api/document.xml?crtfc_key={settings.opendart_api_key}&rcept_no={rcept_no}"
@@ -202,17 +251,23 @@ async def fetch_document_markup(rcept_no: str) -> str | None:
     except Exception:  # noqa: BLE001 — upstream/network → graceful (None)
         return None
     try:
-        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-            names = [n for n in zf.namelist() if n.lower().endswith((".xml", ".html", ".htm"))]
-            if not names:
-                return None
-            name = max(names, key=lambda n: zf.getinfo(n).file_size)
-            raw = zf.read(name)
-    except (zipfile.BadZipFile, KeyError, OSError):
+        zf = zipfile.ZipFile(io.BytesIO(blob))
+    except (zipfile.BadZipFile, OSError):
         return None
-    for enc in ("utf-8", "euc-kr", "cp949"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace")
+    parts: list[str] = []
+    with zf:
+        for name in zf.namelist():
+            if not name.lower().endswith((".xml", ".html", ".htm")):
+                continue
+            try:
+                text = _decode_doc(zf.read(name))
+            except (KeyError, OSError):
+                continue
+            text = _XML_DECL.sub("", text.lstrip())  # drop a leading <?xml …?> so it nests cleanly
+            if text.strip():
+                parts.append(text)
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    return "<html><body>" + "\n".join(parts) + "</body></html>"

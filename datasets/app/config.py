@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     renderer_url: str = "http://renderer:8006"
     # Precompute fact→location pointers as part of ingest (off by default until proven).
     precompute_locations: bool = False
+    # PH-PROV3: where cached PDF-normalized filings live (on the datasets data volume).
+    evidence_docs_dir: str = "/data/evidence_docs"
 
     @property
     def accepted_api_keys(self) -> set[str]:

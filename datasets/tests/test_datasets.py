@@ -1354,3 +1354,156 @@ def test_ph_prov2_evidence_endpoint_streams_png_or_204():
     route.mock(return_value=httpx.Response(502, json={"error": "boom"}))
     r2 = client.get("/evidence?market=US&accession=0000320193-24-000999&concept=Revenues&report_period=2024-09-28")
     assert r2.status_code == 204
+
+
+@respx.mock
+def test_ph_prov2d_kr_evidence_persists_anyurl_and_renders(monkeypatch):
+    """PH-PROV2d regression: KR statement models expose filing_url as a pydantic AnyUrl
+    (not a str) — it MUST be coerced before SQLite, else `_upsert` fails ('type AnyUrl is
+    not supported') and NO KR pointer persists → /evidence always 204. Then the KR
+    /evidence path re-finds the cell in the DART markup, injects an id, and renders."""
+    from datetime import date
+
+    from app.models.generated import IncomeStatement
+    from app.store.locations_ingest import _upsert, lookup_location
+
+    st = IncomeStatement(ticker="005930", period="annual", currency="KRW",
+                         report_period="2025-12-31", revenue=333_605_938_000_000.0,
+                         accession_number="20260310002820",
+                         filing_url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260310002820")
+    assert not isinstance(st.filing_url, str)  # AnyUrl — the exact hazard we coerce
+
+    assert _upsert([{
+        "market": "KR", "cik": "00126380", "accession_number": "20260310002820",
+        "concept": "revenue", "period": "annual", "report_period": date(2025, 12, 31),
+        "value": 333_605_938_000_000.0, "unit": "KRW",
+        "primary_doc_url": str(st.filing_url), "element_id": None, "selector": "매출액",
+        "scale": 6, "sign": None, "match_rule": "exact", "status": "matched",
+    }]) == 1
+    loc = lookup_location("KR", "20260310002820", "revenue", "2025-12-31")
+    assert loc is not None and loc.status == "matched" and isinstance(loc.primary_doc_url, str)
+
+    # /evidence (KR): re-fetch DART markup → re-find the 매출액 cell (백만원 scale) → inject id → render
+    import app.routers.evidence as EV
+
+    async def _fake_doc(_rcept):
+        return "<TABLE><TR><TD>매출액</TD><TD>333,605,938</TD></TR></TABLE>"
+
+    monkeypatch.setattr(EV, "fetch_document_markup", _fake_doc)
+    respx.post("http://renderer:8006/render/sec").mock(
+        return_value=httpx.Response(200, content=b"\x89PNG-kr", headers={"content-type": "image/png"}))
+    r = client.get("/evidence?market=KR&accession=20260310002820&concept=revenue"
+                   "&report_period=2025-12-31&value=333605938000000")
+    assert r.status_code == 200 and r.content == b"\x89PNG-kr"
+
+
+# --- PH-PROV3: PDF-normalized evidence document store ---------------------
+async def test_ph_prov3_ensure_doc_caches_kr_official_pdf(tmp_path, monkeypatch):
+    """KR uses DART's official PDF directly (Chromium-free); it's written to the data
+    volume + indexed as an EvidenceDoc, and the second call is served from cache."""
+    import app.store.evidence_docs as ED
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+    calls = {"n": 0}
+
+    async def _fake_pdf(rcept):
+        calls["n"] += 1
+        return b"%PDF-1.4 official-dart"
+
+    monkeypatch.setattr(ED, "fetch_dart_pdf", _fake_pdf)
+
+    r1 = await ED.ensure_doc("KR", "005930", "20260310002820",
+                             canonical_url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260310002820")
+    assert r1 == "stored"
+    assert (tmp_path / "KR" / "20260310002820.pdf").read_bytes().startswith(b"%PDF")
+    doc = ED.get_evidence_doc("KR", "20260310002820")
+    assert doc and doc["status"] == "stored" and "dart.fss.or.kr" in doc["source_url"]
+
+    r2 = await ED.ensure_doc("KR", "005930", "20260310002820", canonical_url="x")  # idempotent
+    assert r2 == "cached" and calls["n"] == 1  # no second fetch
+
+
+@respx.mock
+async def test_ph_prov3_ensure_doc_us_renders_via_chromium(tmp_path, monkeypatch):
+    """US has no official PDF → iXBRL HTML is rendered to PDF once by the renderer."""
+    import app.store.evidence_docs as ED
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+
+    async def _fake_markup(accession, fetch_url):
+        return "<html><body><table><tr><td>Revenue</td><td>391,035</td></tr></table></body></html>"
+
+    monkeypatch.setattr(ED, "_us_markup", _fake_markup)
+    respx.post("http://renderer:8006/pdf/from-html").mock(
+        return_value=httpx.Response(200, content=b"%PDF-1.7 us", headers={"content-type": "application/pdf"}))
+
+    r = await ED.ensure_doc("US", "AAPL", "0000320193-24-000123",
+                            fetch_url="https://www.sec.gov/x.htm", canonical_url="https://www.sec.gov/i.htm")
+    assert r == "stored"
+    assert (tmp_path / "US" / "0000320193-24-000123.pdf").read_bytes().startswith(b"%PDF")
+
+
+def _make_pdf(path, line):
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 200), line)
+    doc.save(str(path))
+    doc.close()
+
+
+def test_ph_prov3b_pymupdf_highlight(tmp_path, monkeypatch):
+    """PyMuPDF locates the cited value (at the millions scale) next to its label, highlights
+    it, and rasterizes a PNG — cache-first; a value not present returns None (graceful)."""
+    from app.config import settings
+    from app.store.evidence_render import highlight_png, labels_for
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+    pdf = tmp_path / "us.pdf"
+    _make_pdf(pdf, "Net sales      391,035")  # millions, as a 10-K renders it
+    labels = labels_for("US", "Revenues")
+    assert "Net sales" in labels
+
+    png = highlight_png(str(pdf), 391_035_000_000.0, labels)
+    assert png and png.startswith(b"\x89PNG")
+    assert highlight_png(str(pdf), 391_035_000_000.0, labels) == png      # cache hit
+    assert highlight_png(str(pdf), 999.0, labels) is None                 # value absent → None
+
+
+def test_ph_prov3b_evidence_pdf_endpoint(tmp_path, monkeypatch):
+    """/evidence highlights the cited figure in the cached PDF; /evidence/doc serves the PDF."""
+    from app.config import settings
+    from app.store.evidence_docs import _upsert_doc
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+    pdf = tmp_path / "us.pdf"
+    _make_pdf(pdf, "Net sales      391,035")  # ASCII fixture → US 'Net sales' label anchors deterministically
+    _upsert_doc({"market": "US", "ticker": "AAPL", "accession_number": "0000320193-24-000123",
+                 "source_url": "https://www.sec.gov/...-index.htm",
+                 "pdf_path": str(pdf), "page_count": 1, "status": "stored"})
+
+    r = client.get("/evidence?market=US&accession=0000320193-24-000123&concept=Revenues"
+                   "&report_period=2024-09-28&value=391035000000")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+
+    d = client.get("/evidence/doc?market=US&accession=0000320193-24-000123")
+    assert d.status_code == 200 and d.headers["content-type"] == "application/pdf"
+    assert client.get("/evidence/doc?market=US&accession=NOPE").status_code == 204
+
+
+def test_ph_prov3a_admin_evidence_docs_endpoint(monkeypatch):
+    import app.routers.admin as A
+
+    fired: dict = {}
+
+    async def _fake_run(market, tickers):
+        fired["market"], fired["tickers"] = market, tickers
+
+    monkeypatch.setattr(A, "run_build_evidence_docs", _fake_run)
+    assert client.post("/admin/evidence-docs", json={"market": "KR", "tickers": ["005930"]}).json()["started"] is True
+    assert fired == {"market": "KR", "tickers": ["005930"]}
+    # unsupported market / no tickers → not started
+    assert client.post("/admin/evidence-docs", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
+    assert client.post("/admin/evidence-docs", json={"market": "US"}).json()["started"] is False
