@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 257 unit** — datasets 108 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 258 unit** — datasets 109 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 73 · studio-api 35 (+ admin 12, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (23 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (24 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -494,9 +494,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     holdings via the existing provider, every position carrying its accession → cited to the SEC 13F. New
     MCP tool `sec_edgar__gurus`; verified live (Buffett → Amex/Coca-Cola/Apple). +1 test, eval +1, coverage
     "all 35". Cross-guru **common holdings** = a later add. *(Valley: 거장 매매/포트폴리오/공통보유종목)*
-  - ⬜ **PH-DATA-2 · Peer comparables**  ← **next** — current + historical **multiples vs sector peers** (descriptive,
-    each figure cited). *(Valley: 상대가치평가/historical multiples)*
-  - ⬜ **PH-DATA-3 · Corporate actions** — dividends + splits history (SEC/DART + prices). *(basic coverage
+  - ✅ **PH-DATA-2 · Peer comparables** — `/comparables?tickers=AAPL,MSFT,GOOGL` returns each company's
+    valuation multiples + margins/returns **side by side** (reuses `metrics_snapshot` per ticker, parallel;
+    caller/agent supplies the peer set → no universe needed). Descriptive, derived from filings + price
+    (no forecast). MCP tools `sec_edgar__comparables` + `opendart__comparables`; coverage "all 37"; +1 test,
+    eval +1. *(Valley: 상대가치평가/historical multiples)*
+  - ⬜ **PH-DATA-3 · Corporate actions** — dividends + splits history (SEC/DART + prices). *(basic coverage  ← next
     every platform has; we lack it)*
   - ⬜ **PH-DATA-4 · Economic calendar + indicators DB** — broaden macro beyond rates; ties to the
     Disclosure Calendar. *(Valley: 경제지표 일정/열람)*

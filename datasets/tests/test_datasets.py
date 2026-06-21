@@ -1522,3 +1522,21 @@ def test_phdata1_gurus_list_and_holdings(monkeypatch):
 
     # unknown slug → 404
     assert client.get("/gurus?slug=nobody").status_code == 404
+
+
+# --- PH-DATA-2: peer valuation comparables --------------------------------
+def test_phdata2_comparables(monkeypatch):
+    from app.models.generated import FinancialMetricSnapshot
+    import app.routers.metrics as M
+
+    class _Fake:
+        async def metrics_snapshot(self, ref):
+            return FinancialMetricSnapshot(ticker=ref.ticker, price_to_earnings_ratio=30.0,
+                                           net_margin=0.25, return_on_equity=0.5)
+
+    monkeypatch.setattr(M, "get_metrics_provider", lambda m: _Fake())
+    b = client.get("/comparables?tickers=AAPL,MSFT,GOOGL&market=US").json()
+    assert b["market"] == "US" and b["tickers"] == ["AAPL", "MSFT", "GOOGL"]
+    assert len(b["comparables"]) == 3
+    assert b["comparables"][0]["price_to_earnings_ratio"] == 30.0
+    assert client.get("/comparables?tickers=&market=US").status_code == 400  # no tickers

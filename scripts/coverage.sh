@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool coverage — calls EVERY catalog tool (all 34) through the metered gateway with
+# Tool coverage — calls EVERY catalog tool (all 37) through the metered gateway with
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
@@ -58,7 +58,7 @@ tool() {
 
 US='ticker=AAPL&market=US'; KR='ticker=005930&market=KR'; ANN='period=annual'
 
-section "SEC EDGAR — US fundamentals (13 tools)"
+section "SEC EDGAR — US fundamentals (15 tools)"
 tool "company_facts"          GET "/company/facts?$US"                          "" 'company_facts'
 tool "company_search"         GET "/company/search?q=apple&market=US"           "" 'results'
 tool "income_statements"      GET "/financials/income-statements?$US&$ANN"      "" 'income_statements'
@@ -73,6 +73,7 @@ tool "institutional_holdings" GET "/institutional-holdings?filer_cik=0001067983"
 tool "index_funds"            GET "/index-funds?ticker=SPY&market=US"           "" 'holdings'
 tool "gurus"                  GET "/gurus?slug=buffett"                          "" 'holdings'
 tool "metrics_snapshot"       GET "/financial-metrics/snapshot?$US"             "" 'snapshot'
+tool "comparables"            GET "/comparables?tickers=AAPL,MSFT&market=US"     "" 'comparables'
 
 section "Yahoo Finance — prices (2 tools)"
 tool "prices"          GET "/prices?ticker=AAPL&interval=day&start_date=2024-01-02&end_date=2024-01-08&market=US" "" 'close'
@@ -82,7 +83,7 @@ section "FRED / DBnomics — US macro (2 tools · cloud-safe via DBnomics/BIS fa
 tool "interest_rates"          GET "/macro/interest-rates?bank=FED&market=US"          "" 'interest'
 tool "interest_rates_snapshot" GET "/macro/interest-rates/snapshot?bank=FED&market=US" "" 'interest'
 
-section "OpenDART — KR fundamentals (10 tools)"
+section "OpenDART — KR fundamentals (11 tools)"
 tool "company_facts"        GET "/company/facts?$KR"                            "" 'company_facts'
 tool "company_search"       GET "/company/search?q=005930&market=KR"           "" 'results'
 tool "income_statements"    GET "/financials/income-statements?$KR&$ANN"        "" 'income_statements'
@@ -93,6 +94,7 @@ tool "filings"              GET "/filings?$KR"                                  
 tool "earnings"             GET "/earnings?$KR"                                 "" 'earnings'
 tool "insider_trades"       GET "/insider-trades?$KR"                           "" 'insider'
 tool "metrics_snapshot"     GET "/financial-metrics/snapshot?$KR"               "" 'snapshot'
+tool "comparables"          GET "/comparables?tickers=005930,000660&market=KR"  "" 'comparables'
 
 section "Bank of Korea ECOS — KR macro (2 tools)"
 tool "interest_rates"          GET "/macro/interest-rates?bank=BOK&market=KR"          "" 'interest'

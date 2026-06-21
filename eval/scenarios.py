@@ -133,6 +133,14 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        "name": "Peer comparables → derived multiples",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플, 마이크로소프트, 구글의 밸류에이션 멀티플(PER 등)을 나란히 비교해줘.",
+        "criteria": "세 종목의 PER 등 멀티플을 비교 표/수치로 제시(파생값, SEC/가격 기반); 목표가·매수의견 없이 비교만.",
+        "checks": {"expect_connector": "comparables", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Superinvestor portfolio → SEC 13F (거장)",
         "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
         "question": "워런 버핏(버크셔)이 최근 13F에서 가장 많이 보유한 종목들을 알려줘.",
