@@ -28,7 +28,8 @@ P_LIMIT = ResourceParam(name="limit", type="integer", description="Max rows.")
 LIC_SEC = License(id="us-public-domain", redistribution=True, attribution_required=False,
                   note="U.S. government works (SEC EDGAR) are public domain.")
 LIC_FRED = License(id="fred-terms", redistribution=True, attribution_required=True,
-                   note="Most FRED series are freely usable; some carry source-specific restrictions — check per series.",
+                   note="FRED and BIS central-bank policy rates (the latter served keyless via DBnomics) are "
+                        "freely usable with attribution; some FRED series carry source-specific restrictions — check per series.",
                    terms_url="https://fred.stlouisfed.org/legal/")
 LIC_DART = License(id="kr-opendart", redistribution=True, attribution_required=True,
                    note="OpenDART (FSS) public disclosure data; attribute the source.",
@@ -47,7 +48,7 @@ LIC_DERIVED = License(id="derived-public", redistribution=True, attribution_requ
 PROV_SEC = Provenance(source="SEC EDGAR", as_of_field="report_period", source_link_field="filing_url", freshness=Freshness.periodic)
 PROV_SEC_FILINGS = Provenance(source="SEC EDGAR", as_of_field="filing_date", source_link_field="url", freshness=Freshness.periodic)
 PROV_YAHOO = Provenance(source="Yahoo Finance", as_of_field="time", freshness=Freshness.eod)
-PROV_FRED = Provenance(source="FRED (St. Louis Fed)", as_of_field="date", freshness=Freshness.periodic)
+PROV_FRED = Provenance(source="BIS / FRED (central-bank policy rates)", as_of_field="date", freshness=Freshness.periodic)
 PROV_DART = Provenance(source="OpenDART (FSS)", as_of_field="report_period", source_link_field="filing_url", freshness=Freshness.periodic)
 PROV_ECOS = Provenance(source="Bank of Korea ECOS", as_of_field="date", freshness=Freshness.periodic)
 PROV_NEWS = Provenance(source="Google News", as_of_field="date", source_link_field="url", freshness=Freshness.realtime)

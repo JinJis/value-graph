@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # --- per-domain provider selection (override the free defaults) --------
     prices_provider_us: str = "yahoo"  # yahoo | stooq | polygon | tiingo | fmp
     prices_provider_kr: str = "yahoo"  # yahoo | pykrx | krx | kis
+    # macro: FRED's api.stlouisfred.org serves a JS bot-wall to datacenter IPs, so
+    # US macro breaks in the cloud. "auto" tries FRED when FRED_API_KEY is set and
+    # falls back to keyless, cloud-safe DBnomics (BIS policy rates); "dbnomics"
+    # forces the keyless path; "fred" forces FRED only.
+    macro_provider_us: str = "auto"  # auto | fred | dbnomics
 
     # --- infra -------------------------------------------------------------
     # Ingestion store. SQLite by default (zero-setup, dev); set a postgresql://

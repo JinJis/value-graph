@@ -970,6 +970,81 @@ def test_ecos_helpers():
     assert _bank("BOK")[1] == "722Y001"
 
 
+# --- PH-MACRO: DBnomics (BIS) cloud-safe macro + FRED fallback ------------
+def test_dbnomics_helpers():
+    import pytest
+
+    from datetime import date as _date
+
+    from app.errors import APIError
+    from app.providers.us.dbnomics import _parse_period, _series, _to_rate
+
+    assert _series("FED")[1] == "US"
+    assert _series("ecb")[1] == "XM"  # case-insensitive; euro area
+    with pytest.raises(APIError):
+        _series("NOPE")
+    assert _parse_period("2025-07-08") == _date(2025, 7, 8)
+    assert _parse_period("2025-06") == _date(2025, 6, 1)  # monthly tolerated
+    assert _parse_period("garbage") is None
+    assert _to_rate("FED", "Fed", "2025-07-08", 4.375).rate == 4.375
+    assert _to_rate("FED", "Fed", "2025-07-08", "NA") is None  # missing marker
+    assert _to_rate("FED", "Fed", "bad-period", 4.0) is None
+
+
+_DBN_URL = "https://api.db.nomics.world/v22/series/BIS/WS_CBPOL"
+
+
+@respx.mock
+async def test_dbnomics_provider_mocked():
+    from datetime import date as _date
+
+    from app.providers.us.dbnomics import DBnomicsProvider
+
+    payload = {"series": {"docs": [{"series_code": "D.US",
+                                    "period": ["2025-05-01", "2025-06-01", "2025-07-08"],
+                                    "value": ["NA", 4.25, 4.375]}]}}
+    respx.get(f"{_DBN_URL}/D.US").mock(return_value=httpx.Response(200, json=payload))
+
+    p = DBnomicsProvider()
+    rows = await p.interest_rates("FED", None, None)
+    assert [r.rate for r in rows] == [4.25, 4.375]  # "NA" dropped, never faked
+    assert rows[0].date == "2025-06-01" and rows[0].name == "U.S. Federal Reserve"
+    snap = await p.snapshot("FED")
+    assert snap[0].rate == 4.375 and snap[0].date == "2025-07-08"
+    filtered = await p.interest_rates("FED", _date(2025, 7, 1), None)
+    assert [r.rate for r in filtered] == [4.375]
+
+
+@respx.mock
+async def test_auto_macro_keyless_uses_dbnomics(monkeypatch):
+    from app.config import settings
+    from app.providers.us.macro_auto import AutoMacroProvider
+
+    payload = {"series": {"docs": [{"period": ["2025-06-01", "2025-07-08"], "value": ["NA", 2.0]}]}}
+    respx.get(f"{_DBN_URL}/D.XM").mock(return_value=httpx.Response(200, json=payload))
+
+    monkeypatch.setattr(settings, "fred_api_key", "")
+    rows = await AutoMacroProvider().interest_rates("ECB", None, None)
+    assert [r.rate for r in rows] == [2.0]
+    assert rows[0].name == "European Central Bank"
+
+
+@respx.mock
+async def test_auto_macro_falls_back_when_fred_bot_walled(monkeypatch):
+    from app.config import settings
+    from app.providers.us.macro_auto import AutoMacroProvider
+
+    # FRED serves the JS bot-wall (200 but HTML, not JSON) → upstream_error → fallback.
+    respx.get("https://api.stlouisfred.org/fred/series/observations").mock(
+        return_value=httpx.Response(200, text="<html>window.location.replace('/x')</html>"))
+    payload = {"series": {"docs": [{"period": ["2025-07-08"], "value": [4.375]}]}}
+    respx.get(f"{_DBN_URL}/D.US").mock(return_value=httpx.Response(200, json=payload))
+
+    monkeypatch.setattr(settings, "fred_api_key", "test-key")
+    snap = await AutoMacroProvider().snapshot("FED")
+    assert snap[0].rate == 4.375 and snap[0].bank == "FED"
+
+
 # --- report_period filter operators ---------------------------------------
 def test_report_period_filter_gt_lt():
     from datetime import date as _date
