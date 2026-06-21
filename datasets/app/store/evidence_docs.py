@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.http import fetch_text
-from app.providers.kr.dart_document import fetch_document_markup
+from app.providers.kr.dart_document import fetch_dart_pdf, fetch_document_markup
 from app.providers.registry import get_financials_provider
 from app.providers.us.sec_edgar import _UA, _resolve_cik
 from app.store.db import SessionLocal, init_db
@@ -48,17 +48,28 @@ async def _render_pdf(markup: str) -> bytes | None:
         return None
 
 
-async def _source_markup(market: str, accession: str, fetch_url: str | None) -> str | None:
-    """The filing's source document: US = the iXBRL primary doc HTML (SEC UA), KR = the
-    DART disclosure document markup (document.xml ZIP, all files combined)."""
-    if market.upper() == "KR":
-        return await fetch_document_markup(accession)
-    if fetch_url:
-        try:
-            return await fetch_text("sec_edgar", fetch_url, headers=_UA)
-        except Exception:  # noqa: BLE001
-            return None
-    return None
+async def _us_markup(accession: str, fetch_url: str | None) -> str | None:
+    """US: the iXBRL primary-document HTML (SEC accepts our httpx User-Agent)."""
+    if not fetch_url:
+        return None
+    try:
+        return await fetch_text("sec_edgar", fetch_url, headers=_UA)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _pdf_bytes(market: str, accession: str, fetch_url: str | None) -> bytes | None:
+    """The filing as PDF bytes, by the cheapest Chromium-free route per market:
+    KR = DART's official PDF (no render); US = iXBRL HTML → renderer (Chromium, one-shot).
+    KR falls back to document.xml→renderer only if the official PDF endpoint fails."""
+    if market == "KR":
+        pdf = await fetch_dart_pdf(accession)
+        if pdf:
+            return pdf
+        markup = await fetch_document_markup(accession)  # fallback
+        return await _render_pdf(markup) if markup else None
+    markup = await _us_markup(accession, fetch_url)
+    return await _render_pdf(markup) if markup else None
 
 
 async def ensure_doc(market: str, ticker: str | None, accession: str, *,
@@ -68,10 +79,7 @@ async def ensure_doc(market: str, ticker: str | None, accession: str, *,
     path = _pdf_path(market, accession)
     if path.exists() and await asyncio.to_thread(_doc_status, market, accession) == "stored":
         return "cached"
-    markup = await _source_markup(market, accession, fetch_url)
-    if not markup:
-        return "skipped"
-    pdf = await _render_pdf(markup)
+    pdf = await _pdf_bytes(market, accession, fetch_url)
     if not pdf:
         return "skipped"
     path.parent.mkdir(parents=True, exist_ok=True)

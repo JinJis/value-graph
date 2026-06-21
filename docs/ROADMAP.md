@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 260 unit** — datasets 108 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 263 unit** — datasets 111 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 70 · studio-api 34 (+ admin 12, renderer 8) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (20 scenarios incl. multi-turn,
@@ -222,6 +222,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     path); ingestion is **watchlist-scoped**. US iXBRL HTML / KR DART markup → PDF at ingest (no forced
     PDF where none exists — US has no official PDF, so we normalize). Other sources keep their natural
     evidence (news/web = snippet+link; prices/macro = data card).
+    **Source decision (verified 2026-06-21): KR = DART's official PDF** (`pdf/download/pdf.do`, keyless,
+    Chromium-free, the full 540-page report) **· US = render iXBRL HTML→PDF ourselves** (no SEC PDF
+    exists; sec-api.io offers a paid render API but it's the same operation outsourced — self-host the
+    one-shot Chromium render instead). So Chromium is gone from KR entirely and from the query hot-path
+    for both; it remains only for the one-shot US ingest render.
     - ✅ **PH-PROV3a · PDF document store + ingest normalization.** New `EvidenceDoc` model (cached
       PDF per filing, keyed `market`+`accession`, with the canonical `원문 열기` link). Renderer
       `POST /pdf/from-html` (Chromium `page.pdf()`, one-shot at ingest — query-time stays browser-free).
@@ -229,9 +234,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       → index; idempotent), `build_evidence_docs_for_ticker` / `run_build_evidence_docs` (watchlist-scoped,
       recorded as an `IngestionJob` kind `evidence_docs`); `POST /admin/evidence-docs` trigger. KR
       `filing_url` AnyUrl coerced to str (same hazard as PH-PROV2d). datasets 106→108, renderer 5→8.
-    - ⬜ **PH-PROV3b · PyMuPDF on-demand highlight.** Add PyMuPDF to `datasets`; `/evidence` opens the
-      cached PDF, locates the cited value/passage, highlights + rasterizes the page region (cache the PNG),
-      and `/evidence/doc` streams the real PDF for `원문 열기`. Replaces the Chromium hot-path.
+    - ✅ **PH-PROV3b · PyMuPDF on-demand highlight + KR official PDF.** KR ingest now pulls DART's
+      **official PDF** (`dart_document.fetch_dart_pdf`: resolve the main `dcmNo` from the viewer →
+      `pdf/download/pdf.do`; document.xml→renderer kept as fallback) — **no Chromium for KR**. New
+      `app/store/evidence_render.py` (PyMuPDF): finds the cited value in the cached PDF at the unit scales
+      statements use (ones/천/백만/억), anchored on its account label (KR_LABELS / US gaap→label map),
+      highlights the cell, rasterizes the page band → PNG (cache-first). `/evidence` serves the PDF path
+      first (browser-free), falling back to the legacy FactLocation+renderer screenshot; new
+      `/evidence/doc` streams the real PDF for `원문 열기`. `pymupdf` added to datasets. datasets 108→111.
     - ⬜ **PH-PROV3c · generalize + agent wiring + retire concept-precompute.** RAG/news passage evidence,
       prices/macro data-card evidence, agent citations on the new path; consolidate the filing-accession
       resolution and remove the now-dead `FactLocation` concept-pointer precompute.
