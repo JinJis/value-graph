@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
+from app.logging_config import setup_logging
 from app.routers import (
     admin,
     catalog,
@@ -30,6 +31,9 @@ from app.routers import (
 )
 from app.scheduler import scheduler
 from app.store.db import init_db
+
+
+setup_logging()
 
 
 @asynccontextmanager

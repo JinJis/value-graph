@@ -24,8 +24,10 @@ from agentengine.agent import (
     filter_tools, has_anchors, number_sources,
 )
 from agentengine.client import PlatformClient
+from agentengine.evidence import evidence_url_for_answer
 from agentengine.models import AgentSpec
 from agentengine.planner import get_planner
+from agentengine.provenance import _canonical_provenance, _market_hint
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
     history: list = []
     citations: list[dict] = []
+    cite_ctx: list[tuple[dict, dict, object]] = []  # (citation, tool, data) → re-anchor evidence post-answer
     artifacts: list[dict] = []
     seen_artifacts: set = set()
     seen_cites: set = set()
@@ -129,6 +132,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 seen_cites.add(key)
                 cit["index"] = len(citations) + 1  # 1-based [n] anchor
                 citations.append(cit)
+                cite_ctx.append((cit, tool, result.get("data")))
                 yield {"type": "citation", **cit}
             for a in _artifacts(tool, result):  # U3: connector-backed figure cards
                 if a.title in seen_artifacts:
@@ -148,6 +152,17 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # A planner/LLM error (e.g. bad model id, missing key, upstream outage)
         # degrades to an honest message instead of breaking the stream.
         yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
+
+    # PH-PROV3d: re-anchor each filing citation's evidence image on the figure the ANSWER
+    # actually cites (net income / R&D / assets …), not always the first headline (revenue).
+    for cit, tool, data in cite_ctx:
+        if not isinstance(data, dict):
+            continue
+        market = _market_hint(tool, data)
+        _, accn, cik = _canonical_provenance(data)
+        new_url = evidence_url_for_answer(data, cit.get("page") or accn, cik, market, final_text)
+        if new_url:
+            cit["evidence_image_url"] = new_url
 
     # Evidence vs consulted: a citation is evidence iff the answer cited its [n] or it
     # backs a rendered artifact. The Live Context shows only evidence; every consulted

@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     redis_url: str = ""
     cache_ttl_seconds: int = 900
     http_timeout_seconds: float = 30.0
+    log_level: str = "INFO"  # app log verbosity (DEBUG|INFO|WARNING|…) → docker logs
 
     # --- periodic ingestion scheduler -------------------------------------
     scheduler_enabled: bool = False

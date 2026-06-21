@@ -170,6 +170,16 @@ export default function Chat({ name }: { name: string }) {
             else if (ev.type === "done") {
               if (ev.refused) a.refused = true;
               if (Array.isArray(ev.used)) a.used = ev.used;
+              // PH-PROV3d: the done list is authoritative — its citations carry the evidence
+              // image re-anchored on the figure the answer actually cited. Replace the streamed set.
+              if (Array.isArray(ev.citations) && ev.citations.length) {
+                a.citations = ev.citations.map((c: any) => ({
+                  tool: c.tool, source: c.source, url: c.url, index: c.index, kind: c.kind,
+                  doc_type: c.doc_type, as_of: c.as_of, freshness: c.freshness,
+                  snippet: c.snippet, ticker: c.ticker, page: c.page,
+                  table: c.table, evidence_image_url: c.evidence_image_url, used: c.used,
+                }));
+              }
             }
             next[next.length - 1] = a;
             return next;

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 
 import httpx
@@ -28,6 +29,7 @@ from app.store.evidence_render import highlight_png, labels_for
 from app.store.locations_ingest import lookup_location
 
 router = APIRouter(tags=["Evidence"])
+log = logging.getLogger(__name__)
 
 _PNG_CACHE = {"cache-control": "public, max-age=86400"}
 
@@ -103,12 +105,15 @@ async def evidence(market: str, accession: str, concept: str, report_period: str
     png = await _pdf_highlight(market, accession, concept, value)
     if png:
         return Response(content=png, media_type="image/png", headers=_PNG_CACHE)
-    # legacy fallback: FactLocation pointer + renderer screenshot (retired in PH-PROV3c)
+    # legacy fallback: FactLocation pointer + renderer screenshot (retired in PH-PROV3d)
     loc = await asyncio.to_thread(lookup_location, market, accession, concept, report_period, cik)
     if loc:
         png = await _render(loc)
         if png:
+            log.info("evidence: %s %s %s served via legacy pointer", market, accession, concept)
             return Response(content=png, media_type="image/png", headers=_PNG_CACHE)
+    log.info("evidence 204: %s %s concept=%s value=%s (no cached PDF match nor pointer)",
+             market, accession, concept, value)
     return Response(status_code=204)
 
 

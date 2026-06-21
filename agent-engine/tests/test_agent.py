@@ -188,6 +188,24 @@ def test_evidence_url_for_kr_dart_statements():
     assert "report_period=2024-12-31" in c.evidence_image_url
 
 
+def test_evidence_anchors_on_the_figure_the_answer_cites():
+    # PH-PROV3d: evidence highlights the line the ANSWER cites (net income), not always revenue.
+    from agentengine.evidence import evidence_url_for_answer
+
+    data = {"income_statements": [
+        {"revenue": 391035000000.0, "net_income": 93736000000.0, "report_period": "2024-09-28",
+         "accession_number": "0000320193-24-000123"}]}
+    u_ni = evidence_url_for_answer(data, "0000320193-24-000123", "320193", "US",
+                                   "Apple's net income was $93,736 million in FY2024.")
+    assert u_ni and "concept=NetIncomeLoss" in u_ni and "value=93736000000" in u_ni
+    u_rev = evidence_url_for_answer(data, "0000320193-24-000123", "320193", "US",
+                                    "Total net sales were $391,035 million.")
+    assert u_rev and ("Revenue" in u_rev or "concept=Revenues" in u_rev) and "93736000000" not in u_rev
+    # no answer → falls back to the representative headline (revenue)
+    u_fb = evidence_url_for_answer(data, "0000320193-24-000123", "320193", "US", "")
+    assert u_fb and "Revenue" in u_fb
+
+
 def test_evidence_url_for_balance_sheet_instant_context():
     # PH-PROV2c: the balance_sheets tool (instant XBRL contexts) → evidence link for the
     # headline figure (total_assets → us-gaap:Assets), plus an extracted balance table.

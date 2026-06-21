@@ -14,6 +14,7 @@ resolution will be consolidated then.
 from __future__ import annotations
 
 import asyncio
+import logging
 import pathlib
 
 import httpx
@@ -30,6 +31,8 @@ from app.store.models import EvidenceDoc
 from app.store.provenance import dart_url, sec_index_url
 from app.symbols import Market, build_ref
 
+log = logging.getLogger(__name__)
+
 _STMT_METHODS = ("income_statements", "balance_sheets", "cash_flow_statements")
 
 
@@ -43,8 +46,12 @@ async def _render_pdf(markup: str) -> bytes | None:
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 60) as client:
             resp = await client.post(f"{settings.renderer_url}/pdf/from-html", json={"html": markup})
-        return resp.content if resp.status_code == 200 else None
-    except Exception:  # noqa: BLE001 — renderer down → no doc this run, never crash ingest
+        if resp.status_code != 200:
+            log.warning("renderer /pdf/from-html → %s (US render failed)", resp.status_code)
+            return None
+        return resp.content
+    except Exception as exc:  # noqa: BLE001 — renderer down → no doc this run, never crash ingest
+        log.warning("renderer /pdf/from-html unreachable: %s", exc)
         return None
 
 
@@ -81,6 +88,7 @@ async def ensure_doc(market: str, ticker: str | None, accession: str, *,
         return "cached"
     pdf = await _pdf_bytes(market, accession, fetch_url)
     if not pdf:
+        log.info("evidence doc skipped (no PDF) %s %s", market, accession)
         return "skipped"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pdf)
@@ -89,6 +97,7 @@ async def ensure_doc(market: str, ticker: str | None, accession: str, *,
         "accession_number": accession, "source_url": canonical_url,
         "pdf_path": str(path), "page_count": None, "status": "stored",
     })
+    log.info("evidence doc stored %s %s (%d KB) → %s", market, accession, len(pdf) // 1024, path)
     return "stored"
 
 
@@ -129,10 +138,13 @@ async def build_evidence_docs_for_ticker(market: str, ticker: str, limit: int = 
     if market.upper() not in ("US", "KR"):
         return {"status": "skipped", "reason": "only US + KR supported"}
     refs = await _filing_refs(market, ticker, limit)
+    log.info("evidence docs: %s %s → %d filing(s) to cache", market, ticker.upper(), len(refs))
     tally = {"stored": 0, "cached": 0, "skipped": 0}
     for accn, info in refs.items():
         r = await ensure_doc(market, ticker, accn, fetch_url=info["fetch_url"], canonical_url=info["canonical"])
         tally[r] += 1
+    log.info("evidence docs: %s %s done — stored=%d cached=%d skipped=%d",
+             market, ticker.upper(), tally["stored"], tally["cached"], tally["skipped"])
     return {"status": "ok", "ticker": ticker.upper(), "filings": len(refs), **tally}
 
 

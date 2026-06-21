@@ -10,12 +10,15 @@ PNG. Deterministic text match (no LLM); cache-first so the highlight is computed
 from __future__ import annotations
 
 import hashlib
+import logging
 import pathlib
 
 import fitz  # pymupdf
 
 from app.config import settings
 from app.providers.kr.dart_document import KR_LABELS
+
+log = logging.getLogger(__name__)
 
 RENDER_VERSION = "1"
 _SCALES = (1, 1_000, 1_000_000, 100_000_000)
@@ -34,8 +37,28 @@ US_GAAP_LABELS: dict[str, list[str]] = {
     "ProfitLoss": ["Net income", "Profit", "Profit (loss)"],
     "OperatingIncomeLoss": ["Operating income", "Operating income (loss)"],
     "GrossProfit": ["Gross profit", "Gross margin"],
+    "CostOfRevenue": ["Cost of sales", "Cost of revenue", "Cost of goods sold"],
+    "CostOfGoodsAndServicesSold": ["Cost of sales", "Cost of revenue", "Cost of goods sold"],
+    "CostOfGoodsSold": ["Cost of goods sold", "Cost of sales"],
+    "ResearchAndDevelopmentExpense": ["Research and development"],
+    "SellingGeneralAndAdministrativeExpense": ["Selling, general and administrative",
+                                               "Selling, general and administrative expenses"],
+    "OperatingExpenses": ["Operating expenses", "Total operating expenses"],
+    "CostsAndExpenses": ["Total costs and expenses", "Costs and expenses"],
+    "IncomeTaxExpenseBenefit": ["Provision for income taxes", "Income tax expense"],
+    "EarningsPerShareBasic": ["Basic", "Basic earnings per share"],
+    "EarningsPerShareDiluted": ["Diluted", "Diluted earnings per share"],
     "Assets": ["Total assets"],
+    "AssetsCurrent": ["Total current assets"],
+    "InventoryNet": ["Inventories", "Inventory"],
+    "PropertyPlantAndEquipmentNet": ["Property, plant and equipment, net", "Property, plant and equipment"],
     "Liabilities": ["Total liabilities"],
+    "LiabilitiesCurrent": ["Total current liabilities"],
+    "RetainedEarningsAccumulatedDeficit": ["Retained earnings", "Retained earnings (deficit)"],
+    "DepreciationDepletionAndAmortization": ["Depreciation and amortization"],
+    "DepreciationAmortizationAndAccretionNet": ["Depreciation and amortization"],
+    "PaymentsToAcquirePropertyPlantAndEquipment": ["Payments for acquisition of property, plant and equipment",
+                                                   "Purchases of property and equipment"],
     "StockholdersEquity": ["Total stockholders’ equity", "Total shareholders’ equity", "Total equity"],
     "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest": ["Total equity"],
     "CashAndCashEquivalentsAtCarryingValue": ["Cash and cash equivalents"],
@@ -126,7 +149,11 @@ def highlight_png(pdf_path: str, value: float, labels: list[str]) -> bytes | Non
         return cache.read_bytes()
     png = _render(pdf_path, value, labels)
     if png is None:
+        log.info("evidence highlight MISS value=%s labels=%s in %s",
+                 value, labels[:2], pathlib.Path(pdf_path).name)
         return None
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_bytes(png)
+    log.info("evidence highlight hit value=%s (%d B) in %s",
+             value, len(png), pathlib.Path(pdf_path).name)
     return png
