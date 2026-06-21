@@ -250,7 +250,7 @@ def test_macro_banks_static():
 
 
 def test_scaffold_returns_501():
-    r = client.get("/index-funds?ticker=SPY")
+    r = client.get("/financials/segments?ticker=AAPL&market=US")
     assert r.status_code == 501
     assert r.json()["error"] == "Not Implemented"
 
@@ -1137,7 +1137,7 @@ def test_institutional_requires_exactly_one_arg():
 
 
 def test_more_scaffold_501s():
-    for path in ("/index-funds?ticker=SPY", "/kpi/metrics", "/financials/segments?ticker=AAPL"):
+    for path in ("/kpi/metrics", "/financials/segments?ticker=AAPL", "/institutional-holdings/tickers"):
         assert client.get(path).status_code == 501
 
 
@@ -1446,3 +1446,52 @@ def test_ph_prov3e_text_evidence_endpoint(tmp_path, monkeypatch):
     r2 = client.get("/evidence", params={"market": "US", "accession": "0000320193-24-000123",
                                          "text": "totally unrelated sentence not present anywhere here"})
     assert r2.status_code == 204
+
+
+# --- PH-8: index-fund / ETF holdings (SEC N-PORT) -------------------------
+_NPORT = """<edgarSubmission><formData>
+ <genInfo><regName>Test S&amp;P 500 ETF Trust</regName><regCik>0000884394</regCik><repPdDate>2026-03-31</repPdDate></genInfo>
+ <fundInfo><totAssets>1000.00</totAssets><netAssets>950.00</netAssets></fundInfo>
+ <invstOrSecs>
+  <invstOrSec><name>Apple Inc</name><title>Apple Inc</title><cusip>037833100</cusip>
+   <identifiers><isin value="US0378331005"/></identifiers>
+   <balance>100.0</balance><units>NS</units><valUSD>500.0</valUSD><pctVal>52.6</pctVal><assetCat>EC</assetCat></invstOrSec>
+  <invstOrSec><name>Microsoft Corp</name><cusip>594918104</cusip>
+   <balance>50.0</balance><units>NS</units><valUSD>300.0</valUSD><pctVal>31.6</pctVal><assetCat>EC</assetCat></invstOrSec>
+ </invstOrSecs>
+</formData></edgarSubmission>"""
+
+
+def test_ph8_nport_parse():
+    from app.providers.us.sec_edgar import _parse_nport
+
+    meta, holdings = _parse_nport(_NPORT)
+    assert meta["name"] == "Test S&P 500 ETF Trust" and meta["cik"] == "0000884394"
+    assert meta["as_of"] == "2026-03-31" and meta["net_assets"] == 950.0
+    assert len(holdings) == 2
+    aapl = holdings[0]
+    assert aapl.cusip == "037833100" and aapl.isin == "US0378331005"
+    assert aapl.shares == 100.0 and aapl.market_value == 500.0
+    assert abs(aapl.weight - 0.526) < 1e-9      # pctVal 52.6 → fraction
+
+
+def test_ph8_index_funds_endpoint(monkeypatch):
+    import app.routers.funds as F
+    from app.models.generated import Fund, FundHolding
+
+    class _Fake:
+        async def holdings(self, ref, limit):
+            return (Fund(name="SPDR S&P 500 ETF Trust", cik="0000884394", source="SEC EDGAR (N-PORT)",
+                         total_net_assets=6.5e11, total_holdings=2, returned=2),
+                    [FundHolding(name="Apple Inc", cusip="037833100", weight=0.07,
+                                 market_value=4.5e10, shares=1.0, asset_class="EC")])
+
+    monkeypatch.setattr(F, "get_fund_provider", lambda m: _Fake())
+    b = client.get("/index-funds?ticker=SPY&market=US").json()
+    assert b["ticker"] == "SPY" and b["fund"]["name"].startswith("SPDR")
+    assert b["holdings"][0]["cusip"] == "037833100"
+    # reverse direction → 501; neither/both → 400
+    assert client.get("/index-funds?holding=AAPL&market=US").status_code == 501
+    assert client.get("/index-funds").status_code == 400
+    t = client.get("/index-funds/tickers").json()
+    assert "SPY" in t["tickers"] and t["resource"] == "index_funds"

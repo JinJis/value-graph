@@ -17,6 +17,7 @@ from app.providers.base import (
     EarningsProvider,
     FilingsProvider,
     FinancialsProvider,
+    FundProvider,
     InsiderProvider,
     InstitutionalProvider,
     MacroProvider,
@@ -186,3 +187,13 @@ def get_institutional_provider(market: Market) -> InstitutionalProvider:
 
         return SecEdgar13FProvider()
     _unbuilt("institutional-holdings", market)
+
+
+# --- Index funds / ETF holdings (N-PORT) --------------------------------
+@cache
+def get_fund_provider(market: Market) -> FundProvider:
+    if market is Market.US:
+        from app.providers.us.sec_edgar import SecEdgarFundProvider
+
+        return SecEdgarFundProvider()
+    _unbuilt("index-funds", market)  # KR = KIS-ETF (deferred to the KIS connector)

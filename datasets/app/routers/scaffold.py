@@ -21,8 +21,6 @@ router = APIRouter()
 _UNBUILT_GET: list[tuple[str, str]] = [
     ("/institutional-holdings/investors", "Institutional Holdings"),
     ("/institutional-holdings/tickers", "Institutional Holdings"),
-    ("/index-funds", "Index Funds"),
-    ("/index-funds/tickers", "Index Funds"),
     ("/financials/search/screener/filters", "Financial Statements"),
     ("/financials/income-statements/segments", "Financial Statements"),
     ("/financials/balance-sheets/segments", "Financial Statements"),
