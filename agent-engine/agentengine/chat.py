@@ -1,11 +1,12 @@
 """Streaming, multi-turn chat over the agent loop.
 
 ``stream_chat`` yields typed events for an SSE response:
+  {"type":"thinking","phase":..,"text":..}  live reasoning (analyze→fetch→found→synthesize)
   {"type":"token","text":...}        incremental answer text
   {"type":"tool","name":..,"args":..} a tool the agent is calling
   {"type":"tool_result","status":..,"connector":..}
   {"type":"citation","tool":..,"source":..,"url":..}
-  {"type":"done","citations":[...],"refused":bool}
+  {"type":"done","citations":[...],"artifacts":[...],"refused":bool}
 
 Planner-agnostic: the stub and gemini planners both flow through here (the final
 answer is streamed in chunks). Tool calls go through the gateway with the tenant
@@ -20,7 +21,7 @@ from typing import AsyncIterator
 
 from agentengine import guardrails
 from agentengine.agent import (
-    _artifacts, _citations, anchor_markers, assess_budget, call_sig, fallback_answer,
+    _artifacts, _citations, analyze_task, anchor_markers, call_sig, fallback_answer,
     filter_tools, has_anchors, number_sources,
 )
 from agentengine.client import PlatformClient
@@ -69,8 +70,18 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         tools = filter_tools(tools, spec.allowed_tools)
 
     system = spec.system if spec else None
-    # PH-15: a light model assesses the step budget unless the spec pins it.
-    max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
+    bk = spec.backend if spec else None
+    # PH-THINK: a first-pass analysis sizes the step budget AND yields a short plan we show
+    # the user ("what I'll look up") — replacing the bare "…" with a live thinking stream.
+    yield {"type": "thinking", "phase": "analyze", "text": "요청을 분석하고 있어요…"}
+    if spec and spec.max_steps:
+        max_steps, plan = spec.max_steps, None
+    else:
+        max_steps, plan = await analyze_task(task, bk)
+    if plan:
+        yield {"type": "thinking", "phase": "plan", "text": f"계획: {plan}"}
+        # the plan guides tool selection + synthesis (quality), without hardcoding logic.
+        system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
     history: list = []
     citations: list[dict] = []
     cite_ctx: list[tuple[dict, dict, object]] = []  # (citation, tool, data) → re-anchor evidence post-answer
@@ -95,6 +106,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             decision = await planner.plan(task, tools, history, system, conversation=messages,
                                           force_final=is_last, sources=number_sources(citations))
             if is_last or decision.final is not None:
+                yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
                 final_text = decision.final or fallback_answer(citations)
                 for ch in _chunks(final_text):
                     yield {"type": "token", "text": ch}
@@ -111,6 +123,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             # an identical consecutive call means the model is stuck — synthesize now
             sig = call_sig(decision)
             if sig and sig == last_sig:
+                yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
                 final_text = await _finalize(force=True)
                 for ch in _chunks(final_text):
                     yield {"type": "token", "text": ch}
@@ -123,9 +136,13 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
                 answered = True
                 break
+            label = tool.get("friendly") or tool.get("connector_name") or decision.tool
             yield {"type": "tool", "name": decision.tool, "label": tool.get("friendly") or tool.get("connector_name"), "args": decision.args or {}}
+            # PH-THINK: live progress — which source we're querying, then what we found.
+            yield {"type": "thinking", "phase": "fetch", "text": f"{label} 살펴보는 중…", "tool": decision.tool}
             result = await client.call_tool(tool, decision.args or {})
             yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
+            before = len(citations)
             for c in _citations(tool, result):
                 cit = c.model_dump()
                 key = (cit.get("source"), cit.get("url"))
@@ -145,8 +162,13 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 art = a.model_dump()
                 artifacts.append(art)
                 yield {"type": "artifact", "artifact": art}
+            added = len(citations) - before
+            ok = result.get("status") == 200 and added > 0
+            yield {"type": "thinking", "phase": "found",
+                   "text": (f"✓ {label} · 근거 {added}건 확보" if ok else f"· {label}에서 새 근거를 찾지 못함")}
             history.append((decision, result))
         if not answered:
+            yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
             final_text = fallback_answer(citations)
             for ch in _chunks(final_text):
                 yield {"type": "token", "text": ch}

@@ -114,6 +114,45 @@ async def assess_budget(task: str, backend: str | None = None) -> int:
     return max(floor, min(n, cap)) if n else default
 
 
+_ANALYZE_PROMPT = (
+    "You are a financial-research planner. Read the user's question and reply with JSON ONLY:\n"
+    '{"steps": <int>, "plan": "<one short sentence, IN THE SAME LANGUAGE as the question, saying what '
+    'data you will look up and from which kind of source — NOT the answer, no numbers>"}.\n'
+    "steps = tool-call budget (one fact about one company ≈ 2-3; a comparison or multi-source ask ≈ 8-12).\n"
+    "Question: {task}"
+)
+
+
+async def analyze_task(task: str, backend: str | None = None) -> tuple[int, str | None]:
+    """PH-THINK: one cheap LLM pass that both sizes the step budget AND returns a short
+    natural-language plan to show the user ('what I'll look up'). Stub/no-key → (default, None);
+    never hardcoded keyword rules, never blocks the answer."""
+    cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
+    if (backend or settings.llm_backend) != "gemini":
+        return default, None
+    try:
+        import asyncio
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client()
+        resp = await asyncio.to_thread(
+            client.models.generate_content, model=settings.budget_model,
+            contents=_ANALYZE_PROMPT.format(task=(task or "")[:500]),
+            config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json",
+                                               max_output_tokens=200))
+        d = json.loads(getattr(resp, "text", "") or "{}")
+        try:
+            n = int(d.get("steps"))
+        except (TypeError, ValueError):
+            n = None
+        plan = (str(d.get("plan") or "")).strip() or None
+        return (max(floor, min(n, cap)) if n else default), plan
+    except Exception as exc:  # noqa: BLE001 — degrade to default budget, no plan
+        logger.warning("task analysis failed (%s); using default budget", exc)
+        return default, None
+
+
 def call_sig(decision) -> str | None:
     """Stable signature of a tool call, to detect an identical consecutive repeat."""
     if not getattr(decision, "tool", None):

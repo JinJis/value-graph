@@ -13,7 +13,8 @@ import { Artifact, ArtifactCard } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[] };
+type Think = { phase: string; text: string };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -26,6 +27,24 @@ function uniqueTools(tools?: ToolUse[]): ToolUse[] {
   const seen = new Map<string, ToolUse>();
   for (const t of tools || []) seen.set(t.label || t.name, t);
   return [...seen.values()];
+}
+
+// PH-THINK: the live reasoning stream — each step the agent narrates (analyze → look at a
+// source → found data → synthesize), the latest one spinning, earlier ones checked.
+function ThinkingLive({ steps }: { steps: Think[] }) {
+  if (!steps.length) return null;
+  return (
+    <div className="thinking-live" aria-live="polite">
+      {steps.map((s, j) => {
+        const last = j === steps.length - 1;
+        return (
+          <div key={j} className={`tl-step ${last ? "active" : "done"}`}>
+            <span className="tl-ic">{last ? <span className="tl-spin" /> : "✓"}</span>{s.text}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 const EXAMPLES = [
@@ -150,6 +169,7 @@ export default function Chat({ name }: { name: string }) {
             const next = [...prev];
             const a = { ...next[next.length - 1] };
             if (ev.type === "token") a.content += ev.text || "";
+            else if (ev.type === "thinking") a.thinking = [...(a.thinking || []), { phase: ev.phase, text: ev.text }];
             else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
             else if (ev.type === "artifact" && ev.artifact) {
               const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
@@ -312,12 +332,20 @@ export default function Chat({ name }: { name: string }) {
 
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
+                  {m.role === "assistant" && (m.thinking?.length || 0) > 0 && (
+                    busy && i === messages.length - 1
+                      ? <ThinkingLive steps={m.thinking!} />
+                      : <details className="thinking-log">
+                          <summary>🧠 분석 과정 · {m.thinking!.length}단계</summary>
+                          {m.thinking!.map((t, j) => <div key={j} className="tl-step done"><span className="tl-ic">✓</span>{t.text}</div>)}
+                        </details>
+                  )}
                   <div className="bubble">
                     {m.content
                       ? (m.role === "assistant"
                           ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown></div>
                           : m.content)
-                      : (m.role === "assistant" && busy ? "…" : "")}
+                      : (m.role === "assistant" && busy && !(m.thinking?.length) ? "…" : "")}
                   </div>
                   {m.role === "assistant" && m.refused && (
                     <GuardrailLabel>매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</GuardrailLabel>

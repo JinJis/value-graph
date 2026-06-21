@@ -484,3 +484,17 @@ select.input { appearance: none; }
 .tc-ranges button.on, .tc-toggles button.on { background: var(--ink); color: var(--on-ink); }
 .tc-canvas { width: 100%; height: 260px; }
 .tc-note { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
+
+/* ── live thinking stream (PH-THINK) ───────────────────────────────────── */
+.thinking-live { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 8px; padding: 10px 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; max-width: 680px; }
+.tl-step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.tl-step.active { color: var(--text); font-weight: 500; }
+.tl-step .tl-ic { width: 14px; flex: none; text-align: center; color: var(--fresh); font-size: 11px; }
+.tl-spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line-2);
+  border-top-color: var(--accent); border-radius: 50%; animation: tl-spin .7s linear infinite; }
+@keyframes tl-spin { to { transform: rotate(360deg); } }
+.thinking-log { margin: 2px 0 8px; max-width: 680px; }
+.thinking-log > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; list-style: none; }
+.thinking-log > summary::-webkit-details-marker { display: none; }
+.thinking-log .tl-step { padding: 3px 0; font-size: 12px; }

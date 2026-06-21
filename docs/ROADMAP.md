@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 280 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 87 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 281 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 88 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -571,6 +571,18 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     with the Board pin** so a pinned chart keeps its drawings and refreshes the underlying data live.
   - ⬜ **PH-VIZ-6 · Chart snapshot as exportable evidence** — render the annotated chart to a PNG (with the
     source footer) so a chart can be cited/shared like any other source-preview card.
+- 🔁 **PH-THINK · Transparent multi-agent reasoning + live thinking stream** — the chat turn now narrates
+  its reasoning to the user in real time, replacing the bare "…".
+  - ✅ **Live thinking stream.** A new SSE `thinking` event (phase: analyze · plan · fetch · found ·
+    synthesize) flows through `stream_chat`; the web renders a live panel (latest step spinning, earlier
+    steps ✓) that collapses into "🧠 분석 과정 · N단계" after the answer. E.g. "요청을 분석하고 있어요 →
+    {source} 살펴보는 중 → ✓ {source} · 근거 N건 확보 → 근거를 정리해 답변을 작성하는 중".
+  - ✅ **Analyze-first phase (quality).** `analyze_task` (one cheap Gemini pass) sizes the step budget AND
+    returns a short natural-language plan ("what I'll look up"), shown as thinking and **injected into the
+    system prompt** so tool selection + synthesis follow it. Gemini-only (stub = budget only, no plan).
+    +1 agent test (87→88). *(replaces the old `assess_budget` call in chat.)*
+  - ⬜ **Next: deeper orchestration** — explicit verify/refine sub-agent pass over the gathered evidence
+    before synthesis; per-source confidence; parallel multi-source gather. *(builds on docs/IDEA.md A2A.)*
 - ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
   operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
   One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.

@@ -1234,3 +1234,20 @@ async def test_annotate_charts_noop_on_stub_backend():
                  candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
     await AN.annotate_charts([a], "q", "m", "stub")   # no LLM judgment on the stub path
     assert a.annotations is None
+
+
+@respx.mock
+async def test_chat_stream_emits_thinking_progress(monkeypatch):
+    # PH-THINK: the chat stream narrates its reasoning live (analyze → fetch → found → synthesize).
+    from agentengine.chat import stream_chat
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-01-02", "close": 185.6}]},
+                                    headers={"x-connector": "yahoo"}))
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price chart"}], "vgk_x")]
+    phases = [e.get("phase") for e in events if e.get("type") == "thinking"]
+    assert {"analyze", "fetch", "found", "synthesize"} <= set(phases)
+    assert events[0]["type"] == "thinking" and events[0]["phase"] == "analyze"  # narration starts immediately
+    found = next(e for e in events if e.get("phase") == "found")
+    assert "근거" in found["text"]
