@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool coverage — calls EVERY catalog tool (all 33) through the metered gateway with
+# Tool coverage — calls EVERY catalog tool (all 34) through the metered gateway with
 # real params and reports a matrix: ✓ real data · ⚠ env-gated (e.g. FRED's bot-wall
 # from a datacenter IP) · ✗ failure. No LLM key needed.
 #
@@ -58,7 +58,7 @@ tool() {
 
 US='ticker=AAPL&market=US'; KR='ticker=005930&market=KR'; ANN='period=annual'
 
-section "SEC EDGAR — US fundamentals (11 tools)"
+section "SEC EDGAR — US fundamentals (12 tools)"
 tool "company_facts"          GET "/company/facts?$US"                          "" 'company_facts'
 tool "company_search"         GET "/company/search?q=apple&market=US"           "" 'results'
 tool "income_statements"      GET "/financials/income-statements?$US&$ANN"      "" 'income_statements'
@@ -70,6 +70,7 @@ tool "filings"                GET "/filings?$US"                                
 tool "earnings"               GET "/earnings?ticker=AAPL"                       "" 'earnings'
 tool "insider_trades"         GET "/insider-trades?$US"                         "" 'insider'
 tool "institutional_holdings" GET "/institutional-holdings?filer_cik=0001067983" "" 'holdings'
+tool "index_funds"            GET "/index-funds?ticker=SPY&market=US"           "" 'holdings'
 tool "metrics_snapshot"       GET "/financial-metrics/snapshot?$US"             "" 'snapshot'
 
 section "Yahoo Finance — prices (2 tools)"

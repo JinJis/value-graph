@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 251 unit** — datasets 103 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 261 unit** — datasets 117 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 69 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (22 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -52,7 +52,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 
 ### Data plane (`datasets/`, pkg `app`)
 - ✅ US+KR financial API: company facts, prices + snapshot, 3 financial statements (+combined), filings,
-  macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer-mode).
+  macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer-mode), ETF/fund holdings (US N-PORT).
 - ✅ Point-in-time / restatement-aware ingestion store (SQLite/Postgres); screener + line-item search.
 - ✅ Bulk / deep-history backfill (SEC `companyfacts.zip` stream → AAPL to 2007; KR via DART).
 - ✅ Scheduler (periodic + deep), self-test endpoint, `🚧 Not Implemented (501)` doc tag for unbuilt routes.
@@ -351,7 +351,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 2. ✅ **PH-MACRO** — cloud-safe macro (keyless DBnomics/BIS fallback for FRED).
 > 3. ✅ **PH-6a** — historical financial-metrics (store-backed ratios) → MCP tool.  · **PH-6b** (13F
 >    ticker-mode / reverse-CUSIP) deferred — needs a 13F-holdings index, not the facts store.
-> 4. **PH-8** — index / ETF holdings (US = SEC N-PORT; KR = KIS-ETF below).  ← **next**
+> 4. ✅ **PH-8 (US)** — ETF/fund holdings via SEC N-PORT → MCP tool `sec_edgar__index_funds`.  · KR
+>    (KIS-ETF) deferred to the KIS connector.  ← next: **PH-9** (KPIs ↳ PH-RAG text via PH-PROV3e).
 > 5. 🚧 **PH-7a** — XBRL as-reported (US) → MCP tool `sec_edgar__as_reported`.  · **PH-7b** (segments +
 >    statement-specific as-reported + KR DART XBRL) deferred (dimensional/heavier parse).
 > 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
@@ -418,8 +419,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   - ⬜ **PH-7b · segments + statement-specific as-reported + KR.** Business/geographic **segments** are
     dimensional XBRL (not in company-facts → needs the filing's R-files/frames); the 3 statement-specific
     `…/as-reported` splits; and **KR DART XBRL** as-reported. Heavier parse — deferred. *(datasets; L)*
-- ⬜ **PH-8 · Index/ETF holdings (#19).** **US** = SEC N-PORT; **KR** = `KIS-ETF` (component stocks + NAV
-  via the KIS connector). *(M)*
+- 🚧 **PH-8 · Index/ETF holdings (#19).** **US** ✅ — `/index-funds?ticker=` returns an ETF's
+  constituents from its latest **SEC N-PORT** filing (`SecEdgarFundProvider` + `_parse_nport`:
+  `<invstOrSec>` → name/cusip/isin/shares/market_value/weight, sorted by value; fund header with
+  net-assets + as-of). New catalog resource on `sec_edgar` → MCP tool `sec_edgar__index_funds`;
+  `/index-funds/tickers` convenience list; reverse direction (holding→funds) stays 501 (needs a
+  holdings index). Verified live (SPY → 503 holdings: NVDA 7.6% / AAPL 6.7% / MSFT 4.9%). +2 tests,
+  eval +1, coverage "all 34". **KR** = `KIS-ETF` (component stocks + NAV via the KIS connector) —
+  deferred to KIS-0. *(datasets)*
 - ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then
   done once.)* When the text-bearing endpoints land (filing text via PH-5 `/filings/items`, segment/MD&A
   text via PH-7, earnings-call transcripts, …), ingest them **all** through one pipeline → chunk → embed →
@@ -653,7 +660,7 @@ clones an embedded artifact to their Board, and follows the author; the author's
 ## 4. Data-plane 501 backlog (detail)
 Tracked above under PH-5–PH-9 / PH-DEFER; listed here as the raw endpoint inventory.
 - ⬜ #18 13F **ticker-mode** + investor/ticker discovery (reverse-CUSIP index — feasible with the store) → PH-6
-- ⬜ #19 Index funds / ETF holdings (US SEC N-PORT, KR KRX/DART) → PH-8
+- 🚧 #19 Index funds / ETF holdings → PH-8: **US ✅ (SEC N-PORT)**; KR (KIS-ETF) deferred
 - ⬜ #20 Segments + as-reported financials (XBRL direct parse) → PH-7
 - ⬜ #21 Historical financial-metrics (derive ratios across periods from the store) → PH-6
 - ⬜ #22 KPIs via Gemini extraction from earnings releases → PH-9

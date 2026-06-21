@@ -19,6 +19,7 @@ from app.routers import (
     evidence,
     filings,
     financials,
+    funds,
     insider,
     institutional,
     macro,
@@ -70,7 +71,7 @@ register_error_handlers(app)
 
 for module in (
     company, prices, financials, filings, macro, metrics,
-    news, earnings, insider, institutional, search, evidence, catalog, admin, scaffold,
+    news, earnings, insider, institutional, funds, search, evidence, catalog, admin, scaffold,
 ):
     app.include_router(module.router)
 

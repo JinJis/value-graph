@@ -22,6 +22,8 @@ from app.models.generated import (
     EarningsRecord,
     Filing,
     FinancialMetricSnapshot,
+    Fund,
+    FundHolding,
     IncomeStatement,
     InsiderTrade,
     InstitutionalHolding,
@@ -104,3 +106,8 @@ class InsiderProvider(Protocol):
 class InstitutionalProvider(Protocol):
     async def by_filer(self, filer_cik: str, limit: int) -> list[InstitutionalHolding]: ...
     async def by_ticker(self, ref: SecurityRef, limit: int) -> list[InstitutionalHolding]: ...
+
+
+@runtime_checkable
+class FundProvider(Protocol):
+    async def holdings(self, ref: SecurityRef, limit: int) -> tuple[Fund, list[FundHolding]]: ...
