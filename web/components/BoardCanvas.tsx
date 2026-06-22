@@ -11,6 +11,37 @@ type Item = { id: string; spec: any; x: number | null; y: number | null; w: numb
 
 const DEF = { artifact: { w: 380, h: 320 }, source: { w: 300, h: 210 }, text: { w: 320, h: 160 } };
 
+// Click-to-edit text (title / description). User-friendly: shows the value (or a placeholder),
+// click turns it into an input; Enter or blur saves, Esc cancels. Stops drag while editing.
+function InlineEdit({ value, placeholder, onSave, className }: {
+  value: string; placeholder: string; onSave: (v: string) => void; className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(value);
+  useEffect(() => { setV(value); }, [value]);
+  if (editing) {
+    return (
+      <input
+        className={`bc-edit ${className || ""}`} autoFocus value={v}
+        onChange={(e) => setV(e.target.value)}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onBlur={() => { setEditing(false); if (v !== value) onSave(v); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") { setV(value); setEditing(false); }
+        }}
+      />
+    );
+  }
+  return (
+    <span className={`bc-editable ${className || ""}`} title="클릭해 수정"
+      onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
+      {value || <span className="bc-ph">{placeholder}</span>}
+    </span>
+  );
+}
+
 // Notion-like canvas: a user's pinned assets (charts, sources, text) freely placed, dragged,
 // and resized; text blocks are editable. Several named boards, switchable by tab.
 export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation) => void }) {
@@ -47,8 +78,19 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     if (r.ok) { const fresh = await r.json(); setItems((p) => p.map((i) => (i.id === id ? { ...i, spec: fresh.spec } : i))); }
   }
   async function saveText(id: string, text: string) {
-    await fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ spec: { kind: "text", text } }) });
-    setItems((p) => p.map((i) => (i.id === id ? { ...i, spec: { ...i.spec, text } } : i)));
+    await saveSpec(id, { text });
+  }
+  // merge a partial into an item's spec (title/description/text) and persist the full spec.
+  async function saveSpec(id: string, patch: Record<string, any>) {
+    let merged: any = null;
+    setItems((p) => p.map((i) => {
+      if (i.id !== id) return i;
+      merged = { ...i.spec, ...patch };
+      return { ...i, spec: merged };
+    }));
+    if (merged) {
+      await fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ spec: merged }) });
+    }
   }
   async function addText() {
     const r = await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -115,12 +157,18 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                 <div className="bc-card">
                   <div className="bc-drag">
                     <span className="bc-grip">⠿</span>
-                    <span className="bc-title">{it.spec?.title || (kind === "text" ? "메모" : "카드")}</span>
+                    <InlineEdit className="bc-title" value={it.spec?.title || ""}
+                      placeholder={kind === "text" ? "메모 제목" : "제목"}
+                      onSave={(v) => saveSpec(it.id, { title: v })} />
                     <span className="grow" />
                     {kind === "artifact" && it.spec?.tool && (
                       <button className="bc-btn" title="새로고침" onClick={() => refreshItem(it.id)}>↻</button>
                     )}
                     <button className="bc-btn" title="삭제" onClick={() => removeItem(it.id)}>✕</button>
+                  </div>
+                  <div className="bc-desc">
+                    <InlineEdit className="bc-desc-text" value={it.spec?.description || ""}
+                      placeholder="＋ 설명 추가" onSave={(v) => saveSpec(it.id, { description: v })} />
                   </div>
                   <div className="bc-body">
                     {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} />}

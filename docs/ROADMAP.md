@@ -352,6 +352,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **BOARD-EDIT · 핀 에셋 title/description 인라인 편집.** Every pinned asset (chart/source/text) on the
+  canvas now has a **click-to-edit title** (card header) + an editable **description** row ("＋ 설명 추가") —
+  inline (no modal): click → input, Enter/blur saves, Esc cancels. Persisted via the existing
+  `PATCH /board/{id}` spec merge (description lives in the spec JSON; title also updates the card). web
+  `BoardCanvas` `InlineEdit`.
 - ✅ **BOARD · 다중 보드 + 무엇이든 pin + 노션형 캔버스.** The pinboard became the differentiator surface:
   (1) **multiple named boards** (`Board` table; `/boards` CRUD; tab switcher + new/rename/delete); (2) **pin
   anything** — charts/tables **and source/evidence/provenance cards** (SourceCard 📌 → `kind:"source"` pin)
