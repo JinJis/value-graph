@@ -317,7 +317,10 @@ export default function Chat({ name }: { name: string }) {
   return (
     <div className="shell no-right">
       <nav className="rail">
-        <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">VALUE·GRAPH</span></div>
+        <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">ValueGraph</span></div>
+        <button className="rail-new" onClick={() => { setMessages([]); setInput(""); setView("desk"); }}>
+          <span className="ic">✎</span><span>새 대화</span>
+        </button>
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
           <span className="ic">🏠</span><span className="lbl">데스크</span>
         </button>
