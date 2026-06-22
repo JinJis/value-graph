@@ -8,6 +8,7 @@ import PromptLibrary from "./PromptLibrary";
 import PromptWaterfall, { WaterfallPrompt } from "./PromptWaterfall";
 import Watchlists, { Watchlist } from "./Watchlists";
 import KpiPanel from "./KpiPanel";
+import PortfolioPanel from "./PortfolioPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, SourceCard } from "./SourceCard";
@@ -132,7 +133,7 @@ export default function Chat({ name }: { name: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // shell view + watchlists / @groups
-  const [view, setView] = useState<"desk" | "watch" | "board" | "kpi">("desk");
+  const [view, setView] = useState<"desk" | "watch" | "board" | "kpi" | "portfolio">("desk");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pinTarget, setPinTarget] = useState<any | null>(null);  // asset awaiting a board-picker pin
@@ -434,6 +435,9 @@ export default function Chat({ name }: { name: string }) {
         <button className={`rail-item ${view === "kpi" ? "on" : ""}`} onClick={() => setView("kpi")}>
           <span className="ic">📈</span><span className="lbl">지표</span>
         </button>
+        <button className={`rail-item ${view === "portfolio" ? "on" : ""}`} onClick={() => setView("portfolio")}>
+          <span className="ic">💼</span><span className="lbl">포트폴리오</span>
+        </button>
         <div className="rail-item soon" title="곧"><span className="ic">🧑‍💼</span><span className="lbl">분석가</span><span className="soon-tag">곧</span></div>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
           <span className="ic">⭐</span><span className="lbl">관심</span>
@@ -467,6 +471,8 @@ export default function Chat({ name }: { name: string }) {
           <KpiPanel onPin={pinArtifact} onExpand={setViewer} />
         ) : view === "board" ? (
           <BoardCanvas onEvidence={setViewer} />
+        ) : view === "portfolio" ? (
+          <PortfolioPanel onEvidence={setViewer} />
         ) : (
           <>
             <header className="top">

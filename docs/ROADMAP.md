@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 333 unit** — datasets 137 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 115 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 334 unit** — datasets 137 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 115 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -453,7 +453,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   forecast/advice; missing price coverage → honest note (never fabricated). agent-engine renders the
   equity curve (portfolio + benchmark) as a timeseries; new **포트폴리오** category. +2 tests (datasets 1,
   agent 1), +1 eval. *(no new upstream; depends on PriceBar backfill.)*
-- ⬜ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model + analytics over PriceBar. 🔵
+- ✅ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model in studio-api (per-user,
+  new tables → create_all) + CRUD (`/portfolios` …) + a live **analytics** endpoint: values the book via
+  the gateway (`/prices/snapshot` per holding, concurrent), computes **allocation + 평가손익**, and
+  **backtests the current allocation** via the gateway `/backtest` (equity curve + metrics). Web
+  `PortfolioPanel` (new **포트폴리오** rail view): manage holdings, live value/weight/gain table, backtest
+  curve. Descriptive only; all data gateway-entitled. +1 studio test (CRUD + analytics + scoping). 🔵→✅
 - ⬜ **CE-9 · 거시 확장.** Broaden FRED/DBnomics indicator catalog + component grouping (하위요인) + cycle
   composites (사이클) + indicator browse (열람) + country panels (국가경제). 🟡
 - ⬜ **CE-10 · 실시간 내러티브.** LLM narrative over the existing news ingestion. 🔵

@@ -137,6 +137,39 @@ def test_messages_of_unknown_conversation_is_empty(monkeypatch):
     assert r.status_code == 200 and r.json()["messages"] == []
 
 
+@respx.mock
+def test_portfolio_crud_and_analytics(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    h = _hdr("pf@u.com")
+    # create a portfolio + add two holdings (upsert on re-add)
+    pid = client.post("/portfolios", headers=h, json={"name": "코어"}).json()["id"]
+    client.post(f"/portfolios/{pid}/holdings", headers=h,
+                json={"market": "US", "ticker": "AAPL", "shares": 10, "cost_basis": 150})
+    client.post(f"/portfolios/{pid}/holdings", headers=h,
+                json={"market": "US", "ticker": "MSFT", "shares": 5, "cost_basis": 300})
+    detail = client.get(f"/portfolios/{pid}", headers=h).json()
+    assert {x["ticker"] for x in detail["holdings"]} == {"AAPL", "MSFT"}
+
+    # analytics: live price per holding + a backtest, both via the gateway (mocked)
+    respx.get("http://cp.test/prices/snapshot").mock(side_effect=lambda req: httpx.Response(
+        200, json={"snapshot": {"price": 200.0 if req.url.params.get("ticker") == "AAPL" else 400.0}}))
+    respx.post("http://cp.test/backtest").mock(return_value=httpx.Response(200, json={
+        "metrics": {"total_return": 0.25}, "curve": [{"date": "2024-01-02", "value": 10000.0}]}))
+    a = client.get(f"/portfolios/{pid}/analytics", headers=h).json()
+    # AAPL 10×200=2000, MSFT 5×400=2000 → total 4000, equal weights, gain vs cost
+    assert a["total_value"] == 4000.0
+    byt = {p["ticker"]: p for p in a["positions"]}
+    assert byt["AAPL"]["value"] == 2000.0 and byt["AAPL"]["weight"] == 0.5
+    assert byt["AAPL"]["gain"] == 2000.0 - 1500.0  # (200-150)*10
+    assert a["backtest"]["metrics"]["total_return"] == 0.25 and a["total_gain"] is not None
+
+    # scoping + delete
+    assert client.get(f"/portfolios/{pid}", headers=_hdr("other-pf@u.com")).status_code == 404
+    assert client.delete(f"/portfolios/{pid}", headers=h).status_code == 200
+    assert all(p["id"] != pid for p in client.get("/portfolios", headers=h).json()["portfolios"])
+
+
 async def test_run_manager_survives_leave_and_resumes():
     # generation lives server-side: a run keeps going after a tail (the client) stops, and a
     # fresh tail (re-entering the conversation) replays the buffer then continues live.

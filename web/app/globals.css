@@ -193,6 +193,17 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .board-head .sub { color: var(--muted); font-size: 12px; }
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 
+/* portfolio panel */
+.pf-add { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.pf-add .input { width: auto; flex: 0 1 auto; }
+.pf-summary { display: flex; gap: 24px; margin-bottom: 14px; }
+.pf-stat { display: flex; flex-direction: column; gap: 2px; }
+.pf-stat span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.pf-stat b { font-size: 20px; }
+.pf-table { width: 100%; }
+.pf-table .up, .up { color: var(--success, #1FA463); }
+.pf-table .down, .down { color: var(--danger, #D1483A); }
+
 /* multi-board tabs */
 .board-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
 .board-tab { background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
