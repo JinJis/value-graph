@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 298 unit** — datasets 120 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 299 unit** — datasets 121 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 100 · studio-api 37 (+ admin 17, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -327,14 +327,16 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   → **new `PriceBar`**) · `corp_actions` (Yahoo → **new `CorporateAction`**) · `news` + `filing_text` (→ RAG) ·
   `evidence_docs` (→ PDFs). The **scheduler** sweeps a preset-resolved universe through a configured pipeline
   set on an interval (`run_pipelines`, per-pipeline `IngestionJob` + per-ticker retry; one failure never sinks
-  the rest); `status()` exposes state/cadence/scope/last-sweep. **Universes** expanded to hand-verified
-  presets (`us_xl`~120 · `kr_kospi`~60 · `kr_kosdaq`~25) + `resolve_universe` (preset ids or explicit spec);
-  full S&P500/KOSPI200 go in the admin custom-tickers field. New **`PriceBar` + `CorporateAction`** stores +
+  the rest); `status()` exposes state/cadence/scope/last-sweep. **Universes are fetched DYNAMICALLY** (no
+  hardcoded lists): `us_sp500` (datahub CSV) · `us_all` (SEC company_tickers) · `kr_kospi200`/`kr_kosdaq150`
+  (top-N by market cap via pykrx) · `kr_kospi_all`/`kr_kosdaq_all`; cached with a TTL, resolved fresh each
+  sweep so membership stays current; on fetch failure it serves stale-cache-or-empty (never fabricates).
+  `resolve_universe` is async and still accepts the legacy explicit spec. New **`PriceBar` + `CorporateAction`** stores +
   `prices_ingest.py` (the big "served but unstored" gap) + coverage in `store_stats`. **Admin Pipelines** page
   rebuilt: scheduler banner (state · 주기 · 대상 종목 · 마지막 스윕 + Run/Pause/Resume), **per-pipeline cards**
   (source → store flow · schedule · last run · rows · errors), and a **unified backfill** form (pick preset
   or custom tickers + pipeline checkboxes → `POST /admin/pipelines/run`). Enable via `SCHEDULER_ENABLED` or
-  the Resume button. +4 datasets tests (116→120), +1 admin (16→17). *(datasets + admin)* *(Postgres/Redis +
+  the Resume button. +5 datasets tests (116→121), +1 admin (16→17). *(datasets + admin)* *(Postgres/Redis +
   distributed queue = PH-11; per-pipeline confidence/alerting + cached price serving = follow-on.)*
 - ✅ **PH-2 · RAG ingestion pipeline (news live).** RAG started empty; now a real pipeline indexes content
   per tenant so `rag__search` returns real, cited, semantic hits. Delivered as 2a + 2b:

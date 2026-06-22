@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from app.store.bulk import bulk_load_kr, bulk_load_us
 from app.store.db import SessionLocal
 from app.store.models import IngestionJob
-from app.store.universes import get_preset
+from app.store.universes import resolve_one
 
 
 def _now() -> datetime:
@@ -89,10 +89,10 @@ async def run_backfill(
     ``tickers``. Serialized via ``backfill_running`` so runs don't pile up.
     """
     if preset:
-        p = get_preset(preset)
-        if p is None:
-            return {"status": "error", "error": f"Unknown universe preset '{preset}'."}
-        market, tickers, spec = p["market"], list(p["tickers"]), f"universe:{preset}"
+        market, tickers = await resolve_one(preset)  # dynamic fetch (PH-PIPE)
+        if not tickers:
+            return {"status": "error", "error": f"Universe '{preset}' resolved to no tickers."}
+        spec = f"universe:{preset}"
     else:
         spec = ",".join(tickers or []) or "(none)"
     if not market:

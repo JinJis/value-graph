@@ -210,17 +210,21 @@ def test_kr_date_normalization():
 
 
 # --- scheduler + selftest classifier --------------------------------------
-def test_resolve_universe_legacy_and_presets():
-    from app.store.universes import resolve_universe
+async def test_resolve_universe_legacy_and_dynamic(monkeypatch):
+    from app.store import universes as U
 
-    # legacy explicit form
-    u = dict((m.value, t) for m, t in resolve_universe("US:AAPL,MSFT;KR:005930"))
+    async def fake_fetch(sid):
+        return {"us_sp500": ["AAPL", "MSFT"], "kr_kospi200": ["005930"]}.get(sid, [])
+
+    monkeypatch.setattr(U, "fetch_source", fake_fetch)
+    # legacy explicit form (no fetch)
+    u = dict((m.value, t) for m, t in await U.resolve_universe("US:AAPL,MSFT;KR:005930"))
     assert u["US"] == ["AAPL", "MSFT"] and u["KR"] == ["005930"]
-    # preset ids (comma-separated) resolve to the curated lists, merged per market
-    u2 = dict((m.value, t) for m, t in resolve_universe("us_mega,kr_large"))
-    assert "AAPL" in u2["US"] and "005930" in u2["KR"]
-    # mixed: a preset + an explicit extra ticker for the same market → de-duplicated union
-    u3 = dict((m.value, t) for m, t in resolve_universe("us_mega;US:AAPL,TSLA"))
+    # dynamic source ids → fetched at resolve time
+    u2 = dict((m.value, t) for m, t in await U.resolve_universe("us_sp500,kr_kospi200"))
+    assert u2["US"] == ["AAPL", "MSFT"] and u2["KR"] == ["005930"]
+    # mixed: a source + an explicit extra ticker for the same market → de-duplicated union
+    u3 = dict((m.value, t) for m, t in await U.resolve_universe("us_sp500;US:AAPL,TSLA"))
     assert u3["US"].count("AAPL") == 1 and "TSLA" in u3["US"]
 
 
@@ -351,22 +355,46 @@ def test_admin_jobs_endpoint():
     assert r.status_code == 200 and "jobs" in r.json()
 
 
-def test_universe_presets_listed_and_endpoint():
-    from app.store.universes import get_preset, list_presets
+async def test_fetch_source_caches_and_never_fabricates(monkeypatch):
+    from app.store import universes as U
+
+    U._CACHE.clear()
+    n = {"c": 0}
+
+    async def good():
+        n["c"] += 1
+        return ["AAPL", "MSFT"]
+
+    monkeypatch.setitem(U.SOURCES, "us_sp500", {**U.SOURCES["us_sp500"], "fetch": good})
+    assert await U.fetch_source("us_sp500") == ["AAPL", "MSFT"]
+    assert await U.fetch_source("us_sp500") == ["AAPL", "MSFT"] and n["c"] == 1  # 2nd call cached
+    assert await U.fetch_source("unknown_id") == []
+
+    # fetch failure with no cache → empty list, never a fabricated/stale-wrong universe
+    U._CACHE.clear()
+
+    async def boom():
+        raise RuntimeError("network down")
+
+    monkeypatch.setitem(U.SOURCES, "us_sp500", {**U.SOURCES["us_sp500"], "fetch": boom})
+    assert await U.fetch_source("us_sp500") == []
+
+
+def test_universe_sources_listed_and_endpoint():
+    from app.store.universes import SOURCES, list_presets
     ids = {u["id"] for u in list_presets()}
-    assert {"us_mega", "us_large", "kr_large"} <= ids
-    assert get_preset("us_mega")["market"] == "US" and "AAPL" in get_preset("us_mega")["tickers"]
-    assert get_preset("nope") is None
+    assert {"us_sp500", "us_all", "kr_kospi200", "kr_kosdaq150"} <= ids
+    assert SOURCES["us_sp500"]["market"] == "US" and SOURCES["kr_kospi200"]["market"] == "KR"
     r = client.get("/admin/universes")
-    assert r.status_code == 200 and any(u["id"] == "kr_large" for u in r.json()["universes"])
+    assert r.status_code == 200 and any(u["id"] == "us_sp500" for u in r.json()["universes"])
 
 
 async def test_run_backfill_by_preset_sets_progress(monkeypatch):
     from app.store.db import init_db
     from app.store import jobs as J
+    from app.store import universes as U
 
     init_db()
-    seen_progress = []
 
     async def fake_us(tickers=None, zip_path=None, limit=None, on_progress=None):
         for i, _t in enumerate(tickers, 1):
@@ -374,13 +402,17 @@ async def test_run_backfill_by_preset_sets_progress(monkeypatch):
                 on_progress(i, len(tickers))
         return {t: 10 for t in tickers}
 
+    async def fake_fetch(sid):  # PH-PIPE: the universe is fetched dynamically now
+        return ["AAPL", "MSFT", "NVDA"] if sid == "us_sp500" else []
+
     monkeypatch.setattr(J, "bulk_load_us", fake_us)
-    out = await J.run_backfill(preset="us_mega")
+    monkeypatch.setattr(U, "fetch_source", fake_fetch)
+    out = await J.run_backfill(preset="us_sp500")
     assert out["status"] == "success" and out["rows"] > 0
     row = next(j for j in J.list_jobs(50) if j["id"] == out["job_id"])
-    assert row["total"] == row["done"] and row["total"] >= 15  # progressed to completion
-    assert row["spec"].startswith("universe:us_mega")
-    # unknown preset is rejected
+    assert row["total"] == row["done"] and row["total"] == 3  # progressed to completion
+    assert row["spec"].startswith("universe:us_sp500")
+    # a source that resolves to nothing is rejected (never fabricated)
     assert (await J.run_backfill(preset="bogus"))["status"] == "error"
 
 
@@ -1061,13 +1093,13 @@ def test_screener_restatement_latest_filing_wins():
 
 
 # --- scheduler ------------------------------------------------------------
-def test_resolve_universe_edges():
+async def test_resolve_universe_edges():
     from app.store.universes import resolve_universe
 
-    assert resolve_universe("") == []
-    assert resolve_universe("garbage") == []   # unknown preset id → nothing
-    assert resolve_universe("US:") == []        # empty ticker list dropped
-    u = resolve_universe("us:aapl")
+    assert await resolve_universe("") == []
+    assert await resolve_universe("garbage") == []   # unknown source id → nothing (no fetch)
+    assert await resolve_universe("US:") == []         # empty ticker list dropped
+    u = await resolve_universe("us:aapl")
     assert u[0][0] is Market.US and u[0][1] == ["aapl"]
 
 
@@ -1082,15 +1114,20 @@ async def test_scheduler_run_once_runs_pipelines(monkeypatch):
         calls.append((market, tuple(tickers), tuple(pipeline_ids)))
         return {pid: "ok" for pid in pipeline_ids}
 
+    async def fake_resolve(spec):  # PH-PIPE: the sweep resolves the universe dynamically
+        return [(Market.US, ["AAPL"])]
+
     monkeypatch.setattr(sched_mod, "run_pipelines", fake_run_pipelines)
+    monkeypatch.setattr(sched_mod, "resolve_universe", fake_resolve)
     s = Scheduler()
-    s.universe = [(Market.US, ["AAPL"])]
+    s.universe_spec = "us_sp500"
     s.pipeline_ids = ["financials", "prices"]
     s.enabled = True
     await s._run_once()
     assert s.last_status == "ok" and s.run_count == 1
     assert calls == [("US", ("AAPL",), ("financials", "prices"))]
     assert s.last_summary == {"US": {"financials": "ok", "prices": "ok"}}
+    assert s.last_universe == [{"market": "US", "count": 1}]
 
 
 async def test_run_pipelines_dispatches_and_isolates_failures(monkeypatch):
@@ -1154,10 +1191,11 @@ def test_admin_pipelines_run_dispatches(monkeypatch):
         seen["call"] = (market, tuple(tickers), tuple(ids))
 
     monkeypatch.setattr(A, "run_pipelines", fake_run_pipelines)
-    r = client.post("/admin/pipelines/run", json={"preset": "us_mega", "pipelines": ["prices"]})
+    # explicit market+tickers → no dynamic fetch needed (deterministic test)
+    r = client.post("/admin/pipelines/run", json={"market": "US", "tickers": ["AAPL", "MSFT"], "pipelines": ["prices"]})
     body = r.json()
     assert r.status_code == 200 and body["started"] is True and body["pipelines"] == ["prices"]
-    assert body["universe"][0]["market"] == "US"
+    assert body["universe"][0]["market"] == "US" and body["universe"][0]["count"] == 2
 
 
 async def test_prices_ingest_shapes_and_upserts(monkeypatch):

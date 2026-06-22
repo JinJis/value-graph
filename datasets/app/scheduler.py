@@ -28,7 +28,10 @@ class Scheduler:
     def __init__(self) -> None:
         self.enabled = settings.scheduler_enabled
         self.interval = settings.scheduler_interval_seconds
-        self.universe = resolve_universe(settings.scheduler_universe)
+        # the universe is a SPEC (preset ids / explicit) resolved DYNAMICALLY each sweep, so
+        # constituents stay fresh (e.g. S&P 500 / KOSPI 200 membership) — never a frozen list.
+        self.universe_spec = settings.scheduler_universe
+        self.last_universe: list[dict] = []  # [{market, count}] from the last resolve (for status)
         self.pipeline_ids = resolve_pipeline_ids(
             [p.strip() for p in settings.scheduler_pipelines.split(",") if p.strip()]
         )
@@ -56,7 +59,7 @@ class Scheduler:
 
     async def _loop(self) -> None:
         while not self._stop:
-            if (self.enabled or self._force) and self.universe:
+            if (self.enabled or self._force) and self.universe_spec.strip():
                 self._force = False
                 await self._run_once()
             try:
@@ -69,7 +72,9 @@ class Scheduler:
         self.running, self.last_status = True, "running"
         summary: dict = {}
         try:
-            for market, tickers in self.universe:
+            universe = await resolve_universe(self.universe_spec)  # dynamic fetch each sweep
+            self.last_universe = [{"market": m.value, "count": len(t)} for m, t in universe]
+            for market, tickers in universe:
                 summary[market.value] = await run_pipelines(market.value, tickers, self.pipeline_ids)
             # surfaced errors don't fail the sweep — they're recorded per pipeline/job
             had_error = any(
@@ -112,8 +117,9 @@ class Scheduler:
             "running": self.running,
             "interval_seconds": self.interval,
             "pipelines": self.pipeline_ids,
-            "universe": [{"market": m.value, "count": len(t)} for m, t in self.universe],
-            "universe_total": sum(len(t) for _, t in self.universe),
+            "universe_spec": self.universe_spec,
+            "universe": self.last_universe,
+            "universe_total": sum(u["count"] for u in self.last_universe),
             "run_count": self.run_count,
             "last_run_at": self.last_run_at,
             "last_status": self.last_status,

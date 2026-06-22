@@ -1,96 +1,129 @@
-"""Curated backfill universes (PH-1 / PH-PIPE).
+"""Dynamic universe sources (PH-PIPE).
 
-Picking which companies to collect should be a choice in the admin console, not a
-hand-typed ticker list. These presets are sensible, rate-limit-friendly sets of
-large caps an operator selects so the store fills with a meaningful sample.
+Resolve a backfill/scheduler universe by FETCHING constituents from upstream at run
+time — NO hardcoded ticker lists:
 
-Ticker accuracy matters (a wrong KR 6-digit code = wrong company), so these lists
-are HAND-VERIFIED large/mega caps — they cover the "famous names" goal, not the
-literal full S&P 500 / KOSPI 200 index membership. For the full indices, paste the
-official constituent list into the admin backfill's custom-tickers field (the
-pipeline accepts any tickers) or extend these lists from an authoritative source.
+  · us_sp500     — S&P 500 constituents (datahub maintained CSV)
+  · us_all       — the full US universe (SEC company_tickers.json)
+  · kr_kospi200  — top 200 KOSPI by market cap (pykrx)
+  · kr_kosdaq150 — top 150 KOSDAQ by market cap (pykrx)
+  · kr_kospi_all / kr_kosdaq_all — every listed name on that board (pykrx)
 
-Full-market US backfill (the ~10k SEC `companyfacts.zip` stream) stays a separate
-heavy path (bulk._load_us_zip), not a preset.
+Results are cached with a TTL so a sweep doesn't re-fetch each tick. On fetch failure
+we serve a stale cache if we have one, else an empty list — we never fabricate tickers
+(honesty over fake data). ``resolve_universe`` also still accepts the legacy explicit
+form ``"US:AAPL,MSFT;KR:005930"`` (no fetch) for ad-hoc backfills.
 """
 
 from __future__ import annotations
 
+import asyncio
+import csv
+import io
+import logging
+import time
+
+import httpx
+
+from app.config import settings
 from app.symbols import Market
 
-# --- US (clean SEC tickers; well-known S&P large/mega caps) ---------------
-_US_MEGA = [
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "LLY", "JPM",
-    "V", "UNH", "XOM", "MA", "COST",
-]
-_US_LARGE = _US_MEGA + [
-    "HD", "PG", "JNJ", "ABBV", "WMT", "NFLX", "CRM", "BAC", "KO", "AMD",
-    "PEP", "TMO", "CSCO", "ADBE", "MCD", "WFC", "ABT", "INTC", "QCOM", "TXN",
-    "DIS", "CAT", "GE", "VZ", "INTU", "AMAT", "PFE", "CMCSA", "NKE", "HON",
-]
-# A broader ~120-name set of well-known S&P 500 constituents (hand-verified symbols).
-_US_XL = _US_LARGE + [
-    "ORCL", "IBM", "NOW", "UBER", "AMGN", "GILD", "BKNG", "ISRG", "MDT", "SPGI",
-    "GS", "MS", "AXP", "BLK", "C", "SCHW", "PYPL", "PLTR", "MU", "LRCX",
-    "KLAC", "ADI", "SNPS", "CDNS", "PANW", "CRWD", "MRVL", "FTNT", "DELL", "HPQ",
-    "T", "TMUS", "CMG", "SBUX", "LOW", "TJX", "BKR", "SLB", "COP", "PSX",
-    "MPC", "OXY", "KMI", "WMB", "DUK", "SO", "NEE", "D", "AEP", "EXC",
-    "BMY", "MRK", "CVS", "CI", "HUM", "ELV", "ZTS", "BSX", "SYK", "BDX",
-    "VRTX", "REGN", "MCK", "DHR", "TMO", "UNP", "UPS", "FDX", "BA", "LMT",
-    "RTX", "GD", "NOC", "DE", "EMR", "ETN", "ITW", "PH", "MMM", "GE",
-    "F", "GM", "DOW", "DD", "LIN", "APD", "SHW", "FCX", "NEM", "NUE",
-    "PM", "MO", "MDLZ", "CL", "KMB", "GIS", "KHC", "STZ", "MNST", "KDP",
-]
+logger = logging.getLogger(__name__)
 
-# --- KR (KRX 6-digit codes; hand-verified KOSPI large caps) ---------------
-_KR_LARGE = [
-    "005930", "000660", "005380", "035420", "035720", "051910", "006400", "207940",
-    "005490", "105560", "055550", "000270", "068270", "012330", "028260", "066570",
-    "003550", "015760", "017670", "030200",
-]
-_KR_KOSPI = _KR_LARGE + [
-    "373220", "000810", "086790", "316140", "034730", "096770", "011200", "009150",
-    "010130", "011170", "018260", "032830", "051900", "090430", "010950", "024110",
-    "138040", "259960", "042660", "047810", "042700", "064350", "010140", "329180",
-    "267260", "011070", "097950", "251270", "035250", "086280", "000100", "128940",
-    "326030", "302440", "003670", "402340", "012450", "009830", "078930", "001570",
-]
-# KOSDAQ (hand-verified well-known names).
-_KR_KOSDAQ = [
-    "247540", "086520", "091990", "028300", "196170", "066970", "035760", "263750",
-    "293490", "357780", "058470", "095340", "240810", "112040", "078600", "145020",
-    "214150", "277810", "348370", "005290", "222800", "039030", "036930", "067310",
-    "041510",
-]
+_TTL_SECONDS = 6 * 3600
+_CACHE: dict[str, tuple[float, list[str]]] = {}  # id -> (expires_at_monotonic, tickers)
 
-# id -> (label, market, tickers)
-PRESETS: dict[str, dict] = {
-    "us_mega": {"label": "US 메가캡 (~15)", "market": "US", "tickers": _US_MEGA},
-    "us_large": {"label": "US 대형주 (~45)", "market": "US", "tickers": _US_LARGE},
-    "us_xl": {"label": "US 주요 대형주 (~120, S&P 위주)", "market": "US", "tickers": list(dict.fromkeys(_US_XL))},
-    "kr_large": {"label": "KR 대형주 (~20)", "market": "KR", "tickers": _KR_LARGE},
-    "kr_kospi": {"label": "KR 코스피 주요 (~60)", "market": "KR", "tickers": list(dict.fromkeys(_KR_KOSPI))},
-    "kr_kosdaq": {"label": "KR 코스닥 주요 (~25)", "market": "KR", "tickers": _KR_KOSDAQ},
+_SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+
+
+# --- fetchers ------------------------------------------------------------
+async def _fetch_sp500() -> list[str]:
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as c:
+        r = await c.get(_SP500_CSV, headers={"User-Agent": settings.sec_edgar_user_agent})
+        r.raise_for_status()
+    out: list[str] = []
+    for row in csv.DictReader(io.StringIO(r.text)):
+        sym = (row.get("Symbol") or row.get("symbol") or "").strip().upper()
+        if sym:
+            out.append(sym.replace(".", "-"))  # BRK.B → BRK-B (Yahoo/SEC style)
+    return out
+
+
+async def _fetch_us_all() -> list[str]:
+    from app.providers.us.sec_edgar import _ticker_index
+    idx = await _ticker_index()
+    return sorted({(r.get("ticker") or "").upper() for r in idx.values() if r.get("ticker")})
+
+
+def _kr_by_cap_sync(market: str, n: int | None) -> list[str]:
+    from pykrx import stock
+    d = stock.get_nearest_business_day_in_a_week()
+    try:
+        cap = stock.get_market_cap_by_ticker(d, market=market)
+        if cap is not None and not cap.empty:
+            col = "시가총액" if "시가총액" in cap.columns else cap.columns[0]
+            ranked = cap.sort_values(col, ascending=False)
+            idx = ranked.index.tolist() if n is None else ranked.head(n).index.tolist()
+            return [str(t) for t in idx]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pykrx market-cap list failed (%s); falling back to ticker list", exc)
+    try:
+        lst = stock.get_market_ticker_list(d, market=market) or []
+        return [str(t) for t in lst][: (n or len(lst))]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pykrx ticker list failed for %s: %s", market, exc)
+        return []
+
+
+async def _fetch_kr(market: str, n: int | None):
+    return await asyncio.to_thread(_kr_by_cap_sync, market, n)
+
+
+# id -> {label, market, approx, fetch}
+SOURCES: dict[str, dict] = {
+    "us_sp500": {"label": "S&P 500 (동적)", "market": "US", "approx": 503, "fetch": _fetch_sp500},
+    "us_all": {"label": "US 전체 (SEC, 수천)", "market": "US", "approx": 10000, "fetch": _fetch_us_all},
+    "kr_kospi200": {"label": "코스피 200 (동적·시총)", "market": "KR", "approx": 200,
+                    "fetch": lambda: _fetch_kr("KOSPI", 200)},
+    "kr_kosdaq150": {"label": "코스닥 150 (동적·시총)", "market": "KR", "approx": 150,
+                     "fetch": lambda: _fetch_kr("KOSDAQ", 150)},
+    "kr_kospi_all": {"label": "코스피 전체 (동적)", "market": "KR", "approx": 800,
+                     "fetch": lambda: _fetch_kr("KOSPI", None)},
+    "kr_kosdaq_all": {"label": "코스닥 전체 (동적)", "market": "KR", "approx": 1600,
+                      "fetch": lambda: _fetch_kr("KOSDAQ", None)},
 }
 
 
+async def fetch_source(source_id: str) -> list[str]:
+    """Fetch a source's tickers, cached (TTL). On failure: stale cache if any, else []."""
+    src = SOURCES.get(source_id)
+    if not src:
+        return []
+    now = time.monotonic()
+    hit = _CACHE.get(source_id)
+    if hit and hit[0] > now:
+        return hit[1]
+    try:
+        tickers = await src["fetch"]()
+    except Exception as exc:  # noqa: BLE001 — never fabricate; degrade to stale/empty
+        logger.warning("universe source %s fetch failed: %s", source_id, exc)
+        return hit[1] if hit else []
+    if tickers:
+        _CACHE[source_id] = (now + _TTL_SECONDS, tickers)
+    return tickers
+
+
 def list_presets() -> list[dict]:
-    return [
-        {"id": k, "label": v["label"], "market": v["market"], "count": len(v["tickers"])}
-        for k, v in PRESETS.items()
-    ]
+    """Universe sources for the admin dropdown (id/label/market + approx count)."""
+    return [{"id": k, "label": v["label"], "market": v["market"], "count": v["approx"]} for k, v in SOURCES.items()]
 
 
-def get_preset(preset_id: str) -> dict | None:
-    return PRESETS.get(preset_id)
+async def resolve_universe(spec: str) -> list[tuple[Market, list[str]]]:
+    """Resolve a spec into [(Market, tickers), …], FETCHING dynamic sources by id.
 
-
-def resolve_universe(spec: str) -> list[tuple[Market, list[str]]]:
-    """Resolve a scheduler/backfill universe spec into [(Market, tickers), …].
-
-    Accepts (a) comma-separated PRESET ids, e.g. ``"us_xl,kr_kospi"``; and/or
-    (b) the legacy explicit form ``"US:AAPL,MSFT;KR:005930"``. Both may be mixed,
-    separated by ``;``. Tickers for the same market are merged + de-duplicated.
+    Accepts (a) comma-separated source ids, e.g. ``"us_sp500,kr_kospi200"``; and/or
+    (b) the legacy explicit form ``"US:AAPL,MSFT;KR:005930"`` (no fetch). Both may be
+    mixed, separated by ``;``. Tickers for the same market are merged + de-duplicated.
     """
     by_market: dict[Market, list[str]] = {}
 
@@ -104,16 +137,25 @@ def resolve_universe(spec: str) -> list[tuple[Market, list[str]]]:
         group = group.strip()
         if not group:
             continue
-        if ":" in group:  # legacy explicit form "US:AAPL,MSFT"
+        if ":" in group:  # legacy explicit "US:AAPL,MSFT"
             mkt, tickers = group.split(":", 1)
             try:
                 m = Market(mkt.strip().upper())
             except ValueError:
                 continue
             _add(m, [t.strip() for t in tickers.split(",") if t.strip()])
-        else:  # comma-separated preset ids, e.g. "us_xl,kr_kospi"
-            for pid in group.split(","):
-                preset = PRESETS.get(pid.strip())
-                if preset:
-                    _add(Market(preset["market"]), list(preset["tickers"]))
+        else:  # comma-separated dynamic source ids
+            for sid in group.split(","):
+                src = SOURCES.get(sid.strip())
+                if src:
+                    _add(Market(src["market"]), await fetch_source(sid.strip()))
     return [(m, t) for m, t in by_market.items() if t]
+
+
+async def resolve_one(preset_or_spec: str) -> tuple[str | None, list[str]]:
+    """Convenience for single-market callers (legacy backfill/evidence): the first group."""
+    groups = await resolve_universe(preset_or_spec)
+    if not groups:
+        return None, []
+    market, tickers = groups[0]
+    return market.value, tickers

@@ -16,7 +16,7 @@ from app.store.filing_ingest import run_filing_text_ingest
 from app.store.jobs import backfill_running, list_jobs, run_backfill
 from app.store.news_ingest import news_ingest_running, run_news_ingest
 from app.store.screener import store_stats
-from app.store.universes import get_preset, list_presets, resolve_universe
+from app.store.universes import list_presets, resolve_one, resolve_universe
 
 router = APIRouter(tags=["Admin / Ops"], prefix="/admin")
 
@@ -92,9 +92,9 @@ async def pipelines() -> dict:
     ),
 )
 async def pipelines_run(body: PipelineRunRequest) -> dict:
-    # resolve the universe → [(market, tickers)]
+    # resolve the universe → [(market, tickers)] (dynamic fetch for preset ids)
     if body.preset:
-        groups = resolve_universe(body.preset)
+        groups = await resolve_universe(body.preset)
     elif body.market and body.tickers:
         from app.symbols import Market
         try:
@@ -166,10 +166,9 @@ class EvidenceDocsRequest(BaseModel):
 async def evidence_docs(body: EvidenceDocsRequest) -> dict:
     market, tickers = body.market, body.tickers
     if body.preset:
-        preset = get_preset(body.preset)
-        if not preset:
-            return {"started": False, "detail": f"unknown preset {body.preset!r}"}
-        market, tickers = preset["market"], preset["tickers"]
+        market, tickers = await resolve_one(body.preset)  # dynamic fetch (PH-PIPE)
+        if not tickers:
+            return {"started": False, "detail": f"universe {body.preset!r} resolved to no tickers"}
     if market not in ("US", "KR"):
         return {"started": False, "detail": "US + KR only", "market": market}
     if not tickers:
@@ -191,10 +190,9 @@ async def evidence_docs(body: EvidenceDocsRequest) -> dict:
 async def filings_ingest(body: EvidenceDocsRequest) -> dict:
     market, tickers = body.market, body.tickers
     if body.preset:
-        preset = get_preset(body.preset)
-        if not preset:
-            return {"started": False, "detail": f"unknown preset {body.preset!r}"}
-        market, tickers = preset["market"], preset["tickers"]
+        market, tickers = await resolve_one(body.preset)  # dynamic fetch (PH-PIPE)
+        if not tickers:
+            return {"started": False, "detail": f"universe {body.preset!r} resolved to no tickers"}
     if market not in ("US", "KR"):
         return {"started": False, "detail": "US + KR only", "market": market}
     if not tickers:

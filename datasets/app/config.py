@@ -56,10 +56,10 @@ class Settings(BaseSettings):
     # --- periodic ingestion scheduler (PH-PIPE) ---------------------------
     scheduler_enabled: bool = False
     scheduler_interval_seconds: int = 21600  # 6h between full sweeps by default
-    # Universe to refresh. Accepts PRESET ids (see app/store/universes.py), e.g.
-    # "us_xl,kr_kospi,kr_kosdaq", and/or the legacy explicit form
-    # "US:AAPL,MSFT;KR:005930". Empty → scheduler idles (nothing to do).
-    scheduler_universe: str = "us_xl,kr_kospi,kr_kosdaq"
+    # Universe to refresh — DYNAMIC source ids (see app/store/universes.py), fetched fresh each
+    # sweep: "us_sp500,kr_kospi200,kr_kosdaq150" (also us_all / kr_kospi_all / kr_kosdaq_all), and/or
+    # the legacy explicit form "US:AAPL,MSFT;KR:005930". Empty → scheduler idles.
+    scheduler_universe: str = "us_sp500,kr_kospi200,kr_kosdaq150"
     # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
     # registry's default set (financials, prices, corp_actions, news).
     scheduler_pipelines: str = "financials,prices,corp_actions,news"
