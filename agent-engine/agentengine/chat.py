@@ -151,7 +151,62 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 return await planner.plan_batch(task, tools, history, system, **kw)
             return [await planner.plan(task, tools, history, system, **kw)]
 
-        for step in range(max_steps):
+        # A2A: a complex, multi-facet request → dispatch focused sub-agents in PARALLEL (each
+        # gathers its own evidence), stream their live cards, then COMBINE into one cited answer.
+        if intake.subtasks and len(intake.subtasks) >= 2:
+            from agentengine.orchestrator import run_subagent, SUBAGENT_BUDGET
+            subs = intake.subtasks
+            yield {"type": "thinking", "phase": "plan",
+                   "text": f"분석을 {len(subs)}개 작업으로 나눠 동시에 진행할게요…"}
+            for i, st in enumerate(subs):
+                yield {"type": "subagent", "id": i, "title": st["title"], "status": "running"}
+
+            async def _one(idx, st):
+                res = await run_subagent(st["title"], st["question"], api_key, tools, bk, SUBAGENT_BUDGET)
+                return idx, res
+
+            futs = [asyncio.ensure_future(_one(i, st)) for i, st in enumerate(subs)]
+            results: list = [None] * len(subs)
+            for fut in asyncio.as_completed(futs):
+                i, res = await fut
+                results[i] = res
+                yield {"type": "subagent", "id": i, "title": res.title, "status": "done",
+                       "sources": len({(c.source, c.url) for c in res.citations}), "steps": res.steps}
+
+            for res in results:  # unify evidence (global de-dup + 1-based [n]), artifacts, history
+                if not res:
+                    continue
+                history.extend(res.history)
+                for c in res.citations:
+                    cit = c.model_dump()
+                    key = (cit.get("source"), cit.get("url"))
+                    if key in seen_cites:
+                        continue
+                    seen_cites.add(key)
+                    cit["index"] = len(citations) + 1
+                    citations.append(cit)
+                    yield {"type": "citation", **cit}
+                for a in res.artifacts:
+                    if a.title in seen_artifacts:
+                        continue
+                    seen_artifacts.add(a.title)
+                    art_objs.append(a)
+                    art = a.model_dump()
+                    artifacts.append(art)
+                    yield {"type": "artifact", "artifact": art}
+
+            # combine: ONE rich synthesis weaving every facet, citing the unified sources.
+            yield {"type": "thinking", "phase": "synthesize", "text": "하위 분석을 종합해 답변을 작성하는 중…"}
+            notes = "\n".join(f"- [{r.title}] {r.note or '근거 수집 완료'}" for r in results if r)
+            system_c = ((system or "") + f"\n\n[하위 분석 결과]\n{notes}").strip()
+            dec = await planner.plan(task, {}, [], system_c, conversation=messages,
+                                     force_final=True, sources=number_sources(citations))
+            final_text = dec.final or fallback_answer(citations)
+            for ch in _chunks(final_text):
+                yield {"type": "token", "text": ch}
+            answered = True
+
+        for step in range(0 if answered else max_steps):
             is_last = step == max_steps - 1  # reserve the last step for guaranteed synthesis
             if is_last and not refined and citations:  # verify/refine just before the forced synthesis
                 if (bk or settings.llm_backend) == "gemini":

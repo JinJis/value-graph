@@ -772,6 +772,116 @@ async def test_run_refuses_forecast(monkeypatch):
     assert res.refused is True and res.steps == []
 
 
+async def test_intake_parses_subtasks(monkeypatch):
+    # A2A: a complex request → 2-4 focused subtasks; dropped if <2 or restricted/clarify.
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    mock_resp.text = ('{"restricted": false, "score": 0.0, "needs_data": true, "steps": 10, '
+                      '"subtasks": [{"title": "주가", "question": "NVDA 최근 주가 흐름"}, '
+                      '{"title": "재무", "question": "NVDA 최근 매출·순이익"}]}')
+    intake = await A.analyze_task("엔비디아 종합 분석해줘", "gemini")
+    assert len(intake.subtasks) == 2 and intake.subtasks[0]["title"] == "주가"
+
+    # a single subtask isn't a decomposition → dropped
+    mock_resp.text = '{"restricted": false, "needs_data": true, "steps": 3, "subtasks": [{"title": "x", "question": "y"}]}'
+    assert (await A.analyze_task("NVDA 주가", "gemini")).subtasks == []
+
+
+@respx.mock
+async def test_run_subagent_gathers_evidence(monkeypatch):
+    # A sub-agent runs a headless gather loop over the shared tools and returns evidence.
+    import agentengine.orchestrator as O
+    from agentengine.planner import Decision
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
+
+    class OnePlanner:
+        def __init__(self):
+            self.n = 0
+
+        async def plan_batch(self, task, tools, history, system=None, conversation=None,
+                             force_final=False, sources=None):
+            if force_final or self.n >= 1:
+                return [Decision(final="공시 리스크 정리")]
+            self.n += 1
+            return [Decision(tool="rag__search", args={"query": "supplier risk"})]
+
+        async def plan(self, *a, **k):
+            return (await self.plan_batch(*a, **k))[0]
+
+    monkeypatch.setattr(O, "get_planner", lambda _b=None: OnePlanner())
+    from agentengine.client import PlatformClient
+    tools = await PlatformClient("vgk_x").fetch_tools()
+    res = await O.run_subagent("리스크", "공시상 공급망 리스크", "vgk_x", tools, "gemini", budget=3)
+    assert res.title == "리스크" and res.note == "공시 리스크 정리"
+    assert any(c.url == "https://sec.gov/x" for c in res.citations) and res.steps >= 1
+
+
+@respx.mock
+async def test_chat_stream_a2a_decomposes_and_combines(monkeypatch):
+    # A2A end-to-end: subtasks → parallel sub-agent cards → unified citations → combined answer.
+    import agentengine.chat as C
+    import agentengine.orchestrator as O
+    from agentengine.agent import TaskIntake
+    from agentengine.planner import Decision
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "NVDA", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
+    respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
+
+    async def _intake(_task, _backend=None):
+        return TaskIntake(steps=10, needs_data=True, subtasks=[
+            {"title": "주가", "question": "NVDA 최근 주가"},
+            {"title": "리스크", "question": "NVDA 공시 리스크"}])
+
+    monkeypatch.setattr(C, "analyze_task", _intake)
+
+    # sub-agents: facet 0 hits prices, facet 1 hits rag; both stop after one round
+    def _planner_for(tool, arg):
+        class P:
+            def __init__(self): self.n = 0
+            async def plan_batch(self, task, tools, history, system=None, conversation=None, force_final=False, sources=None):
+                if force_final or self.n >= 1:
+                    return [Decision(final="요약")]
+                self.n += 1
+                return [Decision(tool=tool, args=arg)]
+            async def plan(self, *a, **k): return (await self.plan_batch(*a, **k))[0]
+        return P()
+
+    seq = iter([_planner_for("yahoo__prices", {"ticker": "NVDA"}),
+                _planner_for("rag__search", {"query": "risk"})])
+    monkeypatch.setattr(O, "get_planner", lambda _b=None: next(seq))
+    # the COMBINER planner (used by chat.get_planner) writes the final answer
+    class Combiner:
+        async def plan(self, task, tools, history, system=None, conversation=None, force_final=False, sources=None):
+            return Decision(final="엔비디아 종합: 주가와 리스크를 함께 봤어요 [1]")
+        async def plan_batch(self, *a, **k): return [await self.plan(*a, **k)]
+    monkeypatch.setattr(C, "get_planner", lambda _b=None: Combiner())
+
+    events = [e async for e in stream_chat([{"role": "user", "content": "엔비디아 종합 분석해줘"}], "vgk_x")]
+    cards = [e for e in events if e["type"] == "subagent"]
+    assert {e["title"] for e in cards} == {"주가", "리스크"}
+    assert any(e["status"] == "running" for e in cards) and any(e["status"] == "done" for e in cards)
+    done = events[-1]
+    assert done["type"] == "done" and "SEC EDGAR" in {c.get("source") for c in done["citations"]}
+    prose = "".join(e["text"] for e in events if e["type"] == "token")
+    assert "종합" in prose
+
+
 @respx.mock
 async def test_chat_stream_runs_batch_in_parallel(monkeypatch):
     # PH-THINK: when the planner returns multiple independent calls (plan_batch), the chat

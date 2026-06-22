@@ -317,6 +317,14 @@ select.input { appearance: none; }
 .clarify-chip:disabled { opacity: .55; cursor: default; }
 .clarify-label { font-size: 13px; font-weight: 500; }
 .clarify-desc { font-size: 11px; color: var(--muted); }
+/* A2A: live sub-agent cards (one per facet, researched in parallel) */
+.subagents { display: flex; flex-wrap: wrap; gap: 6px; max-width: 80%; margin: 2px 0 8px; }
+.subagent { display: flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: var(--panel-2); font-size: 12px; }
+.subagent.running { border-color: var(--accent); }
+.subagent .sa-ic { width: 13px; flex: none; text-align: center; color: var(--fresh); font-size: 11px; }
+.subagent .sa-title { color: var(--text); font-weight: 500; }
+.subagent .sa-meta { color: var(--muted); font-size: 11px; }
 .tool, .cite { padding: 4px 2px; color: var(--muted); }
 .cite a { margin-left: 2px; }
 

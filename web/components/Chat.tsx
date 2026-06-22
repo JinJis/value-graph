@@ -18,7 +18,9 @@ type ClarifyOption = { label: string; description?: string | null };
 // CLARIFY-WITH-OPTIONS: the agent offers choices to scope a broad request; `origin` is the
 // user's question the picks refine into a follow-up.
 type Clarify = { prompt: string; options: ClarifyOption[]; multi: boolean; origin: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify };
+// A2A: a sub-agent dispatched on one facet of a complex request, shown as a live card.
+type SubAgent = { id: number; title: string; status: string; sources?: number; steps?: number };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify; subagents?: SubAgent[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -79,6 +81,22 @@ function ClarifyChips(
           선택한 내용으로 진행 →
         </Button>
       )}
+    </div>
+  );
+}
+
+// A2A: live cards for the sub-agents researching each facet of a complex request in parallel.
+function SubAgentCards({ subs }: { subs: SubAgent[] }) {
+  if (!subs.length) return null;
+  return (
+    <div className="subagents">
+      {subs.map((s) => (
+        <div key={s.id} className={`subagent ${s.status}`}>
+          <span className="sa-ic">{s.status === "done" ? "✓" : <span className="tl-spin" />}</span>
+          <span className="sa-title">{s.title}</span>
+          {s.status === "done" && <span className="sa-meta">{s.sources ?? 0} 근거</span>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -221,6 +239,13 @@ export default function Chat({ name }: { name: string }) {
               // origin = the user question these choices refine into a follow-up
               const origin = [...next].reverse().find((m) => m.role === "user")?.content || "";
               a.clarify = { prompt: ev.prompt, options: ev.options || [], multi: !!ev.multi, origin };
+            }
+            else if (ev.type === "subagent") {
+              const list = [...(a.subagents || [])];
+              const card: SubAgent = { id: ev.id, title: ev.title, status: ev.status, sources: ev.sources, steps: ev.steps };
+              const k = list.findIndex((s) => s.id === ev.id);
+              if (k >= 0) list[k] = card; else list.push(card);
+              a.subagents = list;
             }
             else if (ev.type === "artifact" && ev.artifact) {
               const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
@@ -391,6 +416,9 @@ export default function Chat({ name }: { name: string }) {
                           <summary>🧠 분석 과정 · {m.thinking!.length}단계</summary>
                           {m.thinking!.map((t, j) => <div key={j} className="tl-step done"><span className="tl-ic">✓</span>{t.text}</div>)}
                         </details>
+                  )}
+                  {m.role === "assistant" && (m.subagents?.length || 0) > 0 && (
+                    <SubAgentCards subs={m.subagents!} />
                   )}
                   <div className="bubble">
                     {m.content

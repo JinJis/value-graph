@@ -93,6 +93,9 @@ class TaskIntake:
     clarify_prompt: str | None = None
     options: list = field(default_factory=list)   # [{"label": str, "description": str|None}]
     multi: bool = False          # may several options be combined (pick-multiple) ?
+    # A2A DECOMPOSITION: for a complex, multi-facet request, the orchestrator splits it into
+    # 2-4 focused sub-tasks researched by parallel sub-agents, then combined. Empty = single agent.
+    subtasks: list = field(default_factory=list)  # [{"title": str, "question": str}]
 
 
 _INTAKE_PROMPT = (
@@ -115,12 +118,16 @@ _INTAKE_PROMPT = (
     "figures). Set needs_data=false for purely CONCEPTUAL/definitional/how-to questions answerable from "
     "general knowledge (e.g. 'PER이 뭐야?', 'how does an ETF work?', 'explain DCF') — those are answered "
     "richly from expertise without a tool call.\n"
-    "CLARIFY — if the request is broad/ambiguous enough that offering the user 2-4 concrete choices "
-    "would meaningfully improve the result (e.g. '엔비디아 분석해줘' could mean price / financials / "
-    "filings / news / peers), set clarify=true with a short clarify_prompt (the question to show) and "
-    "options (2-4 concrete, actionable choices in the user's language, each {{\"label\", \"description\"}}); "
-    "set multi=true if several can sensibly be combined. Do NOT clarify when the request is already "
-    "specific, conceptual, or restricted — only when a genuine choice would help.\n\n"
+    "CLARIFY — if the user's INTENT is unclear/ambiguous (you can't tell what they want), set clarify=true "
+    "with a short clarify_prompt and options (2-4 concrete choices in the user's language, each "
+    "{{\"label\", \"description\"}}); set multi=true if several combine. Use this when a genuine CHOICE is "
+    "needed, not when the scope is clear.\n"
+    "DECOMPOSE — if the intent is CLEAR but the request is COMPLEX and spans multiple INDEPENDENT facets "
+    "that each deserve their own focused research (e.g. '엔비디아 종합 분석' = 주가 흐름 + 재무 + 공시 "
+    "리스크 + 경쟁사 비교), return subtasks: 2-4 focused {{\"title\", \"question\"}} sub-tasks to research "
+    "in PARALLEL (each a self-contained question). Leave subtasks empty for simple/single-facet requests. "
+    "Prefer clarify when unsure what the user wants; prefer decompose when they clearly want a broad, "
+    "comprehensive answer.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
@@ -130,6 +137,7 @@ _INTAKE_PROMPT = (
     '"clarify_prompt": "<the short question to show the user, SAME LANGUAGE; empty if clarify=false>", '
     '"multi": <bool — may several options be combined>, '
     '"options": [{{"label": "<short choice>", "description": "<one line>"}}],  '
+    '"subtasks": [{{"title": "<short facet name, SAME LANGUAGE>", "question": "<self-contained sub-question>"}}],  '
     '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
@@ -151,6 +159,8 @@ _INTAKE_SCHEMA = {
         "multi": {"type": "boolean"},
         "options": {"type": "array", "items": {"type": "object", "properties": {
             "label": {"type": "string"}, "description": {"type": "string"}}, "required": ["label"]}},
+        "subtasks": {"type": "array", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "question": {"type": "string"}}, "required": ["title", "question"]}},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -199,6 +209,12 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
                 opts.append({"label": str(o["label"])[:80],
                              "description": (str(o.get("description") or "").strip()[:160] or None)})
         clarify = bool(d.get("clarify")) and not restricted and len(opts) >= 2
+        # decompose only for a clear, complex request (not restricted/clarify/conceptual) with ≥2 facets.
+        subs = []
+        for s in (d.get("subtasks") or []):
+            if isinstance(s, dict) and s.get("title") and s.get("question"):
+                subs.append({"title": str(s["title"])[:80], "question": str(s["question"])[:400]})
+        subtasks = subs[:4] if (not restricted and not clarify and needs_data and len(subs) >= 2) else []
         return TaskIntake(
             steps=(max(floor, min(n, cap)) if n else default),
             plan=(None if (restricted or clarify) else (str(d.get("plan") or "").strip() or None)),
@@ -209,6 +225,7 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
             clarify_prompt=(str(d.get("clarify_prompt") or "").strip() or None) if clarify else None,
             options=(opts if clarify else []),
             multi=bool(d.get("multi")),
+            subtasks=subtasks,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)

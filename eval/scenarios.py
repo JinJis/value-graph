@@ -169,6 +169,17 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # A2A: a complex, multi-facet request → decomposed into parallel sub-agents, then combined.
+        "name": "A2A: comprehensive multi-facet analysis (combined)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": ("엔비디아(NVDA)를 종합적으로 분석해줘 — 최근 주가 흐름, 재무(매출·순이익), "
+                     "그리고 공시상 주요 리스크를 함께. 전망·매수의견은 빼고 사실 위주로."),
+        "criteria": ("주가·재무·리스크 세 측면을 각각 출처(Yahoo/SEC EDGAR) 기반 사실로 다루고 하나의 "
+                     "일관된 답변으로 종합. 구체적 수치는 [n]으로 인용. 전망/목표가/매수의견은 없음. "
+                     "거절하지 않음."),
+        "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "News → Google News",
         "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
         "question": "엔비디아(NVDA) 관련 최근 뉴스를 알려줘.",
