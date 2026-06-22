@@ -248,6 +248,13 @@ CONNECTORS: list[ConnectorManifest] = [
                      path="/financial-metrics", output_model="FinancialMetricsHistoryResponse", markets=["US", "KR"], cost_tier=CostTier.free,
                      params=[P_TICKER_REQ, ResourceParam(name="period", enum=["annual", "quarterly", "ttm"]), P_LIMIT, P_MARKET],
                      provenance=Provenance(source="ingestion store (SEC/DART)", as_of_field="report_period", freshness=Freshness.periodic)),
+            Resource(name="filing_search",
+                     description="공시 본문에서 특정 주제(위험요소·공급망·수요·전략 등)를 언급한 문단을 찾아 원문 인용 — 처음 보는 종목은 최근 보고서를 즉시 인덱싱 후 의미검색. 출처(공시·섹션) 표기.",
+                     path="/filings/search", output_model="RagSearchResponse", markets=["US", "KR"], cost_tier=CostTier.low,
+                     params=[P_TICKER_REQ,
+                             ResourceParam(name="query", required=True, description="공시 본문에서 찾을 주제/문구 (e.g. '공급망 리스크', 'AI 수요')."),
+                             ResourceParam(name="top_k", type="integer", description="반환 문단 수 (기본 6)."), P_MARKET],
+                     provenance=Provenance(source="공시 본문 (SEC/DART)", source_link_field="url", freshness=Freshness.periodic)),
         ],
     ),
     ConnectorManifest(
@@ -331,6 +338,7 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     ("datasets_store", "screener"): Category.screener,
     ("datasets_store", "line_items"): Category.screener,
     ("datasets_store", "metrics_history"): Category.fundamentals,
+    ("datasets_store", "filing_search"): Category.filings,
     # Document RAG
     ("rag", "search"): Category.filings,
 }

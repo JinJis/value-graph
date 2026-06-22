@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # CE-0: how many years of daily OHLCV the prices pipeline stores. Deep enough for the
     # store-backed screener / quant / backtest (the chart fetches its own history live).
     prices_backfill_years: int = 5
+    # how many recent filings filing_search fetches+indexes when a never-seen ticker is queried
+    # on-demand (bounded so the first call stays responsive).
+    filing_search_ingest_limit: int = 2
 
     # --- RAG news-ingestion pipeline (PH-2b) ------------------------------
     # The RAG service the news pipeline indexes into.

@@ -63,6 +63,20 @@ async def _ingest_to_rag(rag_url: str, docs: list[dict]) -> int:
         return int((resp.json() or {}).get("chunks", 0))
 
 
+async def _search_rag(rag_url: str, query: str, ticker: str | None, market: str | None,
+                      top_k: int) -> list[dict]:
+    """Query the RAG service and return its passage hits (each carries its own provenance)."""
+    body = {"query": query, "top_k": top_k}
+    if ticker:
+        body["ticker"] = ticker
+    if market:
+        body["market"] = market
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
+        resp = await client.post(f"{rag_url.rstrip('/')}/rag/search", json=body)
+        resp.raise_for_status()
+        return (resp.json() or {}).get("hits") or []
+
+
 async def run_news_ingest(
     market: str, tickers: list[str] | None, limit: int | None = None, rag_url: str | None = None,
 ) -> dict:

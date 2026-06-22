@@ -210,6 +210,18 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # filing-text semantic search (on-demand RAG ingest) — quote real filing passages.
+        "name": "Filing passage search (공시 본문 인용)",
+        "agent": {"name": "Eval Filings", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": ("SK하이닉스 공시에서 '공급망 리스크' 또는 '데이터센터/AI 수요'를 언급한 문단을 찾아 "
+                     "원문 문구를 인용하고, 어떤 공시·섹션에서 나왔는지 출처를 함께 보여줘."),
+        "criteria": ("공시 본문(사업보고서/분기보고서의 위험요소·사업의 내용 등)에서 해당 주제를 언급한 실제 "
+                     "문단을 인용하고, 공시(접수번호/섹션)와 출처를 함께 제시. 주주 소유보고 같은 무관한 공시가 "
+                     "아니라 서사 본문을 근거로 함. 전망/매수의견 없음."),
+        "checks": {"expect_connector": "datasets_store__filing_search", "expect_status": 200,
+                   "expect_cite": "DART", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "News → Google News",
         "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
         "question": "엔비디아(NVDA) 관련 최근 뉴스를 알려줘.",

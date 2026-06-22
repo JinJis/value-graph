@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 319 unit** — datasets 131 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 321 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 110 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -352,6 +352,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **FIX · 공시 본문 검색 (DART narrative).** Two real bugs surfaced by "find the filing passage that
+  mentions 공급망/AI 수요": (1) KR `filings` ignored `filing_type` and returned date-ordered 지분/소유
+  noise — now ranks 정기보고서·주요사항·감사 ahead of ownership reports + honors `filing_type`. (2) Filing
+  narrative was only searchable if the opt-in `filing_text` pipeline had pre-run for that ticker → empty
+  corpus for ad-hoc questions. New `datasets_store__filing_search` (`GET /filings/search`) does
+  **on-demand RAG ingest**: search the corpus ticker-scoped → if empty, fetch+index that company's recent
+  filings (the statement-bearing 사업/분기보고서, which carry 위험요소·사업의 내용) → search again; returns
+  the RAG `{hits}` shape so each passage is cited + evidence-highlighted. +2 datasets tests, +1 eval. 🔴
 - 🚧 **CE-0 · Broad backfill foundation.** Make the store deep + easy to fill (prerequisite for
   screener/quant/backtest/heatmap). **Code done:** prices pipeline depth is configurable
   (`PRICES_BACKFILL_YEARS`, default **5y**) so `PriceBar` holds enough history; admin backfill gains a

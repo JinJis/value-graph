@@ -909,6 +909,69 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_kr_filings_rank_prioritizes_substantive_reports(monkeypatch):
+    # the bug: DART date-order floods the list with 지분/소유 reports → 사업보고서 buried.
+    # fix: rank so 정기보고서 surfaces first; filing_type post-filters by report name.
+    import asyncio
+    from app.providers.kr import opendart
+    from app.symbols import Market, build_ref
+
+    rows = [
+        {"rcept_no": "1", "rcept_dt": "20260616", "report_nm": "임원ㆍ주요주주특정증권등소유상황보고서"},
+        {"rcept_no": "2", "rcept_dt": "20260615", "report_nm": "임원ㆍ주요주주특정증권등소유상황보고서"},
+        {"rcept_no": "3", "rcept_dt": "20260514", "report_nm": "분기보고서 (2026.03)"},
+        {"rcept_no": "4", "rcept_dt": "20260331", "report_nm": "사업보고서 (2025.12)"},
+        {"rcept_no": "5", "rcept_dt": "20260520", "report_nm": "주요사항보고서(유상증자결정)"},
+    ]
+
+    async def fake_dart_json(path, params):
+        return {"status": "000", "list": rows}
+
+    monkeypatch.setattr(opendart, "_dart_json", fake_dart_json)
+
+    async def fake_corp_code(ref):
+        return "00164779"
+    monkeypatch.setattr(opendart, "_corp_code", fake_corp_code)
+
+    ref = build_ref(Market.KR, "000660")
+    out = asyncio.run(opendart.OpenDartProvider().filings(ref, None, 3))
+    # 정기보고서(분기/사업) first, then 주요사항 — ownership reports pushed out of the top 3
+    assert [f.filing_type for f in out][:2] == ["분기보고서 (2026.03)", "사업보고서 (2025.12)"]
+    assert all("소유상황" not in (f.filing_type or "") for f in out)
+    # filing_type filter → only the matching report names
+    only = asyncio.run(opendart.OpenDartProvider().filings(ref, ["사업보고서"], 10))
+    assert [f.filing_type for f in only] == ["사업보고서 (2025.12)"]
+
+
+def test_filing_search_ingests_on_demand_then_returns_passages(monkeypatch):
+    # on-demand RAG ingest: corpus empty for a ticker → ingest its filings, then search again.
+    import app.routers.filings as F
+    calls = {"search": 0, "ingest": 0}
+    hit = {"text": "공급망 다변화로 ... AI 데이터센터 수요 ...", "source": "OpenDART (FSS)",
+           "doc_type": "filing", "ticker": "000660", "market": "KR",
+           "accession": "20260331000123", "section": "p.42", "url": "https://dart.fss.or.kr/x"}
+
+    async def fake_search(rag_url, query, ticker, market, top_k):
+        calls["search"] += 1
+        return [hit] if calls["ingest"] > 0 else []  # corpus empty until the ticker is ingested
+
+    async def fake_ingest(market, ticker, limit=2, rag_url=None):
+        calls["ingest"] += 1
+        return 12
+    monkeypatch.setattr("app.store.news_ingest._search_rag", fake_search)
+    monkeypatch.setattr("app.store.filing_ingest.ingest_filing_text_for_ticker", fake_ingest)
+
+    body = client.get("/filings/search?ticker=000660&query=공급망&market=KR").json()
+    assert calls["ingest"] == 1 and calls["search"] == 2  # search → empty → ingest → search
+    assert body["ingested"] is True and body["ticker"] == "000660"
+    assert body["hits"] and body["hits"][0]["accession"] == "20260331000123"  # RAG `{hits}` shape → cited
+
+    # already-ingested ticker: first search returns hits → no second search, no ingest (fast path)
+    calls["search"] = 0
+    again = client.get("/filings/search?ticker=000660&query=공급망&market=KR").json()
+    assert calls["ingest"] == 1 and calls["search"] == 1 and again["ingested"] is False and again["hits"]
+
+
 def test_filing_url_and_fiscal_label():
     from app.providers.us.sec_edgar import _filing_url, _fiscal_label
 
