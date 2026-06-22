@@ -352,6 +352,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **FIX · 홈 프롬프트 폭포수 (waterfall hints).** Chat empty-state now shows the prompt-library
+  examples rising in a seamless infinite loop (CSS transform marquee, two copies → translateY -50%),
+  with a top/bottom fade mask. **Hover/focus pauses** it (key UX). Each chip shows the prompt's short
+  summary (description); clicking drops the FULL prompt into the composer (not sent) → the {TICKER}
+  fill bar appears to scope + send. Pulls live from `/prompts/community`; falls back to static chips if
+  unloaded; respects prefers-reduced-motion. (web `PromptWaterfall`.)
 - ✅ **FIX · 대화 기억 (follow-up context).** A follow-up ('배당률은?', '그 회사 주가는?') lost the
   subject because `analyze_task` (the intake) only saw the latest message — so it clarified or routed
   with no company even though the web sends full history and the planner already resolves references.

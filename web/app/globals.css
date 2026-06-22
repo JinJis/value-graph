@@ -315,6 +315,30 @@ select.input { appearance: none; }
   border-radius: 999px; cursor: pointer; font-size: 13px; font-family: inherit; }
 .chip:hover { border-color: var(--ink); }
 
+/* Prompt waterfall: example questions rise in a seamless loop; hover pauses (key UX). */
+.pwf { position: relative; width: 100%; max-width: 560px; height: 300px; overflow: hidden;
+  margin: 20px auto 0; text-align: left;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 84%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 84%, transparent); }
+.pwf-track { display: flex; flex-direction: column; animation: pwf-rise linear infinite; will-change: transform; }
+.pwf:hover .pwf-track, .pwf:focus-within .pwf-track { animation-play-state: paused; }
+@keyframes pwf-rise { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+.pwf-chip { display: flex; align-items: center; gap: 9px; width: 100%; margin-bottom: 10px;
+  text-align: left; cursor: pointer; padding: 11px 14px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--panel-2); color: var(--text); font-family: inherit;
+  transition: border-color .15s, background .15s, transform .15s; }
+.pwf-chip:hover { border-color: var(--ink); background: var(--panel-3); transform: translateX(3px); }
+.pwf-cat { flex: none; font-size: 10.5px; color: var(--muted); border: 1px solid var(--line-2);
+  border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.pwf-text { flex: 1; font-size: 13px; line-height: 1.4; }
+.pwf-arrow { flex: none; color: var(--muted); font-size: 13px; opacity: 0; transition: opacity .15s; }
+.pwf-chip:hover .pwf-arrow { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .pwf { height: auto; max-height: 320px; overflow-y: auto;
+    -webkit-mask-image: none; mask-image: none; }
+  .pwf-track { animation: none; }
+}
+
 .msg { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 760px; }
 .msg.user { align-items: flex-end; }
 .bubble { line-height: 1.6; }

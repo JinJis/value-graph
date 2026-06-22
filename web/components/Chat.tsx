@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Category } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
+import PromptWaterfall, { WaterfallPrompt } from "./PromptWaterfall";
 import Watchlists, { Watchlist } from "./Watchlists";
 import KpiPanel from "./KpiPanel";
 import ReactMarkdown from "react-markdown";
@@ -117,6 +118,7 @@ export default function Chat({ name }: { name: string }) {
   // agents
   const [agents, setAgents] = useState<Agent[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [libPrompts, setLibPrompts] = useState<WaterfallPrompt[]>([]);
   const [agentId, setAgentId] = useState<string>(""); // "" = default agent
   const [builder, setBuilder] = useState<{ open: boolean; base: Agent | null }>({ open: false, base: null });
   const [library, setLibrary] = useState(false);
@@ -212,6 +214,12 @@ export default function Chat({ name }: { name: string }) {
       try {
         const r = await fetch("/api/connectors");
         if (r.ok) setCategories((await r.json()).categories ?? []);
+      } catch {}
+    })();
+    (async () => {
+      try {
+        const r = await fetch("/api/prompts/community");
+        if (r.ok) setLibPrompts((await r.json()).prompts ?? []);
       } catch {}
     })();
   }, []);
@@ -469,11 +477,20 @@ export default function Chat({ name }: { name: string }) {
                   <h2>무엇이든 물어보세요</h2>
                   <p>보유 종목, 뉴스, 시황, 경제 — 분석가가 우리 데이터로 답하고 출처를 보여줍니다.</p>
                   {selected && <p className="agenthint">분석가: <b>{selected.name}</b>{selected.description ? ` · ${selected.description}` : ""}</p>}
-                  <div className="examples">
-                    {EXAMPLES.map((e) => (
-                      <button key={e} className="chip" onClick={() => send(e)}>{e}</button>
-                    ))}
-                  </div>
+                  {libPrompts.length > 0 ? (
+                    // prompt-library examples rising in an infinite loop; hover pauses; click
+                    // drops the FULL prompt into the composer to fill {TICKER} and send.
+                    <PromptWaterfall
+                      prompts={libPrompts}
+                      onPick={(body) => { setInput(body); inputRef.current?.focus(); }}
+                    />
+                  ) : (
+                    <div className="examples">
+                      {EXAMPLES.map((e) => (
+                        <button key={e} className="chip" onClick={() => send(e)}>{e}</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
