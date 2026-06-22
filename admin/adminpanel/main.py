@@ -352,7 +352,12 @@ async def pipelines(request: Request, msg: str = ""):
     cards = "".join(_pipeline_card(p, scheduled, interval) for p in registry) or "<div class=empty>파이프라인 레지스트리를 불러오지 못했어요.</div>"
 
     # --- unified backfill: pick universe + pipelines, run together ---
-    preset_opts = "".join(
+    # CE-0: a one-click "full universe" option = the scheduler's configured spec (multi-preset,
+    # resolved dynamically server-side), so the operator can deep-backfill everything at once.
+    full_spec = sched.get("universe_spec") or ""
+    full_opt = (f"<option value='{_esc(full_spec)}'>★ 전체 유니버스 (스케줄러: {_esc(full_spec)})</option>"
+                if full_spec else "")
+    preset_opts = full_opt + "".join(
         f"<option value='{_esc(u['id'])}'>{_esc(u['label'])} · {_esc(u['market'])} ({_esc(u['count'])})</option>"
         for u in (universes.get("universes") or [])
     ) or "<option value=''>(presets unavailable)</option>"

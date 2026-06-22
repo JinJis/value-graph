@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
     # registry's default set (financials, prices, corp_actions, news).
     scheduler_pipelines: str = "financials,prices,corp_actions,news"
+    # CE-0: how many years of daily OHLCV the prices pipeline stores. Deep enough for the
+    # store-backed screener / quant / backtest (the chart fetches its own history live).
+    prices_backfill_years: int = 5
 
     # --- RAG news-ingestion pipeline (PH-2b) ------------------------------
     # The RAG service the news pipeline indexes into.

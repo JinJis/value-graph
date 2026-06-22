@@ -1146,6 +1146,24 @@ async def test_scheduler_run_once_runs_pipelines(monkeypatch):
     assert s.last_universe == [{"market": "US", "count": 1}]
 
 
+async def test_prices_pipeline_uses_configured_backfill_years(monkeypatch):
+    # CE-0: the prices pipeline stores a deep history (settings.prices_backfill_years), not the 2y default.
+    import app.pipelines as P
+    import app.store.prices_ingest as PI
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "prices_backfill_years", 7)
+    seen = {}
+
+    async def fake_run(market, tickers, years=2, retries=1):
+        seen["years"] = years
+        return {"status": "success"}
+
+    monkeypatch.setattr(PI, "run_prices_ingest", fake_run)
+    await P._run_prices("US", ["AAPL"])
+    assert seen["years"] == 7
+
+
 async def test_run_pipelines_dispatches_and_isolates_failures(monkeypatch):
     import app.pipelines as P
 

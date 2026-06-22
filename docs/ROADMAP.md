@@ -344,9 +344,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > store + compute) · unit tests · an eval scenario · agent tool-use · provenance/evidence wired · docs +
 > roadmap updated (DoD §7). One task per PR; verify each end-to-end before the next.
 
-- ⬜ **CE-0 · Broad backfill foundation.** Run PH-PIPE pipelines to depth so `PriceBar` + `FinancialFact`
-  cover the screenable universe (dynamic S&P500/KOSPI/KOSDAQ) — prerequisite for screener/quant/backtest/
-  heatmap. *(no new upstream)*
+- 🚧 **CE-0 · Broad backfill foundation.** Make the store deep + easy to fill (prerequisite for
+  screener/quant/backtest/heatmap). **Code done:** prices pipeline depth is configurable
+  (`PRICES_BACKFILL_YEARS`, default **5y**) so `PriceBar` holds enough history; admin backfill gains a
+  one-click **★ 전체 유니버스** option (runs the scheduler's multi-preset spec — S&P500+KOSPI200+KOSDAQ150
+  — through the storage pipelines); coverage shown in admin Data. +1 datasets test. **Operator step:**
+  trigger the full-universe backfill (admin → Pipelines) or enable the scheduler; ~850 tickers × deep
+  prices/financials is long on SQLite (WAL helps; Postgres for prod). *(no new upstream)*
 
 **Wave 1 — existing/free data, new compute (fully cited, fastest):**
 - ⬜ **CE-1 · 자산군 (cross-asset).** Curated index/bond/commodity/FX/crypto proxy tickers (yahoo) → market
@@ -374,6 +378,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
   filings, labeled "derived"). 🔴❓
+- ⬜ **CE-HEALTH · Upstream API health in admin** *(follow-up, per user)*. A monitoring view that probes
+  every connector's upstream (SEC/DART/Yahoo/FRED-DBnomics/ECOS/news/FMP/KIS…) — reachable? latency?
+  last success? key present? rate-limit headroom? — surfaced in the admin console (extends the existing
+  self-test) so an operator sees at a glance which data source is degraded. *(admin + datasets)*
 
 ---
 
