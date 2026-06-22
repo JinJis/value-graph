@@ -1,9 +1,13 @@
-"""Periodic ingestion scheduler with monitor/control hooks.
+"""Periodic ingestion scheduler with monitor/control hooks (PH-PIPE).
 
-A single background asyncio task refreshes the store for a configured universe on
-an interval. It is observable (``status()``) and controllable (pause / resume /
-run-now) via the /admin endpoints. Disabled by default — set SCHEDULER_ENABLED
-and SCHEDULER_UNIVERSE to turn it on.
+A single background asyncio task sweeps a configured UNIVERSE through a configured
+set of data PIPELINES (financials · prices · corp_actions · news · …) on an
+interval. It is observable (``status()``) and controllable (pause / resume /
+run-now) via the /admin endpoints, and each pipeline run is recorded as an
+``IngestionJob`` (so the admin shows path/coverage/errors/retries).
+
+Disabled by default — enable via SCHEDULER_ENABLED=true or the admin "Resume"
+button (the universe + pipeline set are pre-configured in settings).
 """
 
 from __future__ import annotations
@@ -12,34 +16,22 @@ import asyncio
 from datetime import datetime, timezone
 
 from app.config import settings
-from app.store.ingest import ingest_universe
-from app.symbols import Market
+from app.pipelines import resolve_pipeline_ids, run_pipelines
+from app.store.universes import resolve_universe
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def parse_universe(spec: str) -> list[tuple[Market, list[str]]]:
-    """'US:AAPL,MSFT;KR:005930' -> [(US, [AAPL, MSFT]), (KR, [005930])]."""
-    out: list[tuple[Market, list[str]]] = []
-    for group in spec.split(";"):
-        group = group.strip()
-        if not group or ":" not in group:
-            continue
-        mkt, tickers = group.split(":", 1)
-        syms = [t.strip() for t in tickers.split(",") if t.strip()]
-        if syms:
-            out.append((Market(mkt.strip().upper()), syms))
-    return out
-
-
 class Scheduler:
     def __init__(self) -> None:
         self.enabled = settings.scheduler_enabled
         self.interval = settings.scheduler_interval_seconds
-        self.universe = parse_universe(settings.scheduler_universe)
-        self.deep = settings.scheduler_deep
+        self.universe = resolve_universe(settings.scheduler_universe)
+        self.pipeline_ids = resolve_pipeline_ids(
+            [p.strip() for p in settings.scheduler_pipelines.split(",") if p.strip()]
+        )
         self.run_count = 0
         self.last_run_at: str | None = None
         self.last_status = "idle"  # idle | running | ok | error
@@ -75,31 +67,20 @@ class Scheduler:
 
     async def _run_once(self) -> None:
         self.running, self.last_status = True, "running"
+        summary: dict = {}
         try:
-            summary: dict = {}
-            if self.deep:
-                from app.store.bulk import bulk_load_kr, bulk_load_us
-
-                for market, tickers in self.universe:
-                    summary[market.value] = await (
-                        bulk_load_us(tickers) if market is Market.US else bulk_load_kr(tickers)
-                    )
-            else:
-                for market, tickers in self.universe:
-                    summary[market.value] = await ingest_universe(market, tickers)
-            # PH-2b: optionally also pull fresh news into the RAG index for the universe
-            # so rag__search has recent context (best-effort — never fail the facts run).
-            if settings.scheduler_news:
-                from app.store.news_ingest import run_news_ingest
-
-                for market, tickers in self.universe:
-                    try:
-                        summary[f"{market.value}_news"] = await run_news_ingest(market.value, tickers)
-                    except Exception as exc:  # noqa: BLE001
-                        summary[f"{market.value}_news"] = {"status": "error", "error": str(exc)}
-            self.last_summary, self.last_status, self.last_error = summary, "ok", None
-        except Exception as exc:
-            self.last_status, self.last_error = "error", str(exc)
+            for market, tickers in self.universe:
+                summary[market.value] = await run_pipelines(market.value, tickers, self.pipeline_ids)
+            # surfaced errors don't fail the sweep — they're recorded per pipeline/job
+            had_error = any(
+                isinstance(v, str) and v.startswith("error")
+                for m in summary.values() for v in (m.values() if isinstance(m, dict) else [])
+            )
+            self.last_summary = summary
+            self.last_status = "error" if had_error else "ok"
+            self.last_error = None
+        except Exception as exc:  # noqa: BLE001
+            self.last_status, self.last_error, self.last_summary = "error", str(exc), summary
         finally:
             self.running = False
             self.run_count += 1
@@ -117,14 +98,22 @@ class Scheduler:
         self.enabled = True
         self._wake.set()
 
+    @property
+    def state(self) -> str:
+        if self.running:
+            return "running"
+        return "enabled" if self.enabled else "paused"
+
     # --- monitor ---------------------------------------------------------
     def status(self) -> dict:
         return {
+            "state": self.state,
             "enabled": self.enabled,
-            "deep": self.deep,
             "running": self.running,
             "interval_seconds": self.interval,
-            "universe": [{"market": m.value, "tickers": t} for m, t in self.universe],
+            "pipelines": self.pipeline_ids,
+            "universe": [{"market": m.value, "count": len(t)} for m, t in self.universe],
+            "universe_total": sum(len(t) for _, t in self.universe),
             "run_count": self.run_count,
             "last_run_at": self.last_run_at,
             "last_status": self.last_status,

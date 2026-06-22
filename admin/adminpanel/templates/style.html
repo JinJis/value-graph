@@ -80,6 +80,18 @@ button.p,.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
 button.danger{background:var(--err-bg);border-color:#5c2326;color:#ff9a9a}
 form.ops{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+/* PH-PIPE pipeline visualization + unified backfill */
+.flow{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:8px 0}
+.flow .arrow{color:var(--muted);font-weight:700;margin:0 2px}
+.opsrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.opsrow form.ops{margin:0}
+form.ops2{display:flex;flex-direction:column;gap:10px}
+form.ops2 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+form.ops2 .row>label:first-child{min-width:78px;color:var(--muted);font-size:12px}
+form.ops2 input,form.ops2 select{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;color:var(--text);padding:6px 8px}
+form.ops2 .checks{display:flex;gap:12px;flex-wrap:wrap}
+form.ops2 .chk{display:flex;align-items:center;gap:5px;color:var(--text);font-size:13px}
+form.ops2 button.p{align-self:flex-start}
 /* misc */
 .crumb{font-size:12px;color:var(--muted);margin-bottom:12px}
 .nav-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}

@@ -53,16 +53,18 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 30.0
     log_level: str = "INFO"  # app log verbosity (DEBUG|INFO|WARNING|…) → docker logs
 
-    # --- periodic ingestion scheduler -------------------------------------
+    # --- periodic ingestion scheduler (PH-PIPE) ---------------------------
     scheduler_enabled: bool = False
-    scheduler_interval_seconds: int = 3600
-    # Universe to refresh, e.g. "US:AAPL,MSFT,NVDA;KR:005930,000660"
-    scheduler_universe: str = ""
-    # When true, periodic runs do a deep/full-history backfill instead of the
-    # latest few periods.
+    scheduler_interval_seconds: int = 21600  # 6h between full sweeps by default
+    # Universe to refresh. Accepts PRESET ids (see app/store/universes.py), e.g.
+    # "us_xl,kr_kospi,kr_kosdaq", and/or the legacy explicit form
+    # "US:AAPL,MSFT;KR:005930". Empty → scheduler idles (nothing to do).
+    scheduler_universe: str = "us_xl,kr_kospi,kr_kosdaq"
+    # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
+    # registry's default set (financials, prices, corp_actions, news).
+    scheduler_pipelines: str = "financials,prices,corp_actions,news"
+    # Legacy single-pipeline flags (kept for back-compat; the pipeline set above supersedes).
     scheduler_deep: bool = False
-    # When true, each scheduler tick also pulls fresh news for the universe into
-    # the RAG index (PH-2b) so rag__search has recent context.
     scheduler_news: bool = False
 
     # --- RAG news-ingestion pipeline (PH-2b) ------------------------------

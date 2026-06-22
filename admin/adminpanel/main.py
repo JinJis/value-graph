@@ -267,18 +267,113 @@ async def catalog_view(request: Request):
 
 
 # --- Pipelines ------------------------------------------------------------
+def _interval_label(seconds: int) -> str:
+    if not seconds:
+        return "—"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}시간마다"
+    if seconds % 60 == 0:
+        return f"{seconds // 60}분마다"
+    return f"{seconds}초마다"
+
+
+def _pipeline_card(p: dict, scheduled: set[str], interval: int) -> str:
+    """Visualize one pipeline: source → store, schedule, and its latest run (status/rows/error)."""
+    is_sched = p["id"] in scheduled
+    sched_txt = (f"⏱ {_interval_label(interval)}" if is_sched else "수동 전용")
+    sched_cls = "ok" if is_sched else ""
+    j = p.get("latest") or {}
+    if j:
+        st = j.get("status")
+        kind = {"success": "ok", "error": "err", "running": "run"}.get(st, "")
+        tot, dn = j.get("total") or 0, j.get("done") or 0
+        last = (f"<div class=sub>최근 실행 {badge(_esc(st), kind)} · 수집 {_esc(j.get('rows', 0))}행"
+                + (f" · {dn}/{tot}" if tot else "") + f"<br><span class=muted>{_esc((j.get('started_at') or '')[:19])}</span>")
+        if j.get("error"):
+            last += f"<br><span class=err>{_cell(j.get('error'), 80)}</span>"
+        last += "</div>"
+    else:
+        last = "<div class=sub muted>아직 실행 기록 없음</div>"
+    markets = " ".join(badge(m) for m in p.get("markets", []))
+    return (
+        f"<div class=card><h3>{_esc(p['label'])} {badge(sched_txt, sched_cls)}</h3>"
+        f"<div class=sub>{_esc(p.get('desc') or '')}</div>"
+        f"<div class=flow><span class=pill>{_esc(p.get('source'))}</span> <span class=arrow>→</span> "
+        f"<span class=pill><code>{_esc(p.get('store'))}</code></span> {markets}</div>"
+        f"{last}</div>"
+    )
+
+
 @app.get("/pipelines", response_class=HTMLResponse)
 async def pipelines(request: Request, msg: str = ""):
     async with httpx.AsyncClient() as c:
-        sched = await _safe_get(c, f"{settings.datasets_url}/admin/scheduler")
+        pdata = await _safe_get(c, f"{settings.datasets_url}/admin/pipelines")
         jobs = await _safe_get(c, f"{settings.datasets_url}/admin/jobs")
         universes = await _safe_get(c, f"{settings.datasets_url}/admin/universes")
 
+    registry = pdata.get("pipelines") or []
+    sched = pdata.get("scheduler") or {}
+    scheduled = set(sched.get("pipelines") or [])
+    interval = sched.get("interval_seconds") or 0
+    sstate = sched.get("state", pdata.get("_error", "?"))
+    sbadge = badge(sstate, "run" if sstate == "running" else ("warn" if sstate == "paused" else "ok"))
+
     job_list = jobs.get("jobs") if isinstance(jobs, dict) else []
     running = any(j.get("status") == "running" for j in (job_list or []))
-    sstate = sched.get("state", sched.get("_error", "?"))
-    sbadge = badge(sstate, "run" if sstate == "running" else ("warn" if sstate == "paused" else ""))
 
+    # --- scheduler banner: state · cadence · scope · last sweep ---
+    uni_total = sched.get("universe_total", 0)
+    uni_breakdown = " · ".join(f"{_esc(u['market'])} {_esc(u['count'])}" for u in (sched.get("universe") or [])) or "비어 있음"
+    last_sweep = ""
+    if sched.get("last_summary"):
+        parts = []
+        for mkt, res in (sched["last_summary"] or {}).items():
+            if isinstance(res, dict):
+                oks = sum(1 for v in res.values() if v == "ok")
+                parts.append(f"{_esc(mkt)} {oks}/{len(res)} ok")
+        last_sweep = " · ".join(parts)
+    sched_banner = (
+        "<div class=card><h3>⏣ 스케줄러 " + sbadge + "</h3>"
+        f"<div class=flow><span class=pill>주기 <b>{_esc(_interval_label(interval))}</b></span>"
+        f"<span class=pill>대상 <b>{_esc(uni_total)}</b>종목 ({uni_breakdown})</span>"
+        f"<span class=pill>파이프라인 <b>{_esc(len(scheduled))}</b>개</span>"
+        f"<span class=pill>실행 {_esc(sched.get('run_count', 0))}회</span></div>"
+        f"<div class=sub>마지막 스윕: {_esc(sched.get('last_run_at') or '없음')}"
+        + (f" · {last_sweep}" if last_sweep else "") + "</div>"
+        "<div class=opsrow>"
+        "<form class=ops method=post action=/ops/scheduler/run><button class=p>지금 실행</button></form>"
+        "<form class=ops method=post action=/ops/scheduler/resume><button>가동(Resume)</button></form>"
+        "<form class=ops method=post action=/ops/scheduler/pause><button>일시정지</button></form>"
+        "<form class=ops method=post action=/ops/selftest><button>self-test</button></form>"
+        "</div></div>"
+    )
+
+    # --- per-pipeline visualization cards ---
+    cards = "".join(_pipeline_card(p, scheduled, interval) for p in registry) or "<div class=empty>파이프라인 레지스트리를 불러오지 못했어요.</div>"
+
+    # --- unified backfill: pick universe + pipelines, run together ---
+    preset_opts = "".join(
+        f"<option value='{_esc(u['id'])}'>{_esc(u['label'])} · {_esc(u['market'])} ({_esc(u['count'])})</option>"
+        for u in (universes.get("universes") or [])
+    ) or "<option value=''>(presets unavailable)</option>"
+    pipe_checks = "".join(
+        f"<label class=chk><input type=checkbox name=pipelines value='{_esc(p['id'])}'"
+        + (" checked" if p.get("default") else "") + f"> {_esc(p['label'])}</label>"
+        for p in registry
+    )
+    backfill = f"""
+<h2>백필 — 한 번에 구성해서 수집</h2>
+<div class=card><div class=sub>유니버스(프리셋 또는 직접 입력)를 고르고, 돌릴 파이프라인을 선택해 한 번에 수집합니다.
+S&amp;P·코스피·코스닥 전체는 직접 입력란에 티커를 붙여넣으세요.</div>
+  <form class=ops2 method=post action=/ops/pipelines/run>
+    <div class=row><label>프리셋</label><select name=preset>{preset_opts}</select></div>
+    <div class=row><label>직접 입력</label><select name=market><option>US</option><option>KR</option></select>
+      <input name=tickers placeholder="AAPL MSFT / 005930 … (입력 시 프리셋 무시)" size=40></div>
+    <div class=row><label>파이프라인</label><div class=checks>{pipe_checks}</div></div>
+    <button class=p>수집 시작</button>
+  </form></div>"""
+
+    # --- jobs table (live) ---
     if job_list:
         rows = ""
         for j in job_list:
@@ -295,60 +390,33 @@ async def pipelines(request: Request, msg: str = ""):
                 f"<td class=muted>{_esc((j.get('started_at') or '')[:19])}</td>"
                 f"<td class=err>{_cell(j.get('error') or '', 60)}</td></tr>"
             )
-        jobs_html = ("<div class=tablewrap><table><thead><tr><th>#</th><th>kind</th><th>mkt</th><th>spec</th>"
+        jobs_html = ("<div class=tablewrap><table><thead><tr><th>#</th><th>pipeline</th><th>mkt</th><th>spec</th>"
                      "<th>status</th><th>progress</th><th>rows</th><th>started</th><th>error</th></tr></thead>"
                      f"<tbody>{rows}</tbody></table></div>")
     else:
-        jobs_html = "<div class=empty>No ingestion jobs yet — trigger one below.</div>"
+        jobs_html = "<div class=empty>아직 수집 작업이 없어요 — 아래에서 백필을 실행하세요.</div>"
 
-    preset_opts = "".join(
-        f"<option value='{_esc(u['id'])}'>{_esc(u['label'])} · {_esc(u['market'])}</option>"
-        for u in (universes.get("universes") or [])
-    ) or "<option value=''>(presets unavailable)</option>"
-
-    triggers = f"""
-<h2>Triggers</h2>
+    # --- secondary triggers (RAG probes) ---
+    extra = """
+<h2>기타</h2>
 <div class=grid>
-  <div class=card><h3>Backfill — universe</h3><div class=sub>ingestion store + optional evidence PDFs</div>
-    <form class=ops method=post action=/ops/backfill>
-      <select name=preset>{preset_opts}</select>
-      <label class=muted><input type=checkbox name=precompute value=1> 📷 evidence</label>
-      <button class=p>Backfill</button>
-    </form></div>
-  <div class=card><h3>Backfill — explicit tickers</h3><div class=sub>comma/space separated</div>
-    <form class=ops method=post action=/ops/backfill>
-      <select name=market><option>US</option><option>KR</option></select>
-      <input name=tickers placeholder="AAPL MSFT / 005930" size=22>
-      <label class=muted><input type=checkbox name=precompute value=1> 📷 evidence</label>
-      <button class=p>Backfill</button>
-    </form></div>
-  <div class=card><h3>News → RAG</h3><div class=sub>headlines into the corpus (kind <code>news</code>)</div>
-    <form class=ops method=post action=/ops/news>
-      <select name=market><option>US</option><option>KR</option></select>
-      <input name=tickers placeholder="tickers (blank = market)" size=22>
-      <button class=p>Pull news</button>
-    </form></div>
-  <div class=card><h3>Scheduler &amp; self-test</h3><div class=sub>state: {sbadge}</div>
-    <form class=ops method=post action=/ops/scheduler/run><button class=p>Run now</button></form>
-    <form class=ops method=post action=/ops/scheduler/pause><button>Pause</button></form>
-    <form class=ops method=post action=/ops/scheduler/resume><button>Resume</button></form>
-    <form class=ops method=post action=/ops/selftest><button>Run self-test</button></form>
-  </div>
-  <div class=card><h3>RAG ingest</h3><div class=sub>add a document to the corpus</div>
+  <div class=card><h3>RAG ingest</h3><div class=sub>코퍼스에 문서 추가</div>
     <form class=ops method=post action=/ops/rag/ingest>
       <input name=text placeholder="document text" size=22 required>
-      <input name=source placeholder=source value=admin size=10>
-      <button class=p>Ingest</button></form></div>
-  <div class=card><h3>RAG search</h3><div class=sub>semantic probe</div>
+      <input name=source placeholder=source value=admin size=10><button class=p>Ingest</button></form></div>
+  <div class=card><h3>RAG search</h3><div class=sub>시맨틱 프로브</div>
     <form class=ops method=post action=/ops/rag/search>
       <input name=query placeholder="semantic query" size=22 required><button class=p>Search</button></form></div>
 </div>"""
 
     body = (_flash(msg)
-            + "<p class=hint>Everything that ingests or precomputes, in one place — each job shows live "
-              "progress and the page auto-refreshes while a job runs.</p>"
-            + f"<h2>Jobs {'· ⟳ live' if running else ''}</h2>" + jobs_html
-            + triggers)
+            + "<p class=hint>모든 데이터 파이프라인을 한곳에서 — 무엇을 어떤 경로로 수집해 어디에 쌓는지, "
+              "주기·상태·에러를 시각화합니다. 작업이 도는 동안 자동 새로고침됩니다.</p>"
+            + "<h2>스케줄러</h2><div class=grid>" + sched_banner + "</div>"
+            + "<h2>파이프라인</h2><div class=grid>" + cards + "</div>"
+            + backfill
+            + f"<h2>수집 작업 {'· ⟳ live' if running else ''}</h2>" + jobs_html
+            + extra)
     return HTMLResponse(page("/pipelines", "Pipelines", body, refresh=running))
 
 
@@ -382,7 +450,14 @@ async def data_view(request: Request):
     rag_html = "".join(f"<span class=pill>{_esc(k)}: <code>{_esc(raginfo.get(k, '—'))}</code></span>"
                        for k in ("embedding_backend", "reranker_backend", "vector_store"))
 
-    body = ("<h2>Ingestion store</h2>" + store_html
+    coverage = (
+        "<div class=flow>"
+        f"<span class=pill>재무 facts <b>{_esc(stats.get('total_facts', '—'))}</b></span>"
+        f"<span class=pill>가격 bars <b>{_esc(stats.get('price_bars', '—'))}</b> · {_esc(stats.get('price_tickers', '—'))}종목</span>"
+        f"<span class=pill>배당·분할 <b>{_esc(stats.get('corporate_actions', '—'))}</b></span>"
+        "</div>") if _ok(stats) else ""
+
+    body = ("<h2>Ingestion store</h2>" + coverage + store_html
             + "<h2>RAG corpus backends</h2><div>" + (rag_html or "<span class=warn>RAG unreachable</span>") + "</div>"
             + "<h2>Stored rows by table</h2><div class=tablewrap><table><thead><tr><th>database</th><th>table</th>"
               "<th>rows</th></tr></thead><tbody>" + (db_rows or "<tr><td colspan=3 class=muted>no databases</td></tr>")
@@ -465,6 +540,22 @@ async def ops_backfill(request: Request, preset: str = Form(""), market: str = F
             pr = await c.post(f"{settings.datasets_url}/admin/evidence-docs", json=pc, timeout=20)
             ev = "+evidence" if pr.status_code == 200 and pr.json().get("started") else "+(evidence+failed)"
     return RedirectResponse(f"/pipelines?msg=backfill+{'started' if ok else 'failed'}+{label}{ev}", status_code=303)
+
+
+@app.post("/ops/pipelines/run")
+async def ops_pipelines_run(request: Request, preset: str = Form(""), market: str = Form("US"),
+                           tickers: str = Form(""), pipelines: list[str] = Form(default=[])):
+    """PH-PIPE unified backfill: run the selected pipelines over a preset (or custom tickers)."""
+    tick = [t.strip() for t in tickers.replace(",", " ").split() if t.strip()]
+    if tick:
+        payload, label = {"market": market, "tickers": tick, "pipelines": pipelines}, f"{market}:{len(tick)}t"
+    else:
+        payload, label = {"preset": preset, "pipelines": pipelines}, preset
+    async with httpx.AsyncClient() as c:
+        r = await c.post(f"{settings.datasets_url}/admin/pipelines/run", json=payload, timeout=20)
+        ok = r.status_code == 200 and r.json().get("started")
+    pl = "+".join(pipelines) if pipelines else "default"
+    return RedirectResponse(f"/pipelines?msg=수집+{'시작' if ok else '실패'}+{label}+[{pl}]", status_code=303)
 
 
 @app.post("/ops/news")

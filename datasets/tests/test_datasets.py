@@ -210,12 +210,18 @@ def test_kr_date_normalization():
 
 
 # --- scheduler + selftest classifier --------------------------------------
-def test_parse_universe():
-    from app.scheduler import parse_universe
+def test_resolve_universe_legacy_and_presets():
+    from app.store.universes import resolve_universe
 
-    u = parse_universe("US:AAPL,MSFT;KR:005930")
-    assert u[0][0].value == "US" and u[0][1] == ["AAPL", "MSFT"]
-    assert u[1][0].value == "KR" and u[1][1] == ["005930"]
+    # legacy explicit form
+    u = dict((m.value, t) for m, t in resolve_universe("US:AAPL,MSFT;KR:005930"))
+    assert u["US"] == ["AAPL", "MSFT"] and u["KR"] == ["005930"]
+    # preset ids (comma-separated) resolve to the curated lists, merged per market
+    u2 = dict((m.value, t) for m, t in resolve_universe("us_mega,kr_large"))
+    assert "AAPL" in u2["US"] and "005930" in u2["KR"]
+    # mixed: a preset + an explicit extra ticker for the same market → de-duplicated union
+    u3 = dict((m.value, t) for m, t in resolve_universe("us_mega;US:AAPL,TSLA"))
+    assert u3["US"].count("AAPL") == 1 and "TSLA" in u3["US"]
 
 
 def test_scheduler_controls():
@@ -1055,30 +1061,55 @@ def test_screener_restatement_latest_filing_wins():
 
 
 # --- scheduler ------------------------------------------------------------
-def test_parse_universe_edges():
-    from app.scheduler import parse_universe
+def test_resolve_universe_edges():
+    from app.store.universes import resolve_universe
 
-    assert parse_universe("") == []
-    assert parse_universe("garbage") == []
-    assert parse_universe("US:") == []
-    u = parse_universe("us:aapl")
+    assert resolve_universe("") == []
+    assert resolve_universe("garbage") == []   # unknown preset id → nothing
+    assert resolve_universe("US:") == []        # empty ticker list dropped
+    u = resolve_universe("us:aapl")
     assert u[0][0] is Market.US and u[0][1] == ["aapl"]
 
 
-async def test_scheduler_run_once_ingests(monkeypatch):
+async def test_scheduler_run_once_runs_pipelines(monkeypatch):
+    # PH-PIPE: a sweep dispatches the configured pipelines over the universe via run_pipelines.
     from app import scheduler as sched_mod
     from app.scheduler import Scheduler
 
-    async def fake_ingest(market, tickers, *a, **k):
-        return {t: 3 for t in tickers}
+    calls = []
 
-    monkeypatch.setattr(sched_mod, "ingest_universe", fake_ingest)
+    async def fake_run_pipelines(market, tickers, pipeline_ids):
+        calls.append((market, tuple(tickers), tuple(pipeline_ids)))
+        return {pid: "ok" for pid in pipeline_ids}
+
+    monkeypatch.setattr(sched_mod, "run_pipelines", fake_run_pipelines)
     s = Scheduler()
     s.universe = [(Market.US, ["AAPL"])]
+    s.pipeline_ids = ["financials", "prices"]
     s.enabled = True
     await s._run_once()
     assert s.last_status == "ok" and s.run_count == 1
-    assert s.last_summary == {"US": {"AAPL": 3}}
+    assert calls == [("US", ("AAPL",), ("financials", "prices"))]
+    assert s.last_summary == {"US": {"financials": "ok", "prices": "ok"}}
+
+
+async def test_run_pipelines_dispatches_and_isolates_failures(monkeypatch):
+    import app.pipelines as P
+
+    ran = []
+
+    async def ok_runner(market, tickers):
+        ran.append(("ok", market))
+
+    async def boom_runner(market, tickers):
+        raise RuntimeError("upstream down")
+
+    monkeypatch.setitem(P.PIPELINE_BY_ID["prices"], "runner", ok_runner)
+    monkeypatch.setitem(P.PIPELINE_BY_ID["financials"], "runner", boom_runner)
+    summary = await P.run_pipelines("US", ["AAPL"], ["financials", "prices"])
+    assert summary["financials"].startswith("error")   # one failing pipeline…
+    assert summary["prices"] == "ok"                     # …never sinks the others
+    assert ("ok", "US") in ran
 
 
 # --- selftest classifier --------------------------------------------------
@@ -1101,6 +1132,76 @@ def test_admin_scheduler_endpoint():
 def test_admin_store_stats_endpoint():
     body = client.get("/admin/store/stats").json()
     assert "total_facts" in body and "by_market" in body
+    # PH-PIPE: prices + corporate-actions coverage is reported too
+    assert "price_bars" in body and "corporate_actions" in body
+
+
+def test_admin_pipelines_endpoint():
+    body = client.get("/admin/pipelines").json()
+    ids = {p["id"] for p in body["pipelines"]}
+    assert {"financials", "prices", "corp_actions", "news"} <= ids
+    prices = next(p for p in body["pipelines"] if p["id"] == "prices")
+    assert prices["store"] == "price_bars" and "latest" in prices
+    assert body["scheduler"]["state"] in ("enabled", "paused", "running")
+
+
+def test_admin_pipelines_run_dispatches(monkeypatch):
+    import app.routers.admin as A
+
+    seen = {}
+
+    async def fake_run_pipelines(market, tickers, ids):
+        seen["call"] = (market, tuple(tickers), tuple(ids))
+
+    monkeypatch.setattr(A, "run_pipelines", fake_run_pipelines)
+    r = client.post("/admin/pipelines/run", json={"preset": "us_mega", "pipelines": ["prices"]})
+    body = r.json()
+    assert r.status_code == 200 and body["started"] is True and body["pipelines"] == ["prices"]
+    assert body["universe"][0]["market"] == "US"
+
+
+async def test_prices_ingest_shapes_and_upserts(monkeypatch):
+    import app.store.prices_ingest as PI
+    from datetime import date
+
+    class _Bar:
+        def __init__(self, **k):
+            self.__dict__.update(k)
+
+        def model_dump(self):
+            return dict(self.__dict__)
+
+    class FakeProv:
+        async def prices(self, ref, interval, start, end):
+            return [_Bar(time="2024-01-02", open=10, high=11, low=9, close=10.5, volume=1000),
+                    _Bar(time="bad-date", open=1, high=1, low=1, close=1, volume=1)]  # dropped
+
+    monkeypatch.setattr(PI, "get_prices_provider", lambda m: FakeProv())
+    added = []
+
+    class FakeDB:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, *a, **k):
+            class _R:
+                def scalar_one_or_none(self_inner):
+                    return None
+            return _R()
+
+        def add(self, o):
+            added.append(o)
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(PI, "SessionLocal", lambda: FakeDB())
+    n = await PI.ingest_prices_ticker(PI.Market.US, "AAPL", date(2024, 1, 1), date(2024, 1, 3))
+    assert n == 1  # the unparseable-date bar is dropped, never fabricated
+    assert added[0].ticker == "AAPL" and added[0].close == 10.5 and added[0].bar_date == date(2024, 1, 2)
 
 
 def test_bad_period_returns_400():

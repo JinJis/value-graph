@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 294 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 100 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 298 unit** — datasets 120 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 100 · studio-api 37 (+ admin 17, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -320,6 +320,22 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     progress** (admin auto-refreshes while running); `backfill_running` **serializes** runs (busy returned
     synchronously). **Verified live:** `us_mega` 4/15→15/15, 15 cos · 34,506 facts. +7 datasets, +2 admin.
     *(Real distributed queue + migrations = PH-11.)*
+- ✅ **PH-PIPE · Periodic data pipelines + multi-pipeline scheduler + admin control.** The scheduler was
+  "down" (defaulted disabled + empty universe) and only covered financials/news. Now there's a **declarative
+  pipeline registry** (`app/pipelines.py`) — one source of truth for every periodic collector (what it
+  fetches, from which source, into which store): `financials` (SEC/DART → financial_facts) · `prices` (Yahoo
+  → **new `PriceBar`**) · `corp_actions` (Yahoo → **new `CorporateAction`**) · `news` + `filing_text` (→ RAG) ·
+  `evidence_docs` (→ PDFs). The **scheduler** sweeps a preset-resolved universe through a configured pipeline
+  set on an interval (`run_pipelines`, per-pipeline `IngestionJob` + per-ticker retry; one failure never sinks
+  the rest); `status()` exposes state/cadence/scope/last-sweep. **Universes** expanded to hand-verified
+  presets (`us_xl`~120 · `kr_kospi`~60 · `kr_kosdaq`~25) + `resolve_universe` (preset ids or explicit spec);
+  full S&P500/KOSPI200 go in the admin custom-tickers field. New **`PriceBar` + `CorporateAction`** stores +
+  `prices_ingest.py` (the big "served but unstored" gap) + coverage in `store_stats`. **Admin Pipelines** page
+  rebuilt: scheduler banner (state · 주기 · 대상 종목 · 마지막 스윕 + Run/Pause/Resume), **per-pipeline cards**
+  (source → store flow · schedule · last run · rows · errors), and a **unified backfill** form (pick preset
+  or custom tickers + pipeline checkboxes → `POST /admin/pipelines/run`). Enable via `SCHEDULER_ENABLED` or
+  the Resume button. +4 datasets tests (116→120), +1 admin (16→17). *(datasets + admin)* *(Postgres/Redis +
+  distributed queue = PH-11; per-pipeline confidence/alerting + cached price serving = follow-on.)*
 - ✅ **PH-2 · RAG ingestion pipeline (news live).** RAG started empty; now a real pipeline indexes content
   per tenant so `rag__search` returns real, cited, semantic hits. Delivered as 2a + 2b:
   - ✅ **PH-2a · per-tenant doc isolation.** `IngestDoc`/`Chunk` gain a `tenant` (control-plane

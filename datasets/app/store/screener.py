@@ -28,9 +28,18 @@ def store_stats() -> dict:
                 func.max(FinancialFact.report_period),
             ).group_by(FinancialFact.market)
         ).all()
+    # PH-PIPE: also report prices + corporate-actions coverage (best-effort; tables may be new).
+    try:
+        from app.store.prices_ingest import price_coverage
+        coverage = price_coverage()
+    except Exception:  # noqa: BLE001
+        coverage = {"price_bars": 0, "price_tickers": 0, "corporate_actions": 0}
     return {
         "total_facts": facts,
         "total_companies": companies,
+        "price_bars": coverage.get("price_bars", 0),
+        "price_tickers": coverage.get("price_tickers", 0),
+        "corporate_actions": coverage.get("corporate_actions", 0),
         "by_market": [
             {
                 "market": m,

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.deps import ApiKeyDep
+from app.pipelines import list_pipelines, resolve_pipeline_ids, run_pipelines
 from app.scheduler import scheduler
 from app.selftest import run_selftest
 from app.store.evidence_docs import run_build_evidence_docs
@@ -15,7 +16,7 @@ from app.store.filing_ingest import run_filing_text_ingest
 from app.store.jobs import backfill_running, list_jobs, run_backfill
 from app.store.news_ingest import news_ingest_running, run_news_ingest
 from app.store.screener import store_stats
-from app.store.universes import get_preset, list_presets
+from app.store.universes import get_preset, list_presets, resolve_universe
 
 router = APIRouter(tags=["Admin / Ops"], prefix="/admin")
 
@@ -26,6 +27,14 @@ class BackfillRequest(BaseModel):
     tickers: list[str] | None = None  # explicit tickers (required for US/KR without a preset)
     deep: bool = True
     limit: int | None = None
+
+
+class PipelineRunRequest(BaseModel):
+    """PH-PIPE unified backfill: run a SET of pipelines over a preset (or explicit market+tickers)."""
+    preset: str | None = None       # universe preset id (see /admin/universes)
+    market: str | None = None       # with `tickers`, an explicit universe instead of a preset
+    tickers: list[str] | None = None
+    pipelines: list[str] | None = None  # pipeline ids (see /admin/pipelines); omit → default set
 
 
 class NewsIngestRequest(BaseModel):
@@ -56,6 +65,57 @@ async def store_statistics() -> dict:
 @router.get("/universes", dependencies=[ApiKeyDep], summary="Curated backfill universes (presets)")
 async def universes() -> dict:
     return {"universes": list_presets()}
+
+
+@router.get("/pipelines", dependencies=[ApiKeyDep], summary="Data pipelines registry + latest run per pipeline")
+async def pipelines() -> dict:
+    """The PH-PIPE pipeline registry (what each collects, source, store) joined with the most
+    recent IngestionJob per pipeline — so the admin can show path · schedule · status · coverage."""
+    jobs = await asyncio.to_thread(list_jobs, 100)
+    latest: dict[str, dict] = {}
+    for j in jobs:  # jobs are newest-first → first seen per kind is the latest
+        latest.setdefault(j["kind"], j)
+    pipes = []
+    for p in list_pipelines():
+        pipes.append({**p, "latest": latest.get(p["kind"])})
+    return {"pipelines": pipes, "scheduler": scheduler.status()}
+
+
+@router.post(
+    "/pipelines/run",
+    dependencies=[ApiKeyDep],
+    summary="▶ PH-PIPE: run a SET of pipelines over a universe (unified backfill)",
+    description=(
+        "Runs the selected `pipelines` (omit → default set) over a `preset` universe (or explicit "
+        "`market`+`tickers`) in the background. Each pipeline records its own IngestionJob "
+        "(see `/admin/jobs`); progress + errors + coverage show in the admin Pipelines view."
+    ),
+)
+async def pipelines_run(body: PipelineRunRequest) -> dict:
+    # resolve the universe → [(market, tickers)]
+    if body.preset:
+        groups = resolve_universe(body.preset)
+    elif body.market and body.tickers:
+        from app.symbols import Market
+        try:
+            groups = [(Market(body.market.upper()), body.tickers)]
+        except ValueError:
+            return {"started": False, "detail": f"unknown market {body.market!r}"}
+    else:
+        return {"started": False, "detail": "preset or (market + tickers) required"}
+    if not groups:
+        return {"started": False, "detail": "empty universe"}
+    ids = resolve_pipeline_ids(body.pipelines)
+
+    async def _run_all() -> None:
+        for market, tickers in groups:
+            await run_pipelines(market.value, tickers, ids)
+
+    asyncio.create_task(_run_all())
+    total = sum(len(t) for _, t in groups)
+    return {"started": True, "pipelines": ids,
+            "universe": [{"market": m.value, "count": len(t)} for m, t in groups],
+            "tickers_total": total, "see": "/admin/jobs"}
 
 
 @router.get("/jobs", dependencies=[ApiKeyDep], summary="Recent ingestion jobs (backfill / scheduled)")

@@ -92,6 +92,53 @@ class IngestionJob(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class PriceBar(Base):
+    """One end-of-day OHLCV bar (PH-PIPE). Collected periodically by the prices pipeline so
+    market data accumulates in the store (served on-demand today; cached/offline serving later)."""
+
+    __tablename__ = "price_bars"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    market: Mapped[str] = mapped_column(String(2), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    interval: Mapped[str] = mapped_column(String(8), default="day")  # day | week | month
+    bar_date: Mapped[date] = mapped_column(index=True)
+    open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(24))
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("market", "ticker", "interval", "bar_date", name="uq_price_bar"),
+        Index("ix_price_lookup", "market", "ticker", "interval", "bar_date"),
+    )
+
+
+class CorporateAction(Base):
+    """A dividend or split event (PH-PIPE). Collected periodically so dividend/split history
+    accumulates in the store. ``kind`` = dividend | split; the relevant fields are populated
+    per kind (dividend → amount; split → ratio/numerator/denominator)."""
+
+    __tablename__ = "corporate_actions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    market: Mapped[str] = mapped_column(String(2), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # dividend | split
+    event_date: Mapped[date] = mapped_column(index=True)  # ex-date (dividend) / effective (split)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)     # dividend per share
+    ratio: Mapped[str | None] = mapped_column(String(24), nullable=True)   # e.g. "4:1"
+    source: Mapped[str] = mapped_column(String(24))
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("market", "ticker", "kind", "event_date", name="uq_corp_action"),
+    )
+
+
 class Company(Base):
     __tablename__ = "companies"
 

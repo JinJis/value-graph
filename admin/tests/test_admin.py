@@ -96,8 +96,37 @@ def test_pipelines_page_and_triggers():
     _login()
     r = client.get("/pipelines")
     assert r.status_code == 200
-    assert "Triggers" in r.text and "Backfill" in r.text and "News" in r.text
-    assert "No ingestion jobs" in r.text
+    # PH-PIPE: scheduler banner + per-pipeline visualization + unified backfill + jobs
+    assert "스케줄러" in r.text and "파이프라인" in r.text and "백필" in r.text
+    assert "/ops/pipelines/run" in r.text          # the unified backfill form posts here
+    assert "아직 수집 작업이 없어요" in r.text       # jobs empty-state (no datasets server in test)
+
+
+def test_ops_pipelines_run_posts_to_datasets(monkeypatch):
+    import httpx as _httpx
+    _login()
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"started": True}
+
+    class _Client:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): ...
+        async def post(self, url, json=None, timeout=None):
+            captured["url"], captured["json"] = url, json
+            return _Resp()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _Client)
+    r = client.post("/ops/pipelines/run",
+                    data={"preset": "us_mega", "pipelines": ["prices", "news"]}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/pipelines")
+    assert captured["url"].endswith("/admin/pipelines/run")
+    assert captured["json"]["preset"] == "us_mega" and captured["json"]["pipelines"] == ["prices", "news"]
 
 
 def test_data_page_shows_store_empty_and_row_counts():
