@@ -882,6 +882,61 @@ async def test_chat_stream_a2a_decomposes_and_combines(monkeypatch):
     assert "종합" in prose
 
 
+def test_chunks_preserve_newlines_and_markdown():
+    # the markdown-rendering bug: word-splitting collapsed newlines → headings/lists broke.
+    from agentengine.chat import _chunks
+    md = "## 제목\n\n- a\n- b\n\n본문 [1]"
+    assert "".join(_chunks(md, 5)) == md   # char-chunking round-trips EXACTLY (newlines kept)
+
+
+@respx.mock
+async def test_chat_stream_real_token_streaming(monkeypatch):
+    # the answer must STREAM token-by-token (planner.stream_final), preserving markdown newlines.
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
+    from agentengine.planner import Decision
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
+
+    async def _intake(_t, _b=None):
+        return TaskIntake(steps=2, needs_data=True)
+
+    async def _no_refine(*a, **k):
+        return (None, {})
+
+    class StreamPlanner:
+        def __init__(self):
+            self.n = 0
+
+        async def plan_batch(self, task, tools, history, system=None, conversation=None, force_final=False, sources=None):
+            if force_final or self.n >= 1:
+                return [Decision(final="(unused)")]
+            self.n += 1
+            return [Decision(tool="yahoo__prices", args={"ticker": "AAPL"})]
+
+        async def plan(self, *a, **k):
+            return (await self.plan_batch(*a, **k))[0]
+
+        async def stream_final(self, task, tools, history, system=None, conversation=None, sources=None):
+            for piece in ["## 제목\n\n", "첫 문장. ", "둘째 [1]"]:
+                yield piece
+
+    monkeypatch.setattr(C, "analyze_task", _intake)
+    monkeypatch.setattr(C, "refine_evidence", _no_refine)
+    monkeypatch.setattr(C, "get_planner", lambda _b=None: StreamPlanner())
+    monkeypatch.setattr(C.settings, "llm_backend", "gemini")  # take the real-streaming path
+
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL 주가"}], "vgk_x")]
+    toks = [e["text"] for e in events if e["type"] == "token"]
+    assert "## 제목\n\n" in toks and len(toks) >= 3   # streamed per-delta, not one blob
+    prose = "".join(toks)
+    assert "## 제목" in prose and "\n\n" in prose      # markdown newlines survive
+
+
 @respx.mock
 async def test_chat_stream_runs_batch_in_parallel(monkeypatch):
     # PH-THINK: when the planner returns multiple independent calls (plan_batch), the chat

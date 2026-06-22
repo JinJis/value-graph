@@ -42,11 +42,14 @@ def _last_user(messages: list[dict]) -> str:
     return messages[-1].get("content", "") if messages else ""
 
 
-def _chunks(text: str, size: int = 6) -> list[str]:
-    words = (text or "").split()
-    if not words:
-        return [text or ""]
-    return [" ".join(words[i : i + size]) + (" " if i + size < len(words) else "") for i in range(0, len(words), size)]
+def _chunks(text: str, size: int = 28) -> list[str]:
+    """Slice text into fixed-size spans for the fallback/stub stream. CHARACTER-based so it
+    preserves newlines + markdown structure verbatim (word-splitting collapsed `\\n` → broke
+    headings/lists). Real Gemini answers stream token-by-token via the planner instead."""
+    text = text or ""
+    if not text:
+        return [""]
+    return [text[i : i + size] for i in range(0, len(text), size)]
 
 
 async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec | None = None) -> AsyncIterator[dict]:
@@ -84,28 +87,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # the plan guides tool selection + synthesis (quality), without hardcoding logic.
         system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
 
-    # Conceptual / definitional question → no data lookup needed. Answer richly from expertise
-    # (the responder still refuses forecasts/advice and won't assert specific unsourced figures),
-    # without forcing a doomed tool call. (gemini sets needs_data; stub always leaves it True.)
-    if not intake.needs_data:
-        yield {"type": "thinking", "phase": "synthesize", "text": "개념을 설명하는 답변을 작성하는 중…"}
-        planner = get_planner(bk)
-        dec = await planner.plan(task, {}, [], system, conversation=messages, force_final=True, sources=None)
-        final_text = dec.final or fallback_answer([])
-        for ch in _chunks(final_text):
-            yield {"type": "token", "text": ch}
-        yield {"type": "done", "citations": [], "artifacts": [], "refused": False, "used": []}
-        return
-
-    client = PlatformClient(api_key)
-    try:
-        tools = await client.fetch_tools()
-    except Exception:
-        yield {"type": "token", "text": "The data platform is unavailable right now."}
-        yield {"type": "done", "citations": [], "artifacts": [], "refused": False}
-        return
-    if spec and spec.allowed_tools:
-        tools = filter_tools(tools, spec.allowed_tools)
+    planner = get_planner(bk)
+    from agentengine.planner import resolve_ticker
     history: list = []
     citations: list[dict] = []
     cite_ctx: list[tuple[dict, dict, object]] = []  # (citation, tool, data) → re-anchor evidence post-answer
@@ -135,16 +118,48 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 c["confidence_why"] = sc.get("why")
         return note
 
-    async def _finalize(force: bool):
-        # one synthesis call; never leak an empty/limit message to the user.
-        dec = await planner.plan(task, tools, history, system, conversation=messages,
-                                 force_final=force, sources=number_sources(citations))
-        return dec.final or fallback_answer(citations)
+    async def _synthesize(tools_arg, history_arg, system_arg):
+        # REAL streaming of the final answer (gemini) — yields token events as the responder
+        # generates them. Fallback/stub path char-chunks a one-shot result (newline-preserving).
+        nonlocal final_text
+        sources = number_sources(citations)
+        if hasattr(planner, "stream_final") and (bk or settings.llm_backend) == "gemini":
+            got = False
+            async for delta in planner.stream_final(task, tools_arg, history_arg, system_arg,
+                                                     conversation=messages, sources=sources):
+                got = True
+                final_text += delta
+                yield {"type": "token", "text": delta}
+            if not got:
+                for ch in _chunks(fallback_answer(citations)):
+                    final_text += ch
+                    yield {"type": "token", "text": ch}
+        else:
+            dec = await planner.plan(task, tools_arg, history_arg, system_arg,
+                                     conversation=messages, force_final=True, sources=sources)
+            for ch in _chunks(dec.final or fallback_answer(citations)):
+                final_text += ch
+                yield {"type": "token", "text": ch}
+
+    # Conceptual / definitional question → answer from expertise, no tools, streamed.
+    if not intake.needs_data:
+        yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
+        async for ev in _synthesize({}, [], system):
+            yield ev
+        yield {"type": "done", "citations": [], "artifacts": [], "refused": False, "used": []}
+        return
+
+    client = PlatformClient(api_key)
+    try:
+        tools = await client.fetch_tools()
+    except Exception:
+        yield {"type": "token", "text": "데이터 플랫폼에 지금 연결할 수 없어요."}
+        yield {"type": "done", "citations": [], "artifacts": [], "refused": False}
+        return
+    if spec and spec.allowed_tools:
+        tools = filter_tools(tools, spec.allowed_tools)
 
     try:
-        planner = get_planner(spec.backend if spec else None)
-        from agentengine.planner import resolve_ticker
-
         async def _plan_batch(force_final: bool) -> list:
             kw = dict(conversation=messages, force_final=force_final, sources=number_sources(citations))
             if hasattr(planner, "plan_batch"):
@@ -201,26 +216,21 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             yield {"type": "thinking", "phase": "synthesize", "text": "하위 분석을 종합해 답변을 작성하는 중…"}
             notes = "\n".join(f"- [{r.title}] {r.note or '근거 수집 완료'}" for r in results if r)
             system_c = ((system or "") + f"\n\n[하위 분석 결과]\n{notes}").strip()
-            dec = await planner.plan(task, {}, history, system_c, conversation=messages,
-                                     force_final=True, sources=number_sources(citations))
-            final_text = dec.final or fallback_answer(citations)
-            for ch in _chunks(final_text):
-                yield {"type": "token", "text": ch}
+            async for ev in _synthesize({}, history, system_c):  # streamed combiner
+                yield ev
             answered = True
 
         for step in range(0 if answered else max_steps):
             is_last = step == max_steps - 1  # reserve the last step for guaranteed synthesis
-            if is_last and not refined and citations:  # verify/refine just before the forced synthesis
-                if (bk or settings.llm_backend) == "gemini":
-                    yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
-                await _maybe_refine()
             decisions = await _plan_batch(is_last)
             # finalize when forced, or when the model returned prose instead of tool calls
             if is_last or (decisions and decisions[0].final is not None):
-                yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
-                final_text = (decisions[0].final if decisions else None) or fallback_answer(citations)
-                for ch in _chunks(final_text):
-                    yield {"type": "token", "text": ch}
+                if citations and (bk or settings.llm_backend) == "gemini" and not refined:
+                    yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
+                await _maybe_refine()  # grounds the synthesis + scores source confidence
+                yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
+                async for ev in _synthesize(tools, history, system):  # real streaming
+                    yield ev
                 answered = True
                 break
 
@@ -238,10 +248,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 if not refined and citations and (bk or settings.llm_backend) == "gemini":
                     yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
                 await _maybe_refine()
-                yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
-                final_text = await _finalize(force=True)
-                for ch in _chunks(final_text):
-                    yield {"type": "token", "text": ch}
+                yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
+                async for ev in _synthesize(tools, history, system):
+                    yield ev
                 answered = True
                 break
             last_sig = sig
@@ -258,10 +267,10 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                        "label": tool.get("friendly") or tool.get("connector_name"), "args": d.args or {}}
                 yield {"type": "thinking", "phase": "fetch", "text": f"{label} 살펴보는 중…", "tool": d.tool}
             if not valid:  # nothing runnable → synthesize from what we have
-                yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
-                final_text = await _finalize(force=True)
-                for ch in _chunks(final_text):
-                    yield {"type": "token", "text": ch}
+                await _maybe_refine()
+                yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
+                async for ev in _synthesize(tools, history, system):
+                    yield ev
                 answered = True
                 break
 
@@ -302,10 +311,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                        "text": (f"✓ {label} · 근거 {added}건 확보" if ok else f"· {label}에서 새 근거를 찾지 못함")}
                 history.append((d, result))
         if not answered:
-            yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
-            final_text = fallback_answer(citations)
-            for ch in _chunks(final_text):
-                yield {"type": "token", "text": ch}
+            yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
+            async for ev in _synthesize(tools, history, system):
+                yield ev
     except Exception as e:
         logger.exception("Error in stream_chat loop")
         # A planner/LLM error (e.g. bad model id, missing key, upstream outage)

@@ -307,18 +307,15 @@ export default function Chat({ name }: { name: string }) {
     else if (!deletedId) setAgentId(saved.id);
   }
 
-  // Live Context = the EVIDENCE of the latest answer (only the sources it actually
-  // used), not every consulted source — those stay in the message's 도구·출처 list.
-  const liveMsg = [...messages].reverse().find((m) => m.role === "assistant" && (m.citations?.length || 0) > 0);
-  const liveCites = (() => {
-    if (!liveMsg) return [] as Citation[];
-    const used = liveMsg.used;
-    if (used && used.length) return (liveMsg.citations ?? []).filter((c) => c.index != null && used.includes(c.index));
-    return liveMsg.citations ?? [];
-  })();
+  // Evidence for one message = the sources its answer actually used (else all consulted).
+  const evidenceOf = (m: Msg): Citation[] => {
+    const cites = m.citations ?? [];
+    if (m.used && m.used.length) return cites.filter((c) => c.index != null && m.used!.includes(c.index));
+    return cites;
+  };
 
   return (
-    <div className={`shell ${view === "desk" ? "" : "no-right"}`}>
+    <div className="shell no-right">
       <nav className="rail">
         <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">VALUE·GRAPH</span></div>
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
@@ -439,17 +436,31 @@ export default function Chat({ name }: { name: string }) {
                       {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={pinArtifact} onEvidence={setViewer} />)}
                     </div>
                   )}
-                  {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
-                    <details className="sources">
-                      <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
-                      {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
-                      {(m.citations?.length || 0) > 0 && (
-                        <div className="cite-chips">
-                          {m.citations?.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}
-                        </div>
-                      )}
-                    </details>
-                  )}
+                  {m.role === "assistant" && (() => {
+                    const cites = m.citations ?? [];
+                    const evidence = evidenceOf(m);
+                    return (
+                      <>
+                        {evidence.length > 0 && (
+                          <div className="answer-sources">
+                            <div className="as-label">출처 {evidence.length}</div>
+                            <div className="as-cards">
+                              {evidence.map((c, j) => <SourceCard key={`s${j}`} c={c} onExpand={setViewer} />)}
+                            </div>
+                          </div>
+                        )}
+                        {(m.tools?.length || 0) > 0 && (
+                          <details className="sources">
+                            <summary>도구 {uniqueTools(m.tools).length}개{cites.length ? ` · 참고 출처 ${cites.length}` : ""}</summary>
+                            {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
+                            {cites.length > 0 && (
+                              <div className="cite-chips">{cites.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}</div>
+                            )}
+                          </details>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </main>
@@ -472,38 +483,18 @@ export default function Chat({ name }: { name: string }) {
                   placeholder="무엇이든 물어보거나 — /프롬프트 · @그룹 호출…" disabled={busy} />
                 <Button disabled={busy || !input.trim()}>보내기</Button>
               </form>
-              <div className="composer-meta">
-                {(input.match(/@([^\s@]+)/g) ?? []).slice(0, 3).map((h) => (
-                  <Chip key={h} tone="accent">{h}</Chip>
-                ))}
-                <span className="grow" />
-                {liveCites.length > 0 && (
-                  <span className="cmeta-src">📎 소스 {liveCites.length}<FreshnessDot f={liveCites[0]?.freshness} /></span>
-                )}
-              </div>
+              {(input.match(/@([^\s@]+)/g) ?? []).length > 0 && (
+                <div className="composer-meta">
+                  {(input.match(/@([^\s@]+)/g) ?? []).slice(0, 3).map((h) => (
+                    <Chip key={h} tone="accent">{h}</Chip>
+                  ))}
+                </div>
+              )}
               <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
             </footer>
           </>
         )}
       </div>
-
-      {view === "desk" && (
-        <aside className="rightpane">
-          <div className="rp-head">
-            <h4>LIVE 컨텍스트</h4>
-            {liveCites.length > 0 && <span className="rp-count mono">인용 원문 {liveCites.length}</span>}
-          </div>
-          <span className="live-label">⛔ 점수·전망 없음 · 인용한 <b>원문 그대로</b> 미리보기</span>
-          {liveCites.length === 0 ? (
-            <p className="live-empty">질문하면 답변에 사용된 출처가 <b>원문 미리보기</b>로 여기에 쌓여요 — PDF는 페이지, 뉴스는 브라우저, 데이터는 표로, 인용한 부분을 하이라이트해서. 종목별 실시간 피드는 곧 추가됩니다.</p>
-          ) : (
-            <>
-              {liveCites.map((c, j) => <SourceCard key={j} c={c} onExpand={setViewer} />)}
-              <div className="sp-empty">드래그한 소스가 여기 미리보기로 고정됩니다</div>
-            </>
-          )}
-        </aside>
-      )}
 
       {builder.open && (
         <AgentBuilder

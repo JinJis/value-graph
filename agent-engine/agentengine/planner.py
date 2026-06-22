@@ -47,21 +47,19 @@ _MAX_PARALLEL_CALLS = 5
 # (and should) add qualitative context/definitions/interpretation; no forecast/advice; no
 # fabricated figures; no tool names or raw URLs in the prose.
 _SYNTHESIS_PROMPT = (
-    "당신은 노련한 금융 리서치 애널리스트입니다. 사용자의 질문에 같은 언어로, 명확하고 깊이 있으며 "
-    "실제로 유용한 답변을 마크다운으로 작성하세요.\n\n"
-    "구성: (1) 질문에 대한 직접적인 핵심 답변을 먼저, (2) 이를 뒷받침하는 수치·근거, (3) 전문가 관점의 "
-    "맥락·배경·의미 해석(서술적)을 자연스럽게 엮으세요.\n\n"
-    "반드시 지킬 원칙:\n"
-    "- 구체적 수치·날짜·고유 사실은 위에 제공된 자료에서만 가져오고, 문장 끝에 [n]으로 인용하세요. "
-    "시스템 지침의 'Sources' 목록에 있는 정확한 번호만 쓰고, 새 번호를 만들거나 순서를 바꾸지 마세요. "
-    "자료에 없는 수치를 지어내거나 출처에 없는 숫자를 붙이지 마세요(근거 없는 수치는 절대 금지).\n"
-    "- 동시에, 수치만 나열하지 말고 애널리스트로서 정의·배경·의미·비교 관점 등 정성적 해설을 풍부하게 "
-    "덧붙여 답을 입체적으로 만드세요. 이 해설은 '분석'이며 일반 지식에서 와도 좋지만, 구체적 수치로 단정하지 마세요.\n"
-    "- 자료가 부족하거나 없으면, 일반적·개념적 설명은 충실히 제공하되 구체적 수치는 단정하지 말고 "
-    "어떤 자료를 더 보면 되는지 솔직히 안내하세요.\n"
-    "- 가격 예측·목표가·매수/매도 의견은 절대 금지(과거·현재의 서술적 설명만). 별도 면책 문구는 덧붙이지 마세요.\n"
-    "- 내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 노출하지 말고, "
-    "원문 링크(URL)도 본문에 직접 쓰지 마세요 — [n] 번호만 쓰면 링크는 출처 카드에 표시됩니다."
+    "당신은 금융 리서치 애널리스트입니다. 사용자의 질문에 같은 언어로, 직접적이고 간결하게 답하세요.\n"
+    "분량은 질문에 비례합니다:\n"
+    "- 단순한 사실/수치 질문(예: '환율', 'Fed 기준금리 추이')에는 핵심만 1~3문장으로. 묻지 않은 역사 "
+    "강의·배경 설명·머리말·반복은 넣지 마세요.\n"
+    "- 사용자가 '자세히/분석/이유'를 요청했거나 본질적으로 복잡한 질문일 때만 더 길게, 필요한 만큼만 설명하세요.\n"
+    "원칙:\n"
+    "- 구체적 수치·날짜·사실은 위에 제공된 자료에서만 가져오고 문장 끝에 [n]으로 인용하세요. 시스템 'Sources' "
+    "목록의 정확한 번호만 쓰고, 새 번호를 만들거나 순서를 바꾸지 마세요. 자료에 없는 수치는 절대 지어내지 마세요.\n"
+    "- 맥락·해석을 덧붙일 때도 간결하게. 수치 나열이 아니라 핵심 의미만 짚으세요.\n"
+    "- 자료가 부족하면 솔직히 밝히고, 무엇을 더 보면 되는지 한 줄로 안내하세요.\n"
+    "- 가격 예측·목표가·매수/매도 의견 금지. 면책 문구·내부 도구명(예: opendart__income_statements)·"
+    "원문 URL은 본문에 쓰지 마세요([n]만 — 링크는 출처 카드에 표시됩니다).\n"
+    "마크다운을 쓰되, 짧은 답에는 헤딩·불릿을 남용하지 말고 자연스러운 문단으로 쓰세요."
 )
 
 
@@ -128,15 +126,10 @@ class GeminiPlanner:
         # caller), or a single final Decision. This is what enables parallel multi-source gather.
         return await self._run(task, tools, history, system, conversation, force_final, sources)
 
-    async def _run(self, task: str, tools: dict, history: list, system: str | None = None,
-                   conversation: list | None = None, force_final: bool = False,
-                   sources: str | None = None) -> list[Decision]:
-        import asyncio
-        from google.genai import types
+    def _build_system_instruction(self, system: str | None, sources: str | None) -> str:
         from datetime import datetime
 
         current_date = datetime.now().strftime("%Y-%m-%d")
-
         base_system = (
             "You are an expert financial-data assistant. Your goal is to answer the user's query using the provided tools.\n\n"
             f"Current Date: {current_date}\n\n"
@@ -166,7 +159,45 @@ class GeminiPlanner:
                 "\n\nSources (cite ONLY with these exact bracketed numbers; do not invent or reorder):\n"
                 + sources
             )
+        return system_instruction
 
+    async def stream_final(self, task: str, tools: dict, history: list, system: str | None = None,
+                           conversation: list | None = None, sources: str | None = None):
+        """REAL token streaming of the final synthesis (responder model). Yields text deltas
+        as Gemini generates them — so the answer appears incrementally, not all at once. Each
+        `next()` on the sync stream is offloaded so the event loop stays free."""
+        import asyncio
+        from google.genai import types
+
+        system_instruction = self._build_system_instruction(system, sources)
+        contents = _to_gemini_contents(conversation, history, task)
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=_SYNTHESIS_PROMPT)]))
+        config = types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.45)
+        model = settings.synthesis_model or self.model
+        it = await asyncio.to_thread(self._client.models.generate_content_stream,
+                                     model=model, contents=contents, config=config)
+
+        def _next(gen):
+            try:
+                return next(gen)
+            except StopIteration:
+                return None
+
+        while True:
+            chunk = await asyncio.to_thread(_next, it)
+            if chunk is None:
+                break
+            t = getattr(chunk, "text", "") or ""
+            if t:
+                yield t
+
+    async def _run(self, task: str, tools: dict, history: list, system: str | None = None,
+                   conversation: list | None = None, force_final: bool = False,
+                   sources: str | None = None) -> list[Decision]:
+        import asyncio
+        from google.genai import types
+
+        system_instruction = self._build_system_instruction(system, sources)
         contents = _to_gemini_contents(conversation, history, task)
 
         if force_final:

@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 300 unit** — datasets 121 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 100 · studio-api 37 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 302 unit** — datasets 121 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 102 · studio-api 37 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -681,9 +681,18 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     scenario. *(agent-engine `orchestrator.py` + intake + chat; web `SubAgentCards`.)* This completes the
     "Claude Code for finance" loop: **analyze → propose/pick → decompose → execute many (parallel) →
     combine**, every figure sourced.
+  - ✅ **Chat UX overhaul → Claude-like.** (1) **Markdown bug fixed** — `_chunks` did `text.split()`+rejoin,
+    collapsing newlines so `###`/lists/paragraphs never rendered; now character-based (preserves newlines).
+    (2) **Real token streaming** — `GeminiPlanner.stream_final` (`generate_content_stream`); `stream_chat`
+    routes EVERY finalization (conceptual · loop · stuck · A2A combiner · fallback) through one streaming
+    `_synthesize`, so answers appear incrementally. (3) **Concise** — `_SYNTHESIS_PROMPT` rewritten: length
+    proportional to the question (1–3 sentences for simple facts), no unprompted history lectures. (4) **Live
+    Context panel removed** — evidence woven directly under each answer as inline `SourceCard`s (click →
+    viewer); pinning unchanged. (5) **Layout** — single centered conversation column (max-width 760),
+    assistant text flush, user message a compact chip. +2 agent tests (100→102); web green. *(agent-engine + web)*
   - ⬜ **Follow-ons:** per-sub-agent confidence/verify pass on the unified evidence; sub-agent cards that
     expand to show each facet's own sources; orchestrator that spawns a follow-up round when a facet comes
-    back thin.
+    back thin; suggested follow-up prompts after an answer.
 - ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
   operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
   One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.
