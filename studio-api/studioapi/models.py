@@ -123,16 +123,35 @@ class WatchlistItem(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class Board(Base):
+    """A named canvas the user pins assets onto (charts, sources, text). Users can keep
+    several; pinning offers a board picker. Notion-like free layout per item."""
+
+    __tablename__ = "boards"
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("brd"))
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class PinnedArtifact(Base):
-    """A live artifact (U3) the user pinned to their Board. ``spec`` is the JSON
-    artifact spec (kind/title/series/source/as_of/tool/args) — re-renderable, and
-    re-fetchable via its tool+args (U3-03b refresh)."""
+    """An asset the user pinned to a Board — a live artifact (chart/table), a source/evidence
+    card (``spec.kind == 'source'``), or a text block (``spec.kind == 'text'``). ``spec`` is the
+    JSON; chart pins are re-fetchable via tool+args (refresh). ``x/y/w/h`` are the Notion-like
+    canvas layout (null until placed)."""
 
     __tablename__ = "pinned_artifacts"
     id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("pin"))
     user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    # which board this asset lives on (nullable for legacy rows → treated as the default board)
+    board_id: Mapped[str | None] = mapped_column(ForeignKey("boards.id"), index=True, nullable=True)
     title: Mapped[str] = mapped_column(String(200))
-    spec: Mapped[str] = mapped_column(Text)  # JSON artifact spec
+    spec: Mapped[str] = mapped_column(Text)  # JSON asset spec
+    # free-canvas layout (px); null = not yet placed (web auto-flows it)
+    x: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    y: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    w: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

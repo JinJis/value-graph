@@ -301,9 +301,9 @@ def test_board_pin_list_unpin_user_scoped(monkeypatch):
     _mock_control_plane()
     spec = {"kind": "timeseries", "title": "AAPL 종가", "source": "Yahoo Finance", "tool": "yahoo__prices",
             "series": [{"label": "종가", "points": [{"x": "2024-01-02", "y": 185.6}]}]}
-    pinned = client.post("/board", headers=_hdr("b@u.com"), json={"spec": spec}).json()
+    pinned = client.post("/board", headers=_hdr("b@u.com"), json={"spec": spec}).json()["pinned"][0]
     assert pinned["id"].startswith("pin") and pinned["title"] == "AAPL 종가"
-    assert pinned["spec"]["tool"] == "yahoo__prices"
+    assert pinned["spec"]["tool"] == "yahoo__prices" and pinned["board_id"]  # lands on the default board
     mine = client.get("/board", headers=_hdr("b@u.com")).json()["pinned"]
     assert any(p["id"] == pinned["id"] for p in mine)
     # user-scoped: another user can't see it
@@ -312,8 +312,44 @@ def test_board_pin_list_unpin_user_scoped(monkeypatch):
     # unpin
     assert client.delete(f"/board/{pinned['id']}", headers=_hdr("b@u.com")).status_code == 200
     assert client.get("/board", headers=_hdr("b@u.com")).json()["pinned"] == []
-    # a non-artifact spec is rejected
+    # a non-allowed spec kind is rejected
     assert client.post("/board", headers=_hdr("b@u.com"), json={"spec": {"title": "x"}}).status_code == 422
+
+
+@respx.mock
+def test_boards_multi_pin_layout_and_source_text(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    h = _hdr("brd@u.com")
+    # a default board always exists
+    boards = client.get("/boards", headers=h).json()["boards"]
+    assert len(boards) == 1 and boards[0]["name"]
+    b1 = boards[0]["id"]
+    # create a second board + rename it
+    b2 = client.post("/boards", headers=h, json={"name": "리서치"}).json()["id"]
+    assert client.patch(f"/boards/{b2}", headers=h, json={"name": "반도체 리서치"}).json()["name"] == "반도체 리서치"
+
+    # pin a SOURCE card to BOTH boards at once (multi-select), plus a text block to b2
+    src = {"kind": "source", "title": "SEC 10-K", "source": "SEC EDGAR", "url": "https://sec.gov/x"}
+    res = client.post("/board", headers=h, json={"spec": src, "board_ids": [b1, b2]}).json()["pinned"]
+    assert len(res) == 2 and {r["board_id"] for r in res} == {b1, b2}
+    txt = client.post("/board", headers=h, json={"spec": {"kind": "text", "text": "메모"}, "board_ids": [b2]}).json()["pinned"][0]
+
+    # move/resize the text block on the canvas (layout persists)
+    moved = client.patch(f"/board/{txt['id']}", headers=h, json={"x": 40, "y": 20, "w": 300, "h": 120}).json()
+    assert (moved["x"], moved["y"], moved["w"], moved["h"]) == (40, 20, 300, 120)
+    # edit the text block content
+    edited = client.patch(f"/board/{txt['id']}", headers=h, json={"spec": {"kind": "text", "text": "수정됨"}}).json()
+    assert edited["spec"]["text"] == "수정됨"
+
+    # b2 has the source + the text; b1 has only the source
+    b2_items = client.get(f"/board?board_id={b2}", headers=h).json()["pinned"]
+    assert {i["spec"]["kind"] for i in b2_items} == {"source", "text"}
+    b1_items = client.get(f"/board?board_id={b1}", headers=h).json()["pinned"]
+    assert [i["spec"]["kind"] for i in b1_items] == ["source"]
+    # deleting a board removes its pins
+    client.delete(f"/boards/{b2}", headers=h)
+    assert client.get(f"/board?board_id={b2}", headers=h).json()["pinned"] == []
 
 
 @respx.mock
@@ -322,7 +358,7 @@ def test_board_refresh_updates_spec(monkeypatch):
     _mock_control_plane()
     spec = {"kind": "timeseries", "title": "AAPL 종가", "tool": "yahoo__prices",
             "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": []}
-    pinned = client.post("/board", headers=_hdr("rf@u.com"), json={"spec": spec}).json()
+    pinned = client.post("/board", headers=_hdr("rf@u.com"), json={"spec": spec}).json()["pinned"][0]
     # agent-engine re-fetches → a fresher artifact (new as_of)
     respx.post("http://ae.test/agent/artifact/refresh").mock(return_value=httpx.Response(200, json={"artifact": {
         "kind": "timeseries", "title": "AAPL 종가", "tool": "yahoo__prices", "args": {"ticker": "AAPL"},
@@ -338,7 +374,7 @@ def test_board_annotate_saves_and_survives_refresh(monkeypatch):
     _mock_control_plane()
     spec = {"kind": "candlestick", "title": "AAPL 주가", "tool": "yahoo__prices",
             "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": [], "candles": []}
-    pinned = client.post("/board", headers=_hdr("dr@u.com"), json={"spec": spec}).json()
+    pinned = client.post("/board", headers=_hdr("dr@u.com"), json={"spec": spec}).json()["pinned"][0]
     ann = {"hlines": [{"price": 190.0, "label": "저항"}], "lines": []}
     r = client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("dr@u.com"),
                     json={"user_annotations": ann})

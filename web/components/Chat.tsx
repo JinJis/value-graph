@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Category } from "./AgentBuilder";
+import BoardCanvas from "./BoardCanvas";
+import PinPicker from "./PinPicker";
 import PromptLibrary from "./PromptLibrary";
 import PromptWaterfall, { WaterfallPrompt } from "./PromptWaterfall";
 import Watchlists, { Watchlist } from "./Watchlists";
@@ -10,7 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
-import { Artifact, ArtifactCard, ChartAnnotations } from "./ArtifactCard";
+import { Artifact, ArtifactCard } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
@@ -133,7 +135,7 @@ export default function Chat({ name }: { name: string }) {
   const [view, setView] = useState<"desk" | "watch" | "board" | "kpi">("desk");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
-  const [pins, setPins] = useState<{ id: string; spec: Artifact }[]>([]);  // U3-03 Board
+  const [pinTarget, setPinTarget] = useState<any | null>(null);  // asset awaiting a board-picker pin
   const [viewer, setViewer] = useState<Citation | null>(null);  // expanded source viewer
   // chat session/history — persisted in studio-api; resume a past conversation.
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -173,33 +175,11 @@ export default function Chat({ name }: { name: string }) {
     setBusy(false);
   }
 
-  async function loadPins() {
-    try {
-      const r = await fetch("/api/board");
-      if (r.ok) setPins((await r.json()).pinned ?? []);
-    } catch {}
-  }
-  async function pinArtifact(a: Artifact) {
-    try { await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ spec: a }) }); } catch {}
-  }
-  async function unpin(id: string) {
-    try { await fetch(`/api/board/${id}`, { method: "DELETE" }); setPins((p) => p.filter((x) => x.id !== id)); } catch {}
-  }
-  async function refreshPin(id: string) {
-    try {
-      const r = await fetch(`/api/board/${id}/refresh`, { method: "POST" });
-      if (r.ok) { const fresh = await r.json(); setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: fresh.spec } : x))); }
-    } catch {}
-  }
-  // PH-VIZ-5: persist the user's drawings on an already-pinned chart.
-  async function annotatePin(id: string, ann: ChartAnnotations | null) {
-    setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: { ...x.spec, user_annotations: ann ?? undefined } } : x)));
-    try {
-      await fetch(`/api/board/${id}/annotate`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_annotations: ann }),
-      });
-    } catch {}
+  // Pin anything (chart/table artifact, source card) → open the board picker (choose board[s]).
+  function pinArtifact(a: Artifact) { setPinTarget(a); }
+  function pinCitation(c: Citation) {
+    // a source/evidence/provenance card pinned as a board asset (kind="source").
+    setPinTarget({ kind: "source", title: c.source || c.ticker || "출처", ...c });
   }
 
   async function loadAgents() {
@@ -448,7 +428,7 @@ export default function Chat({ name }: { name: string }) {
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
           <span className="ic">🏠</span><span className="lbl">데스크</span>
         </button>
-        <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => { setView("board"); loadPins(); }}>
+        <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => setView("board")}>
           <span className="ic">📊</span><span className="lbl">보드</span>
         </button>
         <button className={`rail-item ${view === "kpi" ? "on" : ""}`} onClick={() => setView("kpi")}>
@@ -486,17 +466,7 @@ export default function Chat({ name }: { name: string }) {
         ) : view === "kpi" ? (
           <KpiPanel onPin={pinArtifact} onExpand={setViewer} />
         ) : view === "board" ? (
-          <div className="board">
-            <div className="board-head"><h3>📊 보드</h3><span className="sub">핀한 라이브 아티팩트 · 열 때마다 출처·신선도 갱신</span></div>
-            {pins.length === 0 ? (
-              <p className="live-empty">아직 핀한 카드가 없어요. 답변의 차트 카드에서 <b>📌 핀</b>을 누르면 여기에 모여요.</p>
-            ) : (
-              <div className="board-grid">
-                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)}
-                  onRemove={() => unpin(p.id)} onEvidence={setViewer} onAnnotate={(ann) => annotatePin(p.id, ann)} />)}
-              </div>
-            )}
-          </div>
+          <BoardCanvas onEvidence={setViewer} />
         ) : (
           <>
             <header className="top">
@@ -594,7 +564,7 @@ export default function Chat({ name }: { name: string }) {
                           <div className="answer-sources">
                             <div className="as-label">답변에 사용된 출처 {used.length}</div>
                             <div className="as-cards">
-                              {used.map((c, j) => <SourceCard key={`u${j}`} c={c} onExpand={setViewer} />)}
+                              {used.map((c, j) => <SourceCard key={`u${j}`} c={c} onExpand={setViewer} onPin={pinCitation} />)}
                             </div>
                           </div>
                         )}
@@ -602,7 +572,7 @@ export default function Chat({ name }: { name: string }) {
                           <details className="answer-sources all-sources">
                             <summary className="as-label">참고한 모든 출처 {cites.length} · 답변 외 {others.length}</summary>
                             <div className="as-cards">
-                              {others.map((c, j) => <SourceCard key={`o${j}`} c={c} onExpand={setViewer} />)}
+                              {others.map((c, j) => <SourceCard key={`o${j}`} c={c} onExpand={setViewer} onPin={pinCitation} />)}
                             </div>
                           </details>
                         )}
@@ -697,6 +667,9 @@ export default function Chat({ name }: { name: string }) {
       )}
 
       {viewer && <SourceViewer c={viewer} onClose={() => setViewer(null)} />}
+      {pinTarget && (
+        <PinPicker spec={pinTarget} onClose={() => setPinTarget(null)} onPinned={() => setPinTarget(null)} />
+      )}
     </div>
   );
 }

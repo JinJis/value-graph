@@ -193,6 +193,47 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .board-head .sub { color: var(--muted); font-size: 12px; }
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 
+/* multi-board tabs */
+.board-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.board-tab { background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+.board-tab:hover { color: var(--text); border-color: var(--line-2); }
+.board-tab.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.board-tab.add { font-weight: 600; padding: 5px 10px; }
+
+/* Notion-like free canvas */
+.board-canvas { position: relative; width: 100%; min-height: 70vh; border: 1px dashed var(--line);
+  border-radius: 12px; background:
+    radial-gradient(circle, var(--line) 1px, transparent 1px) 0 0 / 24px 24px; }
+.bc-item { z-index: 1; }
+.bc-item:focus-within, .bc-item:hover { z-index: 5; }
+.bc-card { display: flex; flex-direction: column; height: 100%; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.bc-drag { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--panel-2);
+  border-bottom: 1px solid var(--line); cursor: move; font-size: 12px; }
+.bc-grip { color: var(--muted); }
+.bc-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 4px; }
+.bc-btn:hover { color: var(--text); }
+.bc-body { flex: 1; overflow: auto; padding: 8px; }
+.bc-text { width: 100%; height: 100%; min-height: 80px; border: none; outline: none; resize: none;
+  background: transparent; color: var(--text); font-family: inherit; font-size: 13px; line-height: 1.6; }
+
+/* pin source button on a source card */
+.srcprev { position: relative; }
+.sp-pin { position: absolute; top: 6px; right: 6px; z-index: 2; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 12px; padding: 1px 5px; opacity: 0; transition: opacity .15s; }
+.srcprev:hover .sp-pin { opacity: 1; }
+.sp-pin:hover { border-color: var(--ink); }
+
+/* pin picker modal */
+.pinpick-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.pinpick-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; font-size: 13px; cursor: pointer; background: var(--panel-2); }
+.pinpick-row.on { border-color: var(--ink); background: var(--panel-3); }
+.pinpick-new { display: flex; gap: 8px; }
+.pinpick-new .input { flex: 1; }
+
 /* inline live artifact cards (wireframe A/B/D) */
 .artifacts { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
 .artifact { border: 1px solid var(--line-2); border-radius: 11px; background: var(--panel); padding: 0; overflow: hidden; box-shadow: var(--shadow-card); }

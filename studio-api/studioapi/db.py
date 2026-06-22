@@ -22,7 +22,25 @@ engine = _make_engine()
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
+def _add_missing_columns() -> None:
+    """Lightweight forward migration: ADD COLUMN for new fields on existing tables (create_all
+    only creates missing TABLES, not columns). Idempotent — skips columns already present. Keeps
+    a user's existing SQLite/Postgres data intact across the multi-board upgrade."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "pinned_artifacts" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("pinned_artifacts")}
+    add = {"board_id": "VARCHAR(48)", "x": "INTEGER", "y": "INTEGER", "w": "INTEGER", "h": "INTEGER"}
+    with engine.begin() as conn:
+        for col, decl in add.items():
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE pinned_artifacts ADD COLUMN {col} {decl}"))
+
+
 def init_db() -> None:
     from studioapi import models  # noqa: F401
 
     Base.metadata.create_all(engine)
+    _add_missing_columns()

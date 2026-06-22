@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 325 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 112 · studio-api 40 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 326 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 112 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -352,6 +352,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **BOARD · 다중 보드 + 무엇이든 pin + 노션형 캔버스.** The pinboard became the differentiator surface:
+  (1) **multiple named boards** (`Board` table; `/boards` CRUD; tab switcher + new/rename/delete); (2) **pin
+  anything** — charts/tables **and source/evidence/provenance cards** (SourceCard 📌 → `kind:"source"` pin)
+  **and writable text blocks** (`kind:"text"`); (3) a **board picker** on pin (multi-select boards or create
+  one inline); (4) a **Notion-like free canvas** — `react-rnd` drag + resize, per-item layout (x/y/w/h)
+  persisted, editable memo blocks. `PinnedArtifact` gained `board_id`+layout (idempotent ALTER-COLUMN
+  migration keeps existing data). studio +2 tests (multi-pin/layout/source/text + scoped). web `BoardCanvas`
+  + `PinPicker`. *(canvas rich-text is a textarea for now; block-level rich editing can follow.)*
 - ✅ **FIX · 차트 타입 (돈=막대) + 출처 2섹션.** (1) Money-amount series (매출·순이익) now render as a
   **bar/histogram** chart, not a line — the artifact builder flags `chart_style="bar"` (ratios/prices stay
   line/candle); web TradeChart honors it. (2) Chat sources no longer "shrink" when the answer finishes —
