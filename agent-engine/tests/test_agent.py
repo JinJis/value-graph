@@ -8,7 +8,6 @@ import respx
 from fastapi.testclient import TestClient
 
 from agentengine import agent as A
-from agentengine import guardrails
 from agentengine import planner as P
 from agentengine.config import settings
 from agentengine.main import app
@@ -19,8 +18,11 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _force_stub_backend(monkeypatch):
     """Keep the unit suite deterministic + key-free regardless of the dev .env
-    (which may set AGENT_LLM_BACKEND=gemini)."""
+    (which may set AGENT_LLM_BACKEND=gemini). Cleared keys → the intake stays on the stub
+    path (allow + default budget), so stream tests don't make real LLM calls."""
     monkeypatch.setattr(settings, "llm_backend", "stub")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     P._build_planner.cache_clear()
     yield
     P._build_planner.cache_clear()
@@ -49,20 +51,11 @@ def _catalog():
 
 
 # --- guardrails -----------------------------------------------------------
-async def test_guardrail_refuses_forecast_and_advice():
-    gd = guardrails.get_guardrailer()
-    assert await gd.check("predict the AAPL price next month") is not None
-    assert await gd.check("should I buy TSLA?") is not None
-    assert await gd.check("what was AAPL revenue last year?") is None
-
-
-async def test_guardrail_covers_price_targets_and_directional_bets():
-    gd = guardrails.get_guardrailer()
-    for bad in ["what's the price target for NVDA", "forecast TSLA earnings",
-                "will AAPL go up next week", "is MSFT worth buying"]:
-        assert await gd.check(bad) is not None, bad
-    for ok in ["삼성전자 최근 실적", "show me AAPL filings", "what is the Fed funds rate"]:
-        assert await gd.check(ok) is None, ok
+async def test_intake_stub_allows_with_default_budget():
+    # No LLM (stub) → the intake allows everything with the default budget. There is NO
+    # keyword/regex guardrail anymore — the judgment belongs entirely to the LLM (invariant #9).
+    intake = await A.analyze_task("should I buy TSLA?", "stub")
+    assert intake.restricted is False and intake.steps == settings.max_steps and intake.plan is None
 
 
 def test_citations_extract_urls_from_nested_result():
@@ -329,14 +322,34 @@ async def test_fetch_tools_attaches_friendly_connector_name(monkeypatch):
 
 
 # --- eval-driven fixes ----------------------------------------------------
-async def test_guardrail_refuses_korean_forecast_and_advice():
-    gd = guardrails.get_guardrailer()
-    for bad in ["삼성전자 주가 오를까?", "지금 사야 할까요?", "AAPL 목표주가 알려줘",
-                "엔비디아 전망 어때", "매수 추천 종목 알려줘", "테슬라 살까 팔까"]:
-        assert await gd.check(bad) is not None, bad
-    for ok in ["삼성전자 최근 실적", "AAPL 종가 흐름 알려줘", "한국은행 기준금리 얼마야",
-               "엔비디아 공시 요약", "Fed 금리 추이"]:
-        assert await gd.check(ok) is None, ok
+async def test_intake_guardrail_judges_intent(monkeypatch):
+    # PH-THINK: the guardrail lives inside the intake LLM call — it judges INTENT (with a
+    # confidence score), so a fact request that NEGATES a restricted term is allowed, while a
+    # genuine advice request is refused, and a low-confidence guess never blocks.
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    # genuine buy advice → restricted
+    mock_resp.text = '{"restricted": true, "category": "advice", "score": 0.95, "reason": "매수의견", "steps": 3, "plan": ""}'
+    intake = await A.analyze_task("엔비디아 지금 사야 할까?", "gemini")
+    assert intake.restricted is True and intake.plan is None
+
+    # the reported bug: a FACT request that EXCLUDES targets/forecasts → allowed, with a plan
+    mock_resp.text = ('{"restricted": false, "category": "none", "score": 0.05, "reason": "사실 요청", '
+                      '"steps": 4, "plan": "야후에서 최근 가격을 조회"}')
+    intake = await A.analyze_task("NVDA 최근 가격 흐름만, 목표가·전망은 제시하지 말고", "gemini")
+    assert intake.restricted is False and intake.steps == 4 and intake.plan == "야후에서 최근 가격을 조회"
+
+    # a low-confidence restricted guess must NOT block (below the 0.6 threshold)
+    mock_resp.text = '{"restricted": true, "category": "forecast", "score": 0.3, "steps": 3}'
+    intake = await A.analyze_task("애플 실적 추이 알려줘", "gemini")
+    assert intake.restricted is False
 
 
 def test_citations_use_per_hit_rag_provenance():
@@ -596,33 +609,22 @@ async def test_chat_stream_emits_trailing_anchor(monkeypatch):
     assert cite["index"] == 1
 
 
-# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
-async def test_assess_budget_uses_llm_then_clamps(monkeypatch):
+# --- PH-THINK: the intake (budget + guardrail) clamps the step budget --------------------
+async def test_intake_clamps_step_budget(monkeypatch):
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
     from agentengine.config import settings
+    import google.genai
 
-    async def _eleven(task):
-        return 11
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
 
-    async def _huge(task):
-        return 999
-
-    # gemini backend → the light model's estimate is used (clamped to the cap)
-    monkeypatch.setattr(A, "_llm_steps", _eleven)
-    assert await A.assess_budget("엔비디아 공급망·리스크 공시 요약", backend="gemini") == 11
-    monkeypatch.setattr(A, "_llm_steps", _huge)
-    assert await A.assess_budget("x", backend="gemini") == settings.max_steps_cap  # clamped
-
-
-async def test_assess_budget_falls_back_without_llm(monkeypatch):
-    from agentengine.config import settings
-    # stub backend never calls the model → plain default (no hardcoded keyword rules)
-    assert await A.assess_budget("anything", backend="stub") == settings.max_steps
-
-    async def _boom(task):
-        raise RuntimeError("no key")
-
-    monkeypatch.setattr(A, "_llm_steps", _boom)
-    assert await A.assess_budget("anything", backend="gemini") == settings.max_steps  # graceful
+    mock_resp.text = '{"restricted": false, "score": 0.0, "steps": 11, "plan": "공시 요약"}'
+    assert (await A.analyze_task("엔비디아 공급망·리스크 공시 요약", "gemini")).steps == 11
+    mock_resp.text = '{"restricted": false, "score": 0.0, "steps": 999}'   # clamped to the cap
+    assert (await A.analyze_task("x", "gemini")).steps == settings.max_steps_cap
 
 
 def test_call_sig_detects_repeat():
@@ -671,7 +673,14 @@ async def test_run_agent_recovers_from_stuck_planner(monkeypatch):
 
 @respx.mock
 async def test_run_refuses_forecast(monkeypatch):
+    # The intake (LLM) makes the call; stub it as restricted to assert run_agent refuses at the
+    # boundary (no tool steps), without touching the data plane.
     _gw(monkeypatch)
+
+    async def _restricted(_task, _backend=None):
+        return A.TaskIntake(steps=3, restricted=True, score=0.95, reason="forecast")
+
+    monkeypatch.setattr(A, "analyze_task", _restricted)
     res = await A.run_agent("Will AAPL go up next week?", "vgk_x")
     assert res.refused is True and res.steps == []
 
@@ -743,9 +752,18 @@ async def test_chat_stream_uses_tool_and_cites(monkeypatch):
 
 @respx.mock
 async def test_chat_stream_guardrail_refuses(monkeypatch):
+    # The intake (LLM) decides restriction; here we stub it as restricted to assert the chat
+    # boundary refuses cleanly (streams the refusal, never calls a tool, marks refused).
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
     from agentengine.chat import stream_chat
 
     _gw(monkeypatch)
+
+    async def _restricted(_task, _backend=None):
+        return TaskIntake(steps=3, restricted=True, score=0.95, reason="advice")
+
+    monkeypatch.setattr(C, "analyze_task", _restricted)
     events = [e async for e in stream_chat([{"role": "user", "content": "should I buy AAPL?"}], "vgk_x")]
     assert all(e["type"] != "tool" for e in events)
     assert events[-1]["type"] == "done" and events[-1]["refused"] is True
@@ -960,40 +978,6 @@ def test_chat_endpoint_sse(monkeypatch):
         r = client.post("/agent/chat", json={"messages": [{"role": "user", "content": "AAPL price?"}]}, headers={"X-API-KEY": "vgk_x"})
         assert r.status_code == 200 and "text/event-stream" in r.headers["content-type"]
         assert '"type": "tool"' in r.text and '"type": "done"' in r.text
-
-
-async def test_gemini_guardrailer_violates(monkeypatch):
-    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
-    from unittest.mock import MagicMock
-    from agentengine.guardrails import GeminiGuardrailer
-    import google.genai
-
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text = '{"violates": true}'
-    mock_client.models.generate_content.return_value = mock_response
-
-    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: mock_client)
-
-    g = GeminiGuardrailer("model-id")
-    refusal = await g.check("should I buy Apple stock?")
-    assert refusal is not None
-
-    mock_response.text = '{"violates": false}'
-    refusal = await g.check("what is Apple's revenue?")
-    assert refusal is None
-
-
-def test_get_guardrailer_factory(monkeypatch):
-    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
-    from unittest.mock import MagicMock
-    import google.genai
-    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: MagicMock())
-
-    from agentengine.guardrails import GeminiGuardrailer, StubGuardrailer, get_guardrailer
-
-    assert isinstance(get_guardrailer("stub"), StubGuardrailer)
-    assert isinstance(get_guardrailer("gemini"), GeminiGuardrailer)
 
 
 def test_to_gemini_contents_mapping():
@@ -1310,30 +1294,18 @@ async def test_refine_evidence_noop_without_gemini_or_evidence():
 
 async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):
     # PH-THINK: one verify pass returns BOTH a grounding brief and per-source confidence.
+    pytest.importorskip("google.genai")  # needs the `gemini` extra
+    from unittest.mock import MagicMock
+    import google.genai
     import agentengine.agent as AG
 
-    class _Resp:
-        text = ('{"brief": "출처 [1]이 핵심 수치를 담고 있음.", '
-                '"sources": [{"index": 1, "confidence": "high", "why": "직접 공시"}, '
-                '{"index": 2, "confidence": "bogus"}]}')
-
-    class _Models:
-        def generate_content(self, **_kw):
-            return _Resp()
-
-    class _Client:
-        models = _Models()
-
-    import sys
-    import types as _t
-    genai_mod = _t.ModuleType("google.genai")
-    genai_mod.Client = lambda *a, **k: _Client()
-    types_mod = _t.ModuleType("google.genai.types")
-    types_mod.GenerateContentConfig = lambda **k: None
-    google_mod = sys.modules.get("google") or _t.ModuleType("google")
-    monkeypatch.setitem(sys.modules, "google", google_mod)
-    monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
-    monkeypatch.setitem(sys.modules, "google.genai.types", types_mod)
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = ('{"brief": "출처 [1]이 핵심 수치를 담고 있음.", '
+                      '"sources": [{"index": 1, "confidence": "high", "why": "직접 공시"}, '
+                      '{"index": 2, "confidence": "bogus"}]}')
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
 
     cites = [{"index": 1, "source": "SEC", "snippet": "revenue 100"},
              {"index": 2, "source": "news", "snippet": "x"}]

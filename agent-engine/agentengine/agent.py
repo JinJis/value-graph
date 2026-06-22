@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 
 from agentengine import guardrails
 from agentengine.artifacts import _artifacts
@@ -67,69 +68,73 @@ from agentengine.provenance import (  # noqa: E402,F401
 logger = logging.getLogger(__name__)
 
 
-# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
-# A light model rates how many tool hops a query needs (not hardcoded keyword rules):
-# simple single-fact asks finish fast; multi-source asks ("공급망·리스크 공시 요약")
-# get headroom. The numbered budget is then strictly honored (the loop reserves its
-# last step for synthesis, so it never leaks "Reached the step limit").
-_BUDGET_PROMPT = (
-    "You plan how many tool-calls a financial-research assistant needs to FULLY answer a query.\n"
-    "Tools available: prices, news, company filings, financial statements, macro indicators, semantic search.\n"
-    "Guidance: one fact about one company ≈ 2-3; a comparison or a multi-source ask "
-    "(e.g. 'summarize a company's supply chain + risks from filings and news') ≈ 8-12.\n"
-    "Reply with ONLY a single integer.\nQuery: {task}"
-)
+# --- PH-15 / PH-THINK: LLM-assessed step budget + guardrail, folded into one intake ----
+# A light model both judges the request (guardrail) and rates how many tool hops it needs
+# (not hardcoded keyword rules): simple single-fact asks finish fast; multi-source asks
+# ("공급망·리스크 공시 요약") get headroom. The numbered budget is then strictly honored
+# (the loop reserves its last step for synthesis, so it never leaks "Reached the step limit").
+@dataclass
+class TaskIntake:
+    """The first-pass LLM analysis of a user turn: the GUARDRAIL decision (judged from
+    intent, in context — no keyword rules, invariant #9) folded together with PLANNING
+    (step budget + a short plan). One Gemini call produces all of it."""
+
+    steps: int
+    plan: str | None = None
+    restricted: bool = False     # the user asked for forecast/advice/target as output → refuse
+    score: float = 0.0           # confidence (0..1) it's a restricted REQUEST
+    reason: str | None = None    # one-line why (shown for telemetry)
 
 
-async def _llm_steps(task: str) -> int | None:
-    """One cheap call to the light model → an integer step estimate (None on no parse)."""
-    import asyncio
-
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client()
-    resp = await asyncio.to_thread(
-        client.models.generate_content,
-        model=settings.budget_model,
-        contents=_BUDGET_PROMPT.format(task=(task or "")[:500]),
-        config=types.GenerateContentConfig(temperature=0, max_output_tokens=8),
-    )
-    m = re.search(r"\d+", getattr(resp, "text", "") or "")
-    return int(m.group()) if m else None
-
-
-async def assess_budget(task: str, backend: str | None = None) -> int:
-    """LLM-assessed step budget (PH-15). Falls back to the plain default budget when
-    the backend is the stub or the assessment fails — never hardcoded keyword rules."""
-    cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
-    effective = backend or settings.llm_backend
-    if effective != "gemini":
-        return default
-    try:
-        n = await _llm_steps(task)
-    except Exception as exc:  # noqa: BLE001 — degrade to the default, never block the answer
-        logger.warning("budget assessment failed (%s); using default %d", exc, default)
-        n = None
-    return max(floor, min(n, cap)) if n else default
-
-
-_ANALYZE_PROMPT = (
-    "You are a financial-research planner. Read the user's question and reply with JSON ONLY:\n"
-    '{"steps": <int>, "plan": "<one short sentence, IN THE SAME LANGUAGE as the question, saying what '
-    'data you will look up and from which kind of source — NOT the answer, no numbers>"}.\n'
-    "steps = tool-call budget (one fact about one company ≈ 2-3; a comparison or multi-source ask ≈ 8-12).\n"
+_INTAKE_PROMPT = (
+    "You are the intake analyst for a financial RESEARCH service that provides ONLY sourced, "
+    "historical/descriptive facts (public filings, financials, prices, macro data, news). It must "
+    "REFUSE to *produce* forward-looking or advisory content. Read the user's question and reply "
+    "with JSON.\n\n"
+    "GUARDRAIL — decide whether the user is REQUESTING, as the desired output, any of:\n"
+    "- a price/market PREDICTION or FORECAST (future direction, 'will it go up', earnings forecast)\n"
+    "- BUY/SELL/HOLD advice, an investment recommendation, or entry/exit timing\n"
+    "- a PRICE TARGET (목표가 / 목표주가)\n"
+    "Judge INTENT, not vocabulary. A request is NOT restricted merely because it MENTIONS these "
+    "words. If the user EXCLUDES or NEGATES them it is ALLOWED — they want facts. ALLOWED examples: "
+    "'목표가는 제시하지 말고 가격 흐름만', '전망·매수의견은 넣지 말고 사실 위주로', 'do NOT give a "
+    "forecast, just what happened'. Descriptive past/current facts, news summaries, filings, "
+    "financials, and macro data are ALWAYS allowed.\n\n"
+    "PLAN — when allowed, size the work and outline it (no answer, no numbers).\n\n"
+    "Reply JSON ONLY:\n"
+    '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
+    '"category": "forecast|advice|price_target|none", '
+    '"score": <number 0..1 — confidence it is a restricted REQUEST>, '
+    '"reason": "<one short line, SAME LANGUAGE as the question>", '
+    '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
+    'ask ≈ 8-12>, '
+    '"plan": "<one short sentence, SAME LANGUAGE as the question, of what data you will look up and '
+    'from which kind of source — NOT the answer, no numbers; empty string if restricted>"}}\n\n'
     "Question: {task}"
 )
 
+_INTAKE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "restricted": {"type": "boolean"},
+        "category": {"type": "string", "enum": ["forecast", "advice", "price_target", "none"]},
+        "score": {"type": "number"},
+        "reason": {"type": "string"},
+        "steps": {"type": "integer"},
+        "plan": {"type": "string"},
+    },
+    "required": ["restricted", "steps"],
+}
 
-async def analyze_task(task: str, backend: str | None = None) -> tuple[int, str | None]:
-    """PH-THINK: one cheap LLM pass that both sizes the step budget AND returns a short
-    natural-language plan to show the user ('what I'll look up'). Stub/no-key → (default, None);
-    never hardcoded keyword rules, never blocks the answer."""
+
+async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
+    """PH-THINK: ONE first-pass LLM call that BOTH guardrails the request (judging intent in
+    context — never keyword matching) AND plans it (step budget + a short plan to show the user).
+    The guardrail lives here, inside the analysis layer. Stub / no-key / error → allow with the
+    default budget and no plan (the LLM is the only judge; there is no keyword fallback)."""
     cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
     if (backend or settings.llm_backend) != "gemini":
-        return default, None
+        return TaskIntake(steps=default)
     try:
         import asyncio
         from google import genai
@@ -138,19 +143,30 @@ async def analyze_task(task: str, backend: str | None = None) -> tuple[int, str 
         client = genai.Client()
         resp = await asyncio.to_thread(
             client.models.generate_content, model=settings.budget_model,
-            contents=_ANALYZE_PROMPT.format(task=(task or "")[:500]),
+            contents=_INTAKE_PROMPT.format(task=(task or "")[:800]),
             config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json",
-                                               max_output_tokens=200))
+                                               response_schema=_INTAKE_SCHEMA, max_output_tokens=400))
         d = json.loads(getattr(resp, "text", "") or "{}")
         try:
             n = int(d.get("steps"))
         except (TypeError, ValueError):
             n = None
-        plan = (str(d.get("plan") or "")).strip() or None
-        return (max(floor, min(n, cap)) if n else default), plan
-    except Exception as exc:  # noqa: BLE001 — degrade to default budget, no plan
-        logger.warning("task analysis failed (%s); using default budget", exc)
-        return default, None
+        try:
+            score = float(d.get("score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        # refuse only when the model both flags it AND is confident enough (a low-confidence
+        # guess never blocks a legitimate question).
+        restricted = bool(d.get("restricted")) and score >= settings.guardrail_threshold
+        return TaskIntake(
+            steps=(max(floor, min(n, cap)) if n else default),
+            plan=(None if restricted else (str(d.get("plan") or "").strip() or None)),
+            restricted=restricted, score=score,
+            reason=(str(d.get("reason") or "").strip() or None),
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
+        logger.warning("task intake failed (%s); allowing with default budget", exc)
+        return TaskIntake(steps=default)
 
 
 _REFINE_PROMPT = (
@@ -276,14 +292,16 @@ def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
 
 
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:
-    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
-    refusal = await guardrailer.check(task)
-    if refusal:
-        return RunResult(answer=refusal, refused=True, usage={"steps": 0})
+    # PH-THINK: one intake call both guardrails (LLM judges intent — no keyword rules) and
+    # sizes the budget. Refuse here at the agent boundary when the request is restricted.
+    intake = await analyze_task(task, spec.backend if spec else None)
+    if intake.restricted:
+        return RunResult(answer=guardrails.REFUSAL, refused=True, usage={"steps": 0})
 
-    # PH-15: a spec can pin max_steps; otherwise a light model assesses the budget.
-    max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
+    max_steps = spec.max_steps if (spec and spec.max_steps) else intake.steps
     system = spec.system if spec else None
+    if intake.plan:
+        system = ((system or "") + f"\n\n[연구 계획] {intake.plan}").strip()
     client = PlatformClient(api_key)
     tools = await client.fetch_tools()
     if spec and spec.allowed_tools:

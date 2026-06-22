@@ -50,14 +50,26 @@ def _chunks(text: str, size: int = 6) -> list[str]:
 
 async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec | None = None) -> AsyncIterator[dict]:
     task = _last_user(messages)
+    system = spec.system if spec else None
+    bk = spec.backend if spec else None
 
-    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
-    refusal = await guardrailer.check(task)
-    if refusal:
-        for ch in _chunks(refusal):
+    # PH-THINK: the first-pass intake is ONE LLM call that both GUARDRAILS the request
+    # (judging intent in context — no keyword rules, invariant #9) AND plans it (budget +
+    # a short plan shown as live thinking). If it's a forecast/advice/target request, refuse
+    # here at the boundary — before we ever touch the data plane.
+    yield {"type": "thinking", "phase": "analyze", "text": "요청을 분석하고 있어요…"}
+    intake = await analyze_task(task, bk)
+    if intake.restricted:
+        for ch in _chunks(guardrails.REFUSAL):
             yield {"type": "token", "text": ch}
         yield {"type": "done", "citations": [], "artifacts": [], "refused": True}
         return
+    max_steps = spec.max_steps if (spec and spec.max_steps) else intake.steps
+    plan = intake.plan
+    if plan:
+        yield {"type": "thinking", "phase": "plan", "text": f"계획: {plan}"}
+        # the plan guides tool selection + synthesis (quality), without hardcoding logic.
+        system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
 
     client = PlatformClient(api_key)
     try:
@@ -68,20 +80,6 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         return
     if spec and spec.allowed_tools:
         tools = filter_tools(tools, spec.allowed_tools)
-
-    system = spec.system if spec else None
-    bk = spec.backend if spec else None
-    # PH-THINK: a first-pass analysis sizes the step budget AND yields a short plan we show
-    # the user ("what I'll look up") — replacing the bare "…" with a live thinking stream.
-    yield {"type": "thinking", "phase": "analyze", "text": "요청을 분석하고 있어요…"}
-    if spec and spec.max_steps:
-        max_steps, plan = spec.max_steps, None
-    else:
-        max_steps, plan = await analyze_task(task, bk)
-    if plan:
-        yield {"type": "thinking", "phase": "plan", "text": f"계획: {plan}"}
-        # the plan guides tool selection + synthesis (quality), without hardcoding logic.
-        system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
     history: list = []
     citations: list[dict] = []
     cite_ctx: list[tuple[dict, dict, object]] = []  # (citation, tool, data) → re-anchor evidence post-answer

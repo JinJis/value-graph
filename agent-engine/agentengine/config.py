@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     max_steps: int = 8         # base tool-step budget (raised for multi-source tasks, up to the cap)
     max_steps_cap: int = 14    # hard ceiling for the dynamic budget
     http_timeout_seconds: float = 60.0
+    # Guardrail: the refuse/allow decision is a JUDGMENT made by the LLM intake
+    # (`agent.analyze_task`), not keyword matching (invariant #9). The model scores how
+    # confidently the request *asks for* a forecast/advice/target; refuse only at/above this.
+    guardrail_threshold: float = 0.6
 
 
 settings = Settings()

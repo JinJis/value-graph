@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 287 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 93 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 286 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 92 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (29 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -349,6 +349,19 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ✅ **PH-13 · LLM-based guardrails.** `GeminiGuardrailer` classifies price-prediction / advice violations
   via Gemini (JSON, temp 0), regex `StubGuardrailer` fallback, `get_guardrailer(backend)` factory — catches
   Korean variants regex missed. *(agent-engine)*
+  - ✅ **PH-13b · guardrail folded into the LLM intake — ALL regex deleted (invariant #9).** The keyword
+    regex wrongly refused FACT requests that merely *mention* a restricted word in negation ("목표가는
+    제시하지 말고…", "전망·매수의견은 넣지 말고 사실만"). Root cause: keyword matching can't read context.
+    Fix per the product owner: **delete the regex entirely** and move the decision INTO the existing
+    first-pass analysis layer. `agent.analyze_task` is now one Gemini call returning a `TaskIntake`
+    (`restricted`+`score`+`category`+`reason` **and** `steps`+`plan`) — it judges **intent** (told that
+    negated/excluded terms are ALLOWED) and refuses only when `restricted` AND `score ≥ guardrail_threshold`
+    (0.6). `chat.stream_chat` + `run_agent` call it once at the boundary (refuse before touching the data
+    plane). `guardrails.py` is gutted to just the refusal/disclaimer copy; `GeminiGuardrailer`/
+    `StubGuardrailer`/the regex/`get_guardrailer` factory and the redundant `assess_budget`/`_llm_steps` are
+    removed (the intake supersedes them). No keyword fallback — when there is no LLM (dev/CI stub), the
+    intake allows with the default budget (production always runs Gemini). +3 agent tests + 2 eval scenarios.
+    *(agent-engine)*
 - ✅ **PH-14 · Multi-step planner & tool selection.** GeminiPlanner passes real conversation+tool history
   to GenAI (sequential tool calls), `thought_signature` mapping (avoids 400 on chained calls), public
   `resolve_ticker` (company name/alias → ticker inside the loop), injected date context + per-param
@@ -359,6 +372,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   budget is strictly honored: the loop **reserves its last step for guaranteed synthesis** (force-finalize),
   a non-empty **fallback answer** replaces the old "Reached the step limit." leak, and an **identical
   consecutive call is detected** → synthesize instead of looping. *(agent-engine)* +5 tests → 54.
+  *(Update — PH-13b: the budget call is now folded into the single `analyze_task` intake alongside the
+  guardrail; the standalone `assess_budget`/`_llm_steps` were removed.)*
 - ✅ **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
   trust feature — folded here from UX.* Depends on PH-3 + citation metadata; sits at the Phase 1↔2 seam.
   Delivered in 4a/4b/4c:
