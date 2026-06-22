@@ -128,6 +128,35 @@ export default function Chat({ name }: { name: string }) {
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pins, setPins] = useState<{ id: string; spec: Artifact }[]>([]);  // U3-03 Board
   const [viewer, setViewer] = useState<Citation | null>(null);  // expanded source viewer
+  // chat session/history — persisted in studio-api; resume a past conversation.
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [convs, setConvs] = useState<{ id: string; title: string }[]>([]);
+
+  async function loadHistory() {
+    try {
+      const r = await fetch("/api/conversations");
+      if (r.ok) setConvs((await r.json()).conversations ?? []);
+    } catch {}
+  }
+  async function openConversation(id: string) {
+    try {
+      const r = await fetch(`/api/conversations/${id}/messages`);
+      if (!r.ok) return;
+      const msgs = ((await r.json()).messages ?? []) as { role: string; content: string; citations?: Citation[] }[];
+      setMessages(msgs.map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content,
+        citations: m.citations ?? [],
+        used: (m.citations ?? []).map((c) => c.index).filter((n): n is number => n != null),
+      })));
+      setConversationId(id);
+      setView("desk");
+    } catch {}
+  }
+  function newChat() {
+    setMessages([]); setConversationId(null); setInput("");
+    setView("desk");
+  }
 
   async function loadPins() {
     try {
@@ -178,6 +207,7 @@ export default function Chat({ name }: { name: string }) {
   useEffect(() => {
     loadAgents();
     loadHandles();
+    loadHistory();
     (async () => {
       try {
         const r = await fetch("/api/connectors");
@@ -238,6 +268,7 @@ export default function Chat({ name }: { name: string }) {
         body: JSON.stringify({
           messages: history.map((m) => ({ role: m.role, content: m.content })),
           agent_id: agentId || null,
+          conversation_id: conversationId,  // resume/append to the same conversation
         }),
       });
       if (!res.body) throw new Error("no stream");
@@ -256,6 +287,7 @@ export default function Chat({ name }: { name: string }) {
           if (!line) continue;
           let ev: any;
           try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (ev.type === "conversation") { setConversationId(ev.id); continue; }  // session id to resume
           setMessages((prev) => {
             const next = [...prev];
             const a = { ...next[next.length - 1] };
@@ -324,6 +356,7 @@ export default function Chat({ name }: { name: string }) {
       });
     } finally {
       setBusy(false);
+      loadHistory();  // refresh the sidebar history (new conversation title shows up)
     }
   }
 
@@ -345,7 +378,7 @@ export default function Chat({ name }: { name: string }) {
     <div className="shell no-right">
       <nav className="rail">
         <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">ValueGraph</span></div>
-        <button className="rail-new" onClick={() => { setMessages([]); setInput(""); setView("desk"); }}>
+        <button className="rail-new" onClick={newChat}>
           <span className="ic">✎</span><span>새 대화</span>
         </button>
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
@@ -363,6 +396,15 @@ export default function Chat({ name }: { name: string }) {
         </button>
         <div className="rail-item soon" title="곧"><span className="ic">🔔</span><span className="lbl">브리프</span><span className="soon-tag">곧</span></div>
         <div className="rail-item soon" title="곧"><span className="ic">🛒</span><span className="lbl">갤러리</span><span className="soon-tag">곧</span></div>
+        {convs.length > 0 && (
+          <div className="rail-hist">
+            <div className="rail-hist-h">최근 대화</div>
+            {convs.slice(0, 12).map((c) => (
+              <button key={c.id} className={`rail-conv ${c.id === conversationId ? "on" : ""}`}
+                title={c.title} onClick={() => openConversation(c.id)}>{c.title || "(제목 없음)"}</button>
+            ))}
+          </div>
+        )}
         <div className="rail-spacer" />
         <div className="rail-foot">
           <span className="acct-ava" aria-hidden />
