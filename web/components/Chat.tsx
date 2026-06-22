@@ -113,6 +113,11 @@ export default function Chat({ name }: { name: string }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // background-run tracking: which conversation is currently DISPLAYED, and which one is
+  // actively being streamed into the UI. Generation lives server-side, so leaving a chat
+  // just stops rendering here (the server keeps going); re-entering resumes via its run.
+  const viewConvRef = useRef<string | null>(null);
+  const streamConvRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // agents
@@ -141,6 +146,10 @@ export default function Chat({ name }: { name: string }) {
     } catch {}
   }
   async function openConversation(id: string) {
+    viewConvRef.current = id;   // claim the view first so any other stream stops rendering
+    setConversationId(id);
+    setView("desk");
+    setBusy(false);
     try {
       const r = await fetch(`/api/conversations/${id}/messages`);
       if (!r.ok) return;
@@ -151,13 +160,17 @@ export default function Chat({ name }: { name: string }) {
         citations: m.citations ?? [],
         used: (m.citations ?? []).map((c) => c.index).filter((n): n is number => n != null),
       })));
-      setConversationId(id);
-      setView("desk");
+      // resume an in-flight answer: if this conversation is still generating, tail its run live
+      const ar = await fetch(`/api/conversations/${id}/active-run`);
+      const runId = ar.ok ? (await ar.json()).run_id : null;
+      if (runId && viewConvRef.current === id) await tailRun(id, runId);
     } catch {}
   }
   function newChat() {
+    viewConvRef.current = null;
     setMessages([]); setConversationId(null); setInput("");
     setView("desk");
+    setBusy(false);
   }
 
   async function loadPins() {
@@ -263,26 +276,80 @@ export default function Chat({ name }: { name: string }) {
 
   const selected = agents.find((a) => a.id === agentId) || null;
 
-  async function send(text: string) {
-    if (!text.trim() || busy) return;
-    const history: Msg[] = [...messages, { role: "user", content: text }];
-    setMessages([...history, { role: "assistant", content: "", tools: [], citations: [] }]);
-    setInput("");
-    setBusy(true);
+  // apply one SSE event to the LAST (assistant) message — shared by live send + run resume.
+  function applyEvent(ev: any) {
+    setMessages((prev) => {
+      const next = [...prev];
+      const a = { ...next[next.length - 1] };
+      if (ev.type === "token") a.content += ev.text || "";
+      else if (ev.type === "thinking") a.thinking = [...(a.thinking || []), { phase: ev.phase, text: ev.text }];
+      else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
+      else if (ev.type === "clarify") {
+        // origin = the user question these choices refine into a follow-up
+        const origin = [...next].reverse().find((m) => m.role === "user")?.content || "";
+        a.clarify = { prompt: ev.prompt, options: ev.options || [], multi: !!ev.multi, origin };
+      }
+      else if (ev.type === "suggestions") a.suggestions = (ev.items || []) as string[];
+      else if (ev.type === "subagent") {
+        const list = [...(a.subagents || [])];
+        const card: SubAgent = { id: ev.id, title: ev.title, status: ev.status, sources: ev.sources, steps: ev.steps };
+        const k = list.findIndex((s) => s.id === ev.id);
+        if (k >= 0) list[k] = card; else list.push(card);
+        a.subagents = list;
+      }
+      else if (ev.type === "artifact" && ev.artifact) {
+        const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
+        if (!dup) a.artifacts = [...(a.artifacts || []), ev.artifact as Artifact];
+      }
+      else if (ev.type === "citation") {
+        const cite: Citation = {
+          tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
+          doc_type: ev.doc_type, as_of: ev.as_of, freshness: ev.freshness,
+          snippet: ev.snippet, ticker: ev.ticker, page: ev.page,
+          // PH-PROV2: carry the extracted table + the highlighted-filing screenshot URL,
+          // else the Live Context / source card can never show the visual evidence.
+          table: ev.table, evidence_image_url: ev.evidence_image_url,
+        };
+        const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
+        if (!dup) a.citations = [...(a.citations || []), cite];
+      }
+      // done: guardrail flag + the evidence set (which [n] actually backed the answer)
+      else if (ev.type === "done") {
+        if (ev.refused) a.refused = true;
+        if (Array.isArray(ev.used)) a.used = ev.used;
+        // PH-PROV3d: the done list is authoritative — its citations carry the evidence
+        // image re-anchored on the figure the answer actually cited. Replace the streamed set.
+        if (Array.isArray(ev.citations) && ev.citations.length) {
+          a.citations = ev.citations.map((c: any) => ({
+            tool: c.tool, source: c.source, url: c.url, index: c.index, kind: c.kind,
+            doc_type: c.doc_type, as_of: c.as_of, freshness: c.freshness,
+            snippet: c.snippet, ticker: c.ticker, page: c.page,
+            table: c.table, evidence_image_url: c.evidence_image_url, used: c.used,
+          }));
+        }
+        // PH-VIZ-2: the done list carries the chart artifacts enriched with sourced
+        // event markers + price lines (added after later tool results landed).
+        if (Array.isArray(ev.artifacts) && ev.artifacts.length) {
+          a.artifacts = ev.artifacts as Artifact[];
+        }
+      }
+      next[next.length - 1] = a;
+      return next;
+    });
+    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+  }
+
+  // Read an SSE body and apply events to the displayed assistant bubble. Generation lives
+  // server-side, so if the user navigates to another conversation we just STOP rendering here
+  // (the run keeps going); re-entering resumes it. `initialConv` is the conversation we expect
+  // (null for a brand-new chat — learned from the first `run` event).
+  async function consumeStream(body: ReadableStream<Uint8Array>, initialConv: string | null) {
+    let myConv = initialConv;
+    if (myConv) streamConvRef.current = myConv;
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: history.map((m) => ({ role: m.role, content: m.content })),
-          agent_id: agentId || null,
-          conversation_id: conversationId,  // resume/append to the same conversation
-        }),
-      });
-      if (!res.body) throw new Error("no stream");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -295,78 +362,66 @@ export default function Chat({ name }: { name: string }) {
           if (!line) continue;
           let ev: any;
           try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          if (ev.type === "conversation") { setConversationId(ev.id); continue; }  // session id to resume
-          setMessages((prev) => {
-            const next = [...prev];
-            const a = { ...next[next.length - 1] };
-            if (ev.type === "token") a.content += ev.text || "";
-            else if (ev.type === "thinking") a.thinking = [...(a.thinking || []), { phase: ev.phase, text: ev.text }];
-            else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
-            else if (ev.type === "clarify") {
-              // origin = the user question these choices refine into a follow-up
-              const origin = [...next].reverse().find((m) => m.role === "user")?.content || "";
-              a.clarify = { prompt: ev.prompt, options: ev.options || [], multi: !!ev.multi, origin };
-            }
-            else if (ev.type === "suggestions") a.suggestions = (ev.items || []) as string[];
-            else if (ev.type === "subagent") {
-              const list = [...(a.subagents || [])];
-              const card: SubAgent = { id: ev.id, title: ev.title, status: ev.status, sources: ev.sources, steps: ev.steps };
-              const k = list.findIndex((s) => s.id === ev.id);
-              if (k >= 0) list[k] = card; else list.push(card);
-              a.subagents = list;
-            }
-            else if (ev.type === "artifact" && ev.artifact) {
-              const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
-              if (!dup) a.artifacts = [...(a.artifacts || []), ev.artifact as Artifact];
-            }
-            else if (ev.type === "citation") {
-              const cite: Citation = {
-                tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
-                doc_type: ev.doc_type, as_of: ev.as_of, freshness: ev.freshness,
-                snippet: ev.snippet, ticker: ev.ticker, page: ev.page,
-                // PH-PROV2: carry the extracted table + the highlighted-filing screenshot URL,
-                // else the Live Context / source card can never show the visual evidence.
-                table: ev.table, evidence_image_url: ev.evidence_image_url,
-              };
-              const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
-              if (!dup) a.citations = [...(a.citations || []), cite];
-            }
-            // done: guardrail flag + the evidence set (which [n] actually backed the answer)
-            else if (ev.type === "done") {
-              if (ev.refused) a.refused = true;
-              if (Array.isArray(ev.used)) a.used = ev.used;
-              // PH-PROV3d: the done list is authoritative — its citations carry the evidence
-              // image re-anchored on the figure the answer actually cited. Replace the streamed set.
-              if (Array.isArray(ev.citations) && ev.citations.length) {
-                a.citations = ev.citations.map((c: any) => ({
-                  tool: c.tool, source: c.source, url: c.url, index: c.index, kind: c.kind,
-                  doc_type: c.doc_type, as_of: c.as_of, freshness: c.freshness,
-                  snippet: c.snippet, ticker: c.ticker, page: c.page,
-                  table: c.table, evidence_image_url: c.evidence_image_url, used: c.used,
-                }));
-              }
-              // PH-VIZ-2: the done list carries the chart artifacts enriched with sourced
-              // event markers + price lines (added after later tool results landed).
-              if (Array.isArray(ev.artifacts) && ev.artifacts.length) {
-                a.artifacts = ev.artifacts as Artifact[];
-              }
-            }
-            next[next.length - 1] = a;
-            return next;
-          });
-          scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+          if (ev.type === "run") {  // first event: learn conversation id (new chats) + claim the stream
+            myConv = ev.conversation_id || myConv;
+            if (myConv) { setConversationId(myConv); streamConvRef.current = myConv; if (viewConvRef.current === null) viewConvRef.current = myConv; }
+            continue;
+          }
+          // user moved to a different conversation → stop rendering (the run keeps generating server-side)
+          if (myConv && viewConvRef.current !== myConv) { try { await reader.cancel(); } catch {} return; }
+          if (ev.type === "conversation") { setConversationId(ev.id); continue; }
+          applyEvent(ev);
         }
       }
+    } finally {
+      if (streamConvRef.current === myConv) streamConvRef.current = null;  // free it for a later re-tail
+      if (viewConvRef.current === myConv) setBusy(false);                  // only if we're still here
+    }
+  }
+
+  async function send(text: string) {
+    if (!text.trim() || busy) return;
+    const history: Msg[] = [...messages, { role: "user", content: text }];
+    const startConv = conversationId;  // may be null → a new conversation
+    setMessages([...history, { role: "assistant", content: "", tools: [], citations: [] }]);
+    setInput("");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: history.map((m) => ({ role: m.role, content: m.content })),
+          agent_id: agentId || null,
+          conversation_id: startConv,  // resume/append to the same conversation
+        }),
+      });
+      if (!res.body) throw new Error("no stream");
+      await consumeStream(res.body, startConv);
     } catch {
       setMessages((prev) => {
         const next = [...prev];
         next[next.length - 1] = { ...next[next.length - 1], content: "(문제가 발생했어요. 잠시 후 다시 시도해 주세요.)" };
         return next;
       });
-    } finally {
       setBusy(false);
+    } finally {
       loadHistory();  // refresh the sidebar history (new conversation title shows up)
     }
+  }
+
+  // Resume a conversation whose answer is still generating server-side: append a live
+  // assistant bubble and tail the background run (replays buffered events, then live).
+  async function tailRun(convId: string, runId: string) {
+    if (streamConvRef.current === convId) return;  // already streaming this one
+    setBusy(true);
+    setMessages((prev) => [...prev, { role: "assistant", content: "", tools: [], citations: [] }]);
+    try {
+      const res = await fetch(`/api/runs/${runId}/stream?from=0`);
+      if (res.body) await consumeStream(res.body, convId);
+      else setBusy(false);
+    } catch { setBusy(false); }
+    finally { loadHistory(); }
   }
 
   function onSaved(saved: Agent, deletedId?: string) {

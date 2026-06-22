@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from studioapi import provision
 from studioapi.agents import agent_to_spec, seed_templates
-from studioapi.chat import _title, stream_and_persist
+from studioapi.chat import _title, sse_tail, start_turn
 from studioapi.config import settings
 from studioapi.db import init_db
 from studioapi.main import app
@@ -136,6 +137,39 @@ def test_messages_of_unknown_conversation_is_empty(monkeypatch):
     assert r.status_code == 200 and r.json()["messages"] == []
 
 
+async def test_run_manager_survives_leave_and_resumes():
+    # generation lives server-side: a run keeps going after a tail (the client) stops, and a
+    # fresh tail (re-entering the conversation) replays the buffer then continues live.
+    from studioapi.runs import RunManager
+
+    mgr = RunManager()
+    gate = asyncio.Event()
+
+    async def driver(run):
+        await mgr.append(run, {"type": "token", "text": "a"})
+        await gate.wait()  # simulate work in progress while the client leaves
+        await mgr.append(run, {"type": "token", "text": "b"})
+
+    run = mgr.start("conv1", driver)
+    await asyncio.sleep(0.02)  # let the driver emit the first token
+    assert mgr.active_run_id("conv1") == run.id  # still generating → resumable
+
+    # a fresh tail (re-entry) replays from index 0: the seeded `run` event + token 'a' so far
+    early = []
+    async for ev in mgr.tail(run, 0):
+        early.append(ev)
+        if len(early) >= 2:
+            break  # the "client" leaves again mid-run — driver keeps going
+    assert early[0]["type"] == "run" and early[1] == {"type": "token", "text": "a"}
+
+    gate.set()  # driver finishes in the background regardless of any client
+    await run.task
+    assert mgr.active_run_id("conv1") is None  # finished
+    # a final tail sees the COMPLETE buffer (both tokens) — nothing was lost
+    tokens = [ev["text"] async for ev in mgr.tail(run, 0) if ev.get("type") == "token"]
+    assert tokens == ["a", "b"]
+
+
 @respx.mock
 async def test_chat_reuses_existing_conversation(monkeypatch):
     _cfg(monkeypatch)
@@ -146,17 +180,25 @@ async def test_chat_reuses_existing_conversation(monkeypatch):
     ).encode()
     respx.post("http://ae.test/agent/chat").mock(return_value=httpx.Response(200, content=sse))
 
+    import json as _json
     user = User(email="multi@u.com", tenant_id="t", project_id="p", api_key="vgk_m")
-    # first turn -> new conversation
-    cid = None
-    async for chunk in stream_and_persist(user, None, [{"role": "user", "content": "first"}]):
-        if '"type": "conversation"' in chunk:
-            import json as _json
-            cid = _json.loads(chunk[5:].strip())["id"]
+
+    async def _drive(conv_id, content):
+        # start the background run + tail it to completion; return the conversation id seen
+        run = start_turn(user, conv_id, [{"role": "user", "content": content}], None)
+        seen = conv_id
+        async for chunk in sse_tail(run, 0):
+            line = next((l for l in chunk.split("\n") if l.startswith("data:")), None)
+            if not line:
+                continue
+            ev = _json.loads(line[5:].strip())
+            seen = ev.get("conversation_id") or (ev.get("id") if ev.get("type") == "conversation" else None) or seen
+        return seen
+
+    # first turn -> new conversation; second on the same id -> messages accumulate, no new row
+    cid = await _drive(None, "first")
     assert cid
-    # second turn on the same id -> no new conversation row, messages accumulate
-    async for _ in stream_and_persist(user, cid, [{"role": "user", "content": "second"}]):
-        pass
+    assert await _drive(cid, "second") == cid
 
     convs = client.get("/conversations", headers=_hdr("multi@u.com")).json()["conversations"]
     assert len([c for c in convs if c["id"] == cid]) == 1

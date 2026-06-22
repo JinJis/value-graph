@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -13,7 +13,8 @@ from sqlalchemy import select
 from studioapi.agents import connectors_router
 from studioapi.agents import router as agents_router
 from studioapi.agents import seed_templates
-from studioapi.chat import stream_and_persist
+from studioapi.chat import sse_tail, start_turn
+from studioapi.runs import manager as run_manager
 from studioapi.db import SessionLocal, init_db
 from studioapi.deps import current_user, require_service
 from studioapi.models import Conversation, Message, User
@@ -78,10 +79,33 @@ async def conversation_messages(conversation_id: str, user: User = Depends(curre
 
 @app.post("/chat/stream", tags=["Chat"], dependencies=[Depends(require_service)])
 async def chat_stream(body: ChatIn, user: User = Depends(current_user)) -> StreamingResponse:
-    return StreamingResponse(
-        stream_and_persist(user, body.conversation_id, body.messages, body.agent_id),
-        media_type="text/event-stream",
-    )
+    # generation runs in the BACKGROUND (survives the client leaving); the response tails it
+    run = start_turn(user, body.conversation_id, body.messages, body.agent_id)
+    return StreamingResponse(sse_tail(run, 0), media_type="text/event-stream")
+
+
+@app.get("/conversations/{conversation_id}/active-run", tags=["Chat"], dependencies=[Depends(require_service)])
+async def conversation_active_run(conversation_id: str, user: User = Depends(current_user)) -> dict:
+    """The run still generating for this conversation, if any — so re-entering resumes it live."""
+    with SessionLocal() as db:
+        conv = db.get(Conversation, conversation_id)
+        if conv is None or conv.user_email != user.email:
+            return {"run_id": None}
+    return {"run_id": run_manager.active_run_id(conversation_id)}
+
+
+@app.get("/runs/{run_id}/stream", tags=["Chat"], dependencies=[Depends(require_service)])
+async def run_stream(run_id: str, user: User = Depends(current_user), from_index: int = 0) -> StreamingResponse:
+    """Tail (resume) an in-flight or finished run from ``from_index`` — replay buffered events,
+    then live ones. Used when the user re-enters a conversation whose answer is still generating."""
+    run = run_manager.get(run_id)
+    if run is None:
+        raise HTTPException(404, "Run not found or already evicted.")
+    with SessionLocal() as db:
+        conv = db.get(Conversation, run.conversation_id)
+        if conv is None or conv.user_email != user.email:
+            raise HTTPException(404, "Run not found.")
+    return StreamingResponse(sse_tail(run, from_index), media_type="text/event-stream")
 
 
 app.include_router(agents_router)
