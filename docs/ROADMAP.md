@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 290 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 96 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 291 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 97 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (31 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -636,9 +636,18 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     that flows through the normal turn. Only fires when ≥2 options and not restricted; the LLM is told not
     to clarify already-specific/conceptual requests; `run_agent` (non-interactive/eval) ignores it. +2
     agent tests (94→96). *(agent-engine intake + chat; web `ClarifyChips`.)*
-  - ⬜ **Next: deeper orchestration** — parallel multi-source gather; full A2A orchestrator + sub-agent
-    cards. *(builds on docs/IDEA.md A2A; the "Claude Code for finance" direction — analyze → propose/pick →
-    execute many → combine.)*
+  - ✅ **Parallel multi-source gather (execute many at once).** The planner now uses Gemini **parallel
+    function calling**: `GeminiPlanner.plan_batch` returns EVERY independent tool call the model emits in a
+    step (capped at `_MAX_PARALLEL_CALLS=5`), and `chat.stream_chat` announces them all then fetches them
+    **concurrently in one `asyncio.gather`** (a failed call never sinks the batch; citations stay
+    deterministically ordered). The system prompt nudges the model to batch independent needs (price AND
+    news AND financials, or one metric across several tickers) and only chain when a call depends on a
+    prior result. Stuck-detection now compares the whole batch signature. Stub stays single-tool;
+    `run_agent` uses the first call. +1 agent test (96→97). *(agent-engine planner + chat loop.)*
+  - ⬜ **Next: full A2A orchestrator + sub-agent cards** — specialized sub-agents per sub-task with their
+    own tool budgets, shown as live cards; a top orchestrator decomposes → dispatches (parallel) →
+    combines. *(builds on docs/IDEA.md A2A; the "Claude Code for finance" direction — analyze →
+    propose/pick → execute many → combine.)*
 - ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
   operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
   One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.

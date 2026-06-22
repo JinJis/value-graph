@@ -773,6 +773,50 @@ async def test_run_refuses_forecast(monkeypatch):
 
 
 @respx.mock
+async def test_chat_stream_runs_batch_in_parallel(monkeypatch):
+    # PH-THINK: when the planner returns multiple independent calls (plan_batch), the chat
+    # announces ALL of them, then fetches them CONCURRENTLY in one step (all `tool` events
+    # precede the first `tool_result`), collecting every source.
+    import agentengine.chat as C
+    from agentengine.planner import Decision
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
+    respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
+
+    class BatchPlanner:
+        def __init__(self):
+            self.rounds = 0
+
+        async def plan_batch(self, task, tools, history, system=None, conversation=None,
+                             force_final=False, sources=None):
+            if force_final or self.rounds >= 1:
+                return [Decision(final="주가와 공시를 함께 확인했어요 [1]")]
+            self.rounds += 1
+            return [Decision(tool="yahoo__prices", args={"ticker": "AAPL"}),
+                    Decision(tool="rag__search", args={"query": "supplier risk"})]
+
+        async def plan(self, *a, **k):
+            return (await self.plan_batch(*a, **k))[0]
+
+    monkeypatch.setattr(C, "get_planner", lambda _b=None: BatchPlanner())
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL 주가랑 공시 같이 봐줘"}], "vgk_x")]
+
+    names = [e["name"] for e in events if e["type"] == "tool"]
+    assert set(names) == {"yahoo__prices", "rag__search"}      # both calls fanned out
+    types_seq = [e["type"] for e in events]
+    last_tool = max(i for i, t in enumerate(types_seq) if t == "tool")
+    first_result = min(i for i, t in enumerate(types_seq) if t == "tool_result")
+    assert last_tool < first_result                            # announced together, then gathered
+    done = events[-1]
+    assert done["type"] == "done" and "SEC EDGAR" in {c.get("source") for c in done["citations"]}
+
+
+@respx.mock
 async def test_run_routes_to_rag(monkeypatch):
     _gw(monkeypatch)
     _catalog()

@@ -37,6 +37,9 @@ from agentengine.gemini_io import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# Cap how many independent tool calls we fan out in a single step (bounds cost + latency).
+_MAX_PARALLEL_CALLS = 5
+
 
 # The responder prompt. The whole point: a rich answer that MIXES our sourced evidence with
 # the model's own analyst expertise — not a terse restatement of fetched rows. Hard rules keep
@@ -96,6 +99,10 @@ class StubPlanner:
                 return Decision(tool=name, args=args)
         return Decision(final=_no_tool_message(task, has_tools=True))
 
+    async def plan_batch(self, *args, **kwargs) -> list[Decision]:
+        # the deterministic stub is single-tool-per-step; wrap its one decision in a batch.
+        return [await self.plan(*args, **kwargs)]
+
 
 class GeminiPlanner:
     """Real Gemini planner (function calling). Untested without GOOGLE_API_KEY."""
@@ -110,6 +117,20 @@ class GeminiPlanner:
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
                    conversation: list | None = None, force_final: bool = False,
                    sources: str | None = None) -> Decision:
+        # single-decision view (run_agent / callers that don't fan out): the first call.
+        decisions = await self._run(task, tools, history, system, conversation, force_final, sources)
+        return decisions[0]
+
+    async def plan_batch(self, task: str, tools: dict, history: list, system: str | None = None,
+                         conversation: list | None = None, force_final: bool = False,
+                         sources: str | None = None) -> list[Decision]:
+        # ALL of the model's parallel function calls this step (fanned out concurrently by the
+        # caller), or a single final Decision. This is what enables parallel multi-source gather.
+        return await self._run(task, tools, history, system, conversation, force_final, sources)
+
+    async def _run(self, task: str, tools: dict, history: list, system: str | None = None,
+                   conversation: list | None = None, force_final: bool = False,
+                   sources: str | None = None) -> list[Decision]:
         import asyncio
         from google.genai import types
         from datetime import datetime
@@ -129,6 +150,10 @@ class GeminiPlanner:
             "- 'ticker': Stock tickers MUST be official symbols (e.g., 'AAPL' for Apple, '005930' for Samsung Electronics). NEVER pass company names (e.g., 'Apple', '삼성전자') as the ticker parameter.\n"
             "- Always identify the correct market ('US' or 'KR') based on the company or central bank mentioned.\n"
             "- Resolve follow-up references (e.g. 'that company') from the conversation so far.\n"
+            "- PARALLEL: when a question needs several INDEPENDENT pieces of data (e.g. price AND news AND "
+            "financials, or the same metric for multiple companies), call those tools TOGETHER in one step "
+            "(emit multiple function calls at once) so they are fetched concurrently. Only chain calls when a "
+            "later call truly depends on an earlier result.\n"
             "When you write the final answer, anchor each claim with an inline [n] marker that refers to "
             "the numbered source list provided below; use ONLY those exact numbers and never renumber.\n"
             "Never predict prices or give buy/sell advice; this is not investment advice."
@@ -156,14 +181,13 @@ class GeminiPlanner:
             # use the dedicated (light) response model, falling back to the planner model.
             model = settings.synthesis_model or self.model
             resp = await asyncio.to_thread(self._client.models.generate_content, model=model, contents=contents, config=config)
-            text_val = _get_text_from_response(resp)
-            return Decision(final=text_val)
+            return [Decision(final=_get_text_from_response(resp))]
 
         decls = [
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=_schema(t))
             for t in tools.values()
         ]
-        
+
         config = types.GenerateContentConfig(
             tools=[types.Tool(function_declarations=decls)],
             system_instruction=system_instruction,
@@ -172,15 +196,17 @@ class GeminiPlanner:
         resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
         calls = getattr(resp, "function_calls", None)
         if calls:
-            call = calls[0]
-            thought_sig = None
-            if resp.candidates and resp.candidates[0].content and resp.candidates[0].content.parts:
-                for part in resp.candidates[0].content.parts:
-                    if part.function_call and part.function_call.name == call.name:
-                        thought_sig = part.thought_signature
-                        break
-            return Decision(tool=call.name, args=dict(call.args or {}), thought_signature=thought_sig)
-        return Decision(final=_get_text_from_response(resp))
+            # Gemini parallel function calling: return EVERY independent call this step so the
+            # caller can fan them out concurrently. Pair each with its thought_signature by order.
+            parts = (resp.candidates[0].content.parts
+                     if (resp.candidates and resp.candidates[0].content and resp.candidates[0].content.parts) else [])
+            fc_parts = [p for p in parts if getattr(p, "function_call", None)]
+            out: list[Decision] = []
+            for i, call in enumerate(calls[:_MAX_PARALLEL_CALLS]):
+                sig = fc_parts[i].thought_signature if i < len(fc_parts) else None
+                out.append(Decision(tool=call.name, args=dict(call.args or {}), thought_signature=sig))
+            return out
+        return [Decision(final=_get_text_from_response(resp))]
 
 
 @cache

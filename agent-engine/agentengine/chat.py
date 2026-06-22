@@ -15,6 +15,7 @@ key, so entitlement + metering apply to chat too.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import AsyncIterator
@@ -142,31 +143,40 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
 
     try:
         planner = get_planner(spec.backend if spec else None)
+        from agentengine.planner import resolve_ticker
+
+        async def _plan_batch(force_final: bool) -> list:
+            kw = dict(conversation=messages, force_final=force_final, sources=number_sources(citations))
+            if hasattr(planner, "plan_batch"):
+                return await planner.plan_batch(task, tools, history, system, **kw)
+            return [await planner.plan(task, tools, history, system, **kw)]
+
         for step in range(max_steps):
             is_last = step == max_steps - 1  # reserve the last step for guaranteed synthesis
             if is_last and not refined and citations:  # verify/refine just before the forced synthesis
                 if (bk or settings.llm_backend) == "gemini":
                     yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
                 await _maybe_refine()
-            decision = await planner.plan(task, tools, history, system, conversation=messages,
-                                          force_final=is_last, sources=number_sources(citations))
-            if is_last or decision.final is not None:
+            decisions = await _plan_batch(is_last)
+            # finalize when forced, or when the model returned prose instead of tool calls
+            if is_last or (decisions and decisions[0].final is not None):
                 yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
-                final_text = decision.final or fallback_answer(citations)
+                final_text = (decisions[0].final if decisions else None) or fallback_answer(citations)
                 for ch in _chunks(final_text):
                     yield {"type": "token", "text": ch}
                 answered = True
                 break
 
-            # Auto-resolve ticker from company name/alias
-            if decision.tool and decision.args and "ticker" in decision.args:
-                from agentengine.planner import resolve_ticker
-                resolved = resolve_ticker(decision.args["ticker"])
-                if resolved:
-                    decision.args["ticker"] = resolved
+            # the model's independent tool calls for this step → fanned out concurrently below
+            batch = [d for d in decisions if d.tool]
+            for d in batch:  # auto-resolve company name/alias → ticker
+                if d.args and "ticker" in d.args:
+                    r = resolve_ticker(d.args["ticker"])
+                    if r:
+                        d.args["ticker"] = r
 
-            # an identical consecutive call means the model is stuck — synthesize now
-            sig = call_sig(decision)
+            # an identical batch as last step means the model is stuck — synthesize now
+            sig = "|".join(sorted(s for s in (call_sig(d) for d in batch) if s))
             if sig and sig == last_sig:
                 if not refined and citations and (bk or settings.llm_backend) == "gemini":
                     yield {"type": "thinking", "phase": "verify", "text": "근거를 교차검증하는 중…"}
@@ -179,42 +189,61 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                 break
             last_sig = sig
 
-            tool = tools.get(decision.tool)
-            if tool is None:
-                yield {"type": "token", "text": f"(planner chose an unavailable tool '{decision.tool}')"}
+            # resolve runnable tools; announce ALL of them before fetching in parallel
+            valid = []
+            for d in batch:
+                tool = tools.get(d.tool)
+                if tool is None:
+                    continue
+                valid.append((d, tool))
+                label = tool.get("friendly") or tool.get("connector_name") or d.tool
+                yield {"type": "tool", "name": d.tool,
+                       "label": tool.get("friendly") or tool.get("connector_name"), "args": d.args or {}}
+                yield {"type": "thinking", "phase": "fetch", "text": f"{label} 살펴보는 중…", "tool": d.tool}
+            if not valid:  # nothing runnable → synthesize from what we have
+                yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
+                final_text = await _finalize(force=True)
+                for ch in _chunks(final_text):
+                    yield {"type": "token", "text": ch}
                 answered = True
                 break
-            label = tool.get("friendly") or tool.get("connector_name") or decision.tool
-            yield {"type": "tool", "name": decision.tool, "label": tool.get("friendly") or tool.get("connector_name"), "args": decision.args or {}}
-            # PH-THINK: live progress — which source we're querying, then what we found.
-            yield {"type": "thinking", "phase": "fetch", "text": f"{label} 살펴보는 중…", "tool": decision.tool}
-            result = await client.call_tool(tool, decision.args or {})
-            yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
-            before = len(citations)
-            for c in _citations(tool, result):
-                cit = c.model_dump()
-                key = (cit.get("source"), cit.get("url"))
-                if key in seen_cites:  # de-dup repeated sources across tool calls
+
+            # PH-THINK: fetch every independent source for this step CONCURRENTLY (one gather).
+            results = await asyncio.gather(
+                *[client.call_tool(t, d.args or {}) for (d, t) in valid], return_exceptions=True)
+
+            for (d, tool), result in zip(valid, results):
+                label = tool.get("friendly") or tool.get("connector_name") or d.tool
+                if isinstance(result, Exception):  # one failed call never sinks the batch
+                    yield {"type": "tool_result", "status": 0, "connector": tool.get("connector")}
+                    yield {"type": "thinking", "phase": "found", "text": f"· {label} 호출에 실패했어요"}
                     continue
-                seen_cites.add(key)
-                cit["index"] = len(citations) + 1  # 1-based [n] anchor
-                citations.append(cit)
-                cite_ctx.append((cit, tool, result.get("data")))
-                yield {"type": "citation", **cit}
-            for a in _artifacts(tool, result):  # U3: connector-backed figure cards
-                if a.title in seen_artifacts:
-                    continue
-                seen_artifacts.add(a.title)
-                a.args = decision.args or {}     # so a pinned card can re-fetch (U3-03)
-                art_objs.append(a)
-                art = a.model_dump()
-                artifacts.append(art)
-                yield {"type": "artifact", "artifact": art}
-            added = len(citations) - before
-            ok = result.get("status") == 200 and added > 0
-            yield {"type": "thinking", "phase": "found",
-                   "text": (f"✓ {label} · 근거 {added}건 확보" if ok else f"· {label}에서 새 근거를 찾지 못함")}
-            history.append((decision, result))
+                yield {"type": "tool_result", "status": result["status"], "connector": result.get("connector")}
+                before = len(citations)
+                for c in _citations(tool, result):
+                    cit = c.model_dump()
+                    key = (cit.get("source"), cit.get("url"))
+                    if key in seen_cites:  # de-dup repeated sources across tool calls
+                        continue
+                    seen_cites.add(key)
+                    cit["index"] = len(citations) + 1  # 1-based [n] anchor
+                    citations.append(cit)
+                    cite_ctx.append((cit, tool, result.get("data")))
+                    yield {"type": "citation", **cit}
+                for a in _artifacts(tool, result):  # U3: connector-backed figure cards
+                    if a.title in seen_artifacts:
+                        continue
+                    seen_artifacts.add(a.title)
+                    a.args = d.args or {}     # so a pinned card can re-fetch (U3-03)
+                    art_objs.append(a)
+                    art = a.model_dump()
+                    artifacts.append(art)
+                    yield {"type": "artifact", "artifact": art}
+                added = len(citations) - before
+                ok = result.get("status") == 200 and added > 0
+                yield {"type": "thinking", "phase": "found",
+                       "text": (f"✓ {label} · 근거 {added}건 확보" if ok else f"· {label}에서 새 근거를 찾지 못함")}
+                history.append((d, result))
         if not answered:
             yield {"type": "thinking", "phase": "synthesize", "text": "근거를 정리해 답변을 작성하는 중…"}
             final_text = fallback_answer(citations)
