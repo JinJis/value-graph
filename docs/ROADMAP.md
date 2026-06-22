@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 312 unit** — datasets 127 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 107 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 315 unit** — datasets 129 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 108 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -358,8 +358,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   Yahoo provider, grouped, best-effort per member (failures dropped, never faked). Catalog/MCP/agent
   wired; agent-engine renders it as a sourced **table artifact** (자산군 현황). +2 tests (datasets +
   agent), +1 eval scenario. *(no new upstream)*
-- ⬜ **CE-2 · 섹터 히트맵 (US).** Sector-ETF set → per-sector return heatmap (descriptive, sourced). 🔵
-  *(KR sector indices = Wave 2, needs KRX/KIS.)*
+- ✅ **CE-2 · 섹터 히트맵 (US).** New `yahoo__sector_heatmap` resource (`GET /market/sectors`): the 11
+  SPDR Select Sector ETFs (XLK/XLF/XLV/…) → per-sector day change via the existing Yahoo prices provider,
+  ranked leaders→laggards, best-effort (failed ETFs dropped, never faked). Catalog/MCP/agent wired;
+  agent-engine renders a sourced **table artifact** (섹터 히트맵). +3 tests (datasets +2, agent +1),
+  +1 eval scenario. *(no new upstream; KR sector indices = Wave 2, needs KRX/KIS.)*
 - ✅ **CE-3 · 거장 매매 + 공통 보유종목.** Extended the SEC 13F provider with `by_filer_quarters`
   (reads the two most recent distinct reporting periods from the submissions block, skipping amendment
   dupes) → two new resources: `sec_edgar__guru_trades` (`GET /gurus/trades?slug=`) diffs the latest vs

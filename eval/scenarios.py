@@ -179,6 +179,16 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-2: US sector heatmap — per-sector day change via SPDR sector ETFs.
+        "name": "Sector heatmap (섹터 히트맵)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["yahoo"]},
+        "question": "오늘 미국 증시에서 어떤 섹터가 강하고 어떤 섹터가 약해?",
+        "criteria": ("11개 GICS 섹터의 최근 등락을 SPDR 섹터 ETF 기반 Yahoo 출처 사실로 제시(강세/약세 순); "
+                     "전망·매수의견 없이 현황만."),
+        "checks": {"expect_connector": "yahoo__sector_heatmap", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # A2A: a complex, multi-facet request → decomposed into parallel sub-agents, then combined.
         "name": "A2A: comprehensive multi-facet analysis (combined)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},

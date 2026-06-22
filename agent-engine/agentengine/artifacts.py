@@ -117,6 +117,19 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__sector_heatmap") and isinstance(data.get("sectors"), list):
+        # CE-2: US sector heatmap → a sourced, ranked table card (섹터 히트맵).
+        def _pct(v):
+            return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+        rows = [["섹터", "ETF", "등락%"]]
+        for s in data["sectors"]:
+            rows.append([s.get("sector", ""), s.get("ticker", ""), _pct(s.get("change_percent"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="섹터 히트맵 (S&P 500)", table=rows,
+                                source=src or "Yahoo Finance", as_of=data.get("as_of"),
+                                freshness=compute_freshness(data.get("as_of")), tool=name))
+
     if name.endswith("__guru_trades") and isinstance(data.get("trades"), list):
         # CE-3: 거장 매매 — quarter-over-quarter 13F moves → a sourced table card.
         def _usd(v):

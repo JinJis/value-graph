@@ -1546,6 +1546,18 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_sector_heatmap_table():
+    # CE-2: sector heatmap → a sourced ranked table card.
+    tool = {"name": "yahoo__sector_heatmap", "source": "Yahoo Finance"}
+    result = {"data": {"sectors": [
+        {"sector": "기술", "ticker": "XLK", "change_percent": 2.5},
+        {"sector": "금융", "ticker": "XLF", "change_percent": -1.0}],
+        "source": "Yahoo Finance", "as_of": "2024-01-02"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.table[0] == ["섹터", "ETF", "등락%"]
+    assert a.table[1] == ["기술", "XLK", "+2.50%"] and a.table[2][2] == "-1.00%"
+
+
 def test_artifacts_from_technical_indicators_become_overlay_artifact():
     # PH-VIZ-4: /technical-indicators → a standalone overlay artifact (price-pane + sub-pane).
     tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}

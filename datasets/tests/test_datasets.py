@@ -418,6 +418,41 @@ async def test_cross_asset_snapshot_drops_failures(monkeypatch):
     assert members and all(m["price"] is not None for m in members)  # failures omitted, not faked
 
 
+async def test_ce2_sector_heatmap_ranks_and_drops_failures(monkeypatch):
+    # CE-2: sector heatmap keeps reachable ETFs, ranks by day change, DROPS failures.
+    import app.store.sectors as SE
+
+    class _Snap:
+        def __init__(self, price, pct):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.0, pct, "2024-01-02 16:00"
+
+    pcts = {"XLK": 2.5, "XLF": -1.0, "XLE": 0.5}
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in pcts:
+                return _Snap(100.0, pcts[ref.ticker])
+            raise RuntimeError("upstream blocked")  # all others fail → dropped
+
+    monkeypatch.setattr(SE, "get_prices_provider", lambda m: _Prov())
+    data = await SE.sector_heatmap()
+    tickers = [s["ticker"] for s in data["sectors"]]
+    assert tickers == ["XLK", "XLE", "XLF"]  # ranked by change_percent desc, failures omitted
+    assert data["source"] == "Yahoo Finance" and all(s["price"] is not None for s in data["sectors"])
+
+
+def test_ce2_sector_heatmap_route(monkeypatch):
+    import app.routers.market as M
+
+    async def _fake():
+        return {"sectors": [{"sector": "기술", "ticker": "XLK", "price": 100.0,
+                             "change": 2.0, "change_percent": 2.5, "as_of": "2024-01-02"}],
+                "source": "Yahoo Finance", "as_of": "2024-01-02"}
+    monkeypatch.setattr(M, "sector_heatmap", _fake)
+    b = client.get("/market/sectors").json()
+    assert b["source"] == "Yahoo Finance" and b["sectors"][0]["sector"] == "기술"
+
+
 def test_universe_sources_listed_and_endpoint():
     from app.store.universes import SOURCES, list_presets
     ids = {u["id"] for u in list_presets()}

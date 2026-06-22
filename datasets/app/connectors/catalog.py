@@ -146,6 +146,10 @@ CONNECTORS: list[ConnectorManifest] = [
                      description="Cross-asset snapshot (자산군): indices, rates, commodities, FX, crypto — descriptive levels + day change.",
                      path="/market/asset-classes", output_model="CrossAssetResponse", cost_tier=CostTier.free,
                      params=[], provenance=PROV_YAHOO),
+            Resource(name="sector_heatmap",
+                     description="US sector heatmap (섹터 히트맵): 11 GICS sectors via SPDR ETFs — ranked day change, descriptive.",
+                     path="/market/sectors", output_model="SectorHeatmapResponse", markets=["US"], cost_tier=CostTier.free,
+                     params=[], provenance=PROV_YAHOO),
         ],
     ),
     ConnectorManifest(
