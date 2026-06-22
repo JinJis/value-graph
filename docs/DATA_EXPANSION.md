@@ -166,9 +166,9 @@ roadmap updated (Definition of Done).
   grouping + cycle composites + a browse UI. 🟡
 - **CE-10 · 실시간 내러티브** — LLM narrative over the (existing) news ingestion. 🔵
 
-**Wave 2 — confirmed new upstreams** (only after you confirm the API in Open Questions)
-- **CE-11 · 시장 movers / 실적·경제 캘린더 / 추정치** via the confirmed provider (FMP or Finnhub) → market
-  movers, earnings/econ calendars, consensus estimates (실적 및 전망, 실적 발표 일정, 경제지표 일정). 🔴❓
+**Wave 2 — new upstreams** (build start on hold per the user; CE-11 upstream + policy now CONFIRMED)
+- **CE-11 · 시장 movers / 실적·경제 캘린더 / 추정치** via **FMP** (confirmed) → market movers, earnings/econ
+  calendars, consensus estimates (실적 및 전망, 실적 발표 일정, 경제지표 일정), shown as sourced data. 🔵 (ready)
 - **CE-12 · KR 실시간·플로우·랭킹·ETF NAV** via KIS (KIS-* tasks) → KR movers/flows/realtime, KR sector. 🔴
 - **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - **CE-14 · IR자료실 + 밸류체인** — IR decks (8-K exhibits/DART/scrape) + value-chain graph (LLM-extract
@@ -180,16 +180,20 @@ agent's tool list, and the chart/evidence/provenance pipeline. No forked surface
 
 ---
 
-## E. Open questions — need your confirmation before Wave 2
+## E. Decisions (2026-06-22) + remaining open items
 
-1. **Primary gap-filler upstream.** For estimates + calendars + market movers, do we adopt **FMP**
-   (one platform key, broadest coverage — we already reserve `FMP_API_KEY`), **Finnhub** (free-tier
-   friendly), **free-first + KIS-only** (skip US estimates/calendars for now), or do you want to research
-   specific APIs/specs yourself first?
-2. **Estimates / "전망" & calendars vs the guardrail.** OK to show third-party **consensus estimates +
-   earnings/econ dates as sourced DATA** (attributed, never our prediction)? Or keep them out to preserve
-   the strict no-forecast brand?
-3. **Realtime/premium news.** Which provider/budget (Finnhub free vs Benzinga/Polygon paid)? Real-time
-   streaming or just faster polling?
-4. **IR materials & value chain** have no clean free API — OK to **derive** them (IR from SEC 8-K
-   exhibits/DART; value chain via LLM extraction from filings, clearly labeled "derived")?
+**Decided by the user:**
+1. ✅ **Primary gap-filler upstream = FMP** (Financial Modeling Prep) — one platform-held key for
+   estimates + earnings/econ/IPO/dividend calendars + market movers + sector performance + screener/DCF
+   inputs. `FMP_API_KEY` already reserved. (Finnhub/Polygon stay as fallbacks only.)
+2. ✅ **Estimates + calendars are allowed as SOURCED DATA** — show consensus estimates / earnings & econ
+   dates **attributed to the provider** ("consensus EPS 2.10 · source FMP · as_of …"), never re-stated as
+   *our* forecast/target. DCF/DDM/RIM stay transparent user-input models. The guardrail still refuses
+   *our* predictions/advice; third-party data with provenance is fine.
+3. ✅ **Build start: HOLD.** Plan is approved for review; do NOT start CE tasks until the user gives the go.
+
+**Still open (decide before those specific tasks):**
+- **CE-13 realtime/premium news** — provider/budget not chosen yet (FMP has some news; else Finnhub free
+  vs Benzinga/Polygon paid). Confirm before CE-13.
+- **CE-14 IR materials & value chain** — no clean free API; propose deriving (IR from SEC 8-K exhibits/
+  DART; value chain via LLM extraction from filings, labeled "derived"). Confirm before CE-14.

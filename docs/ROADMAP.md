@@ -366,9 +366,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   composites (사이클) + indicator browse (열람) + country panels (국가경제). 🟡
 - ⬜ **CE-10 · 실시간 내러티브.** LLM narrative over the existing news ingestion. 🔵
 
-**Wave 2 — new upstreams (BLOCKED on user confirmation — DATA_EXPANSION §E):**
-- ⬜ **CE-11 · 시장 movers · 실적/경제 캘린더 · 컨센서스 추정치** via the confirmed provider (FMP/Finnhub).
-  Covers 금융시장 동향(movers), 실적 및 전망, 실적 발표 일정, 경제지표 일정. 🔴❓
+**Wave 2 — new upstreams** *(build start ON HOLD per user; CE-11 upstream + estimates policy CONFIRMED — DATA_EXPANSION §E)*:
+- ⬜ **CE-11 · 시장 movers · 실적/경제 캘린더 · 컨센서스 추정치** via **FMP** (confirmed; platform key).
+  Covers 금융시장 동향(movers), 실적 및 전망, 실적 발표 일정, 경제지표 일정 — shown as **sourced data**
+  (attributed, never our forecast). 🟢 ready
 - ⬜ **CE-12 · KR 실시간·플로우·랭킹·ETF NAV** via KIS (= KIS-* tasks). KR movers/flows/realtime/sector. 🔴
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
