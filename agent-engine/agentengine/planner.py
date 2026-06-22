@@ -38,6 +38,30 @@ from agentengine.gemini_io import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+# The responder prompt. The whole point: a rich answer that MIXES our sourced evidence with
+# the model's own analyst expertise — not a terse restatement of fetched rows. Hard rules keep
+# it trustworthy: every NUMBER/specific fact comes from a source and is cited; the model may
+# (and should) add qualitative context/definitions/interpretation; no forecast/advice; no
+# fabricated figures; no tool names or raw URLs in the prose.
+_SYNTHESIS_PROMPT = (
+    "당신은 노련한 금융 리서치 애널리스트입니다. 사용자의 질문에 같은 언어로, 명확하고 깊이 있으며 "
+    "실제로 유용한 답변을 마크다운으로 작성하세요.\n\n"
+    "구성: (1) 질문에 대한 직접적인 핵심 답변을 먼저, (2) 이를 뒷받침하는 수치·근거, (3) 전문가 관점의 "
+    "맥락·배경·의미 해석(서술적)을 자연스럽게 엮으세요.\n\n"
+    "반드시 지킬 원칙:\n"
+    "- 구체적 수치·날짜·고유 사실은 위에 제공된 자료에서만 가져오고, 문장 끝에 [n]으로 인용하세요. "
+    "시스템 지침의 'Sources' 목록에 있는 정확한 번호만 쓰고, 새 번호를 만들거나 순서를 바꾸지 마세요. "
+    "자료에 없는 수치를 지어내거나 출처에 없는 숫자를 붙이지 마세요(근거 없는 수치는 절대 금지).\n"
+    "- 동시에, 수치만 나열하지 말고 애널리스트로서 정의·배경·의미·비교 관점 등 정성적 해설을 풍부하게 "
+    "덧붙여 답을 입체적으로 만드세요. 이 해설은 '분석'이며 일반 지식에서 와도 좋지만, 구체적 수치로 단정하지 마세요.\n"
+    "- 자료가 부족하거나 없으면, 일반적·개념적 설명은 충실히 제공하되 구체적 수치는 단정하지 말고 "
+    "어떤 자료를 더 보면 되는지 솔직히 안내하세요.\n"
+    "- 가격 예측·목표가·매수/매도 의견은 절대 금지(과거·현재의 서술적 설명만). 별도 면책 문구는 덧붙이지 마세요.\n"
+    "- 내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 노출하지 말고, "
+    "원문 링크(URL)도 본문에 직접 쓰지 마세요 — [n] 번호만 쓰면 링크는 출처 카드에 표시됩니다."
+)
+
+
 @dataclass
 class Decision:
     tool: str | None = None
@@ -121,23 +145,18 @@ class GeminiPlanner:
         contents = _to_gemini_contents(conversation, history, task)
 
         if force_final:
-            prompt = (
-                "위 데이터에만 근거해 핵심을 간결하고 자연스럽게 답하세요(질문과 같은 언어로). "
-                "수치는 단위·기간과 함께 제시하고, 출처는 기관 이름(예: OpenDART, SEC EDGAR)으로 자연스럽게 언급하세요. "
-                "근거가 된 출처는 문장 끝에 [n] 번호로 인용하되, 시스템 지침의 'Sources' 목록에 있는 "
-                "정확한 번호만 사용하고 새 번호를 만들거나 순서를 바꾸지 마세요. "
-                "원문 링크(URL)는 본문에 직접 쓰지 마세요 — [n] 번호만 쓰고, 링크는 출처 카드에 표시됩니다. "
-                "내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 절대 노출하지 마세요. "
-                "가격 예측이나 매수/매도 의견은 금지하며, 별도의 면책 문구는 덧붙이지 마세요."
-            )
-            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt)]))
+            # The rich responder: MIX our sourced evidence (cited, never fabricated) with the
+            # model's own analyst context, so the answer is genuinely useful — not a terse
+            # data-dump. Numbers stay sourced (invariant #1); qualitative insight is the model's.
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=_SYNTHESIS_PROMPT)]))
             config = types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.2,
+                temperature=0.45,   # warmer than routing → richer, more natural prose
             )
-            resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
+            # use the dedicated (light) response model, falling back to the planner model.
+            model = settings.synthesis_model or self.model
+            resp = await asyncio.to_thread(self._client.models.generate_content, model=model, contents=contents, config=config)
             text_val = _get_text_from_response(resp)
-            logger.info("force_final response candidate content parts: %s", resp.candidates[0].content.parts if resp.candidates else None)
             return Decision(final=text_val)
 
         decls = [

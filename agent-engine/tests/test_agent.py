@@ -352,6 +352,47 @@ async def test_intake_guardrail_judges_intent(monkeypatch):
     assert intake.restricted is False
 
 
+async def test_intake_routes_conceptual_vs_data(monkeypatch):
+    # The intake routes purely conceptual questions away from the tool loop (needs_data=False),
+    # while data questions keep needs_data=True (and default True when the model omits it).
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    mock_resp.text = '{"restricted": false, "score": 0.0, "needs_data": false, "steps": 2, "plan": ""}'
+    assert (await A.analyze_task("PER이 뭐야?", "gemini")).needs_data is False
+
+    mock_resp.text = '{"restricted": false, "score": 0.0, "needs_data": true, "steps": 3, "plan": "가격 조회"}'
+    assert (await A.analyze_task("AAPL 최근 종가", "gemini")).needs_data is True
+
+    mock_resp.text = '{"restricted": false, "score": 0.0, "steps": 3}'   # omitted → default True
+    assert (await A.analyze_task("삼성전자 매출", "gemini")).needs_data is True
+
+
+async def test_chat_stream_conceptual_skips_tools(monkeypatch):
+    # needs_data=False → the chat answers richly without any tool call or data-plane fetch.
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+
+    async def _conceptual(_task, _backend=None):
+        return TaskIntake(steps=3, restricted=False, needs_data=False, plan=None)
+
+    monkeypatch.setattr(C, "analyze_task", _conceptual)
+    events = [e async for e in stream_chat([{"role": "user", "content": "PER이 뭐야?"}], "vgk_x")]
+    assert all(e["type"] != "tool" for e in events)          # no tool call
+    assert any(e["type"] == "token" for e in events)         # but a real answer streamed
+    done = events[-1]
+    assert done["type"] == "done" and done["refused"] is False and done["citations"] == []
+
+
 def test_citations_use_per_hit_rag_provenance():
     # RAG answers must cite each passage's REAL source/url, not the connector's
     # generic label (the eval caught the agent citing "Platform RAG" instead).

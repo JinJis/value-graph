@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 286 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 92 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 288 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 94 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (29 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (31 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -619,8 +619,19 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     Scores ride back on the citations; the web shows a **신뢰 높음/보통/낮음** chip on each source-preview
     card (with the rationale on hover) — the trust brand, descriptive, never a forecast. Gemini-only,
     best-effort. +1 agent test (92→93).
-  - ⬜ **Next: deeper orchestration** — parallel multi-source gather; full A2A orchestrator + sub-agent
-    cards. *(builds on docs/IDEA.md A2A.)*
+  - ✅ **Rich responder — mix sourced facts with analyst context (fixes "answers too rigid").** The old
+    synthesis prompt said "위 데이터에**만** 근거해 **간결**하게" → terse data-dumps with no insight. Now a
+    dedicated, configurable **response model** (`AGENT_SYNTHESIS_MODEL`, light flash-tier, temp 0.45)
+    composes a rich answer that **mixes**: every specific NUMBER/date/fact stays sourced + cited `[n]`
+    (invariant #1 — no fabricated figures), while the model adds analyst context/definitions/interpretation
+    from its own expertise (descriptive; guardrail still bans forecast/advice). The intake also routes
+    **conceptual/definitional questions** (`needs_data=false`) straight to a rich explanation, skipping the
+    tool loop (no more doomed tool calls for "PER이 뭐야?"). +2 agent tests, +2 eval scenarios (conceptual,
+    rich-mix). *(agent-engine: planner `_SYNTHESIS_PROMPT`, `analyze_task.needs_data`, chat/run_agent paths.)*
+  - ⬜ **Next: deeper orchestration** — clarify-with-options (offer the user planning choices before
+    executing); parallel multi-source gather; full A2A orchestrator + sub-agent cards. *(builds on
+    docs/IDEA.md A2A; the "Claude Code for finance" direction — analyze → propose/pick → execute many →
+    combine.)*
 - ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
   operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
   One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.

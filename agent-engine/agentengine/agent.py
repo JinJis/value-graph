@@ -84,6 +84,8 @@ class TaskIntake:
     restricted: bool = False     # the user asked for forecast/advice/target as output → refuse
     score: float = 0.0           # confidence (0..1) it's a restricted REQUEST
     reason: str | None = None    # one-line why (shown for telemetry)
+    needs_data: bool = True      # does answering require our tools/data? False = conceptual →
+    #                              answer richly from expertise, skip the tool loop.
 
 
 _INTAKE_PROMPT = (
@@ -100,16 +102,22 @@ _INTAKE_PROMPT = (
     "'목표가는 제시하지 말고 가격 흐름만', '전망·매수의견은 넣지 말고 사실 위주로', 'do NOT give a "
     "forecast, just what happened'. Descriptive past/current facts, news summaries, filings, "
     "financials, and macro data are ALWAYS allowed.\n\n"
-    "PLAN — when allowed, size the work and outline it (no answer, no numbers).\n\n"
+    "PLAN — when allowed, size the work and outline it (no answer, no numbers).\n"
+    "DATA ROUTING — set needs_data=true when answering requires looking up sourced financial DATA "
+    "(prices, filings, financial statements, macro indicators, holdings, news, a specific company's "
+    "figures). Set needs_data=false for purely CONCEPTUAL/definitional/how-to questions answerable from "
+    "general knowledge (e.g. 'PER이 뭐야?', 'how does an ETF work?', 'explain DCF') — those are answered "
+    "richly from expertise without a tool call.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
     '"score": <number 0..1 — confidence it is a restricted REQUEST>, '
     '"reason": "<one short line, SAME LANGUAGE as the question>", '
+    '"needs_data": <bool — true if sourced data lookup is required, false if conceptual>, '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
     '"plan": "<one short sentence, SAME LANGUAGE as the question, of what data you will look up and '
-    'from which kind of source — NOT the answer, no numbers; empty string if restricted>"}}\n\n'
+    'from which kind of source — NOT the answer, no numbers; empty string if restricted or conceptual>"}}\n\n'
     "Question: {task}"
 )
 
@@ -120,6 +128,7 @@ _INTAKE_SCHEMA = {
         "category": {"type": "string", "enum": ["forecast", "advice", "price_target", "none"]},
         "score": {"type": "number"},
         "reason": {"type": "string"},
+        "needs_data": {"type": "boolean"},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -158,11 +167,15 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
         # refuse only when the model both flags it AND is confident enough (a low-confidence
         # guess never blocks a legitimate question).
         restricted = bool(d.get("restricted")) and score >= settings.guardrail_threshold
+        # default to needs_data=True when the model omits it (gathering data is the safe default).
+        needs_data = d.get("needs_data")
+        needs_data = True if needs_data is None else bool(needs_data)
         return TaskIntake(
             steps=(max(floor, min(n, cap)) if n else default),
             plan=(None if restricted else (str(d.get("plan") or "").strip() or None)),
             restricted=restricted, score=score,
             reason=(str(d.get("reason") or "").strip() or None),
+            needs_data=needs_data,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)
@@ -302,6 +315,14 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
     system = spec.system if spec else None
     if intake.plan:
         system = ((system or "") + f"\n\n[연구 계획] {intake.plan}").strip()
+
+    # Conceptual question → answer richly from expertise, skip the tool loop (guardrail still
+    # applies; the responder won't assert specific unsourced figures).
+    if not intake.needs_data:
+        planner = get_planner(spec.backend if spec else None)
+        dec = await planner.plan(task, {}, [], system, force_final=True, sources=None)
+        return RunResult(answer=(dec.final or fallback_answer([])), refused=False, usage={"steps": 0})
+
     client = PlatformClient(api_key)
     tools = await client.fetch_tools()
     if spec and spec.allowed_tools:

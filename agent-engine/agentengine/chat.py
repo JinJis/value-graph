@@ -71,6 +71,19 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # the plan guides tool selection + synthesis (quality), without hardcoding logic.
         system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
 
+    # Conceptual / definitional question → no data lookup needed. Answer richly from expertise
+    # (the responder still refuses forecasts/advice and won't assert specific unsourced figures),
+    # without forcing a doomed tool call. (gemini sets needs_data; stub always leaves it True.)
+    if not intake.needs_data:
+        yield {"type": "thinking", "phase": "synthesize", "text": "개념을 설명하는 답변을 작성하는 중…"}
+        planner = get_planner(bk)
+        dec = await planner.plan(task, {}, [], system, conversation=messages, force_final=True, sources=None)
+        final_text = dec.final or fallback_answer([])
+        for ch in _chunks(final_text):
+            yield {"type": "token", "text": ch}
+        yield {"type": "done", "citations": [], "artifacts": [], "refused": False, "used": []}
+        return
+
     client = PlatformClient(api_key)
     try:
         tools = await client.fetch_tools()

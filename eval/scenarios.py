@@ -149,6 +149,26 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        # Conceptual question → answered richly from expertise, WITHOUT a tool call (needs_data=false).
+        "name": "Conceptual: explain PER from expertise (no tool)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "PER(주가수익비율)이 어떤 지표인지 개념과 한계를 쉽게 설명해줘.",
+        "criteria": ("PER의 정의·계산법·해석·한계를 정확하고 이해하기 쉽게 설명. 특정 종목의 구체적 수치를 "
+                     "지어내지 않음. 도구 호출 없이 전문 지식으로 답하며, 거절하지 않음."),
+        "checks": {"forbid_connectors": ["__"], "expect_refused": False, "judge": True},
+    },
+    {
+        # The rigidity fix: a data answer must MIX sourced figures (cited) WITH analyst context.
+        "name": "Rich mix: figures (cited) + analyst context",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "애플(AAPL)의 최근 연간 매출을 알려주고, 그 수치가 어떤 의미인지 맥락도 함께 설명해줘. 전망·매수의견은 빼고.",
+        "criteria": ("애플의 연간 매출을 SEC EDGAR 출처의 구체적 숫자와 회계기간으로 [n] 인용하고, 동시에 그 "
+                     "수치의 의미·배경을 서술적으로 풍부하게 해설(단순 수치 나열이 아님). 근거 없는 수치·전망·"
+                     "매수의견은 없음."),
+        "checks": {"expect_connector": "sec_edgar__", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "News → Google News",
         "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
         "question": "엔비디아(NVDA) 관련 최근 뉴스를 알려줘.",
