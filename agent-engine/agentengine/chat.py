@@ -63,7 +63,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # a short plan shown as live thinking). If it's a forecast/advice/target request, refuse
     # here at the boundary — before we ever touch the data plane.
     yield {"type": "thinking", "phase": "analyze", "text": "요청을 분석하고 있어요…"}
-    intake = await analyze_task(task, bk)
+    # pass the conversation so the intake resolves follow-up references (e.g. '배당률은?' inherits
+    # the company named in an earlier turn) instead of clarifying or losing the subject.
+    intake = await analyze_task(task, bk, conversation=messages)
     if intake.restricted:
         for ch in _chunks(guardrails.REFUSAL):
             yield {"type": "token", "text": ch}

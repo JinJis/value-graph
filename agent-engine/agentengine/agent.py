@@ -151,7 +151,12 @@ _INTAKE_PROMPT = (
     'ask ≈ 8-12>, '
     '"plan": "<one short sentence, SAME LANGUAGE as the question, of what data you will look up and '
     'from which kind of source — NOT the answer, no numbers; empty if restricted/conceptual/clarify>"}}\n\n'
-    "Question: {task}"
+    "CONVERSATION SO FAR (for CONTEXT only — the latest question may refer back to it). A follow-up "
+    "like '배당률은?', '그 회사 주가는?', 'what about its margins?' INHERITS the company/subject named "
+    "earlier. RESOLVE such references and treat the question as if it named that subject explicitly; "
+    "do NOT set clarify for something the context already determines. Plan/reason should name the "
+    "resolved subject.\n{context}\n\n"
+    "Latest question: {task}"
 )
 
 _INTAKE_SCHEMA = {
@@ -177,11 +182,25 @@ _INTAKE_SCHEMA = {
 }
 
 
-async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
+def _intake_context(conversation: list | None, limit: int = 6) -> str:
+    """A short transcript of the recent turns so the intake can resolve follow-up references
+    (a company/topic named earlier). Excludes the latest user turn (that's the question)."""
+    msgs = [m for m in (conversation or []) if (m.get("content") or "").strip()]
+    if len(msgs) <= 1:
+        return "(no prior turns)"
+    lines = []
+    for m in msgs[:-1][-limit:]:
+        role = "사용자" if m.get("role") == "user" else "분석가"
+        lines.append(f"{role}: {(m.get('content') or '').strip()[:300]}")
+    return "\n".join(lines) or "(no prior turns)"
+
+
+async def analyze_task(task: str, backend: str | None = None, conversation: list | None = None) -> TaskIntake:
     """PH-THINK: ONE first-pass LLM call that BOTH guardrails the request (judging intent in
     context — never keyword matching) AND plans it (step budget + a short plan to show the user).
-    The guardrail lives here, inside the analysis layer. Stub / no-key / error → allow with the
-    default budget and no plan (the LLM is the only judge; there is no keyword fallback)."""
+    The guardrail lives here, inside the analysis layer. `conversation` (prior turns) lets the
+    intake RESOLVE follow-up references (e.g. '배당률은?' inherits the earlier company) instead of
+    clarifying. Stub / no-key / error → allow with the default budget and no plan."""
     cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
     if (backend or settings.llm_backend) != "gemini":
         return TaskIntake(steps=default)
@@ -193,7 +212,7 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
         client = genai.Client()
         resp = await asyncio.to_thread(
             client.models.generate_content, model=settings.budget_model,
-            contents=_INTAKE_PROMPT.format(task=(task or "")[:800]),
+            contents=_INTAKE_PROMPT.format(task=(task or "")[:800], context=_intake_context(conversation)),
             config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json",
                                                response_schema=_INTAKE_SCHEMA, max_output_tokens=400))
         d = json.loads(getattr(resp, "text", "") or "{}")

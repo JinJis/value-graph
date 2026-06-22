@@ -382,7 +382,7 @@ async def test_chat_stream_conceptual_skips_tools(monkeypatch):
 
     _gw(monkeypatch)
 
-    async def _conceptual(_task, _backend=None):
+    async def _conceptual(_task, _backend=None, conversation=None):
         return TaskIntake(steps=3, restricted=False, needs_data=False, plan=None)
 
     monkeypatch.setattr(C, "analyze_task", _conceptual)
@@ -426,7 +426,7 @@ async def test_chat_stream_clarify_offers_options(monkeypatch):
 
     _gw(monkeypatch)
 
-    async def _clarify(_task, _backend=None):
+    async def _clarify(_task, _backend=None, conversation=None):
         return TaskIntake(steps=6, restricted=False, clarify=True, multi=True,
                           clarify_prompt="무엇을 볼까요?",
                           options=[{"label": "주가 흐름"}, {"label": "최근 뉴스"}])
@@ -530,6 +530,21 @@ def test_artifacts_from_guru_common_table():
     assert a.kind == "table" and a.title == "거장 공통 보유종목"
     assert a.table[1][0] == "AAPL" and a.table[1][1] == "3"
     assert "Warren Buffett" in a.table[1][2]
+
+
+def test_intake_context_builds_recent_transcript():
+    # the intake sees prior turns so a follow-up ('배당률은?') resolves the earlier company.
+    convo = [
+        {"role": "user", "content": "삼성전자 배당 알려줘"},
+        {"role": "assistant", "content": "삼성전자의 최근 배당은 ... 입니다 [1]."},
+        {"role": "user", "content": "배당률은 얼마야?"},  # the latest turn → excluded from context
+    ]
+    ctx = A._intake_context(convo)
+    assert "삼성전자 배당 알려줘" in ctx and "사용자:" in ctx and "분석가:" in ctx
+    assert "배당률은 얼마야?" not in ctx  # the question itself isn't part of the context block
+    # zero or single prior turn → explicit sentinel
+    assert A._intake_context([{"role": "user", "content": "hi"}]) == "(no prior turns)"
+    assert A._intake_context(None) == "(no prior turns)"
 
 
 def test_build_narrative_artifact_splits_sections():
@@ -808,7 +823,7 @@ async def test_run_refuses_forecast(monkeypatch):
     # boundary (no tool steps), without touching the data plane.
     _gw(monkeypatch)
 
-    async def _restricted(_task, _backend=None):
+    async def _restricted(_task, _backend=None, conversation=None):
         return A.TaskIntake(steps=3, restricted=True, score=0.95, reason="forecast")
 
     monkeypatch.setattr(A, "analyze_task", _restricted)
@@ -887,7 +902,7 @@ async def test_chat_stream_a2a_decomposes_and_combines(monkeypatch):
     respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
         return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
 
-    async def _intake(_task, _backend=None):
+    async def _intake(_task, _backend=None, conversation=None):
         return TaskIntake(steps=10, needs_data=True, subtasks=[
             {"title": "주가", "question": "NVDA 최근 주가"},
             {"title": "리스크", "question": "NVDA 공시 리스크"}])
@@ -946,7 +961,7 @@ async def test_chat_stream_real_token_streaming(monkeypatch):
     respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
         return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
 
-    async def _intake(_t, _b=None):
+    async def _intake(_t, _b=None, conversation=None):
         return TaskIntake(steps=2, needs_data=True)
 
     async def _no_refine(*a, **k):
@@ -1100,7 +1115,7 @@ async def test_chat_stream_guardrail_refuses(monkeypatch):
 
     _gw(monkeypatch)
 
-    async def _restricted(_task, _backend=None):
+    async def _restricted(_task, _backend=None, conversation=None):
         return TaskIntake(steps=3, restricted=True, score=0.95, reason="advice")
 
     monkeypatch.setattr(C, "analyze_task", _restricted)

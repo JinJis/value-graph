@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 321 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 110 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 322 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 111 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -352,6 +352,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **FIX · 대화 기억 (follow-up context).** A follow-up ('배당률은?', '그 회사 주가는?') lost the
+  subject because `analyze_task` (the intake) only saw the latest message — so it clarified or routed
+  with no company even though the web sends full history and the planner already resolves references.
+  Fix: pass the conversation into `analyze_task`; the intake prompt now carries a recent transcript and
+  resolves follow-up references (inherits the earlier company/topic) instead of clarifying. +1 agent test.
 - ✅ **FIX · 공시 본문 검색 (DART narrative).** Two real bugs surfaced by "find the filing passage that
   mentions 공급망/AI 수요": (1) KR `filings` ignored `filing_type` and returned date-ordered 지분/소유
   noise — now ranks 정기보고서·주요사항·감사 ahead of ownership reports + honors `filing_type`. (2) Filing
