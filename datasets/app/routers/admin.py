@@ -92,30 +92,33 @@ async def pipelines() -> dict:
     ),
 )
 async def pipelines_run(body: PipelineRunRequest) -> dict:
-    # resolve the universe → [(market, tickers)] (dynamic fetch for preset ids)
-    if body.preset:
-        groups = await resolve_universe(body.preset)
-    elif body.market and body.tickers:
+    ids = resolve_pipeline_ids(body.pipelines)
+
+    async def _run_groups(groups: list) -> None:
+        for market, tickers in groups:
+            if tickers:
+                await run_pipelines(market.value, tickers, ids)
+
+    # Explicit market+tickers resolve instantly → report counts. A PRESET may need a slow upstream
+    # fetch (pykrx/SEC/OpenDART), so resolve it INSIDE the background task — the request returns
+    # immediately and never times out (the old sync resolve was why a flaky KR fetch read as 실패).
+    if body.market and body.tickers:
         from app.symbols import Market
         try:
             groups = [(Market(body.market.upper()), body.tickers)]
         except ValueError:
             return {"started": False, "detail": f"unknown market {body.market!r}"}
-    else:
-        return {"started": False, "detail": "preset or (market + tickers) required"}
-    if not groups:
-        return {"started": False, "detail": "empty universe"}
-    ids = resolve_pipeline_ids(body.pipelines)
-
-    async def _run_all() -> None:
-        for market, tickers in groups:
-            await run_pipelines(market.value, tickers, ids)
-
-    asyncio.create_task(_run_all())
-    total = sum(len(t) for _, t in groups)
-    return {"started": True, "pipelines": ids,
-            "universe": [{"market": m.value, "count": len(t)} for m, t in groups],
-            "tickers_total": total, "see": "/admin/jobs"}
+        asyncio.create_task(_run_groups(groups))
+        return {"started": True, "pipelines": ids,
+                "universe": [{"market": m.value, "count": len(t)} for m, t in groups],
+                "tickers_total": len(body.tickers), "see": "/admin/jobs"}
+    if body.preset:
+        async def _run_preset() -> None:
+            groups = await resolve_universe(body.preset)  # dynamic fetch (may be slow)
+            await _run_groups(groups)
+        asyncio.create_task(_run_preset())
+        return {"started": True, "pipelines": ids, "preset": body.preset, "see": "/admin/jobs"}
+    return {"started": False, "detail": "preset or (market + tickers) required"}
 
 
 @router.get("/jobs", dependencies=[ApiKeyDep], summary="Recent ingestion jobs (backfill / scheduled)")

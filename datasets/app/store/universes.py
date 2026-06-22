@@ -56,27 +56,47 @@ async def _fetch_us_all() -> list[str]:
 
 
 def _kr_by_cap_sync(market: str, n: int | None) -> list[str]:
-    from pykrx import stock
-    d = stock.get_nearest_business_day_in_a_week()
+    """pykrx top-N by market cap. Whole body guarded — pykrx scrapes KRX/Naver and often fails
+    on cloud IPs (like FRED), so it must NEVER raise (→ empty, then we fall back to OpenDART)."""
     try:
-        cap = stock.get_market_cap_by_ticker(d, market=market)
-        if cap is not None and not cap.empty:
-            col = "시가총액" if "시가총액" in cap.columns else cap.columns[0]
-            ranked = cap.sort_values(col, ascending=False)
-            idx = ranked.index.tolist() if n is None else ranked.head(n).index.tolist()
-            return [str(t) for t in idx]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("pykrx market-cap list failed (%s); falling back to ticker list", exc)
-    try:
+        from pykrx import stock
+        d = stock.get_nearest_business_day_in_a_week()
+        try:
+            cap = stock.get_market_cap_by_ticker(d, market=market)
+            if cap is not None and not cap.empty:
+                col = "시가총액" if "시가총액" in cap.columns else cap.columns[0]
+                ranked = cap.sort_values(col, ascending=False)
+                idx = ranked.index.tolist() if n is None else ranked.head(n).index.tolist()
+                return [str(t) for t in idx]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("pykrx market-cap list failed (%s); trying ticker list", exc)
         lst = stock.get_market_ticker_list(d, market=market) or []
         return [str(t) for t in lst][: (n or len(lst))]
+    except Exception as exc:  # noqa: BLE001 — import/network/etc. → empty → OpenDART fallback
+        logger.warning("pykrx KR universe unavailable for %s: %s", market, exc)
+        return []
+
+
+async def _kr_opendart_tickers(n: int | None) -> list[str]:
+    """Reliable KR fallback via OpenDART (keyed): all listed 6-digit stock codes. No board split
+    or cap ranking (corpCode.xml lacks them), but it WORKS where pykrx is blocked."""
+    try:
+        from app.providers.kr.opendart import _corp_map
+        cmap = await _corp_map()
+        codes = sorted(c for c in cmap.keys() if c and c.isdigit())
+        return codes[:n] if n else codes
     except Exception as exc:  # noqa: BLE001
-        logger.warning("pykrx ticker list failed for %s: %s", market, exc)
+        logger.warning("OpenDART KR fallback failed: %s", exc)
         return []
 
 
 async def _fetch_kr(market: str, n: int | None):
-    return await asyncio.to_thread(_kr_by_cap_sync, market, n)
+    tickers = await asyncio.to_thread(_kr_by_cap_sync, market, n)
+    if tickers:
+        return tickers
+    # pykrx blocked/empty (common on cloud) → OpenDART list so KR backfill still runs
+    logger.info("KR universe: pykrx empty for %s, using OpenDART corp list", market)
+    return await _kr_opendart_tickers(n)
 
 
 # id -> {label, market, approx, fetch}
@@ -91,6 +111,8 @@ SOURCES: dict[str, dict] = {
                      "fetch": lambda: _fetch_kr("KOSPI", None)},
     "kr_kosdaq_all": {"label": "코스닥 전체 (동적)", "market": "KR", "approx": 1600,
                       "fetch": lambda: _fetch_kr("KOSDAQ", None)},
+    "kr_listed": {"label": "KR 상장 전체 (OpenDART, 안정적)", "market": "KR", "approx": 2800,
+                  "fetch": lambda: _kr_opendart_tickers(None)},
 }
 
 

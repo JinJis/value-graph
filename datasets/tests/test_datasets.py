@@ -380,6 +380,22 @@ async def test_fetch_source_caches_and_never_fabricates(monkeypatch):
     assert await U.fetch_source("us_sp500") == []
 
 
+async def test_kr_universe_falls_back_to_opendart(monkeypatch):
+    # pykrx scrapes KRX/Naver and is blocked on many cloud IPs → KR backfill was failing.
+    # When pykrx yields nothing, fall back to the reliable (keyed) OpenDART corp list.
+    from app.store import universes as U
+
+    monkeypatch.setattr(U, "_kr_by_cap_sync", lambda market, n: [])  # pykrx blocked/empty
+
+    async def fake_dart(n):
+        codes = ["005930", "000660", "035420"]
+        return codes[:n] if n else codes
+
+    monkeypatch.setattr(U, "_kr_opendart_tickers", fake_dart)
+    assert await U._fetch_kr("KOSPI", 2) == ["005930", "000660"]
+    assert "kr_listed" in {u["id"] for u in U.list_presets()}  # the OpenDART-only KR source exists
+
+
 def test_universe_sources_listed_and_endpoint():
     from app.store.universes import SOURCES, list_presets
     ids = {u["id"] for u in list_presets()}
