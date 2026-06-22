@@ -1309,6 +1309,25 @@ def test_to_gemini_contents_mapping():
     assert contents[3].parts[0].function_response.response == {"close": 180.5}
 
 
+def test_to_gemini_contents_replays_raw_for_parallel_calls():
+    # regression: parallel function calls must replay the model's RAW content verbatim (carries
+    # every part's thought_signature) ONCE, then one function_response per call — reconstructing
+    # them part-by-part dropped a signature → Gemini 400 (missing thought_signature).
+    pytest.importorskip("google.genai")
+    from agentengine.planner import _to_gemini_contents, Decision
+
+    raw = object()  # sentinel for the shared model Content (replayed by identity)
+    d1 = Decision(tool="yahoo__prices", args={"ticker": "AAPL"}, raw_content=raw)
+    d2 = Decision(tool="google_news__news", args={"ticker": "AAPL"}, raw_content=raw)
+    history = [(d1, {"data": {"x": 1}}), (d2, {"data": {"y": 2}})]
+
+    contents = _to_gemini_contents(None, history, "AAPL 주가")
+    assert contents.count(raw) == 1                       # the batch's model turn emitted exactly once
+    tool_turns = [c for c in contents if getattr(c, "role", None) == "tool"]
+    assert len(tool_turns) == 2                           # one function_response per parallel call
+    assert {t.parts[0].function_response.name for t in tool_turns} == {"yahoo__prices", "google_news__news"}
+
+
 def test_schema_maps_param_descriptions():
     from agentengine.planner import _schema
 

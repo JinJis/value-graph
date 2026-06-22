@@ -37,9 +37,6 @@ from agentengine.gemini_io import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-# Cap how many independent tool calls we fan out in a single step (bounds cost + latency).
-_MAX_PARALLEL_CALLS = 5
-
 
 # The responder prompt. The whole point: a rich answer that MIXES our sourced evidence with
 # the model's own analyst expertise — not a terse restatement of fetched rows. Hard rules keep
@@ -69,6 +66,10 @@ class Decision:
     args: dict | None = None
     final: str | None = None
     thought_signature: bytes | None = None
+    # The model's RAW response Content for this turn (all function_call parts + their
+    # thought_signatures). Replayed verbatim into history so parallel calls keep their
+    # signatures — reconstructing them part-by-part drops/desyncs signatures (Gemini 400).
+    raw_content: object | None = None
 
 
 class StubPlanner:
@@ -227,15 +228,18 @@ class GeminiPlanner:
         resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
         calls = getattr(resp, "function_calls", None)
         if calls:
-            # Gemini parallel function calling: return EVERY independent call this step so the
-            # caller can fan them out concurrently. Pair each with its thought_signature by order.
-            parts = (resp.candidates[0].content.parts
-                     if (resp.candidates and resp.candidates[0].content and resp.candidates[0].content.parts) else [])
+            # Gemini parallel function calling: return EVERY call this step so the caller fans them
+            # out concurrently. Carry the model's RAW content (all parts + thought_signatures) on each
+            # Decision so history replays it verbatim — every emitted call MUST get a response, so we
+            # execute them ALL (no cap; the model bounds the count) to keep calls↔responses aligned.
+            model_content = resp.candidates[0].content if resp.candidates else None
+            parts = (model_content.parts if (model_content and model_content.parts) else [])
             fc_parts = [p for p in parts if getattr(p, "function_call", None)]
             out: list[Decision] = []
-            for i, call in enumerate(calls[:_MAX_PARALLEL_CALLS]):
+            for i, call in enumerate(calls):
                 sig = fc_parts[i].thought_signature if i < len(fc_parts) else None
-                out.append(Decision(tool=call.name, args=dict(call.args or {}), thought_signature=sig))
+                out.append(Decision(tool=call.name, args=dict(call.args or {}),
+                                    thought_signature=sig, raw_content=model_content))
             return out
         return [Decision(final=_get_text_from_response(resp))]
 

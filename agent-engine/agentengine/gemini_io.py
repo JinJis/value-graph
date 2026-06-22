@@ -35,33 +35,36 @@ def _to_gemini_contents(conversation: list | None, history: list, task: str):
     if not out:
         out.append(types.Content(role="user", parts=[types.Part.from_text(text=task)]))
 
+    seen_raw: set[int] = set()
     for dec, res in history:
-        # Function Call
-        if dec.thought_signature:
-            model_part = types.Part(
-                function_call=types.FunctionCall(
-                    name=dec.tool,
-                    args=dec.args or {}
-                ),
-                thought_signature=dec.thought_signature
-            )
-        else:
-            model_part = types.Part.from_function_call(
-                name=dec.tool,
-                args=dec.args or {}
-            )
-        out.append(types.Content(role="model", parts=[model_part]))
+        # Function Call(s). Prefer replaying the model's RAW content verbatim — it carries ALL
+        # the turn's function_call parts WITH their thought_signatures, which parallel calls
+        # require (reconstructing part-by-part drops a signature → Gemini 400). One raw content
+        # can back several (dec, res) entries from the same batch, so emit it only once.
+        raw = getattr(dec, "raw_content", None)
+        if raw is not None:
+            rid = id(raw)
+            if rid not in seen_raw:
+                seen_raw.add(rid)
+                out.append(raw)
+        else:  # fallback (stub / single reconstructed call)
+            if dec.thought_signature:
+                model_part = types.Part(
+                    function_call=types.FunctionCall(name=dec.tool, args=dec.args or {}),
+                    thought_signature=dec.thought_signature,
+                )
+            else:
+                model_part = types.Part.from_function_call(name=dec.tool, args=dec.args or {})
+            out.append(types.Content(role="model", parts=[model_part]))
 
-        # Function Response
+        # Function Response (one per call — matches each function_call in the model turn).
         response_data = res.get("data")
         if not isinstance(response_data, dict):
             response_data = {"result": response_data}
-
-        tool_part = types.Part.from_function_response(
-            name=dec.tool,
-            response=response_data
-        )
-        out.append(types.Content(role="tool", parts=[tool_part]))
+        out.append(types.Content(
+            role="tool",
+            parts=[types.Part.from_function_response(name=dec.tool, response=response_data)],
+        ))
 
     return out
 
