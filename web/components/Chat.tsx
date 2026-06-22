@@ -20,7 +20,7 @@ type ClarifyOption = { label: string; description?: string | null };
 type Clarify = { prompt: string; options: ClarifyOption[]; multi: boolean; origin: string };
 // A2A: a sub-agent dispatched on one facet of a complex request, shown as a live card.
 type SubAgent = { id: number; title: string; status: string; sources?: number; steps?: number };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify; subagents?: SubAgent[] };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify; subagents?: SubAgent[]; suggestions?: string[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -299,6 +299,7 @@ export default function Chat({ name }: { name: string }) {
               const origin = [...next].reverse().find((m) => m.role === "user")?.content || "";
               a.clarify = { prompt: ev.prompt, options: ev.options || [], multi: !!ev.multi, origin };
             }
+            else if (ev.type === "suggestions") a.suggestions = (ev.items || []) as string[];
             else if (ev.type === "subagent") {
               const list = [...(a.subagents || [])];
               const card: SubAgent = { id: ev.id, title: ev.title, status: ev.status, sources: ev.sources, steps: ev.steps };
@@ -533,6 +534,18 @@ export default function Chat({ name }: { name: string }) {
                       </>
                     );
                   })()}
+                  {m.role === "assistant" && (m.suggestions?.length || 0) > 0 && (
+                    <div className="followups">
+                      <div className="fu-label">이어서 더 파고들기</div>
+                      <div className="fu-list">
+                        {m.suggestions!.map((q, j) => (
+                          <button key={j} type="button" className="fu-chip" disabled={busy} onClick={() => send(q)}>
+                            {q} <span className="fu-arrow">→</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </main>

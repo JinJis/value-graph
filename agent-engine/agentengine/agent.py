@@ -118,16 +118,15 @@ _INTAKE_PROMPT = (
     "figures). Set needs_data=false for purely CONCEPTUAL/definitional/how-to questions answerable from "
     "general knowledge (e.g. 'PER이 뭐야?', 'how does an ETF work?', 'explain DCF') — those are answered "
     "richly from expertise without a tool call.\n"
-    "CLARIFY — if the user's INTENT is unclear/ambiguous (you can't tell what they want), set clarify=true "
-    "with a short clarify_prompt and options (2-4 concrete choices in the user's language, each "
-    "{{\"label\", \"description\"}}); set multi=true if several combine. Use this when a genuine CHOICE is "
-    "needed, not when the scope is clear.\n"
-    "DECOMPOSE — if the intent is CLEAR but the request is COMPLEX and spans multiple INDEPENDENT facets "
-    "that each deserve their own focused research (e.g. '엔비디아 종합 분석' = 주가 흐름 + 재무 + 공시 "
-    "리스크 + 경쟁사 비교), return subtasks: 2-4 focused {{\"title\", \"question\"}} sub-tasks to research "
-    "in PARALLEL (each a self-contained question). Leave subtasks empty for simple/single-facet requests. "
-    "Prefer clarify when unsure what the user wants; prefer decompose when they clearly want a broad, "
-    "comprehensive answer.\n\n"
+    "CLARIFY — if the request is BROAD / open-ended / ambiguous so you can't tell which specific aspect "
+    "the user wants (e.g. '엔비디아 분석해줘', '삼성전자 어때?', '반도체 시장 알려줘', 'tell me about Tesla'), "
+    "set clarify=true with a short clarify_prompt and 2-4 concrete ASPECT options (each "
+    "{{\"label\", \"description\"}}, same language) so the user can steer — Claude-Code style. set multi=true "
+    "if several aspects can be combined. Do NOT clarify a clearly specific request (e.g. 'AAPL 최근 종가', "
+    "'엔비디아 매출').\n"
+    "DECOMPOSE — set subtasks ONLY when the user EXPLICITLY asks for a comprehensive / all-in-one analysis "
+    "(e.g. '종합적으로 분석', '전반적으로', 'comprehensive', '다 분석해줘') → 2-4 focused "
+    "{{\"title\", \"question\"}} sub-tasks researched in PARALLEL. Otherwise leave subtasks empty.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
@@ -230,6 +229,51 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)
         return TaskIntake(steps=default)
+
+
+_FOLLOWUP_PROMPT = (
+    "You are a senior buy-side research lead. Given the user's question and the answer just given, "
+    "propose 3-4 follow-up questions that DEEPEN the research — each should be the next genuinely "
+    "insightful analytical step, not a restatement. Good follow-ups: probe a key DRIVER behind a "
+    "figure, COMPARE against a peer/benchmark/prior period, drill into a RISK or segment, connect a "
+    "macro factor, or pull the supporting filing passage. Each must be:\n"
+    "- a concrete, specific question in the SAME LANGUAGE as the user's question;\n"
+    "- answerable by a SOURCED financial-data service (filings, financials, prices, macro, news, "
+    "evidence) — NOT asking for forecasts, price targets, or buy/sell advice;\n"
+    "- self-contained (name the company/metric explicitly).\n"
+    "Return JSON: {{\"followups\": [\"…\", \"…\", \"…\"]}}.\n\n"
+    "User question: {task}\n\nAnswer given:\n{answer}"
+)
+_FOLLOWUP_SCHEMA = {
+    "type": "object",
+    "properties": {"followups": {"type": "array", "items": {"type": "string"}}},
+    "required": ["followups"],
+}
+
+
+async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None) -> list[str]:
+    """PH-THINK: 3-4 DEEP follow-up questions to continue the research (shown as clickable chips).
+    Gemini-only, best-effort; [] on stub / no answer / error."""
+    if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
+        return []
+    try:
+        import asyncio
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client()
+        resp = await asyncio.to_thread(
+            client.models.generate_content, model=model,
+            contents=_FOLLOWUP_PROMPT.format(task=(task or "")[:400], answer=(answer or "")[:2500]),
+            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=400,
+                                               response_mime_type="application/json",
+                                               response_schema=_FOLLOWUP_SCHEMA))
+        d = json.loads(getattr(resp, "text", "") or "{}")
+        out = [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()]
+        return out[:4]
+    except Exception as exc:  # noqa: BLE001 — suggestions are a nicety, never block
+        logger.warning("followup suggestions failed (%s); skipping", exc)
+        return []
 
 
 _REFINE_PROMPT = (

@@ -1607,6 +1607,23 @@ async def test_refine_evidence_noop_without_gemini_or_evidence():
     assert await refine_evidence("q", [], "m", "gemini") == (None, {})
 
 
+async def test_suggest_followups_parses_and_caps(monkeypatch):
+    # PH-THINK: 3-4 deep follow-up questions from the answer (stub → none, gemini → parsed, ≤4).
+    from agentengine.agent import suggest_followups
+    assert await suggest_followups("q", "an answer", "m", "stub") == []
+    assert await suggest_followups("q", "", "m", "gemini") == []   # no answer → none
+
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+    mc = MagicMock(); mr = MagicMock()
+    mr.text = '{"followups": ["NVDA 데이터센터 매출 비중은?", "AMD 대비 마진 차이는?", "최근 공시상 공급 리스크는?", "5번째", "6번째"]}'
+    mc.models.generate_content.return_value = mr
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mc)
+    out = await suggest_followups("엔비디아 실적", "매출 X, 순이익 Y …", "gemini-x", "gemini")
+    assert len(out) == 4 and out[0].startswith("NVDA")   # capped at 4
+
+
 async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):
     # PH-THINK: one verify pass returns BOTH a grounding brief and per-source confidence.
     pytest.importorskip("google.genai")  # needs the `gemini` extra

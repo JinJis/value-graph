@@ -365,4 +365,12 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         used_idx = [c.get("index") for c in citations if c.get("used")] or [c.get("index") for c in citations]
         yield {"type": "token", "text": " " + anchor_markers(used_idx)}
     used = [c.get("index") for c in citations if c.get("used")]
+
+    # PH-THINK: 3-4 deep follow-up questions to keep deepening the research (clickable chips).
+    if final_text and (bk or settings.llm_backend) == "gemini":
+        from agentengine.agent import suggest_followups
+        sugg = await suggest_followups(task, final_text, settings.model, bk)
+        if sugg:
+            yield {"type": "suggestions", "items": sugg}
+
     yield {"type": "done", "citations": citations, "artifacts": artifacts, "refused": False, "used": used}

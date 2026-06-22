@@ -322,6 +322,16 @@ select.input { appearance: none; }
 .answer-sources { width: 100%; margin-top: 4px; }
 .answer-sources .as-label { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
 .answer-sources .as-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+/* follow-up suggestions — deepen the research, one click continues */
+.followups { width: 100%; margin-top: 10px; }
+.followups .fu-label { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.followups .fu-list { display: flex; flex-direction: column; gap: 6px; }
+.fu-chip { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel);
+  color: var(--text); font-size: 13px; cursor: pointer; font-family: inherit; line-height: 1.4; }
+.fu-chip:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-bg); }
+.fu-chip:disabled { opacity: .5; cursor: default; }
+.fu-chip .fu-arrow { color: var(--accent); flex: none; }
 
 .sources { max-width: 80%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
 .sources summary { cursor: pointer; color: var(--muted); }
