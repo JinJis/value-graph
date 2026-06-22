@@ -11,14 +11,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
+from app.logging_config import setup_logging
 from app.routers import (
     admin,
     catalog,
     company,
+    corporate_actions,
     earnings,
     evidence,
     filings,
     financials,
+    funds,
+    gurus,
     insider,
     institutional,
     macro,
@@ -27,9 +31,13 @@ from app.routers import (
     prices,
     scaffold,
     search,
+    technical,
 )
 from app.scheduler import scheduler
 from app.store.db import init_db
+
+
+setup_logging()
 
 
 @asynccontextmanager
@@ -70,7 +78,8 @@ register_error_handlers(app)
 
 for module in (
     company, prices, financials, filings, macro, metrics,
-    news, earnings, insider, institutional, search, evidence, catalog, admin, scaffold,
+    news, earnings, insider, institutional, funds, gurus, corporate_actions, technical,
+    search, evidence, catalog, admin, scaffold,
 ):
     app.include_router(module.router)
 

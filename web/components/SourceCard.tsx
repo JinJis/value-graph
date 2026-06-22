@@ -29,12 +29,38 @@ export type Citation = {
   table?: string[][];   // extracted figures (header row first, cited row = first data row)
   used?: boolean;       // evidence flag (set from the answer's [n] / artifact backing)
   evidence_image_url?: string;  // PH-PROV2: /evidence?… → highlighted screenshot of the filing line
+  confidence?: string;  // PH-THINK verify pass: high | medium | low (evidentiary support)
+  confidence_why?: string;
 };
+
+// PH-THINK: a small confidence chip (how well this source supports the question).
+const CONF: Record<string, { label: string; cls: string }> = {
+  high: { label: "신뢰 높음", cls: "high" },
+  medium: { label: "신뢰 보통", cls: "med" },
+  low: { label: "신뢰 낮음", cls: "low" },
+};
+export function ConfBadge({ c }: { c: Citation }) {
+  const k = (c.confidence || "").toLowerCase();
+  const m = CONF[k];
+  if (!m) return null;
+  return <span className={`sp-conf ${m.cls}`} title={c.confidence_why || "근거의 질문 적합도"}>{m.label}</span>;
+}
 
 // PH-PROV2: map the agent's gateway-relative /evidence URL to the web BFF route the
 // browser can fetch (carries the session → tenant key).
 export function evidenceSrc(url?: string): string | null {
   return url ? url.replace(/^\/evidence/, "/api/evidence") : null;
+}
+
+// PH-PROV3: the real source-filing PDF for "원문 열기", derived from the same /evidence
+// params (market + accession). Null if the citation carries no evidence link.
+export function evidenceDocSrc(url?: string): string | null {
+  const q = url?.split("?")[1];
+  if (!q) return null;
+  const p = new URLSearchParams(q);
+  const market = p.get("market"), accession = p.get("accession");
+  if (!market || !accession) return null;
+  return `/api/evidence/doc?market=${encodeURIComponent(market)}&accession=${encodeURIComponent(accession)}`;
 }
 
 // PH-PROV2: inline teaser of the highlighted-filing screenshot, shown right on the
@@ -100,6 +126,7 @@ export function SourceCard({ c, onExpand }: { c: Citation; onExpand?: (c: Citati
     <div className="sp-foot mono">
       <FreshnessDot f={c.freshness} />
       <span>{shape === "web" ? "맥락정보" : c.as_of ? `as_of ${c.as_of}` : (fresh ?? "출처")}</span>
+      <ConfBadge c={c} />
       {open}
     </div>
   );

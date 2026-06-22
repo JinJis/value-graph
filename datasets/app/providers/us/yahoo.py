@@ -37,6 +37,14 @@ async def _chart(symbol: str, params: dict) -> dict | None:
     return results[0] if results else None
 
 
+def _d(ts) -> str | None:
+    """Yahoo event epoch → ISO date."""
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OSError):
+        return None
+
+
 class YahooProvider:
     async def prices(self, ref: SecurityRef, interval: str, start: date, end: date) -> list[Price]:
         iv = _INTERVALS.get(interval, "1d")
@@ -69,6 +77,37 @@ class YahooProvider:
         if not out:
             raise not_found(f"No Yahoo price data for '{ref.ticker}'.")
         return out
+
+    async def corporate_actions(self, ref: SecurityRef, start: date, end: date) -> dict:
+        """Dividends + splits over a range, from the Yahoo chart `events` feed (both markets).
+        Returns plain dicts (no source document → data-card evidence: values + Yahoo + as_of)."""
+        params = {"period1": _epoch(start), "period2": _epoch(end) + 86400,
+                  "interval": "1d", "events": "div,split"}
+        divs: list[dict] = []
+        splits: list[dict] = []
+        currency: str | None = None
+        for symbol in _symbols(ref):
+            result = await _chart(symbol, params)
+            if not result:
+                continue
+            currency = (result.get("meta") or {}).get("currency") or currency
+            events = result.get("events") or {}
+            for ev in (events.get("dividends") or {}).values():
+                d, amt = _d(ev.get("date")), ev.get("amount")
+                if d and amt is not None:
+                    divs.append({"ex_date": d, "amount": float(amt)})
+            for ev in (events.get("splits") or {}).values():
+                d = _d(ev.get("date"))
+                if not d:
+                    continue
+                num, den = ev.get("numerator"), ev.get("denominator")
+                splits.append({"date": d, "numerator": num, "denominator": den,
+                               "ratio": ev.get("splitRatio") or (f"{num:g}:{den:g}" if num and den else None)})
+            if divs or splits:
+                break  # first suffix (.KS/.KQ or US) that returned actions
+        divs.sort(key=lambda x: x["ex_date"], reverse=True)
+        splits.sort(key=lambda x: x["date"], reverse=True)
+        return {"currency": currency, "dividends": divs, "splits": splits}
 
     async def snapshot(self, ref: SecurityRef) -> PriceSnapshot:
         params = {"range": "5d", "interval": "1d"}

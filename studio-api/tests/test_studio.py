@@ -194,9 +194,10 @@ def test_agents_list_includes_templates(monkeypatch):
     _mock_control_plane()
     agents = client.get("/agents", headers=_hdr("ab@u.com")).json()["agents"]
     ids = {a["id"] for a in agents}
-    assert {"tpl_research", "tpl_filings", "tpl_market", "tpl_macro"} <= ids
-    tpl = next(a for a in agents if a["id"] == "tpl_research")
+    assert "tpl_desk" in ids   # the single fully-loaded default agent
+    tpl = next(a for a in agents if a["id"] == "tpl_desk")
     assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"]
+    assert tpl["model"] == "gemini"  # default is Gemini, never stub
 
 
 @respx.mock
@@ -233,10 +234,10 @@ def test_template_not_editable_or_deletable(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
     h = _hdr("t@u.com")
-    assert client.patch("/agents/tpl_research", headers=h, json={"name": "hijack"}).status_code == 404
-    assert client.delete("/agents/tpl_research", headers=h).status_code == 404
+    assert client.patch("/agents/tpl_desk", headers=h, json={"name": "hijack"}).status_code == 404
+    assert client.delete("/agents/tpl_desk", headers=h).status_code == 404
     # but it can be read (to clone)
-    assert client.get("/agents/tpl_research", headers=h).status_code == 200
+    assert client.get("/agents/tpl_desk", headers=h).status_code == 200
 
 
 @respx.mock
@@ -288,6 +289,66 @@ def test_board_refresh_updates_spec(monkeypatch):
 
 
 @respx.mock
+def test_board_annotate_saves_and_survives_refresh(monkeypatch):
+    # PH-VIZ-5: user drawings persist on the pin and are carried across a live refresh.
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    spec = {"kind": "candlestick", "title": "AAPL 주가", "tool": "yahoo__prices",
+            "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": [], "candles": []}
+    pinned = client.post("/board", headers=_hdr("dr@u.com"), json={"spec": spec}).json()
+    ann = {"hlines": [{"price": 190.0, "label": "저항"}], "lines": []}
+    r = client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("dr@u.com"),
+                    json={"user_annotations": ann})
+    assert r.status_code == 200 and r.json()["spec"]["user_annotations"]["hlines"][0]["price"] == 190.0
+    # a live refresh re-fetches data but keeps the drawings
+    respx.post("http://ae.test/agent/artifact/refresh").mock(return_value=httpx.Response(200, json={"artifact": {
+        "kind": "candlestick", "title": "AAPL 주가", "tool": "yahoo__prices", "args": {"ticker": "AAPL"},
+        "as_of": "2024-03-01", "series": [], "candles": []}}))
+    rf = client.post(f"/board/{pinned['id']}/refresh", headers=_hdr("dr@u.com")).json()
+    assert rf["spec"]["as_of"] == "2024-03-01"
+    assert rf["spec"]["user_annotations"]["hlines"][0]["price"] == 190.0  # drawings survived
+    # clearing removes them
+    cleared = client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("dr@u.com"),
+                          json={"user_annotations": None}).json()
+    assert "user_annotations" not in cleared["spec"]
+    # user-scoped
+    assert client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("intruder-dr@u.com"),
+                       json={"user_annotations": ann}).status_code == 404
+
+
+@respx.mock
+def test_prices_proxy_forwards_to_gateway(monkeypatch):
+    # the chart's history fetch → studio /prices → gateway /prices (tenant key, entitled)
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-01-02", "close": 185.6}]}))
+    r = client.get("/prices?ticker=AAPL&market=US&interval=day&start_date=2018-01-01&end_date=2024-01-01",
+                   headers=_hdr("px@u.com"))
+    assert r.status_code == 200 and r.json()["prices"][0]["close"] == 185.6
+    sent = route.calls.last.request
+    assert sent.headers["X-API-KEY"] == "vgk_demo"
+    assert "ticker=AAPL" in str(sent.url) and "start_date=2018-01-01" in str(sent.url)
+    # ticker is required
+    assert client.get("/prices?market=US", headers=_hdr("px@u.com")).status_code == 400
+
+
+@respx.mock
+def test_financials_proxy_forwards_to_gateway(monkeypatch):
+    # the revenue chart's history fetch → studio /financials → gateway /financials/income-statements
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/financials/income-statements").mock(
+        return_value=httpx.Response(200, json={"income_statements": [{"report_period": "2023-12-31", "revenue": 3.9e11}]}))
+    r = client.get("/financials?ticker=AAPL&market=US&limit=40", headers=_hdr("fin@u.com"))
+    assert r.status_code == 200 and r.json()["income_statements"][0]["revenue"] == 3.9e11
+    sent = route.calls.last.request
+    assert sent.headers["X-API-KEY"] == "vgk_demo"
+    assert "ticker=AAPL" in str(sent.url) and "period=annual" in str(sent.url)  # default period added
+    assert client.get("/financials?market=US", headers=_hdr("fin@u.com")).status_code == 400
+
+
+@respx.mock
 def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
@@ -319,13 +380,13 @@ def test_chat_with_agent_sends_spec_and_records_agent(monkeypatch):
 
     email = "agentchat@u.com"
     r = client.post("/chat/stream", headers=_hdr(email),
-                    json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_filings"})
+                    json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_desk"})
     assert r.status_code == 200
     spec = captured["body"]["spec"]
-    assert spec["backend"] == "stub" and "sec_edgar" in spec["allowed_tools"]
+    assert spec["backend"] == "gemini" and "sec_edgar" in spec["allowed_tools"]  # default = Gemini
     # the conversation remembers which agent drove it
     conv = client.get("/conversations", headers=_hdr(email)).json()["conversations"][0]
-    assert conv["agent_id"] == "tpl_filings"
+    assert conv["agent_id"] == "tpl_desk"
 
 
 # --- F2: prompt library ---------------------------------------------------
@@ -554,3 +615,35 @@ def test_evidence_proxy_streams_png_or_204(monkeypatch):
     route.mock(return_value=httpx.Response(204))  # gateway → no evidence
     r2 = client.get(f"/evidence?{q}", headers=_hdr("e@u.com"))
     assert r2.status_code == 204
+
+
+@respx.mock
+def test_evidence_doc_proxy_streams_pdf_or_204(monkeypatch):
+    """PH-PROV3: studio-api proxies the real source-filing PDF (원문 열기) from the gateway
+    with the user's tenant key, and degrades to 204 when none is cached."""
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/evidence/doc")
+    route.mock(return_value=httpx.Response(200, content=b"%PDF-1.4 ev", headers={"content-type": "application/pdf"}))
+    q = "market=KR&accession=20260310002820"
+    r = client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com"))
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.content == b"%PDF-1.4 ev"
+
+    route.mock(return_value=httpx.Response(204))
+    assert client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com")).status_code == 204
+
+
+@respx.mock
+def test_kpis_proxies_to_agent_engine(monkeypatch):
+    # PH-DATA-5: /kpis forwards the user's tenant key to agent-engine /agent/kpis.
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    payload = {"ticker": "AAPL", "market": "US", "kpis": [{"name": "Net sales", "value": "391,035"}],
+               "citations": [{"tool": "rag__search", "evidence_image_url": "/evidence?x=1"}],
+               "artifact": {"kind": "kpi", "title": "AAPL — 핵심 지표 (KPI)"}}
+    route = respx.post("http://ae.test/agent/kpis").mock(return_value=httpx.Response(200, json=payload))
+    r = client.post("/kpis", json={"ticker": "AAPL", "market": "US"}, headers=_hdr("kpi@u.com"))
+    assert r.status_code == 200
+    assert r.json()["artifact"]["kind"] == "kpi"
+    assert route.calls.last.request.headers["X-API-KEY"] == "vgk_demo"  # tenant key forwarded → entitled + metered

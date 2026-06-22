@@ -46,44 +46,6 @@ class FinancialFact(Base):
     )
 
 
-class FactLocation(Base):
-    """PH-PROV2: where a financial fact LITERALLY appears in its source filing.
-
-    A precomputed pointer from the deterministic match key the agent already holds
-    (market, cik, accession, concept, report_period) to the exact inline-XBRL element
-    in the primary document. The highlighted evidence image is rendered lazily from
-    this pointer at query time — never fabricated. ``status`` records matched / miss /
-    unavailable so a gap degrades gracefully (no image) instead of guessing."""
-
-    __tablename__ = "fact_locations"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    market: Mapped[str] = mapped_column(String(2), index=True)
-    cik: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    accession_number: Mapped[str] = mapped_column(String(40), index=True)
-    concept: Mapped[str] = mapped_column(String(96))       # bare us-gaap concept
-    period: Mapped[str] = mapped_column(String(10))        # annual | quarterly
-    report_period: Mapped[date] = mapped_column(index=True)
-    value: Mapped[float | None] = mapped_column(Float, nullable=True)
-    unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    primary_doc_url: Mapped[str] = mapped_column(Text)
-    element_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    selector: Mapped[str | None] = mapped_column(Text, nullable=True)   # XPath fallback
-    scale: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    sign: Mapped[str | None] = mapped_column(String(2), nullable=True)
-    match_rule: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), index=True)  # matched | miss | unavailable
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-    __table_args__ = (
-        UniqueConstraint(
-            "market", "cik", "accession_number", "concept", "report_period",
-            name="uq_fact_location",
-        ),
-        Index("ix_factloc_lookup", "market", "accession_number", "concept", "report_period"),
-    )
-
-
 class EvidenceDoc(Base):
     """PH-PROV3: the cached, PDF-normalized source document for one filing.
 
@@ -128,6 +90,53 @@ class IngestionJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PriceBar(Base):
+    """One end-of-day OHLCV bar (PH-PIPE). Collected periodically by the prices pipeline so
+    market data accumulates in the store (served on-demand today; cached/offline serving later)."""
+
+    __tablename__ = "price_bars"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    market: Mapped[str] = mapped_column(String(2), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    interval: Mapped[str] = mapped_column(String(8), default="day")  # day | week | month
+    bar_date: Mapped[date] = mapped_column(index=True)
+    open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(24))
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("market", "ticker", "interval", "bar_date", name="uq_price_bar"),
+        Index("ix_price_lookup", "market", "ticker", "interval", "bar_date"),
+    )
+
+
+class CorporateAction(Base):
+    """A dividend or split event (PH-PIPE). Collected periodically so dividend/split history
+    accumulates in the store. ``kind`` = dividend | split; the relevant fields are populated
+    per kind (dividend → amount; split → ratio/numerator/denominator)."""
+
+    __tablename__ = "corporate_actions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    market: Mapped[str] = mapped_column(String(2), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # dividend | split
+    event_date: Mapped[date] = mapped_column(index=True)  # ex-date (dividend) / effective (split)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)     # dividend per share
+    ratio: Mapped[str | None] = mapped_column(String(24), nullable=True)   # e.g. "4:1"
+    source: Mapped[str] = mapped_column(String(24))
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("market", "ticker", "kind", "event_date", name="uq_corp_action"),
+    )
 
 
 class Company(Base):

@@ -51,18 +51,18 @@ class Settings(BaseSettings):
     redis_url: str = ""
     cache_ttl_seconds: int = 900
     http_timeout_seconds: float = 30.0
+    log_level: str = "INFO"  # app log verbosity (DEBUG|INFO|WARNING|…) → docker logs
 
-    # --- periodic ingestion scheduler -------------------------------------
+    # --- periodic ingestion scheduler (PH-PIPE) ---------------------------
     scheduler_enabled: bool = False
-    scheduler_interval_seconds: int = 3600
-    # Universe to refresh, e.g. "US:AAPL,MSFT,NVDA;KR:005930,000660"
-    scheduler_universe: str = ""
-    # When true, periodic runs do a deep/full-history backfill instead of the
-    # latest few periods.
-    scheduler_deep: bool = False
-    # When true, each scheduler tick also pulls fresh news for the universe into
-    # the RAG index (PH-2b) so rag__search has recent context.
-    scheduler_news: bool = False
+    scheduler_interval_seconds: int = 21600  # 6h between full sweeps by default
+    # Universe to refresh — DYNAMIC source ids (see app/store/universes.py), fetched fresh each
+    # sweep: "us_sp500,kr_kospi200,kr_kosdaq150" (also us_all / kr_kospi_all / kr_kosdaq_all), and/or
+    # the legacy explicit form "US:AAPL,MSFT;KR:005930". Empty → scheduler idles.
+    scheduler_universe: str = "us_sp500,kr_kospi200,kr_kosdaq150"
+    # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
+    # registry's default set (financials, prices, corp_actions, news).
+    scheduler_pipelines: str = "financials,prices,corp_actions,news"
 
     # --- RAG news-ingestion pipeline (PH-2b) ------------------------------
     # The RAG service the news pipeline indexes into.
@@ -73,9 +73,10 @@ class Settings(BaseSettings):
     # --- PH-PROV2: deterministic visual evidence --------------------------
     # The renderer service that turns a fact locator into a highlighted screenshot.
     renderer_url: str = "http://renderer:8006"
-    # Precompute fact→location pointers as part of ingest (off by default until proven).
+    # PH-PROV3: cache each filing as a PDF during ingest so /evidence works for it
+    # (US iXBRL→render · KR official PDF). Off by default (adds fetch/render time to ingest).
     precompute_locations: bool = False
-    # PH-PROV3: where cached PDF-normalized filings live (on the datasets data volume).
+    # Where cached PDF-normalized filings live (on the datasets data volume).
     evidence_docs_dir: str = "/data/evidence_docs"
 
     @property

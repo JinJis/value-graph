@@ -4,16 +4,14 @@ US iXBRL HTML / KR DART markup → PDF via the renderer (one-shot, at ingest). A
 PyMuPDF (PH-PROV3b) highlights whatever the answer actually cited in the cached PDF — so
 coverage is the whole document (any question), not a precomputed concept list, and the heavy
 headless render is paid at most once per filing. Best-effort + idempotent: a failure for one
-filing never blocks the rest.
-
-NOTE (PH-PROV3c): filing-accession resolution here overlaps `locations_ingest`; the old
-concept-pointer path is retired once this is wired into `/evidence`, and the shared
-resolution will be consolidated then.
+filing never blocks the rest. (PH-PROV3d retired the old `FactLocation` concept-pointer
+path; this is now the sole evidence-document source.)
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import pathlib
 
 import httpx
@@ -23,14 +21,30 @@ from app.config import settings
 from app.http import fetch_text
 from app.providers.kr.dart_document import fetch_dart_pdf, fetch_document_markup
 from app.providers.registry import get_financials_provider
-from app.providers.us.sec_edgar import _UA, _resolve_cik
+from app.providers.us.sec_edgar import _UA, _resolve_cik, _submissions
 from app.store.db import SessionLocal, init_db
-from app.store.locations_ingest import _primary_doc_map
 from app.store.models import EvidenceDoc
 from app.store.provenance import dart_url, sec_index_url
 from app.symbols import Market, build_ref
 
+log = logging.getLogger(__name__)
+
 _STMT_METHODS = ("income_statements", "balance_sheets", "cash_flow_statements")
+
+
+async def _primary_doc_map(cik10: str) -> dict[str, str]:
+    """accession_number → primary-document URL, from the SEC submissions index (same URL
+    shape `SecEdgarProvider.filings` builds)."""
+    sub = await _submissions(cik10)
+    recent = (sub.get("filings") or {}).get("recent") or {}
+    accns = recent.get("accessionNumber") or []
+    prim = recent.get("primaryDocument") or []
+    out: dict[str, str] = {}
+    for i, accn in enumerate(accns):
+        doc = prim[i] if i < len(prim) and prim[i] else ""
+        if accn and doc:
+            out[accn] = f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{accn.replace('-', '')}/{doc}"
+    return out
 
 
 def _pdf_path(market: str, accession: str) -> pathlib.Path:
@@ -43,8 +57,12 @@ async def _render_pdf(markup: str) -> bytes | None:
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 60) as client:
             resp = await client.post(f"{settings.renderer_url}/pdf/from-html", json={"html": markup})
-        return resp.content if resp.status_code == 200 else None
-    except Exception:  # noqa: BLE001 — renderer down → no doc this run, never crash ingest
+        if resp.status_code != 200:
+            log.warning("renderer /pdf/from-html → %s (US render failed)", resp.status_code)
+            return None
+        return resp.content
+    except Exception as exc:  # noqa: BLE001 — renderer down → no doc this run, never crash ingest
+        log.warning("renderer /pdf/from-html unreachable: %s", exc)
         return None
 
 
@@ -81,6 +99,7 @@ async def ensure_doc(market: str, ticker: str | None, accession: str, *,
         return "cached"
     pdf = await _pdf_bytes(market, accession, fetch_url)
     if not pdf:
+        log.info("evidence doc skipped (no PDF) %s %s", market, accession)
         return "skipped"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pdf)
@@ -89,6 +108,7 @@ async def ensure_doc(market: str, ticker: str | None, accession: str, *,
         "accession_number": accession, "source_url": canonical_url,
         "pdf_path": str(path), "page_count": None, "status": "stored",
     })
+    log.info("evidence doc stored %s %s (%d KB) → %s", market, accession, len(pdf) // 1024, path)
     return "stored"
 
 
@@ -129,10 +149,13 @@ async def build_evidence_docs_for_ticker(market: str, ticker: str, limit: int = 
     if market.upper() not in ("US", "KR"):
         return {"status": "skipped", "reason": "only US + KR supported"}
     refs = await _filing_refs(market, ticker, limit)
+    log.info("evidence docs: %s %s → %d filing(s) to cache", market, ticker.upper(), len(refs))
     tally = {"stored": 0, "cached": 0, "skipped": 0}
     for accn, info in refs.items():
         r = await ensure_doc(market, ticker, accn, fetch_url=info["fetch_url"], canonical_url=info["canonical"])
         tally[r] += 1
+    log.info("evidence docs: %s %s done — stored=%d cached=%d skipped=%d",
+             market, ticker.upper(), tally["stored"], tally["cached"], tally["skipped"])
     return {"status": "ok", "ticker": ticker.upper(), "filings": len(refs), **tally}
 
 
@@ -180,6 +203,21 @@ def _upsert_doc(row: dict) -> None:
         else:
             db.add(EvidenceDoc(**row))
         db.commit()
+
+
+def evidence_docs_for_ticker(market: str, ticker: str) -> list[dict]:
+    """All cached PDFs for a ticker — the corpus the filing-text RAG ingest reads (PH-PROV3e)."""
+    init_db()
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(EvidenceDoc).where(
+                EvidenceDoc.market == market.upper(),
+                EvidenceDoc.ticker == (ticker or "").upper(),
+                EvidenceDoc.status == "stored",
+            )
+        ).scalars().all()
+        return [{"accession": r.accession_number, "pdf_path": r.pdf_path, "source_url": r.source_url}
+                for r in rows]
 
 
 def get_evidence_doc(market: str, accession: str) -> dict | None:

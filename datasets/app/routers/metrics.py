@@ -12,13 +12,14 @@ import asyncio
 from fastapi import APIRouter, Query
 
 from app.deps import ApiKeyDep, MarketParam
+from app.errors import bad_request, not_found
 from app.models.generated import (
     FinancialMetricsHistoryResponse,
     FinancialMetricSnapshotResponse,
 )
 from app.providers.registry import get_metrics_provider
 from app.store.metrics_history import metrics_history_models
-from app.symbols import Market, build_ref
+from app.symbols import Market, build_ref, normalize_ticker
 
 router = APIRouter(tags=["Financial Metrics"])
 
@@ -58,3 +59,34 @@ async def get_financial_metrics(
     ref = build_ref(market, ticker)
     metrics = await asyncio.to_thread(metrics_history_models, market.value, ref.ticker, period, limit)
     return FinancialMetricsHistoryResponse(ticker=ref.ticker, period=period, metrics=metrics)
+
+
+@router.get(
+    "/comparables",
+    dependencies=[ApiKeyDep],
+    summary="Peer valuation comparables — multiples side by side (PH-DATA-2)",
+    description=(
+        "Given a set of tickers (the caller / agent picks the peer set), returns each company's "
+        "valuation multiples + margins/returns side by side — descriptive, derived from filings + "
+        "price (never a forecast). Per-ticker failures are skipped, not faked."
+    ),
+)
+async def get_comparables(
+    tickers: str = Query(..., description="Comma-separated peers, e.g. AAPL,MSFT,GOOGL"),
+    market: MarketParam = Market.US,
+) -> dict:
+    syms = [t.strip() for t in tickers.split(",") if t.strip()][:12]
+    if not syms:
+        raise bad_request("Provide at least one ticker in `tickers`.")
+    prov = get_metrics_provider(market)
+
+    async def _one(sym: str):
+        try:
+            return await prov.metrics_snapshot(build_ref(market, normalize_ticker(market, sym)))
+        except Exception:  # noqa: BLE001 — one bad ticker never sinks the comparison
+            return None
+
+    snaps = [s for s in await asyncio.gather(*[_one(s) for s in syms]) if s is not None]
+    if not snaps:
+        raise not_found("No comparables data for the given tickers.")
+    return {"market": market.value, "tickers": [s.ticker for s in snaps], "comparables": snaps}

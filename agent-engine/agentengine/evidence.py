@@ -15,29 +15,53 @@ _FIELD_CONCEPTS: dict[str, list[str]] = {
     # income statement (duration contexts)
     "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
                 "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"],
-    "net_income": ["NetIncomeLoss", "ProfitLoss"],
-    "operating_income": ["OperatingIncomeLoss"],
+    "cost_of_revenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"],
     "gross_profit": ["GrossProfit"],
+    "operating_expense": ["OperatingExpenses", "CostsAndExpenses"],
+    "selling_general_and_administrative_expenses": ["SellingGeneralAndAdministrativeExpense"],
+    "research_and_development": ["ResearchAndDevelopmentExpense"],
+    "operating_income": ["OperatingIncomeLoss"],
+    "income_tax_expense": ["IncomeTaxExpenseBenefit"],
+    "net_income": ["NetIncomeLoss", "ProfitLoss"],
+    "earnings_per_share": ["EarningsPerShareBasic"],
+    "earnings_per_share_diluted": ["EarningsPerShareDiluted"],
     # balance sheet (instant contexts)
     "total_assets": ["Assets"],
-    "total_liabilities": ["Liabilities"],
-    "shareholders_equity": ["StockholdersEquity",
-                            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+    "current_assets": ["AssetsCurrent"],
     "cash_and_equivalents": ["CashAndCashEquivalentsAtCarryingValue",
                              "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
+    "inventory": ["InventoryNet"],
+    "property_plant_and_equipment": ["PropertyPlantAndEquipmentNet"],
+    "total_liabilities": ["Liabilities"],
+    "current_liabilities": ["LiabilitiesCurrent"],
+    "shareholders_equity": ["StockholdersEquity",
+                            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+    "retained_earnings": ["RetainedEarningsAccumulatedDeficit"],
     # cash-flow statement (duration contexts)
+    "depreciation_and_amortization": ["DepreciationDepletionAndAmortization",
+                                      "DepreciationAmortizationAndAccretionNet"],
     "net_cash_flow_from_operations": ["NetCashProvidedByUsedInOperatingActivities"],
+    "capital_expenditure": ["PaymentsToAcquirePropertyPlantAndEquipment"],
     "net_cash_flow_from_investing": ["NetCashProvidedByUsedInInvestingActivities"],
     "net_cash_flow_from_financing": ["NetCashProvidedByUsedInFinancingActivities"],
 }
-# per-statement result key (datasets shape) → ordered headline fields to anchor evidence on.
-# Mirrors the provider's concept maps; balance sheets resolve against instant XBRL contexts,
-# income/cash-flow against duration contexts — the matcher already indexes both (PH-PROV2c).
+# per-statement result key (datasets shape) → fields we can anchor evidence on, in priority
+# order (the representative headline first). PH-PROV3d widened this from 4 headlines to every
+# field the statement models expose, so a non-revenue figure the answer cites gets its own
+# evidence (not always revenue). Fields without a concept above still anchor by value.
 _STATEMENT_HEADLINES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("income_statements", ("revenue", "net_income", "operating_income", "gross_profit")),
-    ("balance_sheets", ("total_assets", "total_liabilities", "shareholders_equity", "cash_and_equivalents")),
-    ("cash_flow_statements", ("net_cash_flow_from_operations", "net_cash_flow_from_investing",
-                              "net_cash_flow_from_financing")),
+    ("income_statements", (
+        "revenue", "net_income", "operating_income", "gross_profit", "cost_of_revenue",
+        "research_and_development", "selling_general_and_administrative_expenses",
+        "operating_expense", "income_tax_expense", "interest_expense", "ebit",
+        "earnings_per_share", "earnings_per_share_diluted")),
+    ("balance_sheets", (
+        "total_assets", "total_liabilities", "shareholders_equity", "cash_and_equivalents",
+        "current_assets", "current_liabilities", "inventory", "property_plant_and_equipment",
+        "retained_earnings", "total_debt", "goodwill_and_intangible_assets")),
+    ("cash_flow_statements", (
+        "net_cash_flow_from_operations", "net_cash_flow_from_investing", "net_cash_flow_from_financing",
+        "free_cash_flow", "capital_expenditure", "depreciation_and_amortization")),
 )
 
 
@@ -64,6 +88,52 @@ def _statement_url(market, data, accn, cik) -> str | None:
                     return _ev_qs(market, r.get("accession_number") or accn, cik, concept,
                                   r.get("report_period"), r.get(field))
     return None
+
+
+def rag_evidence_url(market, accession, text: str | None) -> str | None:
+    """PH-PROV3e: `/evidence` for a cited filing PASSAGE — highlight the text span in the
+    cached PDF (text mode). Only filing hits carry an accession; news/web hits don't."""
+    m = (market or "").upper()
+    if m not in ("US", "KR") or not accession or not text:
+        return None
+    return "/evidence?" + urlencode({"market": m, "accession": accession, "text": text[:200]})
+
+
+def _fmt_variants(value) -> set[str]:
+    """How a figure may appear in prose: thousands-comma'd at each unit scale (a $391,035M
+    line is written '391,035' or '391.0' etc.). Used to detect which figure the answer cites."""
+    out: set[str] = set()
+    try:
+        v = abs(float(value))
+    except (TypeError, ValueError):
+        return out
+    for scale in (1, 1_000, 1_000_000, 100_000_000, 1_000_000_000_000):
+        q = v / scale
+        if q >= 1 and abs(q - round(q)) < 0.5:
+            out.add(f"{round(q):,}")
+    return out
+
+
+def evidence_url_for_answer(data, accn, cik, market, answer: str | None) -> str | None:
+    """PH-PROV3d: anchor evidence on the statement figure the ANSWER actually cites (so a
+    net-income / R&D / assets question highlights THAT line, not always revenue). Scans every
+    field, newest period first, for one whose value appears in the answer text; falls back to
+    the representative headline (`_evidence_url`) when nothing matches."""
+    m = (market or "").upper()
+    if m not in ("US", "KR") or not accn or not isinstance(data, dict) or not answer:
+        return _evidence_url(data, accn, cik, market)
+    for key, fields in _STATEMENT_HEADLINES:
+        rows = [r for r in (data.get(key) or []) if isinstance(r, dict) and r.get("report_period")]
+        rows.sort(key=lambda r: str(r.get("report_period")), reverse=True)
+        for r in rows:
+            for field in fields:
+                v = r.get(field)
+                if v is None:
+                    continue
+                if any(t in answer for t in _fmt_variants(v)):
+                    concept = field if m == "KR" else ",".join(_FIELD_CONCEPTS.get(field, [field]))
+                    return _ev_qs(m, r.get("accession_number") or accn, cik, concept, r.get("report_period"), v)
+    return _evidence_url(data, accn, cik, market)
 
 
 def _evidence_url(data, accn, cik, market) -> str | None:

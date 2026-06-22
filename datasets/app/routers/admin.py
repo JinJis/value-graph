@@ -8,14 +8,15 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.deps import ApiKeyDep
+from app.pipelines import list_pipelines, resolve_pipeline_ids, run_pipelines
 from app.scheduler import scheduler
 from app.selftest import run_selftest
 from app.store.evidence_docs import run_build_evidence_docs
+from app.store.filing_ingest import run_filing_text_ingest
 from app.store.jobs import backfill_running, list_jobs, run_backfill
-from app.store.locations_ingest import run_precompute_locations
 from app.store.news_ingest import news_ingest_running, run_news_ingest
 from app.store.screener import store_stats
-from app.store.universes import get_preset, list_presets
+from app.store.universes import list_presets, resolve_one, resolve_universe
 
 router = APIRouter(tags=["Admin / Ops"], prefix="/admin")
 
@@ -28,16 +29,18 @@ class BackfillRequest(BaseModel):
     limit: int | None = None
 
 
+class PipelineRunRequest(BaseModel):
+    """PH-PIPE unified backfill: run a SET of pipelines over a preset (or explicit market+tickers)."""
+    preset: str | None = None       # universe preset id (see /admin/universes)
+    market: str | None = None       # with `tickers`, an explicit universe instead of a preset
+    tickers: list[str] | None = None
+    pipelines: list[str] | None = None  # pipeline ids (see /admin/pipelines); omit → default set
+
+
 class NewsIngestRequest(BaseModel):
     market: str = "US"
     tickers: list[str] | None = None  # omit for broad market news
     limit: int | None = None
-
-
-class PrecomputeLocationsRequest(BaseModel):
-    preset: str | None = None   # a universe preset id (takes precedence); its US tickers are indexed
-    market: str = "US"          # PH-PROV2 = US (SEC iXBRL) only — non-US tickers are skipped
-    tickers: list[str] | None = None  # explicit tickers to index
 
 
 @router.get(
@@ -62,6 +65,60 @@ async def store_statistics() -> dict:
 @router.get("/universes", dependencies=[ApiKeyDep], summary="Curated backfill universes (presets)")
 async def universes() -> dict:
     return {"universes": list_presets()}
+
+
+@router.get("/pipelines", dependencies=[ApiKeyDep], summary="Data pipelines registry + latest run per pipeline")
+async def pipelines() -> dict:
+    """The PH-PIPE pipeline registry (what each collects, source, store) joined with the most
+    recent IngestionJob per pipeline — so the admin can show path · schedule · status · coverage."""
+    jobs = await asyncio.to_thread(list_jobs, 100)
+    latest: dict[str, dict] = {}
+    for j in jobs:  # jobs are newest-first → first seen per kind is the latest
+        latest.setdefault(j["kind"], j)
+    pipes = []
+    for p in list_pipelines():
+        pipes.append({**p, "latest": latest.get(p["kind"])})
+    return {"pipelines": pipes, "scheduler": scheduler.status()}
+
+
+@router.post(
+    "/pipelines/run",
+    dependencies=[ApiKeyDep],
+    summary="▶ PH-PIPE: run a SET of pipelines over a universe (unified backfill)",
+    description=(
+        "Runs the selected `pipelines` (omit → default set) over a `preset` universe (or explicit "
+        "`market`+`tickers`) in the background. Each pipeline records its own IngestionJob "
+        "(see `/admin/jobs`); progress + errors + coverage show in the admin Pipelines view."
+    ),
+)
+async def pipelines_run(body: PipelineRunRequest) -> dict:
+    ids = resolve_pipeline_ids(body.pipelines)
+
+    async def _run_groups(groups: list) -> None:
+        for market, tickers in groups:
+            if tickers:
+                await run_pipelines(market.value, tickers, ids)
+
+    # Explicit market+tickers resolve instantly → report counts. A PRESET may need a slow upstream
+    # fetch (pykrx/SEC/OpenDART), so resolve it INSIDE the background task — the request returns
+    # immediately and never times out (the old sync resolve was why a flaky KR fetch read as 실패).
+    if body.market and body.tickers:
+        from app.symbols import Market
+        try:
+            groups = [(Market(body.market.upper()), body.tickers)]
+        except ValueError:
+            return {"started": False, "detail": f"unknown market {body.market!r}"}
+        asyncio.create_task(_run_groups(groups))
+        return {"started": True, "pipelines": ids,
+                "universe": [{"market": m.value, "count": len(t)} for m, t in groups],
+                "tickers_total": len(body.tickers), "see": "/admin/jobs"}
+    if body.preset:
+        async def _run_preset() -> None:
+            groups = await resolve_universe(body.preset)  # dynamic fetch (may be slow)
+            await _run_groups(groups)
+        asyncio.create_task(_run_preset())
+        return {"started": True, "pipelines": ids, "preset": body.preset, "see": "/admin/jobs"}
+    return {"started": False, "detail": "preset or (market + tickers) required"}
 
 
 @router.get("/jobs", dependencies=[ApiKeyDep], summary="Recent ingestion jobs (backfill / scheduled)")
@@ -92,36 +149,8 @@ async def backfill(body: BackfillRequest) -> dict:
     return {"started": True, "target": target, "see": "/admin/jobs"}
 
 
-@router.post(
-    "/precompute-locations",
-    dependencies=[ApiKeyDep],
-    summary="▶ PH-PROV2: index where each fact appears in its filing (US iXBRL · KR DART)",
-    description=(
-        "Downloads each ticker's recent filings and stores a `FactLocation` pointer per "
-        "headline figure (US: match the as-reported fact to its inline-XBRL element; KR: "
-        "label-anchored exact match in the DART disclosure document). Powers the highlighted "
-        "evidence image at `/evidence`. Runs in the background; progress in `/admin/jobs`."
-    ),
-)
-async def precompute_locations(body: PrecomputeLocationsRequest) -> dict:
-    # Visual evidence: US (SEC iXBRL) + KR (DART document, PH-PROV2d). Presets are US-only
-    # universes; KR runs via explicit tickers. Reject other markets rather than indexing
-    # filings we can't match.
-    market, tickers = body.market, body.tickers
-    if body.preset:
-        preset = get_preset(body.preset)
-        if not preset:
-            return {"started": False, "detail": f"unknown preset {body.preset!r}"}
-        market, tickers = preset["market"], preset["tickers"]
-    if market not in ("US", "KR"):
-        return {"started": False, "detail": "visual evidence is US (SEC iXBRL) + KR (DART) only", "market": market}
-    if not tickers:
-        return {"started": False, "detail": "tickers required"}
-    asyncio.create_task(run_precompute_locations(market, tickers))
-    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
-
-
 class EvidenceDocsRequest(BaseModel):
+    preset: str | None = None  # a universe preset id (US); takes precedence
     market: str = "US"
     tickers: list[str] | None = None  # explicit tickers (watchlist-scoped)
 
@@ -138,13 +167,41 @@ class EvidenceDocsRequest(BaseModel):
     ),
 )
 async def evidence_docs(body: EvidenceDocsRequest) -> dict:
-    market = body.market
+    market, tickers = body.market, body.tickers
+    if body.preset:
+        market, tickers = await resolve_one(body.preset)  # dynamic fetch (PH-PIPE)
+        if not tickers:
+            return {"started": False, "detail": f"universe {body.preset!r} resolved to no tickers"}
     if market not in ("US", "KR"):
         return {"started": False, "detail": "US + KR only", "market": market}
-    if not body.tickers:
+    if not tickers:
         return {"started": False, "detail": "tickers required"}
-    asyncio.create_task(run_build_evidence_docs(market, body.tickers))
-    return {"started": True, "target": f"{market}:{body.tickers}", "see": "/admin/jobs"}
+    asyncio.create_task(run_build_evidence_docs(market, tickers))
+    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
+
+
+@router.post(
+    "/filings/ingest",
+    dependencies=[ApiKeyDep],
+    summary="▶ PH-PROV3e: index filing PDF text into RAG (full-text search + passage evidence)",
+    description=(
+        "Caches each ticker's filings as PDFs (if needed) and indexes their page text into RAG, "
+        "so `rag__search` returns real filing passages (MD&A, notes, any line) and `/evidence` can "
+        "highlight the cited passage. Global corpus; runs in the background, progress in `/admin/jobs`."
+    ),
+)
+async def filings_ingest(body: EvidenceDocsRequest) -> dict:
+    market, tickers = body.market, body.tickers
+    if body.preset:
+        market, tickers = await resolve_one(body.preset)  # dynamic fetch (PH-PIPE)
+        if not tickers:
+            return {"started": False, "detail": f"universe {body.preset!r} resolved to no tickers"}
+    if market not in ("US", "KR"):
+        return {"started": False, "detail": "US + KR only", "market": market}
+    if not tickers:
+        return {"started": False, "detail": "tickers required"}
+    asyncio.create_task(run_filing_text_ingest(market, tickers))
+    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
 
 
 @router.post(

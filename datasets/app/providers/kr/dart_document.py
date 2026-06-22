@@ -18,6 +18,7 @@ re-run the match and inject a unique ``id`` the renderer can target robustly.
 from __future__ import annotations
 
 import io
+import logging
 import re
 import zipfile
 
@@ -25,6 +26,8 @@ from lxml import html as lxml_html
 
 from app.config import settings
 from app.http import fetch_bytes, fetch_text
+
+log = logging.getLogger(__name__)
 
 _DART_UA = {"User-Agent": "Mozilla/5.0 (compatible; ValueGraphDatasets/0.1)"}
 _DCM_RE = re.compile(r"node1\['dcmNo'\]\s*=\s*\"(\d+)\"")
@@ -35,14 +38,25 @@ _DCM_RE = re.compile(r"node1\['dcmNo'\]\s*=\s*\"(\d+)\"")
 KR_LABELS: dict[str, list[str]] = {
     # income statement
     "revenue": ["매출액", "수익(매출액)", "영업수익", "매출"],
-    "net_income": ["당기순이익", "당기순이익(손실)", "분기순이익", "반기순이익", "당기순이익(손실금액)"],
-    "operating_income": ["영업이익", "영업이익(손실)"],
+    "cost_of_revenue": ["매출원가"],
     "gross_profit": ["매출총이익", "매출총이익(손실)"],
+    "selling_general_and_administrative_expenses": ["판매비와관리비", "판매비및관리비"],
+    "research_and_development": ["연구개발비", "경상연구개발비"],
+    "operating_expense": ["영업비용"],
+    "operating_income": ["영업이익", "영업이익(손실)"],
+    "income_tax_expense": ["법인세비용", "법인세비용(수익)"],
+    "net_income": ["당기순이익", "당기순이익(손실)", "분기순이익", "반기순이익", "당기순이익(손실금액)"],
+    "earnings_per_share": ["기본주당이익", "기본주당순이익", "주당순이익"],
+    "earnings_per_share_diluted": ["희석주당이익", "희석주당순이익"],
     # balance sheet
     "total_assets": ["자산총계"],
-    "total_liabilities": ["부채총계"],
-    "shareholders_equity": ["자본총계"],
+    "current_assets": ["유동자산"],
     "cash_and_equivalents": ["현금및현금성자산"],
+    "inventory": ["재고자산"],
+    "total_liabilities": ["부채총계"],
+    "current_liabilities": ["유동부채"],
+    "shareholders_equity": ["자본총계"],
+    "retained_earnings": ["이익잉여금"],
     # cash-flow statement
     "net_cash_flow_from_operations": ["영업활동현금흐름", "영업활동으로인한현금흐름"],
     "net_cash_flow_from_investing": ["투자활동현금흐름", "투자활동으로인한현금흐름"],
@@ -216,14 +230,20 @@ async def fetch_dart_pdf(rcept_no: str) -> bytes | None:
         return None
     dcm = await _resolve_dcm_no(rcept_no)
     if not dcm:
+        log.warning("DART pdf: no dcmNo for rcept %s (viewer unreachable?) → fallback", rcept_no)
         return None
     referer = f"https://dart.fss.or.kr/pdf/download/main.do?rcp_no={rcept_no}&dcm_no={dcm}"
     url = f"https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no={rcept_no}&dcm_no={dcm}"
     try:
         pdf = await fetch_bytes("dart", url, headers={**_DART_UA, "Referer": referer})
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DART pdf fetch failed rcept=%s dcm=%s: %s", rcept_no, dcm, exc)
         return None
-    return pdf if pdf[:4] == b"%PDF" else None
+    if pdf[:4] != b"%PDF":
+        log.warning("DART pdf: non-PDF body rcept=%s dcm=%s → fallback", rcept_no, dcm)
+        return None
+    log.info("DART official pdf rcept=%s dcm=%s (%d KB)", rcept_no, dcm, len(pdf) // 1024)
+    return pdf
 
 
 def _decode_doc(raw: bytes) -> str:

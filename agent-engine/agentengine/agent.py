@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 
 from agentengine import guardrails
 from agentengine.artifacts import _artifacts
@@ -67,51 +68,284 @@ from agentengine.provenance import (  # noqa: E402,F401
 logger = logging.getLogger(__name__)
 
 
-# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
-# A light model rates how many tool hops a query needs (not hardcoded keyword rules):
-# simple single-fact asks finish fast; multi-source asks ("공급망·리스크 공시 요약")
-# get headroom. The numbered budget is then strictly honored (the loop reserves its
-# last step for synthesis, so it never leaks "Reached the step limit").
-_BUDGET_PROMPT = (
-    "You plan how many tool-calls a financial-research assistant needs to FULLY answer a query.\n"
-    "Tools available: prices, news, company filings, financial statements, macro indicators, semantic search.\n"
-    "Guidance: one fact about one company ≈ 2-3; a comparison or a multi-source ask "
-    "(e.g. 'summarize a company's supply chain + risks from filings and news') ≈ 8-12.\n"
-    "Reply with ONLY a single integer.\nQuery: {task}"
+# --- PH-15 / PH-THINK: LLM-assessed step budget + guardrail, folded into one intake ----
+# A light model both judges the request (guardrail) and rates how many tool hops it needs
+# (not hardcoded keyword rules): simple single-fact asks finish fast; multi-source asks
+# ("공급망·리스크 공시 요약") get headroom. The numbered budget is then strictly honored
+# (the loop reserves its last step for synthesis, so it never leaks "Reached the step limit").
+@dataclass
+class TaskIntake:
+    """The first-pass LLM analysis of a user turn: the GUARDRAIL decision (judged from
+    intent, in context — no keyword rules, invariant #9) folded together with PLANNING
+    (step budget + a short plan). One Gemini call produces all of it."""
+
+    steps: int
+    plan: str | None = None
+    restricted: bool = False     # the user asked for forecast/advice/target as output → refuse
+    score: float = 0.0           # confidence (0..1) it's a restricted REQUEST
+    reason: str | None = None    # one-line why (shown for telemetry)
+    needs_data: bool = True      # does answering require our tools/data? False = conceptual →
+    #                              answer richly from expertise, skip the tool loop.
+    # CLARIFY (Claude-Code-style plan/ask): when the request is broad/ambiguous, offer the user
+    # 2-4 concrete choices to scope the work instead of guessing. The chat surfaces these as
+    # clickable chips; picking composes a refined follow-up. Only set when it genuinely helps.
+    clarify: bool = False
+    clarify_prompt: str | None = None
+    options: list = field(default_factory=list)   # [{"label": str, "description": str|None}]
+    multi: bool = False          # may several options be combined (pick-multiple) ?
+    # A2A DECOMPOSITION: for a complex, multi-facet request, the orchestrator splits it into
+    # 2-4 focused sub-tasks researched by parallel sub-agents, then combined. Empty = single agent.
+    subtasks: list = field(default_factory=list)  # [{"title": str, "question": str}]
+
+
+_INTAKE_PROMPT = (
+    "You are the intake analyst for a financial RESEARCH service that provides ONLY sourced, "
+    "historical/descriptive facts (public filings, financials, prices, macro data, news). It must "
+    "REFUSE to *produce* forward-looking or advisory content. Read the user's question and reply "
+    "with JSON.\n\n"
+    "GUARDRAIL — decide whether the user is REQUESTING, as the desired output, any of:\n"
+    "- a price/market PREDICTION or FORECAST (future direction, 'will it go up', earnings forecast)\n"
+    "- BUY/SELL/HOLD advice, an investment recommendation, or entry/exit timing\n"
+    "- a PRICE TARGET (목표가 / 목표주가)\n"
+    "Judge INTENT, not vocabulary. A request is NOT restricted merely because it MENTIONS these "
+    "words. If the user EXCLUDES or NEGATES them it is ALLOWED — they want facts. ALLOWED examples: "
+    "'목표가는 제시하지 말고 가격 흐름만', '전망·매수의견은 넣지 말고 사실 위주로', 'do NOT give a "
+    "forecast, just what happened'. Descriptive past/current facts, news summaries, filings, "
+    "financials, and macro data are ALWAYS allowed.\n\n"
+    "PLAN — when allowed, size the work and outline it (no answer, no numbers).\n"
+    "DATA ROUTING — set needs_data=true when answering requires looking up sourced financial DATA "
+    "(prices, filings, financial statements, macro indicators, holdings, news, a specific company's "
+    "figures). Set needs_data=false for purely CONCEPTUAL/definitional/how-to questions answerable from "
+    "general knowledge (e.g. 'PER이 뭐야?', 'how does an ETF work?', 'explain DCF') — those are answered "
+    "richly from expertise without a tool call.\n"
+    "CLARIFY — if the request is BROAD / open-ended / ambiguous so you can't tell which specific aspect "
+    "the user wants (e.g. '엔비디아 분석해줘', '삼성전자 어때?', '반도체 시장 알려줘', 'tell me about Tesla'), "
+    "set clarify=true with a short clarify_prompt and 2-4 concrete ASPECT options (each "
+    "{{\"label\", \"description\"}}, same language) so the user can steer — Claude-Code style. set multi=true "
+    "if several aspects can be combined. Do NOT clarify a clearly specific request (e.g. 'AAPL 최근 종가', "
+    "'엔비디아 매출').\n"
+    "DECOMPOSE — set subtasks ONLY when the user EXPLICITLY asks for a comprehensive / all-in-one analysis "
+    "(e.g. '종합적으로 분석', '전반적으로', 'comprehensive', '다 분석해줘') → 2-4 focused "
+    "{{\"title\", \"question\"}} sub-tasks researched in PARALLEL. Otherwise leave subtasks empty.\n\n"
+    "Reply JSON ONLY:\n"
+    '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
+    '"category": "forecast|advice|price_target|none", '
+    '"score": <number 0..1 — confidence it is a restricted REQUEST>, '
+    '"needs_data": <bool — true if sourced data lookup is required, false if conceptual>, '
+    '"clarify": <bool — true only if offering choices genuinely helps>, '
+    '"clarify_prompt": "<the short question to show the user, SAME LANGUAGE; empty if clarify=false>", '
+    '"multi": <bool — may several options be combined>, '
+    '"options": [{{"label": "<short choice>", "description": "<one line>"}}],  '
+    '"subtasks": [{{"title": "<short facet name, SAME LANGUAGE>", "question": "<self-contained sub-question>"}}],  '
+    '"reason": "<one short line, SAME LANGUAGE as the question>", '
+    '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
+    'ask ≈ 8-12>, '
+    '"plan": "<one short sentence, SAME LANGUAGE as the question, of what data you will look up and '
+    'from which kind of source — NOT the answer, no numbers; empty if restricted/conceptual/clarify>"}}\n\n'
+    "Question: {task}"
 )
 
+_INTAKE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "restricted": {"type": "boolean"},
+        "category": {"type": "string", "enum": ["forecast", "advice", "price_target", "none"]},
+        "score": {"type": "number"},
+        "reason": {"type": "string"},
+        "needs_data": {"type": "boolean"},
+        "clarify": {"type": "boolean"},
+        "clarify_prompt": {"type": "string"},
+        "multi": {"type": "boolean"},
+        "options": {"type": "array", "items": {"type": "object", "properties": {
+            "label": {"type": "string"}, "description": {"type": "string"}}, "required": ["label"]}},
+        "subtasks": {"type": "array", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "question": {"type": "string"}}, "required": ["title", "question"]}},
+        "steps": {"type": "integer"},
+        "plan": {"type": "string"},
+    },
+    "required": ["restricted", "steps"],
+}
 
-async def _llm_steps(task: str) -> int | None:
-    """One cheap call to the light model → an integer step estimate (None on no parse)."""
-    import asyncio
 
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client()
-    resp = await asyncio.to_thread(
-        client.models.generate_content,
-        model=settings.budget_model,
-        contents=_BUDGET_PROMPT.format(task=(task or "")[:500]),
-        config=types.GenerateContentConfig(temperature=0, max_output_tokens=8),
-    )
-    m = re.search(r"\d+", getattr(resp, "text", "") or "")
-    return int(m.group()) if m else None
-
-
-async def assess_budget(task: str, backend: str | None = None) -> int:
-    """LLM-assessed step budget (PH-15). Falls back to the plain default budget when
-    the backend is the stub or the assessment fails — never hardcoded keyword rules."""
+async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
+    """PH-THINK: ONE first-pass LLM call that BOTH guardrails the request (judging intent in
+    context — never keyword matching) AND plans it (step budget + a short plan to show the user).
+    The guardrail lives here, inside the analysis layer. Stub / no-key / error → allow with the
+    default budget and no plan (the LLM is the only judge; there is no keyword fallback)."""
     cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
-    effective = backend or settings.llm_backend
-    if effective != "gemini":
-        return default
+    if (backend or settings.llm_backend) != "gemini":
+        return TaskIntake(steps=default)
     try:
-        n = await _llm_steps(task)
-    except Exception as exc:  # noqa: BLE001 — degrade to the default, never block the answer
-        logger.warning("budget assessment failed (%s); using default %d", exc, default)
-        n = None
-    return max(floor, min(n, cap)) if n else default
+        import asyncio
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client()
+        resp = await asyncio.to_thread(
+            client.models.generate_content, model=settings.budget_model,
+            contents=_INTAKE_PROMPT.format(task=(task or "")[:800]),
+            config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json",
+                                               response_schema=_INTAKE_SCHEMA, max_output_tokens=400))
+        d = json.loads(getattr(resp, "text", "") or "{}")
+        try:
+            n = int(d.get("steps"))
+        except (TypeError, ValueError):
+            n = None
+        try:
+            score = float(d.get("score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        # refuse only when the model both flags it AND is confident enough (a low-confidence
+        # guess never blocks a legitimate question).
+        restricted = bool(d.get("restricted")) and score >= settings.guardrail_threshold
+        # default to needs_data=True when the model omits it (gathering data is the safe default).
+        needs_data = d.get("needs_data")
+        needs_data = True if needs_data is None else bool(needs_data)
+        # clarify only when not restricted AND there are ≥2 concrete options to offer.
+        opts = []
+        for o in (d.get("options") or []):
+            if isinstance(o, dict) and o.get("label"):
+                opts.append({"label": str(o["label"])[:80],
+                             "description": (str(o.get("description") or "").strip()[:160] or None)})
+        clarify = bool(d.get("clarify")) and not restricted and len(opts) >= 2
+        # decompose only for a clear, complex request (not restricted/clarify/conceptual) with ≥2 facets.
+        subs = []
+        for s in (d.get("subtasks") or []):
+            if isinstance(s, dict) and s.get("title") and s.get("question"):
+                subs.append({"title": str(s["title"])[:80], "question": str(s["question"])[:400]})
+        subtasks = subs[:4] if (not restricted and not clarify and needs_data and len(subs) >= 2) else []
+        return TaskIntake(
+            steps=(max(floor, min(n, cap)) if n else default),
+            plan=(None if (restricted or clarify) else (str(d.get("plan") or "").strip() or None)),
+            restricted=restricted, score=score,
+            reason=(str(d.get("reason") or "").strip() or None),
+            needs_data=needs_data,
+            clarify=clarify,
+            clarify_prompt=(str(d.get("clarify_prompt") or "").strip() or None) if clarify else None,
+            options=(opts if clarify else []),
+            multi=bool(d.get("multi")),
+            subtasks=subtasks,
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
+        logger.warning("task intake failed (%s); allowing with default budget", exc)
+        return TaskIntake(steps=default)
+
+
+_FOLLOWUP_PROMPT = (
+    "You are a senior buy-side research lead. Given the user's question and the answer just given, "
+    "propose 3-4 follow-up questions that DEEPEN the research — each should be the next genuinely "
+    "insightful analytical step, not a restatement. Good follow-ups: probe a key DRIVER behind a "
+    "figure, COMPARE against a peer/benchmark/prior period, drill into a RISK or segment, connect a "
+    "macro factor, or pull the supporting filing passage. Each must be:\n"
+    "- a concrete, specific question in the SAME LANGUAGE as the user's question;\n"
+    "- answerable by a SOURCED financial-data service (filings, financials, prices, macro, news, "
+    "evidence) — NOT asking for forecasts, price targets, or buy/sell advice;\n"
+    "- self-contained (name the company/metric explicitly).\n"
+    "Return JSON: {{\"followups\": [\"…\", \"…\", \"…\"]}}.\n\n"
+    "User question: {task}\n\nAnswer given:\n{answer}"
+)
+_FOLLOWUP_SCHEMA = {
+    "type": "object",
+    "properties": {"followups": {"type": "array", "items": {"type": "string"}}},
+    "required": ["followups"],
+}
+
+
+async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None) -> list[str]:
+    """PH-THINK: 3-4 DEEP follow-up questions to continue the research (shown as clickable chips).
+    Gemini-only, best-effort; [] on stub / no answer / error."""
+    if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
+        return []
+    try:
+        import asyncio
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client()
+        resp = await asyncio.to_thread(
+            client.models.generate_content, model=model,
+            contents=_FOLLOWUP_PROMPT.format(task=(task or "")[:400], answer=(answer or "")[:2500]),
+            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=400,
+                                               response_mime_type="application/json",
+                                               response_schema=_FOLLOWUP_SCHEMA))
+        d = json.loads(getattr(resp, "text", "") or "{}")
+        out = [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()]
+        return out[:4]
+    except Exception as exc:  # noqa: BLE001 — suggestions are a nicety, never block
+        logger.warning("followup suggestions failed (%s); skipping", exc)
+        return []
+
+
+_REFINE_PROMPT = (
+    "You are a meticulous research reviewer. Given the user's question and the evidence the "
+    "agent gathered (each item: [index] source + snippet/figures), return JSON with:\n"
+    "- \"brief\": a SHORT synthesis brief (2-4 lines, SAME LANGUAGE as the question) that names "
+    "which sources actually answer the question + the key figures to use, flags conflicts/gaps, "
+    "and gives a one-line outline for the final answer. Do NOT write the answer, add numbers not "
+    "in the evidence, or forecast.\n"
+    "- \"sources\": for EACH evidence item, its [index] and a confidence of how well it supports "
+    "answering THIS question — \"high\" (direct, specific, on-topic), \"medium\" (partial/indirect), "
+    "\"low\" (tangential/weak) — plus a one-line \"why\" in the question's language. This is a "
+    "descriptive judgment of evidentiary support, NOT a market prediction.\n\n"
+    "Question: {task}\n\nEvidence:\n{ev}"
+)
+
+_REFINE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "brief": {"type": "string"},
+        "sources": {"type": "array", "items": {"type": "object", "properties": {
+            "index": {"type": "integer"},
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+            "why": {"type": "string"},
+        }, "required": ["index", "confidence"]}},
+    },
+    "required": ["brief"],
+}
+
+
+async def refine_evidence(task: str, citations: list[dict], model: str,
+                          backend: str | None = None) -> tuple[str | None, dict[int, dict]]:
+    """PH-THINK (verify/refine): ONE reviewer pass over the gathered evidence that both
+    (a) writes a short synthesis brief grounding the final answer, and (b) scores each
+    source's confidence (how well it supports the question). Returns (brief, {index: {
+    confidence, why}}). Gemini-only, best-effort; ('', {}) when stub / no evidence / error."""
+    if (backend or settings.llm_backend) != "gemini" or not citations:
+        return None, {}
+    lines = []
+    for c in citations[:12]:
+        bit = c.get("snippet") or ""
+        if not bit and c.get("table"):
+            bit = " · ".join(" ".join(map(str, row)) for row in (c.get("table") or [])[:3])
+        lines.append(f"- [{c.get('index')}] {c.get('source') or '?'}: {str(bit)[:220]}")
+    ev = "\n".join(lines)
+    try:
+        import asyncio
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client()
+        resp = await asyncio.to_thread(
+            client.models.generate_content, model=model,
+            contents=_REFINE_PROMPT.format(task=(task or "")[:400], ev=ev[:4000]),
+            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=600,
+                                               response_mime_type="application/json",
+                                               response_schema=_REFINE_SCHEMA))
+        d = json.loads(getattr(resp, "text", "") or "{}")
+        brief = (str(d.get("brief") or "")).strip() or None
+        scores: dict[int, dict] = {}
+        for s in (d.get("sources") or []):
+            try:
+                idx = int(s.get("index"))
+            except (TypeError, ValueError):
+                continue
+            conf = str(s.get("confidence") or "").lower()
+            if conf in ("high", "medium", "low"):
+                scores[idx] = {"confidence": conf, "why": (str(s.get("why") or "").strip() or None)}
+        return brief, scores
+    except Exception as exc:  # noqa: BLE001 — never block the answer on the review pass
+        logger.warning("evidence refine failed (%s); skipping", exc)
+        return None, {}
 
 
 def call_sig(decision) -> str | None:
@@ -165,14 +399,24 @@ def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
 
 
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:
-    guardrailer = guardrails.get_guardrailer(spec.backend if spec else None)
-    refusal = await guardrailer.check(task)
-    if refusal:
-        return RunResult(answer=refusal, refused=True, usage={"steps": 0})
+    # PH-THINK: one intake call both guardrails (LLM judges intent — no keyword rules) and
+    # sizes the budget. Refuse here at the agent boundary when the request is restricted.
+    intake = await analyze_task(task, spec.backend if spec else None)
+    if intake.restricted:
+        return RunResult(answer=guardrails.REFUSAL, refused=True, usage={"steps": 0})
 
-    # PH-15: a spec can pin max_steps; otherwise a light model assesses the budget.
-    max_steps = spec.max_steps if (spec and spec.max_steps) else await assess_budget(task, spec.backend if spec else None)
+    max_steps = spec.max_steps if (spec and spec.max_steps) else intake.steps
     system = spec.system if spec else None
+    if intake.plan:
+        system = ((system or "") + f"\n\n[연구 계획] {intake.plan}").strip()
+
+    # Conceptual question → answer richly from expertise, skip the tool loop (guardrail still
+    # applies; the responder won't assert specific unsourced figures).
+    if not intake.needs_data:
+        planner = get_planner(spec.backend if spec else None)
+        dec = await planner.plan(task, {}, [], system, force_final=True, sources=None)
+        return RunResult(answer=(dec.final or fallback_answer([])), refused=False, usage={"steps": 0})
+
     client = PlatformClient(api_key)
     tools = await client.fetch_tools()
     if spec and spec.allowed_tools:
@@ -230,6 +474,18 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         logger.exception("Error in run_agent loop")
         # Honest degrade on a planner/LLM error rather than a 500.
         answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
+
+    # PH-VIZ-2: attach descriptive price lines + sourced event markers (dividends/splits/
+    # earnings from this turn) to the price chart, so the chart shows the cited events.
+    from agentengine.artifacts import enrich_chart_markers, enrich_chart_overlays
+    enrich_chart_markers(artifacts, history)
+    # PH-VIZ-4: fold technical-indicator overlays (SMA/EMA/Bollinger + RSI/MACD) onto the
+    # same-ticker price chart so they render on the price; else they stand alone.
+    enrich_chart_overlays(artifacts)
+    # PH-VIZ-3: let Gemini annotate the price chart from the question (lines/levels/zones),
+    # validated to historical points only (no projection). Gemini-only; best-effort.
+    from agentengine.annotations import annotate_charts
+    await annotate_charts(artifacts, task, settings.model, spec.backend if spec else settings.llm_backend)
 
     cites = dedup_citations(citations)
     # Mark which citations are evidence (cited [n] or back an artifact) vs consulted.

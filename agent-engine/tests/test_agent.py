@@ -8,7 +8,6 @@ import respx
 from fastapi.testclient import TestClient
 
 from agentengine import agent as A
-from agentengine import guardrails
 from agentengine import planner as P
 from agentengine.config import settings
 from agentengine.main import app
@@ -19,8 +18,11 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _force_stub_backend(monkeypatch):
     """Keep the unit suite deterministic + key-free regardless of the dev .env
-    (which may set AGENT_LLM_BACKEND=gemini)."""
+    (which may set AGENT_LLM_BACKEND=gemini). Cleared keys → the intake stays on the stub
+    path (allow + default budget), so stream tests don't make real LLM calls."""
     monkeypatch.setattr(settings, "llm_backend", "stub")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     P._build_planner.cache_clear()
     yield
     P._build_planner.cache_clear()
@@ -49,20 +51,11 @@ def _catalog():
 
 
 # --- guardrails -----------------------------------------------------------
-async def test_guardrail_refuses_forecast_and_advice():
-    gd = guardrails.get_guardrailer()
-    assert await gd.check("predict the AAPL price next month") is not None
-    assert await gd.check("should I buy TSLA?") is not None
-    assert await gd.check("what was AAPL revenue last year?") is None
-
-
-async def test_guardrail_covers_price_targets_and_directional_bets():
-    gd = guardrails.get_guardrailer()
-    for bad in ["what's the price target for NVDA", "forecast TSLA earnings",
-                "will AAPL go up next week", "is MSFT worth buying"]:
-        assert await gd.check(bad) is not None, bad
-    for ok in ["삼성전자 최근 실적", "show me AAPL filings", "what is the Fed funds rate"]:
-        assert await gd.check(ok) is None, ok
+async def test_intake_stub_allows_with_default_budget():
+    # No LLM (stub) → the intake allows everything with the default budget. There is NO
+    # keyword/regex guardrail anymore — the judgment belongs entirely to the LLM (invariant #9).
+    intake = await A.analyze_task("should I buy TSLA?", "stub")
+    assert intake.restricted is False and intake.steps == settings.max_steps and intake.plan is None
 
 
 def test_citations_extract_urls_from_nested_result():
@@ -188,6 +181,68 @@ def test_evidence_url_for_kr_dart_statements():
     assert "report_period=2024-12-31" in c.evidence_image_url
 
 
+def test_corporate_actions_citation_is_a_dividend_data_card():
+    # PH-DATA-3: dividends/splits (Yahoo, no document) → data-card evidence (real values + source).
+    tool = {"name": "yahoo__corporate_actions", "source": "Yahoo Finance", "connector": "yahoo"}
+    data = {"ticker": "AAPL", "currency": "USD",
+            "dividends": [{"ex_date": "2026-02-07", "amount": 0.25}, {"ex_date": "2025-11-07", "amount": 0.25}],
+            "splits": [{"date": "2020-08-31", "ratio": "4:1"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["배당락일", "배당금"]
+    assert c.table[1][0] == "2026-02-07" and "배당" in (c.snippet or "")
+    assert c.evidence_image_url is None  # no document → data card only
+
+
+def test_macro_citation_is_a_clean_data_card():
+    # PH-PROV3f: a non-document source (macro rates) → data-card evidence (exact values +
+    # source + as_of), no PDF/evidence image.
+    tool = {"name": "fred__interest_rates", "source": "BIS / FRED (central-bank policy rates)",
+            "connector": "fred"}
+    data = {"interest_rates": [
+        {"bank": "FED", "name": "U.S. Federal Reserve", "rate": 4.375, "date": "2025-07-08"},
+        {"bank": "FED", "name": "U.S. Federal Reserve", "rate": 4.5, "date": "2024-07-08"}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["기관", "금리", "기준일"]
+    assert c.table[1] == ["U.S. Federal Reserve", "4.375%", "2025-07-08"]   # newest first
+    assert c.snippet and "4.375%" in c.snippet and c.as_of == "2025-07-08"
+    assert c.evidence_image_url is None  # no document → no highlight, just the data card
+
+
+def test_rag_filing_citation_carries_passage_evidence():
+    # PH-PROV3e: a RAG hit from a filing (has an accession) → evidence link in text mode;
+    # a news hit (no accession) gets none.
+    tool = {"name": "rag__search", "connector": "rag", "source": "RAG"}
+    filing = {"hits": [{"text": "TSMC fabricates Apple's custom silicon under a multi-year supply agreement.",
+                        "provenance": {"source": "SEC EDGAR", "doc_type": "filing", "market": "US",
+                                       "accession": "0000320193-24-000123", "ticker": "AAPL",
+                                       "section": "p.12", "url": "https://sec.gov/i"}}]}
+    c = A._citations(tool, {"data": filing})[0]
+    assert c.evidence_image_url and "text=" in c.evidence_image_url
+    assert "accession=0000320193-24-000123" in c.evidence_image_url and "market=US" in c.evidence_image_url
+
+    news = {"hits": [{"text": "Apple shares rose.",
+                      "provenance": {"source": "Reuters", "doc_type": "news", "market": "US", "url": "https://r"}}]}
+    assert A._citations(tool, {"data": news})[0].evidence_image_url is None
+
+
+def test_evidence_anchors_on_the_figure_the_answer_cites():
+    # PH-PROV3d: evidence highlights the line the ANSWER cites (net income), not always revenue.
+    from agentengine.evidence import evidence_url_for_answer
+
+    data = {"income_statements": [
+        {"revenue": 391035000000.0, "net_income": 93736000000.0, "report_period": "2024-09-28",
+         "accession_number": "0000320193-24-000123"}]}
+    u_ni = evidence_url_for_answer(data, "0000320193-24-000123", "320193", "US",
+                                   "Apple's net income was $93,736 million in FY2024.")
+    assert u_ni and "concept=NetIncomeLoss" in u_ni and "value=93736000000" in u_ni
+    u_rev = evidence_url_for_answer(data, "0000320193-24-000123", "320193", "US",
+                                    "Total net sales were $391,035 million.")
+    assert u_rev and ("Revenue" in u_rev or "concept=Revenues" in u_rev) and "93736000000" not in u_rev
+    # no answer → falls back to the representative headline (revenue)
+    u_fb = evidence_url_for_answer(data, "0000320193-24-000123", "320193", "US", "")
+    assert u_fb and "Revenue" in u_fb
+
+
 def test_evidence_url_for_balance_sheet_instant_context():
     # PH-PROV2c: the balance_sheets tool (instant XBRL contexts) → evidence link for the
     # headline figure (total_assets → us-gaap:Assets), plus an extracted balance table.
@@ -267,14 +322,121 @@ async def test_fetch_tools_attaches_friendly_connector_name(monkeypatch):
 
 
 # --- eval-driven fixes ----------------------------------------------------
-async def test_guardrail_refuses_korean_forecast_and_advice():
-    gd = guardrails.get_guardrailer()
-    for bad in ["삼성전자 주가 오를까?", "지금 사야 할까요?", "AAPL 목표주가 알려줘",
-                "엔비디아 전망 어때", "매수 추천 종목 알려줘", "테슬라 살까 팔까"]:
-        assert await gd.check(bad) is not None, bad
-    for ok in ["삼성전자 최근 실적", "AAPL 종가 흐름 알려줘", "한국은행 기준금리 얼마야",
-               "엔비디아 공시 요약", "Fed 금리 추이"]:
-        assert await gd.check(ok) is None, ok
+async def test_intake_guardrail_judges_intent(monkeypatch):
+    # PH-THINK: the guardrail lives inside the intake LLM call — it judges INTENT (with a
+    # confidence score), so a fact request that NEGATES a restricted term is allowed, while a
+    # genuine advice request is refused, and a low-confidence guess never blocks.
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    # genuine buy advice → restricted
+    mock_resp.text = '{"restricted": true, "category": "advice", "score": 0.95, "reason": "매수의견", "steps": 3, "plan": ""}'
+    intake = await A.analyze_task("엔비디아 지금 사야 할까?", "gemini")
+    assert intake.restricted is True and intake.plan is None
+
+    # the reported bug: a FACT request that EXCLUDES targets/forecasts → allowed, with a plan
+    mock_resp.text = ('{"restricted": false, "category": "none", "score": 0.05, "reason": "사실 요청", '
+                      '"steps": 4, "plan": "야후에서 최근 가격을 조회"}')
+    intake = await A.analyze_task("NVDA 최근 가격 흐름만, 목표가·전망은 제시하지 말고", "gemini")
+    assert intake.restricted is False and intake.steps == 4 and intake.plan == "야후에서 최근 가격을 조회"
+
+    # a low-confidence restricted guess must NOT block (below the 0.6 threshold)
+    mock_resp.text = '{"restricted": true, "category": "forecast", "score": 0.3, "steps": 3}'
+    intake = await A.analyze_task("애플 실적 추이 알려줘", "gemini")
+    assert intake.restricted is False
+
+
+async def test_intake_routes_conceptual_vs_data(monkeypatch):
+    # The intake routes purely conceptual questions away from the tool loop (needs_data=False),
+    # while data questions keep needs_data=True (and default True when the model omits it).
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    mock_resp.text = '{"restricted": false, "score": 0.0, "needs_data": false, "steps": 2, "plan": ""}'
+    assert (await A.analyze_task("PER이 뭐야?", "gemini")).needs_data is False
+
+    mock_resp.text = '{"restricted": false, "score": 0.0, "needs_data": true, "steps": 3, "plan": "가격 조회"}'
+    assert (await A.analyze_task("AAPL 최근 종가", "gemini")).needs_data is True
+
+    mock_resp.text = '{"restricted": false, "score": 0.0, "steps": 3}'   # omitted → default True
+    assert (await A.analyze_task("삼성전자 매출", "gemini")).needs_data is True
+
+
+async def test_chat_stream_conceptual_skips_tools(monkeypatch):
+    # needs_data=False → the chat answers richly without any tool call or data-plane fetch.
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+
+    async def _conceptual(_task, _backend=None):
+        return TaskIntake(steps=3, restricted=False, needs_data=False, plan=None)
+
+    monkeypatch.setattr(C, "analyze_task", _conceptual)
+    events = [e async for e in stream_chat([{"role": "user", "content": "PER이 뭐야?"}], "vgk_x")]
+    assert all(e["type"] != "tool" for e in events)          # no tool call
+    assert any(e["type"] == "token" for e in events)         # but a real answer streamed
+    done = events[-1]
+    assert done["type"] == "done" and done["refused"] is False and done["citations"] == []
+
+
+async def test_intake_parses_clarify_options(monkeypatch):
+    # CLARIFY: a broad request → clarify=true with ≥2 concrete options (dropped if <2 or restricted).
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    mock_resp.text = ('{"restricted": false, "score": 0.0, "needs_data": true, "clarify": true, '
+                      '"clarify_prompt": "무엇을 볼까요?", "multi": true, "steps": 6, '
+                      '"options": [{"label": "주가 흐름", "description": "최근 가격"}, '
+                      '{"label": "최근 뉴스", "description": "헤드라인"}]}')
+    intake = await A.analyze_task("엔비디아 분석해줘", "gemini")
+    assert intake.clarify is True and intake.multi is True and len(intake.options) == 2
+    assert intake.options[0]["label"] == "주가 흐름" and intake.clarify_prompt == "무엇을 볼까요?"
+
+    # only ONE option → not actionable as a choice → clarify suppressed
+    mock_resp.text = ('{"restricted": false, "clarify": true, "steps": 3, '
+                      '"options": [{"label": "주가 흐름"}]}')
+    assert (await A.analyze_task("엔비디아 분석", "gemini")).clarify is False
+
+
+async def test_chat_stream_clarify_offers_options(monkeypatch):
+    # A clarify intake makes the chat OFFER options (clarify event), call no tool, and finish.
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+
+    async def _clarify(_task, _backend=None):
+        return TaskIntake(steps=6, restricted=False, clarify=True, multi=True,
+                          clarify_prompt="무엇을 볼까요?",
+                          options=[{"label": "주가 흐름"}, {"label": "최근 뉴스"}])
+
+    monkeypatch.setattr(C, "analyze_task", _clarify)
+    events = [e async for e in stream_chat([{"role": "user", "content": "엔비디아 분석해줘"}], "vgk_x")]
+    assert all(e["type"] != "tool" for e in events)          # nothing executed yet
+    clarify = next(e for e in events if e["type"] == "clarify")
+    assert clarify["multi"] is True and [o["label"] for o in clarify["options"]] == ["주가 흐름", "최근 뉴스"]
+    assert events[-1]["type"] == "done" and events[-1].get("clarify") is True
 
 
 def test_citations_use_per_hit_rag_provenance():
@@ -534,33 +696,22 @@ async def test_chat_stream_emits_trailing_anchor(monkeypatch):
     assert cite["index"] == 1
 
 
-# --- PH-15: LLM-assessed step budget + strict finalize ------------------------
-async def test_assess_budget_uses_llm_then_clamps(monkeypatch):
+# --- PH-THINK: the intake (budget + guardrail) clamps the step budget --------------------
+async def test_intake_clamps_step_budget(monkeypatch):
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
     from agentengine.config import settings
+    import google.genai
 
-    async def _eleven(task):
-        return 11
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
 
-    async def _huge(task):
-        return 999
-
-    # gemini backend → the light model's estimate is used (clamped to the cap)
-    monkeypatch.setattr(A, "_llm_steps", _eleven)
-    assert await A.assess_budget("엔비디아 공급망·리스크 공시 요약", backend="gemini") == 11
-    monkeypatch.setattr(A, "_llm_steps", _huge)
-    assert await A.assess_budget("x", backend="gemini") == settings.max_steps_cap  # clamped
-
-
-async def test_assess_budget_falls_back_without_llm(monkeypatch):
-    from agentengine.config import settings
-    # stub backend never calls the model → plain default (no hardcoded keyword rules)
-    assert await A.assess_budget("anything", backend="stub") == settings.max_steps
-
-    async def _boom(task):
-        raise RuntimeError("no key")
-
-    monkeypatch.setattr(A, "_llm_steps", _boom)
-    assert await A.assess_budget("anything", backend="gemini") == settings.max_steps  # graceful
+    mock_resp.text = '{"restricted": false, "score": 0.0, "steps": 11, "plan": "공시 요약"}'
+    assert (await A.analyze_task("엔비디아 공급망·리스크 공시 요약", "gemini")).steps == 11
+    mock_resp.text = '{"restricted": false, "score": 0.0, "steps": 999}'   # clamped to the cap
+    assert (await A.analyze_task("x", "gemini")).steps == settings.max_steps_cap
 
 
 def test_call_sig_detects_repeat():
@@ -609,9 +760,225 @@ async def test_run_agent_recovers_from_stuck_planner(monkeypatch):
 
 @respx.mock
 async def test_run_refuses_forecast(monkeypatch):
+    # The intake (LLM) makes the call; stub it as restricted to assert run_agent refuses at the
+    # boundary (no tool steps), without touching the data plane.
     _gw(monkeypatch)
+
+    async def _restricted(_task, _backend=None):
+        return A.TaskIntake(steps=3, restricted=True, score=0.95, reason="forecast")
+
+    monkeypatch.setattr(A, "analyze_task", _restricted)
     res = await A.run_agent("Will AAPL go up next week?", "vgk_x")
     assert res.refused is True and res.steps == []
+
+
+async def test_intake_parses_subtasks(monkeypatch):
+    # A2A: a complex request → 2-4 focused subtasks; dropped if <2 or restricted/clarify.
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    mock_resp.text = ('{"restricted": false, "score": 0.0, "needs_data": true, "steps": 10, '
+                      '"subtasks": [{"title": "주가", "question": "NVDA 최근 주가 흐름"}, '
+                      '{"title": "재무", "question": "NVDA 최근 매출·순이익"}]}')
+    intake = await A.analyze_task("엔비디아 종합 분석해줘", "gemini")
+    assert len(intake.subtasks) == 2 and intake.subtasks[0]["title"] == "주가"
+
+    # a single subtask isn't a decomposition → dropped
+    mock_resp.text = '{"restricted": false, "needs_data": true, "steps": 3, "subtasks": [{"title": "x", "question": "y"}]}'
+    assert (await A.analyze_task("NVDA 주가", "gemini")).subtasks == []
+
+
+@respx.mock
+async def test_run_subagent_gathers_evidence(monkeypatch):
+    # A sub-agent runs a headless gather loop over the shared tools and returns evidence.
+    import agentengine.orchestrator as O
+    from agentengine.planner import Decision
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
+
+    class OnePlanner:
+        def __init__(self):
+            self.n = 0
+
+        async def plan_batch(self, task, tools, history, system=None, conversation=None,
+                             force_final=False, sources=None):
+            if force_final or self.n >= 1:
+                return [Decision(final="공시 리스크 정리")]
+            self.n += 1
+            return [Decision(tool="rag__search", args={"query": "supplier risk"})]
+
+        async def plan(self, *a, **k):
+            return (await self.plan_batch(*a, **k))[0]
+
+    monkeypatch.setattr(O, "get_planner", lambda _b=None: OnePlanner())
+    from agentengine.client import PlatformClient
+    tools = await PlatformClient("vgk_x").fetch_tools()
+    res = await O.run_subagent("리스크", "공시상 공급망 리스크", "vgk_x", tools, "gemini", budget=3)
+    assert res.title == "리스크" and res.note == "공시 리스크 정리"
+    assert any(c.url == "https://sec.gov/x" for c in res.citations) and res.steps >= 1
+
+
+@respx.mock
+async def test_chat_stream_a2a_decomposes_and_combines(monkeypatch):
+    # A2A end-to-end: subtasks → parallel sub-agent cards → unified citations → combined answer.
+    import agentengine.chat as C
+    import agentengine.orchestrator as O
+    from agentengine.agent import TaskIntake
+    from agentengine.planner import Decision
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "NVDA", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
+    respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
+
+    async def _intake(_task, _backend=None):
+        return TaskIntake(steps=10, needs_data=True, subtasks=[
+            {"title": "주가", "question": "NVDA 최근 주가"},
+            {"title": "리스크", "question": "NVDA 공시 리스크"}])
+
+    monkeypatch.setattr(C, "analyze_task", _intake)
+
+    # sub-agents: facet 0 hits prices, facet 1 hits rag; both stop after one round
+    def _planner_for(tool, arg):
+        class P:
+            def __init__(self): self.n = 0
+            async def plan_batch(self, task, tools, history, system=None, conversation=None, force_final=False, sources=None):
+                if force_final or self.n >= 1:
+                    return [Decision(final="요약")]
+                self.n += 1
+                return [Decision(tool=tool, args=arg)]
+            async def plan(self, *a, **k): return (await self.plan_batch(*a, **k))[0]
+        return P()
+
+    seq = iter([_planner_for("yahoo__prices", {"ticker": "NVDA"}),
+                _planner_for("rag__search", {"query": "risk"})])
+    monkeypatch.setattr(O, "get_planner", lambda _b=None: next(seq))
+    # the COMBINER planner (used by chat.get_planner) writes the final answer
+    class Combiner:
+        async def plan(self, task, tools, history, system=None, conversation=None, force_final=False, sources=None):
+            return Decision(final="엔비디아 종합: 주가와 리스크를 함께 봤어요 [1]")
+        async def plan_batch(self, *a, **k): return [await self.plan(*a, **k)]
+    monkeypatch.setattr(C, "get_planner", lambda _b=None: Combiner())
+
+    events = [e async for e in stream_chat([{"role": "user", "content": "엔비디아 종합 분석해줘"}], "vgk_x")]
+    cards = [e for e in events if e["type"] == "subagent"]
+    assert {e["title"] for e in cards} == {"주가", "리스크"}
+    assert any(e["status"] == "running" for e in cards) and any(e["status"] == "done" for e in cards)
+    done = events[-1]
+    assert done["type"] == "done" and "SEC EDGAR" in {c.get("source") for c in done["citations"]}
+    prose = "".join(e["text"] for e in events if e["type"] == "token")
+    assert "종합" in prose
+
+
+def test_chunks_preserve_newlines_and_markdown():
+    # the markdown-rendering bug: word-splitting collapsed newlines → headings/lists broke.
+    from agentengine.chat import _chunks
+    md = "## 제목\n\n- a\n- b\n\n본문 [1]"
+    assert "".join(_chunks(md, 5)) == md   # char-chunking round-trips EXACTLY (newlines kept)
+
+
+@respx.mock
+async def test_chat_stream_real_token_streaming(monkeypatch):
+    # the answer must STREAM token-by-token (planner.stream_final), preserving markdown newlines.
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
+    from agentengine.planner import Decision
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
+
+    async def _intake(_t, _b=None):
+        return TaskIntake(steps=2, needs_data=True)
+
+    async def _no_refine(*a, **k):
+        return (None, {})
+
+    class StreamPlanner:
+        def __init__(self):
+            self.n = 0
+
+        async def plan_batch(self, task, tools, history, system=None, conversation=None, force_final=False, sources=None):
+            if force_final or self.n >= 1:
+                return [Decision(final="(unused)")]
+            self.n += 1
+            return [Decision(tool="yahoo__prices", args={"ticker": "AAPL"})]
+
+        async def plan(self, *a, **k):
+            return (await self.plan_batch(*a, **k))[0]
+
+        async def stream_final(self, task, tools, history, system=None, conversation=None, sources=None):
+            for piece in ["## 제목\n\n", "첫 문장. ", "둘째 [1]"]:
+                yield piece
+
+    monkeypatch.setattr(C, "analyze_task", _intake)
+    monkeypatch.setattr(C, "refine_evidence", _no_refine)
+    monkeypatch.setattr(C, "get_planner", lambda _b=None: StreamPlanner())
+    monkeypatch.setattr(C.settings, "llm_backend", "gemini")  # take the real-streaming path
+
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL 주가"}], "vgk_x")]
+    toks = [e["text"] for e in events if e["type"] == "token"]
+    assert "## 제목\n\n" in toks and len(toks) >= 3   # streamed per-delta, not one blob
+    prose = "".join(toks)
+    assert "## 제목" in prose and "\n\n" in prose      # markdown newlines survive
+
+
+@respx.mock
+async def test_chat_stream_runs_batch_in_parallel(monkeypatch):
+    # PH-THINK: when the planner returns multiple independent calls (plan_batch), the chat
+    # announces ALL of them, then fetches them CONCURRENTLY in one step (all `tool` events
+    # precede the first `tool_result`), collecting every source.
+    import agentengine.chat as C
+    from agentengine.planner import Decision
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
+    respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
+        return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
+
+    class BatchPlanner:
+        def __init__(self):
+            self.rounds = 0
+
+        async def plan_batch(self, task, tools, history, system=None, conversation=None,
+                             force_final=False, sources=None):
+            if force_final or self.rounds >= 1:
+                return [Decision(final="주가와 공시를 함께 확인했어요 [1]")]
+            self.rounds += 1
+            return [Decision(tool="yahoo__prices", args={"ticker": "AAPL"}),
+                    Decision(tool="rag__search", args={"query": "supplier risk"})]
+
+        async def plan(self, *a, **k):
+            return (await self.plan_batch(*a, **k))[0]
+
+    monkeypatch.setattr(C, "get_planner", lambda _b=None: BatchPlanner())
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL 주가랑 공시 같이 봐줘"}], "vgk_x")]
+
+    names = [e["name"] for e in events if e["type"] == "tool"]
+    assert set(names) == {"yahoo__prices", "rag__search"}      # both calls fanned out
+    types_seq = [e["type"] for e in events]
+    last_tool = max(i for i, t in enumerate(types_seq) if t == "tool")
+    first_result = min(i for i, t in enumerate(types_seq) if t == "tool_result")
+    assert last_tool < first_result                            # announced together, then gathered
+    done = events[-1]
+    assert done["type"] == "done" and "SEC EDGAR" in {c.get("source") for c in done["citations"]}
 
 
 @respx.mock
@@ -681,9 +1048,18 @@ async def test_chat_stream_uses_tool_and_cites(monkeypatch):
 
 @respx.mock
 async def test_chat_stream_guardrail_refuses(monkeypatch):
+    # The intake (LLM) decides restriction; here we stub it as restricted to assert the chat
+    # boundary refuses cleanly (streams the refusal, never calls a tool, marks refused).
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
     from agentengine.chat import stream_chat
 
     _gw(monkeypatch)
+
+    async def _restricted(_task, _backend=None):
+        return TaskIntake(steps=3, restricted=True, score=0.95, reason="advice")
+
+    monkeypatch.setattr(C, "analyze_task", _restricted)
     events = [e async for e in stream_chat([{"role": "user", "content": "should I buy AAPL?"}], "vgk_x")]
     assert all(e["type"] != "tool" for e in events)
     assert events[-1]["type"] == "done" and events[-1]["refused"] is True
@@ -900,40 +1276,6 @@ def test_chat_endpoint_sse(monkeypatch):
         assert '"type": "tool"' in r.text and '"type": "done"' in r.text
 
 
-async def test_gemini_guardrailer_violates(monkeypatch):
-    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
-    from unittest.mock import MagicMock
-    from agentengine.guardrails import GeminiGuardrailer
-    import google.genai
-
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text = '{"violates": true}'
-    mock_client.models.generate_content.return_value = mock_response
-
-    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: mock_client)
-
-    g = GeminiGuardrailer("model-id")
-    refusal = await g.check("should I buy Apple stock?")
-    assert refusal is not None
-
-    mock_response.text = '{"violates": false}'
-    refusal = await g.check("what is Apple's revenue?")
-    assert refusal is None
-
-
-def test_get_guardrailer_factory(monkeypatch):
-    pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
-    from unittest.mock import MagicMock
-    import google.genai
-    monkeypatch.setattr(google.genai, "Client", lambda *args, **kwargs: MagicMock())
-
-    from agentengine.guardrails import GeminiGuardrailer, StubGuardrailer, get_guardrailer
-
-    assert isinstance(get_guardrailer("stub"), StubGuardrailer)
-    assert isinstance(get_guardrailer("gemini"), GeminiGuardrailer)
-
-
 def test_to_gemini_contents_mapping():
     pytest.importorskip("google.genai")  # needs the `gemini` extra; skip on the dep-free dev run
     from agentengine.planner import _to_gemini_contents, Decision
@@ -967,6 +1309,25 @@ def test_to_gemini_contents_mapping():
     assert contents[3].parts[0].function_response.response == {"close": 180.5}
 
 
+def test_to_gemini_contents_replays_raw_for_parallel_calls():
+    # regression: parallel function calls must replay the model's RAW content verbatim (carries
+    # every part's thought_signature) ONCE, then one function_response per call — reconstructing
+    # them part-by-part dropped a signature → Gemini 400 (missing thought_signature).
+    pytest.importorskip("google.genai")
+    from agentengine.planner import _to_gemini_contents, Decision
+
+    raw = object()  # sentinel for the shared model Content (replayed by identity)
+    d1 = Decision(tool="yahoo__prices", args={"ticker": "AAPL"}, raw_content=raw)
+    d2 = Decision(tool="google_news__news", args={"ticker": "AAPL"}, raw_content=raw)
+    history = [(d1, {"data": {"x": 1}}), (d2, {"data": {"y": 2}})]
+
+    contents = _to_gemini_contents(None, history, "AAPL 주가")
+    assert contents.count(raw) == 1                       # the batch's model turn emitted exactly once
+    tool_turns = [c for c in contents if getattr(c, "role", None) == "tool"]
+    assert len(tool_turns) == 2                           # one function_response per parallel call
+    assert {t.parts[0].function_response.name for t in tool_turns} == {"yahoo__prices", "google_news__news"}
+
+
 def test_schema_maps_param_descriptions():
     from agentengine.planner import _schema
 
@@ -982,3 +1343,305 @@ def test_schema_maps_param_descriptions():
     assert "description" not in schema["properties"]["interval"]
 
 
+def test_economic_indicator_citation_data_card():
+    # PH-DATA-4: economic indicator (DBnomics) → data-card evidence (values + source).
+    tool = {"name": "fred__economic_indicators", "source": "DBnomics", "connector": "fred"}
+    data = {"slug": "cpi", "name": "US CPI", "unit": "index", "source": "DBnomics",
+            "source_url": "https://db.nomics.world/BLS/cu/CUSR0000SA0",
+            "observations": [{"date": "2025-11", "value": 318.0}, {"date": "2025-12", "value": 319.1}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["기간", "US CPI"] and c.table[1][0] == "2025-12"  # newest first
+
+
+# --- PH-DATA-5 / PH-9: KPI extraction from the filing-text corpus ---------
+_KPI_TOOLS = {"rag__search": {"name": "rag__search", "connector": "rag", "path": "/rag/search",
+                              "method": "POST", "params": [{"name": "query", "required": True}],
+                              "markets": ["US", "KR"], "source": "Platform RAG"}}
+_KPI_HITS = [{"text": "Total net sales were $391,035 million in fiscal 2024, up 2% year over year.",
+              "score": 0.94, "provenance": {"source": "SEC EDGAR", "accession": "0000320193-24-000123",
+              "ticker": "AAPL", "market": "US", "section": "p.30", "doc_type": "filing",
+              "url": "https://www.sec.gov/x", "as_of": "2024-09-28"}}]
+
+
+class _FakeClient:
+    def __init__(self, hits):
+        self._hits = hits
+
+    async def call_tool(self, tool, args):
+        return {"status": 200, "connector": "rag", "data": {"hits": self._hits}}
+
+
+async def test_kpi_extraction_assembles_sourced_kpis(monkeypatch):
+    from agentengine import kpi as K
+
+    async def fake_extract(model, ticker, passages):  # the LLM step, stubbed
+        return [{"name": "Total net sales", "value": "391,035", "unit": "$M",
+                 "period": "FY2024", "passage_index": 0}]
+    monkeypatch.setattr(K, "_gemini_extract", fake_extract)
+    out = await K.extract_kpis(_FakeClient(_KPI_HITS), _KPI_TOOLS, "AAPL", "US", backend="gemini", model="m")
+    k = out["kpis"][0]
+    assert k["name"] == "Total net sales" and k["value"] == "391,035"
+    assert "accession=0000320193-24-000123" in (k["evidence_image_url"] or "")  # cited to the real filing line
+    art = out["artifact"]
+    assert art["kind"] == "kpi" and art["table"][0] == ["지표", "값", "기간"] and art["table"][1][0] == "Total net sales"
+    assert out["citations"][0]["used"] is True and out["citations"][0]["evidence_image_url"]
+
+
+async def test_kpi_extraction_drops_unsourced_or_bad_index(monkeypatch):
+    from agentengine import kpi as K
+
+    async def fake_extract(model, ticker, passages):
+        return [{"name": "Made up", "value": "9", "passage_index": 7},      # index out of range → dropped
+                {"name": "No value", "value": "", "passage_index": 0},      # no value → dropped
+                {"name": "Net sales", "value": "391,035", "passage_index": 0}]
+    monkeypatch.setattr(K, "_gemini_extract", fake_extract)
+    out = await K.extract_kpis(_FakeClient(_KPI_HITS), _KPI_TOOLS, "AAPL", "US", backend="gemini", model="m")
+    assert [k["name"] for k in out["kpis"]] == ["Net sales"]  # only the passage-tied, valued KPI survives
+
+
+async def test_kpi_stub_backend_returns_passages_not_fabricated():
+    from agentengine import kpi as K
+    out = await K.extract_kpis(_FakeClient(_KPI_HITS), _KPI_TOOLS, "AAPL", "US", backend="stub", model="m")
+    assert out["kpis"] == [] and out["artifact"] is None      # no key → never fabricate KPIs
+    assert out["citations"][0]["evidence_image_url"] and "gemini" in out["note"]  # still show sourced passages
+
+
+async def test_kpi_empty_corpus_is_honest():
+    from agentengine import kpi as K
+    out = await K.extract_kpis(_FakeClient([]), _KPI_TOOLS, "AAPL", "US", backend="gemini", model="m")
+    assert out["kpis"] == [] and out["artifact"] is None and "indexed" in out["note"]
+
+
+@respx.mock
+def test_kpi_endpoint_routes_through_gateway(monkeypatch):
+    _gw(monkeypatch)
+    _catalog()
+    respx.post("http://gw.test/rag/search").mock(return_value=httpx.Response(200, json={"hits": _KPI_HITS}))
+    r = client.post("/agent/kpis", json={"ticker": "AAPL", "market": "US"})  # autouse fixture → stub backend
+    assert r.status_code == 200
+    b = r.json()
+    assert b["ticker"] == "AAPL" and b["market"] == "US"
+    assert b["citations"][0]["evidence_image_url"]  # sourced passage evidence even on the stub path
+
+
+def test_technical_indicator_citation_data_card():
+    # PH-DATA-6: technical indicators (computed from Yahoo) → descriptive data-card, not a signal.
+    tool = {"name": "yahoo__technical_indicators", "connector": "yahoo",
+            "source": "Technical indicators (computed from Yahoo Finance)"}
+    data = {"ticker": "AAPL", "market": "US", "as_of": "2025-06-01", "note": "Descriptive…",
+            "source": "Technical indicators (computed from Yahoo Finance)",
+            "indicators": [
+                {"key": "sma_20", "name": "SMA(20)", "pane": "price", "unit": "price",
+                 "lines": [{"label": "SMA(20)", "latest": 195.5, "points": [{"date": "2025-06-01", "value": 195.5}]}]},
+                {"key": "rsi_14", "name": "RSI(14)", "pane": "sub", "unit": "ratio_0_100",
+                 "lines": [{"label": "RSI(14)", "latest": 62.3, "points": [{"date": "2025-06-01", "value": 62.3}]}]}]}
+    c = A._citations(tool, {"data": data})[0]
+    assert c.table and c.table[0] == ["지표", "최신값"]
+    assert any(row[0] == "SMA(20)" for row in c.table) and any(row[0] == "RSI(14)" for row in c.table)
+    assert "서술적" in (c.snippet or "")  # labeled descriptive, never a trading signal
+
+
+def test_artifacts_prices_with_ohlc_become_candlestick():
+    # PH-VIZ-1: real OHLCV → candlestick artifact (+ a close line kept for the table view).
+    tool = {"name": "yahoo__prices", "source": "Yahoo Finance"}
+    result = {"data": {"ticker": "AAPL", "prices": [
+        {"time": "2024-01-02", "open": 184.0, "high": 186.0, "low": 183.0, "close": 185.6, "volume": 1000},
+        {"time": "2024-01-03", "open": 185.0, "high": 185.5, "low": 183.0, "close": 184.2, "volume": 1200}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "candlestick" and len(a.candles) == 2
+    assert a.candles[0].open == 184.0 and a.candles[0].volume == 1000
+    assert a.series[0].label == "종가" and a.as_of == "2024-01-03"
+
+
+def test_chart_markers_and_pricelines_from_turn_events():
+    # PH-VIZ-2: a price chart gets sourced event markers (this turn's corporate actions /
+    # earnings) + descriptive period high/low lines from its own candles.
+    from agentengine.artifacts import enrich_chart_markers
+    from agentengine.models import Artifact, ArtifactCandle
+
+    a = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL", candles=[
+        ArtifactCandle(time="2024-01-02", open=180, high=190, low=175, close=185),
+        ArtifactCandle(time="2024-03-01", open=185, high=200, low=170, close=195)])
+
+    class _D:
+        tool = "yahoo__corporate_actions"
+
+    class _E:
+        tool = "sec_edgar__earnings"
+    history = [
+        (_D(), {"data": {"ticker": "AAPL", "dividends": [{"ex_date": "2024-02-09", "amount": 0.24}],
+                         "splits": [{"date": "2024-06-10", "ratio": "4:1"}]}}),
+        (_E(), {"data": {"ticker": "AAPL", "market": "US",
+                         "earnings": [{"filing_date": "2024-02-01", "filing_url": "https://sec.gov/x"}]}}),
+    ]
+    enrich_chart_markers([a], history)
+    by_kind = {m.kind: m for m in a.markers}
+    assert {"dividend", "split", "earnings"} <= set(by_kind)
+    assert by_kind["dividend"].time == "2024-02-09" and by_kind["dividend"].source == "Yahoo Finance"
+    assert "0.24" in (by_kind["dividend"].snippet or "")
+    assert by_kind["earnings"].source == "SEC EDGAR" and by_kind["earnings"].url == "https://sec.gov/x"
+    assert {pl.price for pl in a.pricelines} == {200.0, 170.0}  # period high/low from candles
+
+
+def test_chart_markers_skip_other_ticker():
+    from agentengine.artifacts import enrich_chart_markers
+    from agentengine.models import Artifact, ArtifactCandle
+
+    a = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL",
+                 candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
+
+    class _D:
+        tool = "yahoo__corporate_actions"
+    history = [(_D(), {"data": {"ticker": "MSFT", "dividends": [{"ex_date": "2024-02-09", "amount": 0.75}]}})]
+    enrich_chart_markers([a], history)
+    assert a.markers == []   # MSFT events never bleed onto the AAPL chart
+
+
+def _tech_result(ticker="AAPL"):
+    # the shape datasets' /technical-indicators returns (PH-DATA-6).
+    return {"data": {"ticker": ticker, "market": "US", "interval": "day",
+                     "source": "Technical indicators (computed from Yahoo Finance)", "as_of": "2024-01-03",
+                     "indicators": [
+                         {"key": "sma_20", "name": "SMA(20)", "pane": "price", "unit": "price",
+                          "lines": [{"label": "SMA(20)", "points": [
+                              {"date": "2024-01-02", "value": 184.1}, {"date": "2024-01-03", "value": 184.6}]}]},
+                         {"key": "rsi_14", "name": "RSI(14)", "pane": "sub", "unit": "ratio_0_100",
+                          "lines": [{"label": "RSI(14)", "points": [
+                              {"date": "2024-01-02", "value": 55.0}, {"date": "2024-01-03", "value": 48.0}]}]},
+                     ]}}
+
+
+def test_artifacts_from_technical_indicators_become_overlay_artifact():
+    # PH-VIZ-4: /technical-indicators → a standalone overlay artifact (price-pane + sub-pane).
+    tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
+    a = A._artifacts(tool, _tech_result())[0]
+    assert a.ticker == "AAPL" and a.tool == "yahoo__technical_indicators" and not a.candles
+    keys = {o.key: o for o in a.overlays}
+    assert keys["sma_20"].pane == "price" and keys["rsi_14"].pane == "sub"
+    assert keys["sma_20"].lines[0].points[0].value == 184.1 and keys["sma_20"].lines[0].color
+    assert a.source.startswith("Technical indicators")
+
+
+def test_enrich_chart_overlays_merges_onto_price_chart():
+    # PH-VIZ-4: the standalone technical artifact folds onto the same-ticker price chart.
+    from agentengine.artifacts import enrich_chart_overlays
+    from agentengine.models import Artifact, ArtifactCandle
+    tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
+    price = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL",
+                     candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
+    tech = A._artifacts(tool, _tech_result())[0]
+    arts = [price, tech]
+    enrich_chart_overlays(arts)
+    assert arts == [price]                       # standalone merged away
+    assert {o.key for o in price.overlays} == {"sma_20", "rsi_14"}
+
+
+def test_enrich_chart_overlays_standalone_when_no_price_chart():
+    from agentengine.artifacts import enrich_chart_overlays
+    tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
+    tech = A._artifacts(tool, _tech_result("MSFT"))[0]
+    arts = [tech]
+    enrich_chart_overlays(arts)
+    assert arts == [tech] and tech.overlays   # no price chart → renders on its own
+
+
+def test_chart_annotation_validate_drops_future_and_out_of_range():
+    # PH-VIZ-3: only historical, in-range, sane-price annotations survive (no projection).
+    from agentengine.annotations import _validate
+    raw = {
+        "lines": [{"x1": "2024-02-01", "y1": 170, "x2": "2024-06-01", "y2": 200, "label": "저점→고점"},
+                  {"x1": "2099-01-01", "y1": 170, "x2": "2024-06-01", "y2": 200}],   # future endpoint → dropped
+        "hlines": [{"price": 195, "label": "저항"}, {"price": 999999}],               # absurd price → dropped
+        "vlines": [{"time": "2024-03-15", "label": "x"}, {"time": "2030-01-01"}],      # future → dropped
+    }
+    ann = _validate(raw, "2024-01-01", "2024-12-31", 150.0, 210.0)
+    assert ann and len(ann.lines) == 1 and ann.lines[0].label == "저점→고점"
+    assert len(ann.hlines) == 1 and ann.hlines[0].price == 195
+    assert len(ann.vlines) == 1 and ann.vlines[0].time == "2024-03-15"
+
+
+async def test_annotate_charts_attaches_validated_spec(monkeypatch):
+    from agentengine import annotations as AN
+    from agentengine.models import Artifact, ArtifactCandle
+    a = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL", candles=[
+        ArtifactCandle(time="2024-01-02", open=180, high=190, low=170, close=185),
+        ArtifactCandle(time="2024-06-03", open=185, high=210, low=180, close=200)])
+
+    async def fake(model, q, digest, tk):
+        return {"lines": [{"x1": "2024-01-02", "y1": 170, "x2": "2024-06-03", "y2": 210, "label": "L"}], "note": "n"}
+    monkeypatch.setattr(AN, "_gemini_annotate", fake)
+    await AN.annotate_charts([a], "2024 저점에서 고점까지 선 그어줘", "gemini-x", "gemini")
+    assert a.annotations and a.annotations.lines[0].label == "L" and a.annotations.note == "n"
+
+
+async def test_annotate_charts_noop_on_stub_backend():
+    from agentengine import annotations as AN
+    from agentengine.models import Artifact, ArtifactCandle
+    a = Artifact(kind="candlestick", title="x", ticker="AAPL",
+                 candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
+    await AN.annotate_charts([a], "q", "m", "stub")   # no LLM judgment on the stub path
+    assert a.annotations is None
+
+
+@respx.mock
+async def test_chat_stream_emits_thinking_progress(monkeypatch):
+    # PH-THINK: the chat stream narrates its reasoning live (analyze → fetch → found → synthesize).
+    from agentengine.chat import stream_chat
+    _gw(monkeypatch)
+    _catalog()
+    respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-01-02", "close": 185.6}]},
+                                    headers={"x-connector": "yahoo"}))
+    events = [e async for e in stream_chat([{"role": "user", "content": "AAPL price chart"}], "vgk_x")]
+    phases = [e.get("phase") for e in events if e.get("type") == "thinking"]
+    assert {"analyze", "fetch", "found", "synthesize"} <= set(phases)
+    assert events[0]["type"] == "thinking" and events[0]["phase"] == "analyze"  # narration starts immediately
+    found = next(e for e in events if e.get("phase") == "found")
+    assert "근거" in found["text"]
+
+
+async def test_refine_evidence_noop_without_gemini_or_evidence():
+    # PH-THINK verify pass: stub backend / no evidence → (no brief, no scores) (never blocks).
+    from agentengine.agent import refine_evidence
+    assert await refine_evidence("q", [{"index": 1, "source": "SEC", "snippet": "x"}], "m", "stub") == (None, {})
+    assert await refine_evidence("q", [], "m", "gemini") == (None, {})
+
+
+async def test_suggest_followups_parses_and_caps(monkeypatch):
+    # PH-THINK: 3-4 deep follow-up questions from the answer (stub → none, gemini → parsed, ≤4).
+    from agentengine.agent import suggest_followups
+    assert await suggest_followups("q", "an answer", "m", "stub") == []
+    assert await suggest_followups("q", "", "m", "gemini") == []   # no answer → none
+
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+    mc = MagicMock(); mr = MagicMock()
+    mr.text = '{"followups": ["NVDA 데이터센터 매출 비중은?", "AMD 대비 마진 차이는?", "최근 공시상 공급 리스크는?", "5번째", "6번째"]}'
+    mc.models.generate_content.return_value = mr
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mc)
+    out = await suggest_followups("엔비디아 실적", "매출 X, 순이익 Y …", "gemini-x", "gemini")
+    assert len(out) == 4 and out[0].startswith("NVDA")   # capped at 4
+
+
+async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):
+    # PH-THINK: one verify pass returns BOTH a grounding brief and per-source confidence.
+    pytest.importorskip("google.genai")  # needs the `gemini` extra
+    from unittest.mock import MagicMock
+    import google.genai
+    import agentengine.agent as AG
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = ('{"brief": "출처 [1]이 핵심 수치를 담고 있음.", '
+                      '"sources": [{"index": 1, "confidence": "high", "why": "직접 공시"}, '
+                      '{"index": 2, "confidence": "bogus"}]}')
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    cites = [{"index": 1, "source": "SEC", "snippet": "revenue 100"},
+             {"index": 2, "source": "news", "snippet": "x"}]
+    brief, scores = await AG.refine_evidence("매출?", cites, "gemini-x", "gemini")
+    assert "핵심" in brief
+    assert scores[1] == {"confidence": "high", "why": "직접 공시"}
+    assert 2 not in scores   # an invalid confidence value is dropped, never guessed

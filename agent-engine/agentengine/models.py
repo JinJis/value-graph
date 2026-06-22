@@ -35,6 +35,16 @@ class CompileRequest(BaseModel):
     description: str
 
 
+class KpiRequest(BaseModel):
+    """PH-DATA-5 / PH-9: extract a company's reported KPIs from its filing-text corpus,
+    each KPI cited to (and highlighted in) the source filing passage."""
+
+    ticker: str
+    market: str | None = None      # US | KR (inferred from the ticker when omitted)
+    top_k: int | None = None       # filing passages to consider (default in kpi.py)
+    spec: AgentSpec | None = None  # planner-backend override (stub|gemini)
+
+
 class ArtifactRefreshRequest(BaseModel):
     """Re-run a pinned artifact's tool+args to refresh it (U3-03b)."""
 
@@ -69,6 +79,11 @@ class Citation(BaseModel):
     # backs an artifact). The Live Context shows only evidence; consulted-but-unused
     # sources stay in the answer's 도구·출처 list.
     used: bool = False
+    # PH-THINK (verify pass): how well this source supports answering the question, scored
+    # by the reviewer in one pass (high|medium|low) + a one-line rationale. Descriptive —
+    # never a forecast. None when the verify pass didn't run (stub / no key).
+    confidence: str | None = None
+    confidence_why: str | None = None
 
 
 class ArtifactPoint(BaseModel):
@@ -82,13 +97,134 @@ class ArtifactSeries(BaseModel):
     points: list[ArtifactPoint] = []
 
 
+class ArtifactCandle(BaseModel):
+    """One OHLCV bar for a candlestick artifact (PH-VIZ-1) — real prices, not synthesized."""
+
+    time: str                    # 'YYYY-MM-DD'
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+
+
+class ArtifactMarker(BaseModel):
+    """PH-VIZ-2: a sourced event on the chart's time axis (earnings / dividend / split /
+    filing). Clicking it opens the source in the evidence viewer — the chart IS evidence."""
+
+    time: str                    # 'YYYY-MM-DD' (renderer snaps to the nearest bar)
+    label: str
+    kind: str = "event"          # earnings | dividend | split | filing
+    position: str = "aboveBar"   # aboveBar | belowBar
+    color: str | None = None
+    source: str | None = None
+    url: str | None = None
+    snippet: str | None = None
+
+
+class ArtifactPriceLine(BaseModel):
+    """PH-VIZ-2: a horizontal reference line (e.g. 52-week high/low) — descriptive, drawn
+    from the price data itself."""
+
+    price: float
+    label: str
+    color: str | None = None
+
+
+class ChartLine(BaseModel):
+    """PH-VIZ-3: a trend/segment line between two HISTORICAL points (never projected)."""
+
+    x1: str            # 'YYYY-MM-DD'
+    y1: float
+    x2: str
+    y2: float
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartHLine(BaseModel):
+    price: float
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartVLine(BaseModel):
+    time: str          # 'YYYY-MM-DD'
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartZone(BaseModel):
+    t0: str
+    t1: str
+    label: str | None = None
+    color: str | None = None
+
+
+class ChartAnnotations(BaseModel):
+    """PH-VIZ-3: agent-authored overlays. Gemini decides WHAT to draw from the question/
+    answer; descriptive over historical data only — no future projection / price target."""
+
+    lines: list[ChartLine] = []
+    hlines: list[ChartHLine] = []
+    vlines: list[ChartVLine] = []
+    zones: list[ChartZone] = []
+    rebase: bool = False
+    note: str | None = None
+
+
+class OverlayPoint(BaseModel):
+    time: str          # 'YYYY-MM-DD'
+    value: float
+
+
+class OverlayLine(BaseModel):
+    """One plotted line of a technical indicator (e.g. SMA, Bollinger Upper, MACD Signal)."""
+
+    label: str
+    color: str | None = None
+    points: list[OverlayPoint] = []
+
+
+class ChartOverlay(BaseModel):
+    """PH-VIZ-4: a descriptive technical indicator rendered ON the price chart
+    (``pane='price'`` — SMA/EMA/Bollinger) or in a stacked sub-pane (``pane='sub'`` —
+    RSI/MACD/volatility). Computed from prices (PH-DATA-6), so sourced 'computed from
+    Yahoo'. Descriptive only — never a trading signal (the agent guardrail still refuses
+    advice)."""
+
+    key: str
+    name: str
+    pane: str = "price"        # price | sub
+    unit: str | None = None    # price | ratio_0_100 | percent
+    lines: list[OverlayLine] = []
+    source: str | None = None
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
-    it as an interactive card; gaps are drawn, never hidden."""
+    it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
 
-    kind: str                    # timeseries | compare | table
+    kind: str                    # timeseries | candlestick | compare | table | kpi
     title: str
     series: list[ArtifactSeries] = []
+    # for kind=candlestick (prices): real OHLCV bars rendered as candles + a volume pane.
+    candles: list[ArtifactCandle] = []
+    # PH-VIZ-2: sourced event markers + descriptive reference lines on a price chart.
+    markers: list[ArtifactMarker] = []
+    pricelines: list[ArtifactPriceLine] = []
+    # PH-VIZ-3: agent-authored annotations driven by the question (lines/zones/levels).
+    annotations: ChartAnnotations | None = None
+    # PH-VIZ-5: drawings the USER added on the chart (trend/horizontal lines + notes). Kept
+    # separate from agent `annotations` so a re-answer / refresh never clobbers them; persists
+    # with the Board pin (carried across refresh by studio-api). Agent never sets this.
+    user_annotations: ChartAnnotations | None = None
+    # PH-VIZ-4: descriptive technical indicators overlaid on the price chart (SMA/EMA/
+    # Bollinger) + stacked sub-panes (RSI/MACD/volatility). Computed from prices.
+    overlays: list[ChartOverlay] = []
+    # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
+    # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
+    table: list[list[str]] | None = None
     source: str | None = None
     as_of: str | None = None
     freshness: str | None = None

@@ -26,6 +26,8 @@ from app.models.generated import (
     EarningsTimeDimension,
     Filing,
     FinancialMetricSnapshot,
+    Fund,
+    FundHolding,
     IncomeStatement,
     InsiderTrade,
     InstitutionalHolding,
@@ -559,5 +561,81 @@ class SecEdgar13FProvider:
             "Ticker-mode 13F (which filers hold a security) requires a reverse CUSIP/holdings "
             "index that this build does not maintain yet. Use ?filer_cik=... for a filer's holdings."
         )
+
+
+# --- Index funds / ETF holdings (SEC N-PORT) -----------------------------
+_NPORT_FORMS = ("NPORT-P", "NPORT-P/A")
+
+
+def _parse_nport(xml: str) -> tuple[dict, list[FundHolding]]:
+    """Parse an SEC N-PORT primary_doc.xml → (fund header, holdings). Each portfolio
+    position is an ``<invstOrSec>`` (name/title/cusip/isin/balance/valUSD/pctVal/assetCat)."""
+    root = ElementTree.fromstring(xml)
+    meta: dict = {}
+    for el in root.iter():
+        tag = _local(el.tag)
+        if tag == "regName" and "name" not in meta:
+            meta["name"] = (el.text or "").replace("(R)", "").strip() or None
+        elif tag == "seriesName" and el.text and el.text.strip() not in ("", "N/A"):
+            meta["series"] = el.text.strip()
+        elif tag == "regCik" and "cik" not in meta:
+            meta["cik"] = el.text
+        elif tag == "repPdDate" and "as_of" not in meta:
+            meta["as_of"] = el.text
+        elif tag == "netAssets" and "net_assets" not in meta:
+            meta["net_assets"] = _num(el.text)
+
+    holdings: list[FundHolding] = []
+    for inv in root.iter():
+        if _local(inv.tag) != "invstOrSec":
+            continue
+        d = {_local(c.tag): c for c in inv}
+        isin = None
+        ids = d.get("identifiers")
+        if ids is not None:
+            isin = next((c.get("value") for c in ids if _local(c.tag) == "isin"), None)
+        units = d["units"].text if "units" in d else ""
+        bal = _num(d["balance"].text) if "balance" in d else None
+        pct = _num(d["pctVal"].text) if "pctVal" in d else None
+        holdings.append(FundHolding(
+            ticker=None,  # N-PORT carries CUSIP/ISIN, not ticker (no reliable reverse map)
+            name=(d["name"].text if "name" in d else (d["title"].text if "title" in d else None)),
+            cusip=d["cusip"].text if "cusip" in d else None,
+            isin=isin,
+            weight=pct / 100 if pct is not None else None,   # pctVal is a percent → fraction
+            market_value=_num(d["valUSD"].text) if "valUSD" in d else None,
+            shares=bal if units == "NS" else None,           # NS = number of shares
+            asset_class=d["assetCat"].text if "assetCat" in d else None,
+        ))
+    return {"name": meta.get("series") or meta.get("name"), "cik": meta.get("cik"),
+            "as_of": meta.get("as_of"), "net_assets": meta.get("net_assets")}, holdings
+
+
+class SecEdgarFundProvider:
+    """ETF / fund portfolio holdings from the fund's latest SEC N-PORT filing."""
+
+    async def holdings(self, ref: SecurityRef, limit: int) -> tuple[Fund, list[FundHolding]]:
+        cik10 = await _resolve_cik(ref)
+        sub = await _submissions(cik10)
+        recent = (sub.get("filings") or {}).get("recent") or {}
+        forms = recent.get("form") or []
+        accns = recent.get("accessionNumber") or []
+        fdates = recent.get("filingDate") or []
+        idx = next((i for i, f in enumerate(forms) if f in _NPORT_FORMS), None)
+        if idx is None:
+            raise not_found(f"No N-PORT (fund holdings) filing for '{ref.ticker}'.")
+        accn = accns[idx]
+        url = f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{accn.replace('-', '')}/primary_doc.xml"
+        xml = await fetch_text("sec_edgar", url, headers=_UA)
+        meta, holdings = _parse_nport(xml)
+        holdings.sort(key=lambda h: h.market_value or 0, reverse=True)
+        out = holdings[:limit]
+        fund = Fund(
+            name=meta["name"], cik=meta["cik"] or cik10, asset_class=None,
+            as_of=meta["as_of"], filing_date=fdates[idx] if idx < len(fdates) else None,
+            source="SEC EDGAR (N-PORT)", total_net_assets=meta["net_assets"],
+            total_holdings=len(holdings), returned=len(out), offset=0,
+        )
+        return fund, out
 
 

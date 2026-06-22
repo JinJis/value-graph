@@ -14,10 +14,10 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 251 unit** — datasets 103 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 69 · studio-api 34 (+ admin 12, renderer 5) — plus the web build, four docker harnesses
+> **Test totals (current): 305 unit** — datasets 121 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 103 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
-> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (21 scenarios incl. multi-turn,
+> `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
 > `scripts/test_all.sh` runs everything.
 
@@ -52,7 +52,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 
 ### Data plane (`datasets/`, pkg `app`)
 - ✅ US+KR financial API: company facts, prices + snapshot, 3 financial statements (+combined), filings,
-  macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer-mode).
+  macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer-mode), ETF/fund holdings (US N-PORT).
 - ✅ Point-in-time / restatement-aware ingestion store (SQLite/Postgres); screener + line-item search.
 - ✅ Bulk / deep-history backfill (SEC `companyfacts.zip` stream → AAPL to 2007; KR via DART).
 - ✅ Scheduler (periodic + deep), self-test endpoint, `🚧 Not Implemented (501)` doc tag for unbuilt routes.
@@ -211,8 +211,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
       *(folded into PH-PROV3 below — same PDF + on-demand-locate mechanism.)*
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
-  - 🚧 **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
-    concept-precompute model; approved 2026-06-20)*. The pointer-precompute (PH-PROV2a–d) only covered a
+  - ✅ **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
+    concept-precompute model; approved 2026-06-20; a–f all shipped)*. The pointer-precompute (PH-PROV2a–d) only covered a
     **fixed set of headline concepts** per filing — it can't answer the *many* arbitrary questions users
     ask, is slow to precompute, and never covered narrative text. Invert it: **cache the whole filing as a
     PDF once** (universal coverage, one render/filing) and **locate + highlight on demand** whatever the
@@ -242,9 +242,59 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
       highlights the cell, rasterizes the page band → PNG (cache-first). `/evidence` serves the PDF path
       first (browser-free), falling back to the legacy FactLocation+renderer screenshot; new
       `/evidence/doc` streams the real PDF for `원문 열기`. `pymupdf` added to datasets. datasets 108→111.
-    - ⬜ **PH-PROV3c · generalize + agent wiring + retire concept-precompute.** RAG/news passage evidence,
-      prices/macro data-card evidence, agent citations on the new path; consolidate the filing-accession
-      resolution and remove the now-dead `FactLocation` concept-pointer precompute.
+    - ✅ **PH-PROV3c · auto-build evidence docs + "원문 열기" = the real PDF.** The ingest hook
+      (`PRECOMPUTE_LOCATIONS`) and the admin "📷 evidence" checkbox now **cache filings as PDFs**
+      (`build_evidence_docs`, US + KR) instead of the old concept pointers, so evidence works for a
+      backfilled/watchlist ticker with no separate step; `/admin/evidence-docs` gained preset support.
+      "원문 열기" now opens the **actual cached PDF**: datasets `/evidence/doc` → studio-api proxy →
+      web `/api/evidence/doc`; `SourceViewer` links to it once the highlight image has loaded (so the
+      PDF is known to exist), else the official source page. studio-api 34→35.
+    > **▶ Generalization goal (approved 2026-06-21): evidence for EVERY figure and EVERY passage in
+    > every SEC/DART filing — not just headline revenue.** The unlock is that the **cached PDF is one
+    > artifact with two uses**: (1) the **full-text corpus** the agent searches (RAG), and (2) the
+    > **evidence source** it highlights. So "search any info" and "show its evidence" become the same
+    > pipeline over the same PDF. Today only ~4 headline fields are wired and only structured figures —
+    > d/e/f below close that. SEC/DART first; prices/macro/news keep their natural (non-PDF) evidence.
+    - ✅ **PH-PROV3d · every STRUCTURED figure gets evidence (SEC/DART) + retire legacy.**
+      - ✅ **answer-aware anchoring + widened coverage.** The evidence image now anchors on the figure
+        the **answer actually cites** (`evidence_url_for_answer`: scan every statement field, newest
+        period, for a value that appears in the answer text → net income / R&D / assets / cash-flow get
+        their own highlight, not always revenue) — falls back to the headline when nothing matches. Field
+        + label maps widened from 4 headlines to **every income/balance/cash-flow line** (agent
+        `_FIELD_CONCEPTS`/`_STATEMENT_HEADLINES`, datasets `US_GAAP_LABELS`, `KR_LABELS`). chat.py
+        re-anchors post-answer and the **web now honors `done.citations`** (the authoritative, re-anchored
+        set). +1 agent test → 71.
+      - ✅ **logging.** datasets had no logging config → INFO never reached `docker logs` and best-effort
+        `except` blocks swallowed failures. Added `app/logging_config.py` (LOG_LEVEL, default INFO) + INFO
+        logs across the evidence pipeline (doc build stored/skipped, DART pdf fetch, PyMuPDF hit/miss,
+        `/evidence` 204 reason).
+      - ✅ **retired the legacy path.** Deleted `FactLocation` (model), `store/locations_ingest.py`,
+        `providers/us/ixbrl.py` (+ its tests), `/admin/precompute-locations`, and the renderer's
+        `/render/sec` screenshot path; `/evidence` is now PDF-only (no FactLocation fallback, no
+        `/evidence/meta`); `_primary_doc_map` moved into `evidence_docs`. renderer 8→4, datasets 115→102
+        (dead tests removed). The cached PDF + PyMuPDF is the single evidence path.
+    - ✅ **PH-PROV3e · every PASSAGE searchable + evidenced — full filing text → RAG (the big one).**
+      *This is what makes "search all info in all datasources" real; folds in PH-RAG + PH-PROV2e.*
+      One PDF = corpus + evidence. *(supersedes standalone PH-RAG for the SEC/DART text corpus; news
+      stays its own global corpus.)*
+      - ✅ **filing text → RAG (slice 1).** `store/filing_ingest.py`: each cached filing PDF → per-page
+        text (PyMuPDF) → RAG IngestDocs with provenance `{accession, section=p.N, ticker, market,
+        source, doc_type=filing}` (reuses the PH-2b `/rag/ingest` helper; RAG already carries
+        `accession`+`section` through to hits — no RAG change). `POST /admin/filings/ingest` (preset +
+        watchlist-scoped, ensures the PDFs first), IngestionJob kind `filing_text`. So `rag__search`
+        can now return real filing passages. datasets 102→104.
+      - ✅ **text-span evidence (slice 2).** `/evidence` `text=` mode → `evidence_render.highlight_text_png`
+        PyMuPDF `search_for`s a distinctive leading slice of the cited passage (tries 10→6→4 words as
+        long phrases wrap) → highlights + rasterizes the band. studio-api `/evidence` now forwards `text`
+        (concept/report_period made optional); web already forwards all params.
+      - ✅ **agent wiring (slice 3).** `_rag_citations` attaches `rag_evidence_url(market, accession, text)`
+        for filing hits (news/web hits have no accession → none), so a narrative answer's RAG source
+        highlights its passage in the cached PDF. agent-engine 71→72; datasets 104→105.
+    - ✅ **PH-PROV3f · non-document datasources → data-card evidence.** prices/macro/metrics/financials
+      render the **exact values used + source + as_of + freshness** as a data card (no PDF, by design) —
+      that IS their evidence. Added a clean macro **interest-rate shaper** (`기관·금리·기준일`); prices /
+      metrics / statements already had shapers; other row shapes use the generic extractor. news/web →
+      publisher snippet + link. Trust envelope now closed across every source. agent-engine 72→73.
   - ⬜ **U-SHELL-02** — see Phase 2 (thinking state & live tool indicator; pull-anytime).
 
 ---
@@ -270,6 +320,24 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     progress** (admin auto-refreshes while running); `backfill_running` **serializes** runs (busy returned
     synchronously). **Verified live:** `us_mega` 4/15→15/15, 15 cos · 34,506 facts. +7 datasets, +2 admin.
     *(Real distributed queue + migrations = PH-11.)*
+- ✅ **PH-PIPE · Periodic data pipelines + multi-pipeline scheduler + admin control.** The scheduler was
+  "down" (defaulted disabled + empty universe) and only covered financials/news. Now there's a **declarative
+  pipeline registry** (`app/pipelines.py`) — one source of truth for every periodic collector (what it
+  fetches, from which source, into which store): `financials` (SEC/DART → financial_facts) · `prices` (Yahoo
+  → **new `PriceBar`**) · `corp_actions` (Yahoo → **new `CorporateAction`**) · `news` + `filing_text` (→ RAG) ·
+  `evidence_docs` (→ PDFs). The **scheduler** sweeps a preset-resolved universe through a configured pipeline
+  set on an interval (`run_pipelines`, per-pipeline `IngestionJob` + per-ticker retry; one failure never sinks
+  the rest); `status()` exposes state/cadence/scope/last-sweep. **Universes are fetched DYNAMICALLY** (no
+  hardcoded lists): `us_sp500` (datahub CSV) · `us_all` (SEC company_tickers) · `kr_kospi200`/`kr_kosdaq150`
+  (top-N by market cap via pykrx) · `kr_kospi_all`/`kr_kosdaq_all`; cached with a TTL, resolved fresh each
+  sweep so membership stays current; on fetch failure it serves stale-cache-or-empty (never fabricates).
+  `resolve_universe` is async and still accepts the legacy explicit spec. New **`PriceBar` + `CorporateAction`** stores +
+  `prices_ingest.py` (the big "served but unstored" gap) + coverage in `store_stats`. **Admin Pipelines** page
+  rebuilt: scheduler banner (state · 주기 · 대상 종목 · 마지막 스윕 + Run/Pause/Resume), **per-pipeline cards**
+  (source → store flow · schedule · last run · rows · errors), and a **unified backfill** form (pick preset
+  or custom tickers + pipeline checkboxes → `POST /admin/pipelines/run`). Enable via `SCHEDULER_ENABLED` or
+  the Resume button. +5 datasets tests (116→121), +1 admin (16→17). *(datasets + admin)* *(Postgres/Redis +
+  distributed queue = PH-11; per-pipeline confidence/alerting + cached price serving = follow-on.)*
 - ✅ **PH-2 · RAG ingestion pipeline (news live).** RAG started empty; now a real pipeline indexes content
   per tenant so `rag__search` returns real, cited, semantic hits. Delivered as 2a + 2b:
   - ✅ **PH-2a · per-tenant doc isolation.** `IngestDoc`/`Chunk` gain a `tenant` (control-plane
@@ -299,6 +367,19 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ✅ **PH-13 · LLM-based guardrails.** `GeminiGuardrailer` classifies price-prediction / advice violations
   via Gemini (JSON, temp 0), regex `StubGuardrailer` fallback, `get_guardrailer(backend)` factory — catches
   Korean variants regex missed. *(agent-engine)*
+  - ✅ **PH-13b · guardrail folded into the LLM intake — ALL regex deleted (invariant #9).** The keyword
+    regex wrongly refused FACT requests that merely *mention* a restricted word in negation ("목표가는
+    제시하지 말고…", "전망·매수의견은 넣지 말고 사실만"). Root cause: keyword matching can't read context.
+    Fix per the product owner: **delete the regex entirely** and move the decision INTO the existing
+    first-pass analysis layer. `agent.analyze_task` is now one Gemini call returning a `TaskIntake`
+    (`restricted`+`score`+`category`+`reason` **and** `steps`+`plan`) — it judges **intent** (told that
+    negated/excluded terms are ALLOWED) and refuses only when `restricted` AND `score ≥ guardrail_threshold`
+    (0.6). `chat.stream_chat` + `run_agent` call it once at the boundary (refuse before touching the data
+    plane). `guardrails.py` is gutted to just the refusal/disclaimer copy; `GeminiGuardrailer`/
+    `StubGuardrailer`/the regex/`get_guardrailer` factory and the redundant `assess_budget`/`_llm_steps` are
+    removed (the intake supersedes them). No keyword fallback — when there is no LLM (dev/CI stub), the
+    intake allows with the default budget (production always runs Gemini). +3 agent tests + 2 eval scenarios.
+    *(agent-engine)*
 - ✅ **PH-14 · Multi-step planner & tool selection.** GeminiPlanner passes real conversation+tool history
   to GenAI (sequential tool calls), `thought_signature` mapping (avoids 400 on chained calls), public
   `resolve_ticker` (company name/alias → ticker inside the loop), injected date context + per-param
@@ -309,6 +390,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   budget is strictly honored: the loop **reserves its last step for guaranteed synthesis** (force-finalize),
   a non-empty **fallback answer** replaces the old "Reached the step limit." leak, and an **identical
   consecutive call is detected** → synthesize instead of looping. *(agent-engine)* +5 tests → 54.
+  *(Update — PH-13b: the budget call is now folded into the single `analyze_task` intake alongside the
+  guardrail; the standalone `assess_budget`/`_llm_steps` were removed.)*
 - ✅ **PH-4 ( = U2 ) · Perplexity-style inline citations + source-preview cards.** *The signature
   trust feature — folded here from UX.* Depends on PH-3 + citation metadata; sits at the Phase 1↔2 seam.
   Delivered in 4a/4b/4c:
@@ -351,11 +434,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > 2. ✅ **PH-MACRO** — cloud-safe macro (keyless DBnomics/BIS fallback for FRED).
 > 3. ✅ **PH-6a** — historical financial-metrics (store-backed ratios) → MCP tool.  · **PH-6b** (13F
 >    ticker-mode / reverse-CUSIP) deferred — needs a 13F-holdings index, not the facts store.
-> 4. **PH-8** — index / ETF holdings (US = SEC N-PORT; KR = KIS-ETF below).  ← **next**
+> 4. ✅ **PH-8 (US)** — ETF/fund holdings via SEC N-PORT → MCP tool `sec_edgar__index_funds`.  · KR
+>    (KIS-ETF) deferred to the KIS connector.  ← next: **PH-9** (KPIs ↳ PH-RAG text via PH-PROV3e).
 > 5. 🚧 **PH-7a** — XBRL as-reported (US) → MCP tool `sec_edgar__as_reported`.  · **PH-7b** (segments +
 >    statement-specific as-reported + KR DART XBRL) deferred (dimensional/heavier parse).
-> 6. **PH-RAG** — unified RAG corpus: ingest **all** document-text sources at once (filing text from PH-5,
->    segment/MD&A from PH-7, transcripts, … + news ✅) → chunk·embed·index.  ↳ PH-5 / PH-7 text  *(was PH-2c)*
+> 6. **PH-RAG** — unified RAG corpus. **SEC/DART filing text now comes from [PH-PROV3e]** (the cached
+>    evidence PDFs → text → chunk·embed·index; one artifact = corpus + evidence). PH-RAG = umbrella for
+>    other text (transcripts, PH-SOURCES) + news ✅.  *(was PH-2c)*
 > 7. **PH-9** — KPIs via Gemini from filings/earnings text.  ↳ PH-RAG
 > 8. **PH-SOURCES** *(later)* — alt-data corpus: brokerage/market reports, investor blogs, Threads/Reddit,
 >    finance books → into PH-RAG.  ↳ PH-RAG + **per-source legal/licensing clearance**
@@ -418,14 +503,218 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   - ⬜ **PH-7b · segments + statement-specific as-reported + KR.** Business/geographic **segments** are
     dimensional XBRL (not in company-facts → needs the filing's R-files/frames); the 3 statement-specific
     `…/as-reported` splits; and **KR DART XBRL** as-reported. Heavier parse — deferred. *(datasets; L)*
-- ⬜ **PH-8 · Index/ETF holdings (#19).** **US** = SEC N-PORT; **KR** = `KIS-ETF` (component stocks + NAV
-  via the KIS connector). *(M)*
-- ⬜ **PH-RAG · Unified RAG corpus ingestion.** *(was PH-2c — deferred until more text sources exist, then
-  done once.)* When the text-bearing endpoints land (filing text via PH-5 `/filings/items`, segment/MD&A
-  text via PH-7, earnings-call transcripts, …), ingest them **all** through one pipeline → chunk → embed →
-  index per tenant (reusing the PH-2b news pipeline shape). Turns `rag__search` from news-only into the
-  full document corpus. *(datasets/rag; M)* — ↳ PH-5 (+ PH-7) for the text.
-- ⬜ **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering). *(↳ PH-RAG text)*
+- 🚧 **PH-8 · Index/ETF holdings (#19).** **US** ✅ — `/index-funds?ticker=` returns an ETF's
+  constituents from its latest **SEC N-PORT** filing (`SecEdgarFundProvider` + `_parse_nport`:
+  `<invstOrSec>` → name/cusip/isin/shares/market_value/weight, sorted by value; fund header with
+  net-assets + as-of). New catalog resource on `sec_edgar` → MCP tool `sec_edgar__index_funds`;
+  `/index-funds/tickers` convenience list; reverse direction (holding→funds) stays 501 (needs a
+  holdings index). Verified live (SPY → 503 holdings: NVDA 7.6% / AAPL 6.7% / MSFT 4.9%). +2 tests,
+  eval +1, coverage "all 34". **KR** = `KIS-ETF` (component stocks + NAV via the KIS connector) —
+  deferred to KIS-0. *(datasets)*
+- 🔁 **PH-RAG · Unified RAG corpus ingestion** → **for SEC/DART filing text, now delivered by
+  [PH-PROV3e](#) (text from the cached evidence PDFs — one artifact = corpus + evidence)**, instead of a
+  separate `/filings/items` ingest. PH-RAG remains the umbrella for *other* text sources (earnings-call
+  transcripts, PH-SOURCES alt-data) ingested through the same pipeline shape. *(was PH-2c.)*
+- 🚧 **PH-DATA · Data-source coverage (Valley-benchmarked, provenance-differentiated).** *(approved
+  2026-06-21)* Match the data BREADTH of competitor **Valley AI** (NeuroFusion / 월가아재), but cover only
+  the **descriptive, sourceable** types and put our wedge on each: **every datum provenance-linked to the
+  real filing (PROV3), and we never fabricate forecasts** (the guardrail is the brand). Valley's
+  forecast/model features — **DCF/DDM/RIM/Reverse-DCF/NTM, analyst estimates/consensus** — we deliberately
+  **do NOT** copy (they clash with "no forecasting/advice"); that refusal IS the differentiation.
+  Prioritized gaps (each → connector + MCP tool + provenance):
+  - ✅ **PH-DATA-1 · Superinvestor / "거장" portfolios** — `/gurus` (15 verified investors:
+    Buffett/Burry/Ackman/Dalio/Klarman/Icahn/Marks/Cohen/…) → `?slug=` returns that filer's latest **13F**
+    holdings via the existing provider, every position carrying its accession → cited to the SEC 13F. New
+    MCP tool `sec_edgar__gurus`; verified live (Buffett → Amex/Coca-Cola/Apple). +1 test, eval +1, coverage
+    "all 35". Cross-guru **common holdings** = a later add. *(Valley: 거장 매매/포트폴리오/공통보유종목)*
+  - ✅ **PH-DATA-2 · Peer comparables** — `/comparables?tickers=AAPL,MSFT,GOOGL` returns each company's
+    valuation multiples + margins/returns **side by side** (reuses `metrics_snapshot` per ticker, parallel;
+    caller/agent supplies the peer set → no universe needed). Descriptive, derived from filings + price
+    (no forecast). MCP tools `sec_edgar__comparables` + `opendart__comparables`; coverage "all 37"; +1 test,
+    eval +1. *(Valley: 상대가치평가/historical multiples)*
+  - ✅ **PH-DATA-3 · Corporate actions** — `/corporate-actions?ticker=` → dividends (ex-date+amount) + stock
+    splits (ratio) from Yahoo events (US+KR). MCP tool `yahoo__corporate_actions`; data-card evidence
+    (source+values+date; no document). coverage "all 38", +2 tests, eval +1. *(basic coverage
+    every platform has; we lack it)*
+  - ✅ **PH-DATA-4 · Economic indicators DB** — `/macro/indicators` → CPI/core-CPI/unemployment/payrolls/
+    GDP/PCE/10Y/EU-HICP via **DBnomics** (keyless, cloud-safe; FRED is datacenter bot-walled). MCP tool
+    `fred__economic_indicators`; data-card evidence (observations + `db.nomics.world` source link + as_of;
+    "NA" dropped, never faked). coverage "all 39", +2 datasets +1 agent tests, eval +1. *(Valley: 경제지표 일정/열람
+    ← next: PH-DATA-5)*
+  - 🔁 **PH-DATA-5 · KPIs + earnings-call transcripts → RAG** = **PH-9**. *(Valley: KPI/실적·전망)*
+    - ✅ **KPI extraction (slice 1).** `POST /agent/kpis` (agent-engine) → `rag__search` over the company's
+      PROV3e filing-text corpus through the gateway → **Gemini structured extraction of REPORTED KPIs only**
+      (no forecasts/targets — guardrail), each KPI **cited to its source passage + an `/evidence` text
+      highlight** in the cached filing PDF. Returns a pinnable `kpi` table artifact + per-KPI citations.
+      No key (stub) → returns the sourced passages, never fabricated KPIs (honesty). Proxied via studio-api
+      `POST /kpis` (tenant key → entitled+metered) + web BFF `/api/kpis`. +5 agent +1 studio tests; also
+      fixed studio-api test isolation (ephemeral DB) — 4 pre-existing rerun failures. *(eval is chat-path
+      only; this is a dedicated endpoint, covered by unit tests.)*
+    - ✅ **KPI UI.** New **지표(KPI)** desk view (`KpiPanel`): company search → pull reported KPIs → a
+      pinnable `kpi` table card + per-KPI **source-preview cards** (open the same evidence viewer; highlight
+      in the real filing). `ArtifactCard` now renders `kind=kpi|table` matrices, so a pinned KPI card shows
+      on the Board too. Honest empty/no-key state drawn, not hidden.
+    - ⬜ **Earnings-call transcripts (slice 2).** Needs a **licensed transcript source** (no current
+      connector provides them; SeekingAlpha/Motley Fool are redistribution-restricted) → ingest via PH-RAG
+      once a source is cleared. Deferred behind per-source legal clearance.
+  - 🔁 **PH-DATA-6 · Technical indicators / sector heatmap** — computed from prices (descriptive). *(Valley:
+    기술지표/섹터 히트맵)*  · short interest, ownership breakdown — later.
+    - ✅ **Technical indicators (slice 1).** `/technical-indicators?ticker=&indicators=` computes
+      **descriptive** overlays from the prices provider's real OHLCV (US+KR): SMA/EMA(n), RSI(14),
+      MACD(12,26,9), Bollinger(20,2σ), realized volatility. Each series tagged source="computed from
+      Yahoo Finance" + the price `as_of`; **labeled descriptive, never a signal/advice** (guardrail).
+      Catalog `yahoo__technical_indicators`; data-card / chart-ready series (feeds PH-VIZ overlays).
+    - ⬜ **Sector heatmap (slice 2).** Needs sector membership (sector-ETF set or GICS map) → per-sector
+      return grid. Deferred until a sourced sector-classification input is wired.
+  *(KR realtime/flow/rankings come via the KIS connector; estimates/valuation-models intentionally excluded.)*
+- ✅ **PH-VIZ · Professional trader charts + chart-as-evidence** *(all 6 slices done)* — *(replaces the dependency-free SVG
+  artifact chart with a real trading chart engine, and makes the chart itself a sourced, annotatable
+  artifact the agent can drive)*. **Engine choice:** [TradingView **Lightweight Charts**](https://github.com/tradingview/lightweight-charts)
+  (Apache-2.0, ~45 KB, **client-side canvas — no data egress, no paid API, keys stay server-side**): real
+  candlestick/OHLC + volume histogram, line/area/baseline, crosshair, time & price scales, log/%
+  scaling. Heavier TradingView *Advanced Charts* (free but license-gated, self-hosted) is a **later**
+  option only if built-in drawing UX is required; default to Lightweight + custom primitives. **All chart
+  rendering routes through one `<TradeChart>` component** (don't fork chart code per surface). Guardrail:
+  **no forecast/projection lines, no price targets, no buy/sell signals on charts** — overlays are
+  descriptive and labeled, and the refusal still shows.
+  - ✅ **PH-VIZ-1 · Chart engine swap.** Added `lightweight-charts` (Apache-2.0); new `<TradeChart>` renders
+    real **candlesticks + a volume pane** when an artifact carries OHLCV, else line series — crosshair,
+    time/price scales, range selector (1M/3M/6M/1Y/5Y/MAX), log & %-rebase toggles. `ArtifactCard` delegates
+    the chart view to it (the 표 toggle keeps the figures table). agent-engine emits a `candlestick` artifact
+    with real OHLCV `candles` for prices (`Artifact.candles`/`ArtifactCandle`); +1 agent test (81→82).
+  - ✅ **PH-VIZ-2 · Sourced event markers (chart = evidence).** The price (candlestick) artifact carries
+    **sourced markers** gathered from the same turn's results — ex-dividends + splits (`corporate_actions`),
+    earnings dates (`earnings`) — each with its source; the agent enriches the chart post-loop
+    (`enrich_chart_markers`, snapped to the nearest bar in the renderer). Clicking a marker opens the
+    existing **SourceViewer** (a data card with the event + source). Descriptive **period high/low price
+    lines** drawn from the price data itself. +2 agent tests (82→84). *(filing/macro markers + shaded period
+    bands = follow-on.)*
+  - ✅ **PH-VIZ-3 · Agent-driven annotations (request → overlay).** `annotations.py`: when a price chart
+    exists, **Gemini** reads the question + the real candle digest and returns a structured spec
+    (`ChartAnnotations`: lines / hlines / vlines / zones / rebase / note) — no hardcoded keyword rules
+    (invariant #9). Validated server-side: every point must fall **inside the chart's date range (no future
+    = no projection)** and a sane price band, else dropped. `<TradeChart>` renders trend lines (2-pt line
+    series), level lines (price lines), date/zone marks + a note caption. Gemini-only (stub = no-op).
+    +3 agent tests (84→87). *(zone shading + cross-ticker rebase compare = follow-on.)*
+  - ✅ **PH-VIZ-4 · Technical overlays on the chart.** PH-DATA-6's `/technical-indicators` result is
+    shaped into `ChartOverlay`s (agent-engine `artifacts.py`): SMA/EMA/Bollinger as `pane=price` lines,
+    RSI/MACD/volatility as `pane=sub`. `enrich_chart_overlays` folds a same-ticker technical artifact onto
+    the price (candlestick) chart so the overlays render **on** the price; with no price chart this turn it
+    renders standalone. `<TradeChart>` draws price-pane lines on the right scale and stacks each sub-pane in
+    its own overlay scale band at the bottom (volume moved above the stack), with RSI 30/70 context bounds —
+    descriptive labels, sourced "computed from Yahoo Finance", never a signal. Server-owned line colors;
+    line/candle/overlay-only artifacts all supported. +3 agent tests (89→92). *(user drawing = PH-VIZ-5.)*
+  - ✅ **PH-VIZ-5 · User drawing tools + pinnable annotated chart.** `<TradeChart>` gains a drawing
+    toolbar (✏ 추세선 = two clicks → trend line · ─ 수평선 = one click → level · 🗑 지우기). Clicks convert
+    pixel→(time, price) via the series, appending to a separate `user_annotations` (ChartAnnotations shape)
+    kept distinct from agent `annotations` so a re-answer/refresh never clobbers them. Drawings render in
+    every chart mode (candle/line/overlay-only). They **persist with the Board pin**: the spec carries
+    `user_annotations`, a new `POST /board/{id}/annotate` saves edits to an already-pinned chart, and
+    `refresh_pin` carries the drawings across a live data refresh. +1 studio-api test (36→37); web build green.
+  - ✅ **PH-VIZ-6 · Chart snapshot as exportable evidence.** A 📸 PNG button on `<TradeChart>` calls
+    Lightweight Charts' `takeScreenshot()` and composes it onto a self-describing canvas — a title header
+    + a sourced footer (`{source} · as of {as_of} · value-graph`) at the chart's pixel resolution (dpr-aware)
+    — then downloads it. The exported snapshot includes the user's drawings + agent annotations + indicator
+    overlays, so any chart can be cited/shared like a source-preview card. Web build green. *(in-app cite to
+    SourceViewer = follow-on.)*
+- 🔁 **PH-THINK · Transparent multi-agent reasoning + live thinking stream** — the chat turn now narrates
+  its reasoning to the user in real time, replacing the bare "…".
+  - ✅ **Model tiering for quality.** Quality where the answer is READ, economy where it's MECHANICAL:
+    intake/decisions = `AGENT_BUDGET_MODEL` (flash-lite); tool routing + annotations + KPI = `AGENT_MODEL`
+    (flash); verify/confidence = `AGENT_REASONING_MODEL` (flash, bump to pro for stricter grounding);
+    **synthesis/combiner/conceptual = `AGENT_SYNTHESIS_MODEL` = `gemini-pro-latest`** (the user-facing
+    answer → deep tier). The A2A combiner now also receives the sub-agents' full tool-result history (not
+    just notes) so pro grounds on real evidence. All env-overridable; stub backend = no LLM.
+  - ✅ **Live thinking stream.** A new SSE `thinking` event (phase: analyze · plan · fetch · found ·
+    synthesize) flows through `stream_chat`; the web renders a live panel (latest step spinning, earlier
+    steps ✓) that collapses into "🧠 분석 과정 · N단계" after the answer. E.g. "요청을 분석하고 있어요 →
+    {source} 살펴보는 중 → ✓ {source} · 근거 N건 확보 → 근거를 정리해 답변을 작성하는 중".
+  - ✅ **Analyze-first phase (quality).** `analyze_task` (one cheap Gemini pass) sizes the step budget AND
+    returns a short natural-language plan ("what I'll look up"), shown as thinking and **injected into the
+    system prompt** so tool selection + synthesis follow it. Gemini-only (stub = budget only, no plan).
+    +1 agent test (87→88). *(replaces the old `assess_budget` call in chat.)*
+  - ✅ **Verify/refine pass (quality).** Before the forced synthesis, a reviewer pass (`refine_evidence`,
+    Gemini) reads the gathered evidence and writes a short brief (which sources/figures to use, conflicts,
+    a one-line outline) that's **injected into the synthesis prompt** + shown as a "근거를 교차검증하는 중…"
+    thinking step. Gemini-only, best-effort (never blocks). +1 test (88→89).
+  - ✅ **Per-source confidence scoring (quality).** The verify pass now does its grounding review AND
+    scores **each source's confidence** (high|medium|low + a one-line why = how well it supports the
+    question) in the **same Gemini call** (structured JSON, invalid values dropped — never guessed).
+    Scores ride back on the citations; the web shows a **신뢰 높음/보통/낮음** chip on each source-preview
+    card (with the rationale on hover) — the trust brand, descriptive, never a forecast. Gemini-only,
+    best-effort. +1 agent test (92→93).
+  - ✅ **Rich responder — mix sourced facts with analyst context (fixes "answers too rigid").** The old
+    synthesis prompt said "위 데이터에**만** 근거해 **간결**하게" → terse data-dumps with no insight. Now a
+    dedicated, configurable **response model** (`AGENT_SYNTHESIS_MODEL`, light flash-tier, temp 0.45)
+    composes a rich answer that **mixes**: every specific NUMBER/date/fact stays sourced + cited `[n]`
+    (invariant #1 — no fabricated figures), while the model adds analyst context/definitions/interpretation
+    from its own expertise (descriptive; guardrail still bans forecast/advice). The intake also routes
+    **conceptual/definitional questions** (`needs_data=false`) straight to a rich explanation, skipping the
+    tool loop (no more doomed tool calls for "PER이 뭐야?"). +2 agent tests, +2 eval scenarios (conceptual,
+    rich-mix). *(agent-engine: planner `_SYNTHESIS_PROMPT`, `analyze_task.needs_data`, chat/run_agent paths.)*
+  - ✅ **Clarify-with-options (Claude-Code-style plan/ask).** When the intake judges a request broad/
+    ambiguous, it returns `clarify` + 2-4 concrete `options` (`{label, description}`, `multi` if
+    combinable) instead of guessing. `chat.stream_chat` emits a `clarify` SSE event and stops; the web
+    renders the choices as **pickable chips** (single → runs immediately, multi → toggle + "선택한
+    내용으로 진행 →"), and a pick composes a refined follow-up question (`{원래 질문} — {고른 항목들}`)
+    that flows through the normal turn. Only fires when ≥2 options and not restricted; the LLM is told not
+    to clarify already-specific/conceptual requests; `run_agent` (non-interactive/eval) ignores it. +2
+    agent tests (94→96). *(agent-engine intake + chat; web `ClarifyChips`.)*
+  - ✅ **Parallel multi-source gather (execute many at once).** The planner now uses Gemini **parallel
+    function calling**: `GeminiPlanner.plan_batch` returns EVERY independent tool call the model emits in a
+    step (capped at `_MAX_PARALLEL_CALLS=5`), and `chat.stream_chat` announces them all then fetches them
+    **concurrently in one `asyncio.gather`** (a failed call never sinks the batch; citations stay
+    deterministically ordered). The system prompt nudges the model to batch independent needs (price AND
+    news AND financials, or one metric across several tickers) and only chain when a call depends on a
+    prior result. Stuck-detection now compares the whole batch signature. Stub stays single-tool;
+    `run_agent` uses the first call. +1 agent test (96→97). *(agent-engine planner + chat loop.)*
+  - ✅ **Full A2A orchestrator + sub-agent cards.** The intake (`analyze_task`) now decides
+    **decomposition**: a clear-but-complex, multi-facet request returns 2-4 focused `subtasks`
+    (`{title, question}`). `orchestrator.run_subagent` runs each as a **headless gather loop** over the
+    shared tools (own small budget `SUBAGENT_BUDGET=4`, itself fanning out parallel calls) — it collects
+    sourced evidence + artifacts + a short note, NOT a final answer. `chat.stream_chat` dispatches all
+    sub-agents **in parallel** (`asyncio.as_completed`), streams a live **`subagent` card** per facet
+    (running → done with sources/steps count), unifies every facet's citations (global de-dup + [n]) and
+    artifacts, then runs ONE **combiner** synthesis weaving all facets into a single cited answer (one
+    voice). The web renders `SubAgentCards`. Decompose is gated (clear intent, not restricted/clarify/
+    conceptual, ≥2 facets); clarify is preferred when intent is unclear. +3 agent tests (97→100), +1 eval
+    scenario. *(agent-engine `orchestrator.py` + intake + chat; web `SubAgentCards`.)* This completes the
+    "Claude Code for finance" loop: **analyze → propose/pick → decompose → execute many (parallel) →
+    combine**, every figure sourced.
+  - ✅ **Chat UX overhaul → Claude-like.** (1) **Markdown bug fixed** — `_chunks` did `text.split()`+rejoin,
+    collapsing newlines so `###`/lists/paragraphs never rendered; now character-based (preserves newlines).
+    (2) **Real token streaming** — `GeminiPlanner.stream_final` (`generate_content_stream`); `stream_chat`
+    routes EVERY finalization (conceptual · loop · stuck · A2A combiner · fallback) through one streaming
+    `_synthesize`, so answers appear incrementally. (3) **Concise** — `_SYNTHESIS_PROMPT` rewritten: length
+    proportional to the question (1–3 sentences for simple facts), no unprompted history lectures. (4) **Live
+    Context panel removed** — evidence woven directly under each answer as inline `SourceCard`s (click →
+    viewer); pinning unchanged. (5) **Layout** — single centered conversation column (max-width 760),
+    assistant text flush, user message a compact chip. +2 agent tests (100→102); web green. *(agent-engine + web)*
+  - ⬜ **Follow-ons:** per-sub-agent confidence/verify pass on the unified evidence; sub-agent cards that
+    expand to show each facet's own sources; orchestrator that spawns a follow-up round when a facet comes
+    back thin; suggested follow-up prompts after an answer.
+- ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
+  operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
+  One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.
+  - ✅ **PH-ADMIN-1 · Fixed the broken table UI.** Removed sqladmin (its static assets didn't load behind the
+    auth guard → unstyled raw HTML) and built **our own styled CRUD** (view · edit · create · delete) on the
+    reflected tables; relative URLs only (proxy/tunnel-safe). Typed coercion via the reflected `Table`.
+  - ✅ **PH-ADMIN-2 · Catalog view.** Live from `/catalog` + `/rag/info` + `/agent/info`: every connector
+    (markets · license · keyless/key-required), each resource → REST path → **MCP tool**
+    (`{connector}__{resource}`) + source, plus RAG + agent backends. Never hand-maintained. *(per-item "try
+    it" probe = future.)*
+  - ✅ **PH-ADMIN-3 · Pipelines board.** All ingest/precompute jobs as live progress cards (kind · market ·
+    spec · status badge · done/total bar · rows · started · error), page auto-refreshes while running;
+    trigger/pause/resume/self-test + RAG ingest/search controls. From `/admin/jobs`+`/admin/scheduler`+`/admin/universes`.
+  - ✅ **PH-ADMIN-4 · Data & store health.** Ingestion-store coverage by market (empty-state drawn, not
+    silent), RAG backends, stored-rows-per-table. *(evidence-doc cache size = future.)*
+  - ✅ **PH-ADMIN-5 · Users, tenants & entitlements.** Control-plane tenants → projects → API keys →
+    activations → usage + studio users (read-friendly, link into the DB browser to edit).
+  - ✅ **PH-ADMIN-6 · Information architecture.** Left-nav console (Overview · Catalog · Pipelines · Data ·
+    Users · DB browser) with a one-glance **Overview** (tiles + per-subsystem health dots + recent errors).
+    *(admin is out-of-band; not in the request path.)*
+- 🔁 **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **delivered by
+  PH-DATA-5 slice 1** (`/agent/kpis`). *(↳ PH-RAG text, now via PROV3e)*
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a
   **JS bot-wall (not JSON) from datacenter IPs** even with a valid key → US macro breaks in cloud. Added a
   `macro_provider_us` selection (mirrors `prices_provider_*`): `auto` (default) | `fred` | `dbnomics`.
@@ -653,7 +942,7 @@ clones an embedded artifact to their Board, and follows the author; the author's
 ## 4. Data-plane 501 backlog (detail)
 Tracked above under PH-5–PH-9 / PH-DEFER; listed here as the raw endpoint inventory.
 - ⬜ #18 13F **ticker-mode** + investor/ticker discovery (reverse-CUSIP index — feasible with the store) → PH-6
-- ⬜ #19 Index funds / ETF holdings (US SEC N-PORT, KR KRX/DART) → PH-8
+- 🚧 #19 Index funds / ETF holdings → PH-8: **US ✅ (SEC N-PORT)**; KR (KIS-ETF) deferred
 - ⬜ #20 Segments + as-reported financials (XBRL direct parse) → PH-7
 - ⬜ #21 Historical financial-metrics (derive ratios across periods from the store) → PH-6
 - ⬜ #22 KPIs via Gemini extraction from earnings releases → PH-9

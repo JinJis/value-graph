@@ -4,15 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
+import KpiPanel from "./KpiPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
-import { Artifact, ArtifactCard } from "./ArtifactCard";
+import { Artifact, ArtifactCard, ChartAnnotations } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[] };
+type Think = { phase: string; text: string };
+type ClarifyOption = { label: string; description?: string | null };
+// CLARIFY-WITH-OPTIONS: the agent offers choices to scope a broad request; `origin` is the
+// user's question the picks refine into a follow-up.
+type Clarify = { prompt: string; options: ClarifyOption[]; multi: boolean; origin: string };
+// A2A: a sub-agent dispatched on one facet of a complex request, shown as a live card.
+type SubAgent = { id: number; title: string; status: string; sources?: number; steps?: number };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify; subagents?: SubAgent[]; suggestions?: string[] };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -25,6 +33,72 @@ function uniqueTools(tools?: ToolUse[]): ToolUse[] {
   const seen = new Map<string, ToolUse>();
   for (const t of tools || []) seen.set(t.label || t.name, t);
   return [...seen.values()];
+}
+
+// PH-THINK: the live reasoning stream — each step the agent narrates (analyze → look at a
+// source → found data → synthesize), the latest one spinning, earlier ones checked.
+function ThinkingLive({ steps }: { steps: Think[] }) {
+  if (!steps.length) return null;
+  return (
+    <div className="thinking-live" aria-live="polite">
+      {steps.map((s, j) => {
+        const last = j === steps.length - 1;
+        return (
+          <div key={j} className={`tl-step ${last ? "active" : "done"}`}>
+            <span className="tl-ic">{last ? <span className="tl-spin" /> : "✓"}</span>{s.text}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// CLARIFY-WITH-OPTIONS: render the agent's choices as chips. Single-pick → click runs it;
+// multi-pick → toggle several then confirm. Picks compose a refined follow-up question.
+function ClarifyChips(
+  { clarify, disabled, onSubmit }:
+  { clarify: Clarify; disabled?: boolean; onSubmit: (labels: string[]) => void },
+) {
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const toggle = (i: number) =>
+    setSel((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  return (
+    <div className="clarify">
+      <div className="clarify-opts">
+        {clarify.options.map((o, i) => (
+          <button key={i} type="button" disabled={disabled}
+            className={`clarify-chip ${clarify.multi && sel.has(i) ? "on" : ""}`}
+            title={o.description || undefined}
+            onClick={() => (clarify.multi ? toggle(i) : onSubmit([o.label]))}>
+            <span className="clarify-label">{o.label}</span>
+            {o.description ? <span className="clarify-desc">{o.description}</span> : null}
+          </button>
+        ))}
+      </div>
+      {clarify.multi && (
+        <Button size="sm" disabled={disabled || sel.size === 0}
+          onClick={() => onSubmit([...sel].sort((a, b) => a - b).map((i) => clarify.options[i].label))}>
+          선택한 내용으로 진행 →
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// A2A: live cards for the sub-agents researching each facet of a complex request in parallel.
+function SubAgentCards({ subs }: { subs: SubAgent[] }) {
+  if (!subs.length) return null;
+  return (
+    <div className="subagents">
+      {subs.map((s) => (
+        <div key={s.id} className={`subagent ${s.status}`}>
+          <span className="sa-ic">{s.status === "done" ? "✓" : <span className="tl-spin" />}</span>
+          <span className="sa-title">{s.title}</span>
+          {s.status === "done" && <span className="sa-meta">{s.sources ?? 0} 근거</span>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const EXAMPLES = [
@@ -49,11 +123,40 @@ export default function Chat({ name }: { name: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // shell view + watchlists / @groups
-  const [view, setView] = useState<"desk" | "watch" | "board">("desk");
+  const [view, setView] = useState<"desk" | "watch" | "board" | "kpi">("desk");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pins, setPins] = useState<{ id: string; spec: Artifact }[]>([]);  // U3-03 Board
   const [viewer, setViewer] = useState<Citation | null>(null);  // expanded source viewer
+  // chat session/history — persisted in studio-api; resume a past conversation.
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [convs, setConvs] = useState<{ id: string; title: string }[]>([]);
+
+  async function loadHistory() {
+    try {
+      const r = await fetch("/api/conversations");
+      if (r.ok) setConvs((await r.json()).conversations ?? []);
+    } catch {}
+  }
+  async function openConversation(id: string) {
+    try {
+      const r = await fetch(`/api/conversations/${id}/messages`);
+      if (!r.ok) return;
+      const msgs = ((await r.json()).messages ?? []) as { role: string; content: string; citations?: Citation[] }[];
+      setMessages(msgs.map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content,
+        citations: m.citations ?? [],
+        used: (m.citations ?? []).map((c) => c.index).filter((n): n is number => n != null),
+      })));
+      setConversationId(id);
+      setView("desk");
+    } catch {}
+  }
+  function newChat() {
+    setMessages([]); setConversationId(null); setInput("");
+    setView("desk");
+  }
 
   async function loadPins() {
     try {
@@ -73,11 +176,26 @@ export default function Chat({ name }: { name: string }) {
       if (r.ok) { const fresh = await r.json(); setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: fresh.spec } : x))); }
     } catch {}
   }
+  // PH-VIZ-5: persist the user's drawings on an already-pinned chart.
+  async function annotatePin(id: string, ann: ChartAnnotations | null) {
+    setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: { ...x.spec, user_annotations: ann ?? undefined } } : x)));
+    try {
+      await fetch(`/api/board/${id}/annotate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_annotations: ann }),
+      });
+    } catch {}
+  }
 
   async function loadAgents() {
     try {
       const r = await fetch("/api/agents");
-      if (r.ok) setAgents((await r.json()).agents ?? []);
+      if (!r.ok) return;
+      const list: Agent[] = (await r.json()).agents ?? [];
+      setAgents(list);
+      // land on the fully-loaded Gemini default agent (tpl_desk), not the bare/stub default
+      const def = list.find((x) => x.id === "tpl_desk") || list.find((x) => x.is_template);
+      if (def) setAgentId((prev) => prev || def.id);
     } catch {}
   }
   async function loadHandles() {
@@ -89,6 +207,7 @@ export default function Chat({ name }: { name: string }) {
   useEffect(() => {
     loadAgents();
     loadHandles();
+    loadHistory();
     (async () => {
       try {
         const r = await fetch("/api/connectors");
@@ -112,6 +231,28 @@ export default function Chat({ name }: { name: string }) {
     inputRef.current?.focus();
   }
 
+  // {tickers}/{ticker} placeholder fill — from a prompt-library import. Click a watchlist group
+  // or search a company; the chosen value replaces the first placeholder in the box.
+  const [tkQuery, setTkQuery] = useState("");
+  const [tkRes, setTkRes] = useState<{ ticker: string; name?: string; market?: string }[]>([]);
+  const hasPlaceholder = /\{tickers?\}/i.test(input);  // matches {TICKER}/{TICKERS}/{ticker}/{tickers}
+  async function searchTicker(q: string) {
+    setTkQuery(q);
+    if (!q.trim()) { setTkRes([]); return; }
+    try {
+      const [us, kr] = await Promise.all([
+        fetch(`/api/company/search?q=${encodeURIComponent(q)}&market=US&limit=4`).then((r) => (r.ok ? r.json() : { results: [] })),
+        fetch(`/api/company/search?q=${encodeURIComponent(q)}&market=KR&limit=4`).then((r) => (r.ok ? r.json() : { results: [] })),
+      ]);
+      setTkRes([...(us.results || []), ...(kr.results || [])].slice(0, 8));
+    } catch { setTkRes([]); }
+  }
+  function fillPlaceholder(v: string) {
+    setInput((s) => s.replace(/\{tickers?\}/i, v));
+    setTkQuery(""); setTkRes([]);
+    inputRef.current?.focus();
+  }
+
   const selected = agents.find((a) => a.id === agentId) || null;
 
   async function send(text: string) {
@@ -127,6 +268,7 @@ export default function Chat({ name }: { name: string }) {
         body: JSON.stringify({
           messages: history.map((m) => ({ role: m.role, content: m.content })),
           agent_id: agentId || null,
+          conversation_id: conversationId,  // resume/append to the same conversation
         }),
       });
       if (!res.body) throw new Error("no stream");
@@ -145,11 +287,26 @@ export default function Chat({ name }: { name: string }) {
           if (!line) continue;
           let ev: any;
           try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (ev.type === "conversation") { setConversationId(ev.id); continue; }  // session id to resume
           setMessages((prev) => {
             const next = [...prev];
             const a = { ...next[next.length - 1] };
             if (ev.type === "token") a.content += ev.text || "";
+            else if (ev.type === "thinking") a.thinking = [...(a.thinking || []), { phase: ev.phase, text: ev.text }];
             else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
+            else if (ev.type === "clarify") {
+              // origin = the user question these choices refine into a follow-up
+              const origin = [...next].reverse().find((m) => m.role === "user")?.content || "";
+              a.clarify = { prompt: ev.prompt, options: ev.options || [], multi: !!ev.multi, origin };
+            }
+            else if (ev.type === "suggestions") a.suggestions = (ev.items || []) as string[];
+            else if (ev.type === "subagent") {
+              const list = [...(a.subagents || [])];
+              const card: SubAgent = { id: ev.id, title: ev.title, status: ev.status, sources: ev.sources, steps: ev.steps };
+              const k = list.findIndex((s) => s.id === ev.id);
+              if (k >= 0) list[k] = card; else list.push(card);
+              a.subagents = list;
+            }
             else if (ev.type === "artifact" && ev.artifact) {
               const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
               if (!dup) a.artifacts = [...(a.artifacts || []), ev.artifact as Artifact];
@@ -170,6 +327,21 @@ export default function Chat({ name }: { name: string }) {
             else if (ev.type === "done") {
               if (ev.refused) a.refused = true;
               if (Array.isArray(ev.used)) a.used = ev.used;
+              // PH-PROV3d: the done list is authoritative — its citations carry the evidence
+              // image re-anchored on the figure the answer actually cited. Replace the streamed set.
+              if (Array.isArray(ev.citations) && ev.citations.length) {
+                a.citations = ev.citations.map((c: any) => ({
+                  tool: c.tool, source: c.source, url: c.url, index: c.index, kind: c.kind,
+                  doc_type: c.doc_type, as_of: c.as_of, freshness: c.freshness,
+                  snippet: c.snippet, ticker: c.ticker, page: c.page,
+                  table: c.table, evidence_image_url: c.evidence_image_url, used: c.used,
+                }));
+              }
+              // PH-VIZ-2: the done list carries the chart artifacts enriched with sourced
+              // event markers + price lines (added after later tool results landed).
+              if (Array.isArray(ev.artifacts) && ev.artifacts.length) {
+                a.artifacts = ev.artifacts as Artifact[];
+              }
             }
             next[next.length - 1] = a;
             return next;
@@ -185,6 +357,7 @@ export default function Chat({ name }: { name: string }) {
       });
     } finally {
       setBusy(false);
+      loadHistory();  // refresh the sidebar history (new conversation title shows up)
     }
   }
 
@@ -195,25 +368,28 @@ export default function Chat({ name }: { name: string }) {
     else if (!deletedId) setAgentId(saved.id);
   }
 
-  // Live Context = the EVIDENCE of the latest answer (only the sources it actually
-  // used), not every consulted source — those stay in the message's 도구·출처 list.
-  const liveMsg = [...messages].reverse().find((m) => m.role === "assistant" && (m.citations?.length || 0) > 0);
-  const liveCites = (() => {
-    if (!liveMsg) return [] as Citation[];
-    const used = liveMsg.used;
-    if (used && used.length) return (liveMsg.citations ?? []).filter((c) => c.index != null && used.includes(c.index));
-    return liveMsg.citations ?? [];
-  })();
+  // Evidence for one message = the sources its answer actually used (else all consulted).
+  const evidenceOf = (m: Msg): Citation[] => {
+    const cites = m.citations ?? [];
+    if (m.used && m.used.length) return cites.filter((c) => c.index != null && m.used!.includes(c.index));
+    return cites;
+  };
 
   return (
-    <div className={`shell ${view === "desk" ? "" : "no-right"}`}>
+    <div className="shell no-right">
       <nav className="rail">
-        <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">VALUE·GRAPH</span></div>
+        <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">ValueGraph</span></div>
+        <button className="rail-new" onClick={newChat}>
+          <span className="ic">✎</span><span>새 대화</span>
+        </button>
         <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
           <span className="ic">🏠</span><span className="lbl">데스크</span>
         </button>
         <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => { setView("board"); loadPins(); }}>
           <span className="ic">📊</span><span className="lbl">보드</span>
+        </button>
+        <button className={`rail-item ${view === "kpi" ? "on" : ""}`} onClick={() => setView("kpi")}>
+          <span className="ic">📈</span><span className="lbl">지표</span>
         </button>
         <div className="rail-item soon" title="곧"><span className="ic">🧑‍💼</span><span className="lbl">분석가</span><span className="soon-tag">곧</span></div>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
@@ -221,6 +397,15 @@ export default function Chat({ name }: { name: string }) {
         </button>
         <div className="rail-item soon" title="곧"><span className="ic">🔔</span><span className="lbl">브리프</span><span className="soon-tag">곧</span></div>
         <div className="rail-item soon" title="곧"><span className="ic">🛒</span><span className="lbl">갤러리</span><span className="soon-tag">곧</span></div>
+        {convs.length > 0 && (
+          <div className="rail-hist">
+            <div className="rail-hist-h">최근 대화</div>
+            {convs.slice(0, 12).map((c) => (
+              <button key={c.id} className={`rail-conv ${c.id === conversationId ? "on" : ""}`}
+                title={c.title} onClick={() => openConversation(c.id)}>{c.title || "(제목 없음)"}</button>
+            ))}
+          </div>
+        )}
         <div className="rail-spacer" />
         <div className="rail-foot">
           <span className="acct-ava" aria-hidden />
@@ -235,6 +420,8 @@ export default function Chat({ name }: { name: string }) {
       <div className="main">
         {view === "watch" ? (
           <Watchlists embedded onChanged={loadHandles} />
+        ) : view === "kpi" ? (
+          <KpiPanel onPin={pinArtifact} onExpand={setViewer} />
         ) : view === "board" ? (
           <div className="board">
             <div className="board-head"><h3>📊 보드</h3><span className="sub">핀한 라이브 아티팩트 · 열 때마다 출처·신선도 갱신</span></div>
@@ -242,7 +429,8 @@ export default function Chat({ name }: { name: string }) {
               <p className="live-empty">아직 핀한 카드가 없어요. 답변의 차트 카드에서 <b>📌 핀</b>을 누르면 여기에 모여요.</p>
             ) : (
               <div className="board-grid">
-                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)} onRemove={() => unpin(p.id)} />)}
+                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)}
+                  onRemove={() => unpin(p.id)} onEvidence={setViewer} onAnnotate={(ann) => annotatePin(p.id, ann)} />)}
               </div>
             )}
           </div>
@@ -291,37 +479,92 @@ export default function Chat({ name }: { name: string }) {
 
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
+                  {m.role === "assistant" && (m.thinking?.length || 0) > 0 && (
+                    busy && i === messages.length - 1
+                      ? <ThinkingLive steps={m.thinking!} />
+                      : <details className="thinking-log">
+                          <summary>🧠 분석 과정 · {m.thinking!.length}단계</summary>
+                          {m.thinking!.map((t, j) => <div key={j} className="tl-step done"><span className="tl-ic">✓</span>{t.text}</div>)}
+                        </details>
+                  )}
+                  {m.role === "assistant" && (m.subagents?.length || 0) > 0 && (
+                    <SubAgentCards subs={m.subagents!} />
+                  )}
                   <div className="bubble">
                     {m.content
                       ? (m.role === "assistant"
                           ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown></div>
                           : m.content)
-                      : (m.role === "assistant" && busy ? "…" : "")}
+                      : (m.role === "assistant" && busy && !(m.thinking?.length) ? "…" : "")}
                   </div>
+                  {m.role === "assistant" && m.clarify && (
+                    <ClarifyChips clarify={m.clarify} disabled={busy}
+                      onSubmit={(labels) => send(`${m.clarify!.origin} — ${labels.join(", ")}`)} />
+                  )}
                   {m.role === "assistant" && m.refused && (
                     <GuardrailLabel>매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</GuardrailLabel>
                   )}
                   {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
                     <div className="artifacts">
-                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={() => pinArtifact(a)} />)}
+                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={pinArtifact} onEvidence={setViewer} />)}
                     </div>
                   )}
-                  {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (
-                    <details className="sources">
-                      <summary>도구 · 출처{m.citations?.length ? ` (${m.citations.length})` : ""}</summary>
-                      {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
-                      {(m.citations?.length || 0) > 0 && (
-                        <div className="cite-chips">
-                          {m.citations?.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}
-                        </div>
-                      )}
-                    </details>
+                  {m.role === "assistant" && (() => {
+                    const cites = m.citations ?? [];
+                    const evidence = evidenceOf(m);
+                    return (
+                      <>
+                        {evidence.length > 0 && (
+                          <div className="answer-sources">
+                            <div className="as-label">출처 {evidence.length}</div>
+                            <div className="as-cards">
+                              {evidence.map((c, j) => <SourceCard key={`s${j}`} c={c} onExpand={setViewer} />)}
+                            </div>
+                          </div>
+                        )}
+                        {(m.tools?.length || 0) > 0 && (
+                          <details className="sources">
+                            <summary>도구 {uniqueTools(m.tools).length}개{cites.length ? ` · 참고 출처 ${cites.length}` : ""}</summary>
+                            {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
+                            {cites.length > 0 && (
+                              <div className="cite-chips">{cites.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}</div>
+                            )}
+                          </details>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {m.role === "assistant" && (m.suggestions?.length || 0) > 0 && (
+                    <div className="followups">
+                      <div className="fu-label">이어서 더 파고들기</div>
+                      <div className="fu-list">
+                        {m.suggestions!.map((q, j) => (
+                          <button key={j} type="button" className="fu-chip" disabled={busy} onClick={() => send(q)}>
+                            {q} <span className="fu-arrow">→</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               ))}
             </main>
 
             <footer className="composer">
+              {hasPlaceholder && (
+                <div className="tickerfill">
+                  <span className="tf-label">⌗ 종목 채우기</span>
+                  {handles.slice(0, 6).map((h) => (
+                    <button key={h} type="button" className="tf-chip group" onClick={() => fillPlaceholder("@" + h)}>@{h}</button>
+                  ))}
+                  <input className="tf-search" value={tkQuery} placeholder="종목 검색 (예: 삼성, AAPL)…"
+                    onChange={(e) => searchTicker(e.target.value)} />
+                  {tkRes.map((r, i) => (
+                    <button key={`${r.ticker}${i}`} type="button" className="tf-chip" title={r.name}
+                      onClick={() => fillPlaceholder(r.ticker)}>{r.ticker} · {(r.name || "").slice(0, 12)}</button>
+                  ))}
+                </div>
+              )}
               {mention.length > 0 && (
                 <div className="mention">
                   {mention.map((h, i) => (
@@ -339,38 +582,18 @@ export default function Chat({ name }: { name: string }) {
                   placeholder="무엇이든 물어보거나 — /프롬프트 · @그룹 호출…" disabled={busy} />
                 <Button disabled={busy || !input.trim()}>보내기</Button>
               </form>
-              <div className="composer-meta">
-                {(input.match(/@([^\s@]+)/g) ?? []).slice(0, 3).map((h) => (
-                  <Chip key={h} tone="accent">{h}</Chip>
-                ))}
-                <span className="grow" />
-                {liveCites.length > 0 && (
-                  <span className="cmeta-src">📎 소스 {liveCites.length}<FreshnessDot f={liveCites[0]?.freshness} /></span>
-                )}
-              </div>
+              {(input.match(/@([^\s@]+)/g) ?? []).length > 0 && (
+                <div className="composer-meta">
+                  {(input.match(/@([^\s@]+)/g) ?? []).slice(0, 3).map((h) => (
+                    <Chip key={h} tone="accent">{h}</Chip>
+                  ))}
+                </div>
+              )}
               <div className="disclaimer">투자 자문이 아니며, 가격 예측을 제공하지 않습니다.</div>
             </footer>
           </>
         )}
       </div>
-
-      {view === "desk" && (
-        <aside className="rightpane">
-          <div className="rp-head">
-            <h4>LIVE 컨텍스트</h4>
-            {liveCites.length > 0 && <span className="rp-count mono">인용 원문 {liveCites.length}</span>}
-          </div>
-          <span className="live-label">⛔ 점수·전망 없음 · 인용한 <b>원문 그대로</b> 미리보기</span>
-          {liveCites.length === 0 ? (
-            <p className="live-empty">질문하면 답변에 사용된 출처가 <b>원문 미리보기</b>로 여기에 쌓여요 — PDF는 페이지, 뉴스는 브라우저, 데이터는 표로, 인용한 부분을 하이라이트해서. 종목별 실시간 피드는 곧 추가됩니다.</p>
-          ) : (
-            <>
-              {liveCites.map((c, j) => <SourceCard key={j} c={c} onExpand={setViewer} />)}
-              <div className="sp-empty">드래그한 소스가 여기 미리보기로 고정됩니다</div>
-            </>
-          )}
-        </aside>
-      )}
 
       {builder.open && (
         <AgentBuilder

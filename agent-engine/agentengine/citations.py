@@ -8,7 +8,7 @@ backed the answer (evidence vs merely consulted).
 
 from __future__ import annotations
 
-from agentengine.evidence import _evidence_url
+from agentengine.evidence import _evidence_url, rag_evidence_url
 from agentengine.freshness import compute_freshness
 from agentengine.models import Citation
 from agentengine.provenance import (
@@ -98,12 +98,15 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
             continue
         seen.add(key)
         as_of = prov.get("as_of")
+        text = (h or {}).get("text") or ""
         cites.append(Citation(
             tool=tool["name"], source=src or tool.get("source"), url=url,
             kind=_rag_type(prov), doc_type=prov.get("doc_type"), as_of=as_of,
             freshness=compute_freshness(as_of),
-            snippet=((h or {}).get("text") or "")[:300] or None,
+            snippet=text[:300] or None,
             ticker=prov.get("ticker"), page=prov.get("section") or prov.get("accession"),
+            # PH-PROV3e: a filing passage (has an accession) → highlight it in the cached PDF
+            evidence_image_url=rag_evidence_url(prov.get("market"), prov.get("accession"), text),
         ))
     return cites or None
 

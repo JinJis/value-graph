@@ -38,12 +38,38 @@ from agentengine.gemini_io import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+# The responder prompt. The whole point: a rich answer that MIXES our sourced evidence with
+# the model's own analyst expertise — not a terse restatement of fetched rows. Hard rules keep
+# it trustworthy: every NUMBER/specific fact comes from a source and is cited; the model may
+# (and should) add qualitative context/definitions/interpretation; no forecast/advice; no
+# fabricated figures; no tool names or raw URLs in the prose.
+_SYNTHESIS_PROMPT = (
+    "당신은 금융 리서치 애널리스트입니다. 사용자의 질문에 같은 언어로, 직접적이고 간결하게 답하세요.\n"
+    "분량은 질문에 비례합니다:\n"
+    "- 단순한 사실/수치 질문(예: '환율', 'Fed 기준금리 추이')에는 핵심만 1~3문장으로. 묻지 않은 역사 "
+    "강의·배경 설명·머리말·반복은 넣지 마세요.\n"
+    "- 사용자가 '자세히/분석/이유'를 요청했거나 본질적으로 복잡한 질문일 때만 더 길게, 필요한 만큼만 설명하세요.\n"
+    "원칙:\n"
+    "- 구체적 수치·날짜·사실은 위에 제공된 자료에서만 가져오고 문장 끝에 [n]으로 인용하세요. 시스템 'Sources' "
+    "목록의 정확한 번호만 쓰고, 새 번호를 만들거나 순서를 바꾸지 마세요. 자료에 없는 수치는 절대 지어내지 마세요.\n"
+    "- 맥락·해석을 덧붙일 때도 간결하게. 수치 나열이 아니라 핵심 의미만 짚으세요.\n"
+    "- 자료가 부족하면 솔직히 밝히고, 무엇을 더 보면 되는지 한 줄로 안내하세요.\n"
+    "- 가격 예측·목표가·매수/매도 의견 금지. 면책 문구·내부 도구명(예: opendart__income_statements)·"
+    "원문 URL은 본문에 쓰지 마세요([n]만 — 링크는 출처 카드에 표시됩니다).\n"
+    "마크다운을 쓰되, 짧은 답에는 헤딩·불릿을 남용하지 말고 자연스러운 문단으로 쓰세요."
+)
+
+
 @dataclass
 class Decision:
     tool: str | None = None
     args: dict | None = None
     final: str | None = None
     thought_signature: bytes | None = None
+    # The model's RAW response Content for this turn (all function_call parts + their
+    # thought_signatures). Replayed verbatim into history so parallel calls keep their
+    # signatures — reconstructing them part-by-part drops/desyncs signatures (Gemini 400).
+    raw_content: object | None = None
 
 
 class StubPlanner:
@@ -72,6 +98,10 @@ class StubPlanner:
                 return Decision(tool=name, args=args)
         return Decision(final=_no_tool_message(task, has_tools=True))
 
+    async def plan_batch(self, *args, **kwargs) -> list[Decision]:
+        # the deterministic stub is single-tool-per-step; wrap its one decision in a batch.
+        return [await self.plan(*args, **kwargs)]
+
 
 class GeminiPlanner:
     """Real Gemini planner (function calling). Untested without GOOGLE_API_KEY."""
@@ -86,12 +116,21 @@ class GeminiPlanner:
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
                    conversation: list | None = None, force_final: bool = False,
                    sources: str | None = None) -> Decision:
-        import asyncio
-        from google.genai import types
+        # single-decision view (run_agent / callers that don't fan out): the first call.
+        decisions = await self._run(task, tools, history, system, conversation, force_final, sources)
+        return decisions[0]
+
+    async def plan_batch(self, task: str, tools: dict, history: list, system: str | None = None,
+                         conversation: list | None = None, force_final: bool = False,
+                         sources: str | None = None) -> list[Decision]:
+        # ALL of the model's parallel function calls this step (fanned out concurrently by the
+        # caller), or a single final Decision. This is what enables parallel multi-source gather.
+        return await self._run(task, tools, history, system, conversation, force_final, sources)
+
+    def _build_system_instruction(self, system: str | None, sources: str | None) -> str:
         from datetime import datetime
 
         current_date = datetime.now().strftime("%Y-%m-%d")
-
         base_system = (
             "You are an expert financial-data assistant. Your goal is to answer the user's query using the provided tools.\n\n"
             f"Current Date: {current_date}\n\n"
@@ -105,6 +144,10 @@ class GeminiPlanner:
             "- 'ticker': Stock tickers MUST be official symbols (e.g., 'AAPL' for Apple, '005930' for Samsung Electronics). NEVER pass company names (e.g., 'Apple', '삼성전자') as the ticker parameter.\n"
             "- Always identify the correct market ('US' or 'KR') based on the company or central bank mentioned.\n"
             "- Resolve follow-up references (e.g. 'that company') from the conversation so far.\n"
+            "- PARALLEL: when a question needs several INDEPENDENT pieces of data (e.g. price AND news AND "
+            "financials, or the same metric for multiple companies), call those tools TOGETHER in one step "
+            "(emit multiple function calls at once) so they are fetched concurrently. Only chain calls when a "
+            "later call truly depends on an earlier result.\n"
             "When you write the final answer, anchor each claim with an inline [n] marker that refers to "
             "the numbered source list provided below; use ONLY those exact numbers and never renumber.\n"
             "Never predict prices or give buy/sell advice; this is not investment advice."
@@ -117,34 +160,66 @@ class GeminiPlanner:
                 "\n\nSources (cite ONLY with these exact bracketed numbers; do not invent or reorder):\n"
                 + sources
             )
+        return system_instruction
 
+    async def stream_final(self, task: str, tools: dict, history: list, system: str | None = None,
+                           conversation: list | None = None, sources: str | None = None):
+        """REAL token streaming of the final synthesis (responder model). Yields text deltas
+        as Gemini generates them — so the answer appears incrementally, not all at once. Each
+        `next()` on the sync stream is offloaded so the event loop stays free."""
+        import asyncio
+        from google.genai import types
+
+        system_instruction = self._build_system_instruction(system, sources)
+        contents = _to_gemini_contents(conversation, history, task)
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=_SYNTHESIS_PROMPT)]))
+        config = types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.45)
+        model = settings.synthesis_model or self.model
+        it = await asyncio.to_thread(self._client.models.generate_content_stream,
+                                     model=model, contents=contents, config=config)
+
+        def _next(gen):
+            try:
+                return next(gen)
+            except StopIteration:
+                return None
+
+        while True:
+            chunk = await asyncio.to_thread(_next, it)
+            if chunk is None:
+                break
+            t = getattr(chunk, "text", "") or ""
+            if t:
+                yield t
+
+    async def _run(self, task: str, tools: dict, history: list, system: str | None = None,
+                   conversation: list | None = None, force_final: bool = False,
+                   sources: str | None = None) -> list[Decision]:
+        import asyncio
+        from google.genai import types
+
+        system_instruction = self._build_system_instruction(system, sources)
         contents = _to_gemini_contents(conversation, history, task)
 
         if force_final:
-            prompt = (
-                "위 데이터에만 근거해 핵심을 간결하고 자연스럽게 답하세요(질문과 같은 언어로). "
-                "수치는 단위·기간과 함께 제시하고, 출처는 기관 이름(예: OpenDART, SEC EDGAR)으로 자연스럽게 언급하세요. "
-                "근거가 된 출처는 문장 끝에 [n] 번호로 인용하되, 시스템 지침의 'Sources' 목록에 있는 "
-                "정확한 번호만 사용하고 새 번호를 만들거나 순서를 바꾸지 마세요. "
-                "원문 링크(URL)는 본문에 직접 쓰지 마세요 — [n] 번호만 쓰고, 링크는 출처 카드에 표시됩니다. "
-                "내부 도구·함수 이름이나 코드 식별자(예: opendart__income_statements)는 절대 노출하지 마세요. "
-                "가격 예측이나 매수/매도 의견은 금지하며, 별도의 면책 문구는 덧붙이지 마세요."
-            )
-            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt)]))
+            # The rich responder: MIX our sourced evidence (cited, never fabricated) with the
+            # model's own analyst context, so the answer is genuinely useful — not a terse
+            # data-dump. Numbers stay sourced (invariant #1); qualitative insight is the model's.
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=_SYNTHESIS_PROMPT)]))
             config = types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.2,
+                temperature=0.45,   # warmer than routing → richer, more natural prose
             )
-            resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
-            text_val = _get_text_from_response(resp)
-            logger.info("force_final response candidate content parts: %s", resp.candidates[0].content.parts if resp.candidates else None)
-            return Decision(final=text_val)
+            # use the dedicated (light) response model, falling back to the planner model.
+            model = settings.synthesis_model or self.model
+            resp = await asyncio.to_thread(self._client.models.generate_content, model=model, contents=contents, config=config)
+            return [Decision(final=_get_text_from_response(resp))]
 
         decls = [
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=_schema(t))
             for t in tools.values()
         ]
-        
+
         config = types.GenerateContentConfig(
             tools=[types.Tool(function_declarations=decls)],
             system_instruction=system_instruction,
@@ -153,15 +228,20 @@ class GeminiPlanner:
         resp = await asyncio.to_thread(self._client.models.generate_content, model=self.model, contents=contents, config=config)
         calls = getattr(resp, "function_calls", None)
         if calls:
-            call = calls[0]
-            thought_sig = None
-            if resp.candidates and resp.candidates[0].content and resp.candidates[0].content.parts:
-                for part in resp.candidates[0].content.parts:
-                    if part.function_call and part.function_call.name == call.name:
-                        thought_sig = part.thought_signature
-                        break
-            return Decision(tool=call.name, args=dict(call.args or {}), thought_signature=thought_sig)
-        return Decision(final=_get_text_from_response(resp))
+            # Gemini parallel function calling: return EVERY call this step so the caller fans them
+            # out concurrently. Carry the model's RAW content (all parts + thought_signatures) on each
+            # Decision so history replays it verbatim — every emitted call MUST get a response, so we
+            # execute them ALL (no cap; the model bounds the count) to keep calls↔responses aligned.
+            model_content = resp.candidates[0].content if resp.candidates else None
+            parts = (model_content.parts if (model_content and model_content.parts) else [])
+            fc_parts = [p for p in parts if getattr(p, "function_call", None)]
+            out: list[Decision] = []
+            for i, call in enumerate(calls):
+                sig = fc_parts[i].thought_signature if i < len(fc_parts) else None
+                out.append(Decision(tool=call.name, args=dict(call.args or {}),
+                                    thought_signature=sig, raw_content=model_content))
+            return out
+        return [Decision(final=_get_text_from_response(resp))]
 
 
 @cache

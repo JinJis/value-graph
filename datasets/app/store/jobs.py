@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from app.store.bulk import bulk_load_kr, bulk_load_us
 from app.store.db import SessionLocal
 from app.store.models import IngestionJob
-from app.store.universes import get_preset
+from app.store.universes import resolve_one
 
 
 def _now() -> datetime:
@@ -43,11 +43,16 @@ def start_job(kind: str, market: str | None, spec: str | None, total: int = 0) -
 
 
 def update_progress(job_id: int, done: int) -> None:
-    with SessionLocal() as db:
-        job = db.get(IngestionJob, job_id)
-        if job is not None:
-            job.done = done
-            db.commit()
+    # Best-effort: a live progress tick must never abort the whole ingest run on a transient
+    # write lock (WAL + busy_timeout make these rare). The next tick / finish_job will catch up.
+    try:
+        with SessionLocal() as db:
+            job = db.get(IngestionJob, job_id)
+            if job is not None:
+                job.done = done
+                db.commit()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def finish_job(job_id: int, status: str, rows: int = 0, error: str | None = None) -> None:
@@ -89,10 +94,10 @@ async def run_backfill(
     ``tickers``. Serialized via ``backfill_running`` so runs don't pile up.
     """
     if preset:
-        p = get_preset(preset)
-        if p is None:
-            return {"status": "error", "error": f"Unknown universe preset '{preset}'."}
-        market, tickers, spec = p["market"], list(p["tickers"]), f"universe:{preset}"
+        market, tickers = await resolve_one(preset)  # dynamic fetch (PH-PIPE)
+        if not tickers:
+            return {"status": "error", "error": f"Universe '{preset}' resolved to no tickers."}
+        spec = f"universe:{preset}"
     else:
         spec = ",".join(tickers or []) or "(none)"
     if not market:
