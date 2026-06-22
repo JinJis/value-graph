@@ -205,7 +205,7 @@ export default function Chat({ name }: { name: string }) {
   // or search a company; the chosen value replaces the first placeholder in the box.
   const [tkQuery, setTkQuery] = useState("");
   const [tkRes, setTkRes] = useState<{ ticker: string; name?: string; market?: string }[]>([]);
-  const hasPlaceholder = /\{tickers?\}/.test(input);
+  const hasPlaceholder = /\{tickers?\}/i.test(input);  // matches {TICKER}/{TICKERS}/{ticker}/{tickers}
   async function searchTicker(q: string) {
     setTkQuery(q);
     if (!q.trim()) { setTkRes([]); return; }
@@ -218,7 +218,7 @@ export default function Chat({ name }: { name: string }) {
     } catch { setTkRes([]); }
   }
   function fillPlaceholder(v: string) {
-    setInput((s) => s.replace(/\{tickers?\}/, v));
+    setInput((s) => s.replace(/\{tickers?\}/i, v));
     setTkQuery(""); setTkRes([]);
     inputRef.current?.focus();
   }
