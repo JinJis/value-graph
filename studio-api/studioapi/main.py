@@ -25,6 +25,7 @@ from studioapi.board import router as board_router
 from studioapi.evidence import router as evidence_router
 from studioapi.kpis import router as kpis_router
 from studioapi.prices import router as prices_router
+from studioapi.financials import router as financials_router
 
 
 @asynccontextmanager
@@ -91,4 +92,5 @@ app.include_router(board_router)
 app.include_router(evidence_router)
 app.include_router(kpis_router)
 app.include_router(prices_router)
+app.include_router(financials_router)
 app.include_router(search_router)

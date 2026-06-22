@@ -198,11 +198,36 @@ export function ArtifactCard(
   // display title with the KR code swapped for the name ("005930 주가" → "삼성전자 주가")
   const displayTitle = coName && ticker ? a.title.replace(ticker, coName) : a.title;
   const [rowLimit, setRowLimit] = useState(30);  // OHLCV table: show recent N, expand for more
+  // Load a GENEROUS financials history for a revenue/income artifact so the chart + table show
+  // the full period range (left-scroll has data), independent of the agent's narrow fetch.
+  const [finSeries, setFinSeries] = useState<ArtifactSeries[] | null>(null);
+  useEffect(() => {
+    if (!ticker || !(a.tool || "").endsWith("__income_statements")) return;
+    const market = (a.args?.market as string) || (/^\d/.test(ticker) ? "KR" : "US");
+    let cancel = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/financials?ticker=${encodeURIComponent(ticker)}&market=${market}&period=annual&limit=40`);
+        if (!r.ok) return;
+        const rows = ((await r.json())?.income_statements ?? []) as any[];
+        const sorted = rows.filter((x) => x.report_period).sort((x, y) => (String(x.report_period) < String(y.report_period) ? -1 : 1));
+        const pick = (k: string) => sorted.filter((x) => x[k] != null).map((x) => ({ x: String(x.report_period), y: x[k] as number }));
+        const s: ArtifactSeries[] = [];
+        const rev = pick("revenue"), ni = pick("net_income");
+        if (rev.length) s.push({ label: "매출", points: rev });
+        if (ni.length) s.push({ label: "순이익", points: ni });
+        if (!cancel && s.length) setFinSeries(s);
+      } catch { /* keep the agent's series on failure */ }
+    })();
+    return () => { cancel = true; };
+  }, [ticker, a.tool, a.args]);
+
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
   }
-  const xs = Array.from(new Set(a.series.flatMap((s) => s.points.map((p) => p.x)))).sort();
+  const series = finSeries ?? a.series;  // prefer the fuller fetched financials history
+  const xs = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.x)))).sort();
   const hasCandles = (a.candles?.length ?? 0) > 0;
   const hasOverlays = (a.overlays?.length ?? 0) > 0;  // PH-VIZ-4: technical-only chart
   if (xs.length === 0 && !hasCandles && !hasOverlays) return null;
@@ -212,7 +237,7 @@ export function ArtifactCard(
       <div className="artifact-head">
         <span className="artifact-title">{displayTitle}</span>
         <FreshnessDot f={a.freshness ?? undefined} />
-        {a.series.length > 0 && (
+        {series.length > 0 && (
           <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
             {table ? "📈 차트" : "⇄ 표로"}
           </button>
@@ -267,12 +292,12 @@ export function ArtifactCard(
           })()
         ) : (
           <table className="artifact-table">
-            <thead><tr><th>기간</th>{a.series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead>
+            <thead><tr><th>기간</th>{series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead>
             <tbody>
-              {xs.map((x) => (
+              {[...xs].reverse().map((x) => (
                 <tr key={x}>
                   <td className="mono">{x}</td>
-                  {a.series.map((s) => {
+                  {series.map((s) => {
                     const pt = s.points.find((p) => p.x === x);
                     return <td key={s.label} className="mono">{fmt(pt?.y, s.unit, currency)}</td>;
                   })}
@@ -282,13 +307,13 @@ export function ArtifactCard(
           </table>
         )
       ) : (
-        <TradeChart a={a} bars={bars} currency={currency} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
+        <TradeChart a={a} bars={bars} series={finSeries} currency={currency} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
       )}
 
       <div className="artifact-foot">
-        {!hasCandles && a.series.length > 0 && (
+        {!hasCandles && series.length > 0 && (
           <div className="artifact-legend">
-            {a.series.map((s, i) => (
+            {series.map((s, i) => (
               <span key={s.label}><i style={{ background: STROKES[i % STROKES.length] }} /> {s.label}</span>
             ))}
           </div>

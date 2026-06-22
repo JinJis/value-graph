@@ -334,6 +334,21 @@ def test_prices_proxy_forwards_to_gateway(monkeypatch):
 
 
 @respx.mock
+def test_financials_proxy_forwards_to_gateway(monkeypatch):
+    # the revenue chart's history fetch → studio /financials → gateway /financials/income-statements
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/financials/income-statements").mock(
+        return_value=httpx.Response(200, json={"income_statements": [{"report_period": "2023-12-31", "revenue": 3.9e11}]}))
+    r = client.get("/financials?ticker=AAPL&market=US&limit=40", headers=_hdr("fin@u.com"))
+    assert r.status_code == 200 and r.json()["income_statements"][0]["revenue"] == 3.9e11
+    sent = route.calls.last.request
+    assert sent.headers["X-API-KEY"] == "vgk_demo"
+    assert "ticker=AAPL" in str(sent.url) and "period=annual" in str(sent.url)  # default period added
+    assert client.get("/financials?market=US", headers=_hdr("fin@u.com")).status_code == 400
+
+
+@respx.mock
 def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()

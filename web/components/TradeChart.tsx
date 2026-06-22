@@ -50,17 +50,19 @@ function overlayPoints(pts: { time: string; value: number }[]) {
 }
 
 export function TradeChart(
-  { a, onEvidence, userAnn, onDraw, bars, currency = "USD" }:
+  { a, onEvidence, userAnn, onDraw, bars, series, currency = "USD" }:
   { a: Artifact; onEvidence?: (c: Citation) => void;
     userAnn?: ChartAnnotations | null; onDraw?: (next: ChartAnnotations | null) => void;
-    bars?: NonNullable<Artifact["candles"]> | null; currency?: "KRW" | "USD" },
+    bars?: NonNullable<Artifact["candles"]> | null;
+    series?: NonNullable<Artifact["series"]> | null; currency?: "KRW" | "USD" },
 ) {
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);   // PH-VIZ-6: for the PNG snapshot export
   // prefer the generous fetched history (bars) over the agent's narrow candles
   const candleData = (bars && bars.length) ? bars : (a.candles ?? []);
+  const lineData = (series && series.length) ? series : (a.series ?? []);  // financials override
   const isCandle = candleData.length > 0;
-  const lineCount = a.series?.length ?? 0;
+  const lineCount = lineData.length;
   const overlays = a.overlays ?? [];
   const [range, setRange] = useState("1Y");
   const [logScale, setLogScale] = useState(false);
@@ -200,7 +202,7 @@ export function TradeChart(
         });
       }
     } else {
-      a.series.forEach((s, i) => {
+      lineData.forEach((s, i) => {
         const pts = s.points
           .map((p) => ({ t: toTime(p.x), y: p.y }))
           .filter((p): p is { t: string; y: number } => p.t != null && p.y != null);
@@ -343,7 +345,7 @@ export function TradeChart(
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
     ro.observe(el);
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
-  }, [a, bars, currency, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
+  }, [a, bars, series, currency, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
 
   const hasDrawings = (userAnn?.lines?.length || 0) + (userAnn?.hlines?.length || 0) > 0;
 
