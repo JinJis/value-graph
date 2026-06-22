@@ -106,7 +106,7 @@ bar; if the task adds a tool / endpoint / feature, add an eval scenario (with `c
 
 ## 6. Environment (Gemini only; never commit secrets — document new keys in `.env.example`)
 ```
-GOOGLE_API_KEY=                      # (or GEMINI_API_KEY) — enables the gemini planner + live tests
+GOOGLE_API_KEY=                      # one key for all Gemini use — enables the gemini planner + live tests
 AGENT_LLM_BACKEND=stub|gemini        # default stub (deterministic, no key)
 AUTH_DEV_LOGIN=true                  # local login without Google
 DATABASE_URL=                        # SQLite by default; Postgres in prod
