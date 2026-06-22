@@ -85,6 +85,32 @@ def test_overview_renders_with_nav_and_health():
     assert "Control plane" in r.text and "Data plane" in r.text
 
 
+def test_overview_scheduler_enabled_state_is_healthy(monkeypatch):
+    # regression: the new scheduler state "enabled" must read as healthy on the Overview
+    # (was showing "unreachable / down" because the allowed-state list still said "idle").
+    import httpx as _httpx
+    _login()
+
+    class _Resp:
+        def __init__(self, data):
+            self._d, self.status_code, self.headers = data, 200, {"content-type": "application/json"}
+
+        def json(self):
+            return self._d
+
+    class _Client:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): ...
+        async def get(self, url, timeout=None):
+            return _Resp({"state": "enabled", "run_count": 2}) if url.endswith("/admin/scheduler") else _Resp({})
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _Client)
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "unreachable / down" not in r.text   # every subsystem (incl. scheduler) reads healthy
+
+
 def test_catalog_page_renders_without_services():
     _login()
     r = client.get("/catalog")

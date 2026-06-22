@@ -164,7 +164,7 @@ async def overview(request: Request, msg: str = ""):
         ("Data plane (datasets)", _ok(stats) or _ok(sched)),
         ("RAG", _ok(raginfo)),
         ("Agent engine", _ok(agentinfo)),
-        ("Scheduler", _ok(sched) and sched.get("state") in ("running", "paused", "idle")),
+        ("Scheduler", _ok(sched) and sched.get("state") in ("running", "enabled", "paused", "idle")),
     ]
     health = "".join(
         f"<div class=card><h3>{sdot('ok' if up else 'err')} {_esc(name)}</h3>"
