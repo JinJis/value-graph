@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 334 unit** — datasets 137 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 115 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 336 unit** — datasets 138 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 116 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -459,8 +459,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   **backtests the current allocation** via the gateway `/backtest` (equity curve + metrics). Web
   `PortfolioPanel` (new **포트폴리오** rail view): manage holdings, live value/weight/gain table, backtest
   curve. Descriptive only; all data gateway-entitled. +1 studio test (CRUD + analytics + scoping). 🔵→✅
-- ⬜ **CE-9 · 거시 확장.** Broaden FRED/DBnomics indicator catalog + component grouping (하위요인) + cycle
-  composites (사이클) + indicator browse (열람) + country panels (국가경제). 🟡
+- ✅ **CE-9 · 거시 확장.** Broadened the DBnomics indicator catalog (+ industrial production, labor
+  participation, 3M rate) and tagged every indicator with a **group/하위요인** (물가/고용/성장/금리) + region;
+  `economic_indicators` now browses by `region`/`group` (열람). New **`fred__macro_panel`** (`GET
+  /macro/panel?region=`): a 국가경제 snapshot — latest value + prior + change per indicator (concurrent,
+  best-effort; failed series dropped, never faked), grouped. agent-engine renders a sourced panel table.
+  +2 tests (datasets 1, agent 1), +1 eval. *(no new upstream; cycle/regime composites deferred — they
+  verge on interpretation, kept to descriptive change.)*
 - ⬜ **CE-10 · 실시간 내러티브.** LLM narrative over the existing news ingestion. 🔵
 
 **Wave 2 — new upstreams** *(build start ON HOLD per user; CE-11 upstream + estimates policy CONFIRMED — DATA_EXPANSION §E)*:

@@ -120,6 +120,23 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__macro_panel") and isinstance(data.get("indicators"), list):
+        # CE-9: 국가경제 패널 → a sourced table (지표·최신값·변화·그룹).
+        def _v(v, unit):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v:,.2f}{'%' if unit == '%' else ''}"
+
+        rows = [["그룹", "지표", "최신값", "변화", "기준"]]
+        for ind in data["indicators"]:
+            ch = ind.get("change")
+            ch_s = f"{ch:+,.2f}" if isinstance(ch, (int, float)) else "—"
+            rows.append([ind.get("group") or "", ind.get("name", ""), _v(ind.get("latest"), ind.get("unit")),
+                         ch_s, ind.get("as_of") or ""])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('region', '')} 거시경제 패널".strip(),
+                                table=rows, source=data.get("source") or "DBnomics", tool=name))
+
     if name.endswith("__backtest") and isinstance(data.get("curve"), list) and data["curve"]:
         # CE-7: portfolio equity curve → a timeseries (portfolio + benchmark, rebased to initial).
         series = [ArtifactSeries(label="포트폴리오", points=[

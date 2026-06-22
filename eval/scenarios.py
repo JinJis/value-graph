@@ -210,6 +210,16 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-9: macro country panel — latest key indicators + change, sourced to DBnomics.
+        "name": "Macro country panel (거시 패널)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 거시경제 핵심 지표(물가·고용·성장·금리)의 최신 수준과 변화를 정리해줘.",
+        "criteria": ("물가/고용/성장/금리 지표의 최신값과 직전 대비 변화를 DBnomics 출처로 사실만 제시; "
+                     "전망/투자의견 없이 현황만."),
+        "checks": {"expect_connector": "fred__macro_panel", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # CE-7: portfolio backtest — descriptive past performance over ingested prices.
         "name": "Portfolio backtest (백테스트)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},

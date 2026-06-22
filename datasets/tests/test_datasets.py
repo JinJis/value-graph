@@ -909,6 +909,28 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce9_macro_catalog_grouping_and_panel(monkeypatch):
+    # CE-9: catalog browses by group/region; the panel snapshots a region's latest + change.
+    import asyncio
+
+    import app.providers.macro_indicators as MI
+
+    cat = MI.list_indicators()
+    assert all("group" in c for c in cat) and {"물가", "고용", "성장", "금리"} <= {c["group"] for c in cat}
+    assert {c["slug"] for c in MI.list_indicators(group="물가")} >= {"cpi", "core_cpi"}
+    assert all(c["region"] == "US" for c in MI.list_indicators(region="US"))
+    assert "US" in MI.list_regions()
+
+    async def fake_fetch(slug, limit=2):
+        return {"name": f"N-{slug}", "unit": "%", "source_url": "u",
+                "observations": [{"date": "2025-08", "value": 3.0}, {"date": "2025-09", "value": 3.2}]}
+    monkeypatch.setattr(MI, "fetch_indicator", fake_fetch)
+    panel = asyncio.run(MI.region_panel("US"))
+    assert panel["region"] == "US" and panel["indicators"]
+    one = panel["indicators"][0]
+    assert one["latest"] == 3.2 and abs(one["change"] - 0.2) < 1e-9 and one["as_of"] == "2025-09"
+
+
 def test_ce7_backtest_over_store():
     # CE-7: buy-and-hold backtest over ingested PriceBar — descriptive past performance.
     from datetime import date as _date

@@ -1603,6 +1603,18 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_macro_panel_table():
+    # CE-9: 국가경제 패널 → a sourced table (지표·최신·변화·그룹).
+    tool = {"name": "fred__macro_panel", "source": "DBnomics"}
+    result = {"data": {"region": "US", "source": "DBnomics", "indicators": [
+        {"slug": "cpi", "name": "US CPI", "unit": "index", "group": "물가", "latest": 314.5, "change": 0.8, "as_of": "2025-09"},
+        {"slug": "unemployment", "name": "US Unemployment", "unit": "%", "group": "고용", "latest": 4.1, "change": -0.1, "as_of": "2025-09"}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "거시경제 패널" in a.title
+    assert a.table[0] == ["그룹", "지표", "최신값", "변화", "기준"]
+    assert a.table[2][2] == "4.10%" and a.table[2][3] == "-0.10"
+
+
 def test_artifacts_backtest_equity_curve():
     # CE-7: backtest → an equity-curve timeseries (portfolio + benchmark).
     tool = {"name": "datasets_store__backtest", "source": "ingestion store"}
