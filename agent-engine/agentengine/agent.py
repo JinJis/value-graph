@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from agentengine import guardrails
 from agentengine.artifacts import _artifacts
@@ -86,6 +86,13 @@ class TaskIntake:
     reason: str | None = None    # one-line why (shown for telemetry)
     needs_data: bool = True      # does answering require our tools/data? False = conceptual →
     #                              answer richly from expertise, skip the tool loop.
+    # CLARIFY (Claude-Code-style plan/ask): when the request is broad/ambiguous, offer the user
+    # 2-4 concrete choices to scope the work instead of guessing. The chat surfaces these as
+    # clickable chips; picking composes a refined follow-up. Only set when it genuinely helps.
+    clarify: bool = False
+    clarify_prompt: str | None = None
+    options: list = field(default_factory=list)   # [{"label": str, "description": str|None}]
+    multi: bool = False          # may several options be combined (pick-multiple) ?
 
 
 _INTAKE_PROMPT = (
@@ -107,17 +114,27 @@ _INTAKE_PROMPT = (
     "(prices, filings, financial statements, macro indicators, holdings, news, a specific company's "
     "figures). Set needs_data=false for purely CONCEPTUAL/definitional/how-to questions answerable from "
     "general knowledge (e.g. 'PER이 뭐야?', 'how does an ETF work?', 'explain DCF') — those are answered "
-    "richly from expertise without a tool call.\n\n"
+    "richly from expertise without a tool call.\n"
+    "CLARIFY — if the request is broad/ambiguous enough that offering the user 2-4 concrete choices "
+    "would meaningfully improve the result (e.g. '엔비디아 분석해줘' could mean price / financials / "
+    "filings / news / peers), set clarify=true with a short clarify_prompt (the question to show) and "
+    "options (2-4 concrete, actionable choices in the user's language, each {{\"label\", \"description\"}}); "
+    "set multi=true if several can sensibly be combined. Do NOT clarify when the request is already "
+    "specific, conceptual, or restricted — only when a genuine choice would help.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
     '"score": <number 0..1 — confidence it is a restricted REQUEST>, '
-    '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"needs_data": <bool — true if sourced data lookup is required, false if conceptual>, '
+    '"clarify": <bool — true only if offering choices genuinely helps>, '
+    '"clarify_prompt": "<the short question to show the user, SAME LANGUAGE; empty if clarify=false>", '
+    '"multi": <bool — may several options be combined>, '
+    '"options": [{{"label": "<short choice>", "description": "<one line>"}}],  '
+    '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
     '"plan": "<one short sentence, SAME LANGUAGE as the question, of what data you will look up and '
-    'from which kind of source — NOT the answer, no numbers; empty string if restricted or conceptual>"}}\n\n'
+    'from which kind of source — NOT the answer, no numbers; empty if restricted/conceptual/clarify>"}}\n\n'
     "Question: {task}"
 )
 
@@ -129,6 +146,11 @@ _INTAKE_SCHEMA = {
         "score": {"type": "number"},
         "reason": {"type": "string"},
         "needs_data": {"type": "boolean"},
+        "clarify": {"type": "boolean"},
+        "clarify_prompt": {"type": "string"},
+        "multi": {"type": "boolean"},
+        "options": {"type": "array", "items": {"type": "object", "properties": {
+            "label": {"type": "string"}, "description": {"type": "string"}}, "required": ["label"]}},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -170,12 +192,23 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
         # default to needs_data=True when the model omits it (gathering data is the safe default).
         needs_data = d.get("needs_data")
         needs_data = True if needs_data is None else bool(needs_data)
+        # clarify only when not restricted AND there are ≥2 concrete options to offer.
+        opts = []
+        for o in (d.get("options") or []):
+            if isinstance(o, dict) and o.get("label"):
+                opts.append({"label": str(o["label"])[:80],
+                             "description": (str(o.get("description") or "").strip()[:160] or None)})
+        clarify = bool(d.get("clarify")) and not restricted and len(opts) >= 2
         return TaskIntake(
             steps=(max(floor, min(n, cap)) if n else default),
-            plan=(None if restricted else (str(d.get("plan") or "").strip() or None)),
+            plan=(None if (restricted or clarify) else (str(d.get("plan") or "").strip() or None)),
             restricted=restricted, score=score,
             reason=(str(d.get("reason") or "").strip() or None),
             needs_data=needs_data,
+            clarify=clarify,
+            clarify_prompt=(str(d.get("clarify_prompt") or "").strip() or None) if clarify else None,
+            options=(opts if clarify else []),
+            multi=bool(d.get("multi")),
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)

@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 288 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 94 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 290 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 96 · studio-api 37 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (31 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -628,10 +628,17 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     **conceptual/definitional questions** (`needs_data=false`) straight to a rich explanation, skipping the
     tool loop (no more doomed tool calls for "PER이 뭐야?"). +2 agent tests, +2 eval scenarios (conceptual,
     rich-mix). *(agent-engine: planner `_SYNTHESIS_PROMPT`, `analyze_task.needs_data`, chat/run_agent paths.)*
-  - ⬜ **Next: deeper orchestration** — clarify-with-options (offer the user planning choices before
-    executing); parallel multi-source gather; full A2A orchestrator + sub-agent cards. *(builds on
-    docs/IDEA.md A2A; the "Claude Code for finance" direction — analyze → propose/pick → execute many →
-    combine.)*
+  - ✅ **Clarify-with-options (Claude-Code-style plan/ask).** When the intake judges a request broad/
+    ambiguous, it returns `clarify` + 2-4 concrete `options` (`{label, description}`, `multi` if
+    combinable) instead of guessing. `chat.stream_chat` emits a `clarify` SSE event and stops; the web
+    renders the choices as **pickable chips** (single → runs immediately, multi → toggle + "선택한
+    내용으로 진행 →"), and a pick composes a refined follow-up question (`{원래 질문} — {고른 항목들}`)
+    that flows through the normal turn. Only fires when ≥2 options and not restricted; the LLM is told not
+    to clarify already-specific/conceptual requests; `run_agent` (non-interactive/eval) ignores it. +2
+    agent tests (94→96). *(agent-engine intake + chat; web `ClarifyChips`.)*
+  - ⬜ **Next: deeper orchestration** — parallel multi-source gather; full A2A orchestrator + sub-agent
+    cards. *(builds on docs/IDEA.md A2A; the "Claude Code for finance" direction — analyze → propose/pick →
+    execute many → combine.)*
 - ✅ **PH-ADMIN · Operations console overhaul** — admin rebuilt as a left-nav mission-control organized by
   operator job-to-be-done (replaces the top-down single page; drops sqladmin → fixes the raw-HTML tables).
   One shared design system (tokens · tables · forms · badges · progress · status dots · nav). admin 12→16.

@@ -14,7 +14,11 @@ import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
 type Think = { phase: string; text: string };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[] };
+type ClarifyOption = { label: string; description?: string | null };
+// CLARIFY-WITH-OPTIONS: the agent offers choices to scope a broad request; `origin` is the
+// user's question the picks refine into a follow-up.
+type Clarify = { prompt: string; options: ClarifyOption[]; multi: boolean; origin: string };
+type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify };
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {
@@ -43,6 +47,38 @@ function ThinkingLive({ steps }: { steps: Think[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// CLARIFY-WITH-OPTIONS: render the agent's choices as chips. Single-pick → click runs it;
+// multi-pick → toggle several then confirm. Picks compose a refined follow-up question.
+function ClarifyChips(
+  { clarify, disabled, onSubmit }:
+  { clarify: Clarify; disabled?: boolean; onSubmit: (labels: string[]) => void },
+) {
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const toggle = (i: number) =>
+    setSel((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  return (
+    <div className="clarify">
+      <div className="clarify-opts">
+        {clarify.options.map((o, i) => (
+          <button key={i} type="button" disabled={disabled}
+            className={`clarify-chip ${clarify.multi && sel.has(i) ? "on" : ""}`}
+            title={o.description || undefined}
+            onClick={() => (clarify.multi ? toggle(i) : onSubmit([o.label]))}>
+            <span className="clarify-label">{o.label}</span>
+            {o.description ? <span className="clarify-desc">{o.description}</span> : null}
+          </button>
+        ))}
+      </div>
+      {clarify.multi && (
+        <Button size="sm" disabled={disabled || sel.size === 0}
+          onClick={() => onSubmit([...sel].sort((a, b) => a - b).map((i) => clarify.options[i].label))}>
+          선택한 내용으로 진행 →
+        </Button>
+      )}
     </div>
   );
 }
@@ -181,6 +217,11 @@ export default function Chat({ name }: { name: string }) {
             if (ev.type === "token") a.content += ev.text || "";
             else if (ev.type === "thinking") a.thinking = [...(a.thinking || []), { phase: ev.phase, text: ev.text }];
             else if (ev.type === "tool") a.tools = [...(a.tools || []), { name: ev.name, label: ev.label }];
+            else if (ev.type === "clarify") {
+              // origin = the user question these choices refine into a follow-up
+              const origin = [...next].reverse().find((m) => m.role === "user")?.content || "";
+              a.clarify = { prompt: ev.prompt, options: ev.options || [], multi: !!ev.multi, origin };
+            }
             else if (ev.type === "artifact" && ev.artifact) {
               const dup = (a.artifacts || []).some((x) => x.title === ev.artifact.title);
               if (!dup) a.artifacts = [...(a.artifacts || []), ev.artifact as Artifact];
@@ -358,6 +399,10 @@ export default function Chat({ name }: { name: string }) {
                           : m.content)
                       : (m.role === "assistant" && busy && !(m.thinking?.length) ? "…" : "")}
                   </div>
+                  {m.role === "assistant" && m.clarify && (
+                    <ClarifyChips clarify={m.clarify} disabled={busy}
+                      onSubmit={(labels) => send(`${m.clarify!.origin} — ${labels.join(", ")}`)} />
+                  )}
                   {m.role === "assistant" && m.refused && (
                     <GuardrailLabel>매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</GuardrailLabel>
                   )}

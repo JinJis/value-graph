@@ -64,6 +64,18 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             yield {"type": "token", "text": ch}
         yield {"type": "done", "citations": [], "artifacts": [], "refused": True}
         return
+
+    # CLARIFY-WITH-OPTIONS (Claude-Code-style plan/ask): a broad/ambiguous request → offer the
+    # user concrete choices to scope the work instead of guessing. We stop here; the web renders
+    # the options as chips, and the user's pick composes a refined follow-up turn.
+    if intake.clarify and intake.options:
+        prompt = intake.clarify_prompt or "무엇을 도와드릴까요? 아래에서 골라 주세요."
+        for ch in _chunks(prompt):
+            yield {"type": "token", "text": ch}
+        yield {"type": "clarify", "prompt": prompt, "options": intake.options, "multi": intake.multi}
+        yield {"type": "done", "citations": [], "artifacts": [], "refused": False, "clarify": True}
+        return
+
     max_steps = spec.max_steps if (spec and spec.max_steps) else intake.steps
     plan = intake.plan
     if plan:

@@ -393,6 +393,52 @@ async def test_chat_stream_conceptual_skips_tools(monkeypatch):
     assert done["type"] == "done" and done["refused"] is False and done["citations"] == []
 
 
+async def test_intake_parses_clarify_options(monkeypatch):
+    # CLARIFY: a broad request → clarify=true with ≥2 concrete options (dropped if <2 or restricted).
+    pytest.importorskip("google.genai")
+    from unittest.mock import MagicMock
+    import google.genai
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_client.models.generate_content.return_value = mock_resp
+    monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mock_client)
+
+    mock_resp.text = ('{"restricted": false, "score": 0.0, "needs_data": true, "clarify": true, '
+                      '"clarify_prompt": "무엇을 볼까요?", "multi": true, "steps": 6, '
+                      '"options": [{"label": "주가 흐름", "description": "최근 가격"}, '
+                      '{"label": "최근 뉴스", "description": "헤드라인"}]}')
+    intake = await A.analyze_task("엔비디아 분석해줘", "gemini")
+    assert intake.clarify is True and intake.multi is True and len(intake.options) == 2
+    assert intake.options[0]["label"] == "주가 흐름" and intake.clarify_prompt == "무엇을 볼까요?"
+
+    # only ONE option → not actionable as a choice → clarify suppressed
+    mock_resp.text = ('{"restricted": false, "clarify": true, "steps": 3, '
+                      '"options": [{"label": "주가 흐름"}]}')
+    assert (await A.analyze_task("엔비디아 분석", "gemini")).clarify is False
+
+
+async def test_chat_stream_clarify_offers_options(monkeypatch):
+    # A clarify intake makes the chat OFFER options (clarify event), call no tool, and finish.
+    import agentengine.chat as C
+    from agentengine.agent import TaskIntake
+    from agentengine.chat import stream_chat
+
+    _gw(monkeypatch)
+
+    async def _clarify(_task, _backend=None):
+        return TaskIntake(steps=6, restricted=False, clarify=True, multi=True,
+                          clarify_prompt="무엇을 볼까요?",
+                          options=[{"label": "주가 흐름"}, {"label": "최근 뉴스"}])
+
+    monkeypatch.setattr(C, "analyze_task", _clarify)
+    events = [e async for e in stream_chat([{"role": "user", "content": "엔비디아 분석해줘"}], "vgk_x")]
+    assert all(e["type"] != "tool" for e in events)          # nothing executed yet
+    clarify = next(e for e in events if e["type"] == "clarify")
+    assert clarify["multi"] is True and [o["label"] for o in clarify["options"]] == ["주가 흐름", "최근 뉴스"]
+    assert events[-1]["type"] == "done" and events[-1].get("clarify") is True
+
+
 def test_citations_use_per_hit_rag_provenance():
     # RAG answers must cite each passage's REAL source/url, not the connector's
     # generic label (the eval caught the agent citing "Platform RAG" instead).
