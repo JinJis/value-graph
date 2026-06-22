@@ -49,13 +49,16 @@ function overlayPoints(pts: { time: string; value: number }[]) {
 }
 
 export function TradeChart(
-  { a, onEvidence, userAnn, onDraw }:
+  { a, onEvidence, userAnn, onDraw, bars }:
   { a: Artifact; onEvidence?: (c: Citation) => void;
-    userAnn?: ChartAnnotations | null; onDraw?: (next: ChartAnnotations | null) => void },
+    userAnn?: ChartAnnotations | null; onDraw?: (next: ChartAnnotations | null) => void;
+    bars?: NonNullable<Artifact["candles"]> | null },
 ) {
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);   // PH-VIZ-6: for the PNG snapshot export
-  const isCandle = (a.candles?.length ?? 0) > 0;
+  // prefer the generous fetched history (bars) over the agent's narrow candles
+  const candleData = (bars && bars.length) ? bars : (a.candles ?? []);
+  const isCandle = candleData.length > 0;
   const lineCount = a.series?.length ?? 0;
   const overlays = a.overlays ?? [];
   const [range, setRange] = useState("1Y");
@@ -87,7 +90,7 @@ export function TradeChart(
     let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null = null;
 
     if (isCandle) {
-      const rows = (a.candles ?? [])
+      const rows = candleData
         .map((c) => ({ t: toTime(c.time), c }))
         .filter((r): r is { t: string; c: NonNullable<Artifact["candles"]>[number] } =>
           r.t != null && r.c.open != null && r.c.high != null && r.c.low != null && r.c.close != null);
@@ -110,9 +113,20 @@ export function TradeChart(
       }
       lastTime = rows.length ? rows[rows.length - 1].t : null;
 
-      // PH-VIZ-2: descriptive price lines + sourced event markers (snapped to the nearest bar);
-      // clicking a marker opens its source in the evidence viewer — the chart IS evidence.
-      (a.pricelines ?? []).forEach((pl) =>
+      // PH-VIZ-2: descriptive price lines. When we loaded full history (bars), recompute the
+      // 52-week high/low from the last ~252 bars so the lines match the data shown; otherwise
+      // use the server's (narrow-window) lines.
+      let priceLines = a.pricelines ?? [];
+      if (bars && bars.length) {
+        const last = rows.slice(-252);
+        const hs = last.map((r) => r.c.high!).filter((v) => v != null);
+        const ls = last.map((r) => r.c.low!).filter((v) => v != null);
+        priceLines = hs.length && ls.length
+          ? [{ price: Math.max(...hs), label: "52주 고가", color: "#1FA463" },
+             { price: Math.min(...ls), label: "52주 저가", color: "#D1483A" }]
+          : [];
+      }
+      priceLines.forEach((pl) =>
         candle.createPriceLine({
           price: pl.price, color: pl.color ?? "#86868C", lineStyle: LineStyle.Dashed,
           lineWidth: 1, axisLabelVisible: true, title: pl.label,
@@ -323,7 +337,7 @@ export function TradeChart(
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
     ro.observe(el);
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
-  }, [a, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
+  }, [a, bars, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
 
   const hasDrawings = (userAnn?.lines?.length || 0) + (userAnn?.hlines?.length || 0) > 0;
 

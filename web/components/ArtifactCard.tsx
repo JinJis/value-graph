@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
 import type { Citation } from "./SourceCard";
@@ -53,6 +53,7 @@ export type Artifact = {
   ticker?: string | null;
   has_gap?: boolean;
   tool?: string | null;
+  args?: ({ market?: string } & Record<string, unknown>) | null;  // tool args (for re-fetch / market)
 };
 
 const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // table-view legend swatches
@@ -121,6 +122,30 @@ export function ArtifactCard(
   // PH-VIZ-5: the user's drawings — seeded from the spec so a pinned chart keeps them.
   const [userAnn, setUserAnn] = useState<ChartAnnotations | null>(a.user_annotations ?? null);
   const draw = (next: ChartAnnotations | null) => { setUserAnn(next); onAnnotate?.(next); };
+  // Load a GENEROUS price history independently of the agent's narrow fetch, so range buttons
+  // + scrolling show real data and the table is full OHLCV (not just the close window).
+  const [bars, setBars] = useState<ArtifactCandle[] | null>(null);
+  const ticker = a.ticker || "";
+  useEffect(() => {
+    if (!ticker || (a.candles?.length ?? 0) === 0) return;  // only for price (candlestick) charts
+    const market = (a.args?.market as string) || (/^\d/.test(ticker) ? "KR" : "US");
+    const end = new Date().toISOString().slice(0, 10);
+    const start = `${new Date().getUTCFullYear() - 8}-01-01`;  // ~8y back covers 1Y/5Y + scrolling
+    let cancel = false;
+    (async () => {
+      try {
+        const q = `ticker=${encodeURIComponent(ticker)}&market=${market}&interval=day&start_date=${start}&end_date=${end}`;
+        const r = await fetch(`/api/prices?${q}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const rows: ArtifactCandle[] = (d.prices || [])
+          .filter((p: any) => p?.time)
+          .map((p: any) => ({ time: String(p.time).slice(0, 10), open: p.open, high: p.high, low: p.low, close: p.close, volume: p.volume }));
+        if (!cancel && rows.length) setBars(rows);
+      } catch { /* keep the agent's candles on failure */ }
+    })();
+    return () => { cancel = true; };
+  }, [ticker, a.args]);
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
@@ -158,22 +183,41 @@ export function ArtifactCard(
       </div>
 
       {table ? (
-        <table className="artifact-table">
-          <thead><tr><th>기간</th>{a.series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead>
-          <tbody>
-            {xs.map((x) => (
-              <tr key={x}>
-                <td className="mono">{x}</td>
-                {a.series.map((s) => {
-                  const pt = s.points.find((p) => p.x === x);
-                  return <td key={s.label} className="mono">{fmt(pt?.y, s.unit)}</td>;
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        hasCandles ? (
+          // OHLCV table (the chart is candlestick) — newest first, full history from /api/prices
+          <table className="artifact-table">
+            <thead><tr><th>날짜</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>거래량</th></tr></thead>
+            <tbody>
+              {[...(bars ?? a.candles ?? [])].reverse().slice(0, 260).map((c) => (
+                <tr key={c.time}>
+                  <td className="mono">{c.time}</td>
+                  <td className="mono">{fmt(c.open)}</td>
+                  <td className="mono">{fmt(c.high)}</td>
+                  <td className="mono">{fmt(c.low)}</td>
+                  <td className="mono">{fmt(c.close)}</td>
+                  <td className="mono">{fmt(c.volume)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <table className="artifact-table">
+            <thead><tr><th>기간</th>{a.series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead>
+            <tbody>
+              {xs.map((x) => (
+                <tr key={x}>
+                  <td className="mono">{x}</td>
+                  {a.series.map((s) => {
+                    const pt = s.points.find((p) => p.x === x);
+                    return <td key={s.label} className="mono">{fmt(pt?.y, s.unit)}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
       ) : (
-        <TradeChart a={a} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
+        <TradeChart a={a} bars={bars} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
       )}
 
       <div className="artifact-foot">

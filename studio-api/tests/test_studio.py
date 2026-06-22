@@ -316,6 +316,23 @@ def test_board_annotate_saves_and_survives_refresh(monkeypatch):
 
 
 @respx.mock
+def test_prices_proxy_forwards_to_gateway(monkeypatch):
+    # the chart's history fetch → studio /prices → gateway /prices (tenant key, entitled)
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    route = respx.get("http://cp.test/prices").mock(
+        return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"time": "2024-01-02", "close": 185.6}]}))
+    r = client.get("/prices?ticker=AAPL&market=US&interval=day&start_date=2018-01-01&end_date=2024-01-01",
+                   headers=_hdr("px@u.com"))
+    assert r.status_code == 200 and r.json()["prices"][0]["close"] == 185.6
+    sent = route.calls.last.request
+    assert sent.headers["X-API-KEY"] == "vgk_demo"
+    assert "ticker=AAPL" in str(sent.url) and "start_date=2018-01-01" in str(sent.url)
+    # ticker is required
+    assert client.get("/prices?market=US", headers=_hdr("px@u.com")).status_code == 400
+
+
+@respx.mock
 def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
