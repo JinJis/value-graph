@@ -155,20 +155,40 @@ async def analyze_task(task: str, backend: str | None = None) -> tuple[int, str 
 
 _REFINE_PROMPT = (
     "You are a meticulous research reviewer. Given the user's question and the evidence the "
-    "agent gathered (each item: source + snippet/figures), write a SHORT synthesis brief "
-    "(2-4 lines, SAME LANGUAGE as the question) that: (1) names which sources actually answer "
-    "the question and the key figures to use; (2) flags any conflicts or gaps; (3) gives a "
-    "one-line outline for the final answer. Do NOT write the answer itself, do NOT add numbers "
-    "that aren't in the evidence, do NOT forecast.\n\nQuestion: {task}\n\nEvidence:\n{ev}"
+    "agent gathered (each item: [index] source + snippet/figures), return JSON with:\n"
+    "- \"brief\": a SHORT synthesis brief (2-4 lines, SAME LANGUAGE as the question) that names "
+    "which sources actually answer the question + the key figures to use, flags conflicts/gaps, "
+    "and gives a one-line outline for the final answer. Do NOT write the answer, add numbers not "
+    "in the evidence, or forecast.\n"
+    "- \"sources\": for EACH evidence item, its [index] and a confidence of how well it supports "
+    "answering THIS question — \"high\" (direct, specific, on-topic), \"medium\" (partial/indirect), "
+    "\"low\" (tangential/weak) — plus a one-line \"why\" in the question's language. This is a "
+    "descriptive judgment of evidentiary support, NOT a market prediction.\n\n"
+    "Question: {task}\n\nEvidence:\n{ev}"
 )
 
+_REFINE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "brief": {"type": "string"},
+        "sources": {"type": "array", "items": {"type": "object", "properties": {
+            "index": {"type": "integer"},
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+            "why": {"type": "string"},
+        }, "required": ["index", "confidence"]}},
+    },
+    "required": ["brief"],
+}
 
-async def refine_evidence(task: str, citations: list[dict], model: str, backend: str | None = None) -> str | None:
-    """PH-THINK (verify/refine): a reviewer pass over the gathered evidence → a short brief
-    that grounds the final synthesis (names the sources/figures to use, flags conflicts).
-    Gemini-only, best-effort; None when stub / no evidence / on error."""
+
+async def refine_evidence(task: str, citations: list[dict], model: str,
+                          backend: str | None = None) -> tuple[str | None, dict[int, dict]]:
+    """PH-THINK (verify/refine): ONE reviewer pass over the gathered evidence that both
+    (a) writes a short synthesis brief grounding the final answer, and (b) scores each
+    source's confidence (how well it supports the question). Returns (brief, {index: {
+    confidence, why}}). Gemini-only, best-effort; ('', {}) when stub / no evidence / error."""
     if (backend or settings.llm_backend) != "gemini" or not citations:
-        return None
+        return None, {}
     lines = []
     for c in citations[:12]:
         bit = c.get("snippet") or ""
@@ -185,11 +205,24 @@ async def refine_evidence(task: str, citations: list[dict], model: str, backend:
         resp = await asyncio.to_thread(
             client.models.generate_content, model=model,
             contents=_REFINE_PROMPT.format(task=(task or "")[:400], ev=ev[:4000]),
-            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=300))
-        return (getattr(resp, "text", "") or "").strip() or None
+            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=600,
+                                               response_mime_type="application/json",
+                                               response_schema=_REFINE_SCHEMA))
+        d = json.loads(getattr(resp, "text", "") or "{}")
+        brief = (str(d.get("brief") or "")).strip() or None
+        scores: dict[int, dict] = {}
+        for s in (d.get("sources") or []):
+            try:
+                idx = int(s.get("index"))
+            except (TypeError, ValueError):
+                continue
+            conf = str(s.get("confidence") or "").lower()
+            if conf in ("high", "medium", "low"):
+                scores[idx] = {"confidence": conf, "why": (str(s.get("why") or "").strip() or None)}
+        return brief, scores
     except Exception as exc:  # noqa: BLE001 — never block the answer on the review pass
         logger.warning("evidence refine failed (%s); skipping", exc)
-        return None
+        return None, {}
 
 
 def call_sig(decision) -> str | None:

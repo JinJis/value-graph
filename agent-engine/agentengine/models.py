@@ -79,6 +79,11 @@ class Citation(BaseModel):
     # backs an artifact). The Live Context shows only evidence; consulted-but-unused
     # sources stay in the answer's 도구·출처 list.
     used: bool = False
+    # PH-THINK (verify pass): how well this source supports answering the question, scored
+    # by the reviewer in one pass (high|medium|low) + a one-line rationale. Descriptive —
+    # never a forecast. None when the verify pass didn't run (stub / no key).
+    confidence: str | None = None
+    confidence_why: str | None = None
 
 
 class ArtifactPoint(BaseModel):

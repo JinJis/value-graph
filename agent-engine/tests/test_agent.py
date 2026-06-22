@@ -1302,7 +1302,42 @@ async def test_chat_stream_emits_thinking_progress(monkeypatch):
 
 
 async def test_refine_evidence_noop_without_gemini_or_evidence():
-    # PH-THINK verify pass: stub backend / no evidence → no review note (never blocks).
+    # PH-THINK verify pass: stub backend / no evidence → (no brief, no scores) (never blocks).
     from agentengine.agent import refine_evidence
-    assert await refine_evidence("q", [{"index": 1, "source": "SEC", "snippet": "x"}], "m", "stub") is None
-    assert await refine_evidence("q", [], "m", "gemini") is None
+    assert await refine_evidence("q", [{"index": 1, "source": "SEC", "snippet": "x"}], "m", "stub") == (None, {})
+    assert await refine_evidence("q", [], "m", "gemini") == (None, {})
+
+
+async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):
+    # PH-THINK: one verify pass returns BOTH a grounding brief and per-source confidence.
+    import agentengine.agent as AG
+
+    class _Resp:
+        text = ('{"brief": "출처 [1]이 핵심 수치를 담고 있음.", '
+                '"sources": [{"index": 1, "confidence": "high", "why": "직접 공시"}, '
+                '{"index": 2, "confidence": "bogus"}]}')
+
+    class _Models:
+        def generate_content(self, **_kw):
+            return _Resp()
+
+    class _Client:
+        models = _Models()
+
+    import sys
+    import types as _t
+    genai_mod = _t.ModuleType("google.genai")
+    genai_mod.Client = lambda *a, **k: _Client()
+    types_mod = _t.ModuleType("google.genai.types")
+    types_mod.GenerateContentConfig = lambda **k: None
+    google_mod = sys.modules.get("google") or _t.ModuleType("google")
+    monkeypatch.setitem(sys.modules, "google", google_mod)
+    monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
+    monkeypatch.setitem(sys.modules, "google.genai.types", types_mod)
+
+    cites = [{"index": 1, "source": "SEC", "snippet": "revenue 100"},
+             {"index": 2, "source": "news", "snippet": "x"}]
+    brief, scores = await AG.refine_evidence("매출?", cites, "gemini-x", "gemini")
+    assert "핵심" in brief
+    assert scores[1] == {"confidence": "high", "why": "직접 공시"}
+    assert 2 not in scores   # an invalid confidence value is dropped, never guessed

@@ -95,14 +95,20 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     last_sig = None
 
     async def _maybe_refine():
-        # PH-THINK verify pass: review the gathered evidence and ground the synthesis.
+        # PH-THINK verify pass: ONE review that grounds the synthesis AND scores each
+        # source's confidence (shown on the source card) — the trust brand, not fine print.
         nonlocal refined, system
         if refined or not citations:
             return None
         refined = True
-        note = await refine_evidence(task, citations, settings.model, bk)
+        note, scores = await refine_evidence(task, citations, settings.model, bk)
         if note:
             system = ((system or "") + f"\n\n[검증 메모] {note}").strip()
+        for c in citations:
+            sc = scores.get(c.get("index"))
+            if sc:
+                c["confidence"] = sc["confidence"]
+                c["confidence_why"] = sc.get("why")
         return note
 
     async def _finalize(force: bool):

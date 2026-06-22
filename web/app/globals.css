@@ -149,6 +149,11 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .sp-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line-3); font-size: 9px; color: var(--muted); }
 .sp-foot .sp-open { margin-left: auto; color: var(--accent-fg); text-decoration: none; }
 .sp-foot .sp-open:hover { text-decoration: underline; }
+/* PH-THINK: per-source confidence chip (evidentiary support, not a forecast) */
+.sp-conf { font-size: 8px; padding: 1px 6px; border-radius: 999px; border: 1px solid transparent; cursor: help; }
+.sp-conf.high { color: #1FA463; border-color: rgba(31,164,99,0.4); background: rgba(31,164,99,0.08); }
+.sp-conf.med { color: #D9A300; border-color: rgba(217,163,0,0.4); background: rgba(217,163,0,0.08); }
+.sp-conf.low { color: #86868C; border-color: var(--line-2); background: rgba(150,150,160,0.08); }
 .sp-empty { border: 1px dashed var(--line-2); border-radius: 9px; padding: 9px; color: var(--faint); font-size: 9.5px; text-align: center; line-height: 1.4; }
 
 /* assistant markdown rendering */
