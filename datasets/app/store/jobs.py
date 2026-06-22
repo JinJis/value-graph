@@ -43,11 +43,16 @@ def start_job(kind: str, market: str | None, spec: str | None, total: int = 0) -
 
 
 def update_progress(job_id: int, done: int) -> None:
-    with SessionLocal() as db:
-        job = db.get(IngestionJob, job_id)
-        if job is not None:
-            job.done = done
-            db.commit()
+    # Best-effort: a live progress tick must never abort the whole ingest run on a transient
+    # write lock (WAL + busy_timeout make these rare). The next tick / finish_job will catch up.
+    try:
+        with SessionLocal() as db:
+            job = db.get(IngestionJob, job_id)
+            if job is not None:
+                job.done = done
+                db.commit()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def finish_job(job_id: int, status: str, rows: int = 0, error: str | None = None) -> None:
