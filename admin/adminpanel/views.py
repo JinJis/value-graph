@@ -73,11 +73,33 @@ def page(active: str, title: str, body: str, refresh: bool = False) -> str:
         f"<span class=i>{ic}</span>{_esc(label)}</a>"
         for href, label, ic in NAV
     )
-    meta = "<meta http-equiv=refresh content=5>" if refresh else ""
+    # Refresh control (replaces the old forced <meta refresh>): a manual ↻ button + an auto
+    # interval the operator chooses (Off/5s/10s/1m), persisted in the ?auto= query param so it
+    # survives reloads. `refresh` (a page hint that work is live) only sets the DEFAULT interval
+    # the first time, when the URL has no explicit choice yet.
+    ctl = (
+        "<div class=refreshctl>"
+        "<button type=button class=rbtn id=rnow title='새로고침'>↻</button>"
+        "<select class=rsel id=rauto title='자동 새로고침'>"
+        "<option value=0>자동 끔</option><option value=5>5초</option>"
+        "<option value=10>10초</option><option value=60>1분</option>"
+        "</select></div>"
+    )
+    script = (
+        "<script>(function(){"
+        "var u=new URL(location.href);"
+        "var a=parseInt(u.searchParams.get('auto')||'0',10);"  # default OFF (manual)
+        "var s=document.getElementById('rauto');"
+        "if(s){s.value=String([0,5,10,60].indexOf(a)>=0?a:0);"
+        "s.onchange=function(){u.searchParams.set('auto',s.value);location.replace(u.toString());};}"
+        "var b=document.getElementById('rnow');if(b){b.onclick=function(){location.reload();};}"
+        "if(a>0){window.__rt=setTimeout(function(){location.reload();},a*1000);}"
+        "})();</script>"
+    )
     return (
         "<!doctype html><html><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        f"<title>VG Admin · {_esc(title)}</title>{meta}{STYLE}</head><body>"
+        f"<title>VG Admin · {_esc(title)}</title>{STYLE}</head><body>"
         "<div class=app>"
         "<aside class=side>"
         "<div class=brand><span class=dot></span>VALUE·GRAPH</div>"
@@ -86,7 +108,8 @@ def page(active: str, title: str, body: str, refresh: bool = False) -> str:
         "<div class=foot>admin · ops console<br>out-of-band · not in request path</div>"
         "</aside>"
         "<main class=content>"
-        f"<header class=bar><h1>{_esc(title)}</h1><a href=/logout>logout ↩</a></header>"
+        f"<header class=bar><h1>{_esc(title)}</h1><div class=barright>{ctl}<a href=/logout>logout ↩</a></div></header>"
         f"<div class=page>{body}</div>"
-        "</main></div></body></html>"
+        "</main></div>"
+        f"{script}</body></html>"
     )

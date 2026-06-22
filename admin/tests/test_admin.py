@@ -83,6 +83,8 @@ def test_overview_renders_with_nav_and_health():
     for label in ("Catalog", "Pipelines", "Data", "Users", "DB browser"):
         assert label in r.text
     assert "Control plane" in r.text and "Data plane" in r.text
+    # refresh is operator-controlled now: a top-bar control, NOT a forced meta-refresh
+    assert "http-equiv" not in r.text and 'id=rauto' in r.text
 
 
 def test_overview_scheduler_enabled_state_is_healthy(monkeypatch):
