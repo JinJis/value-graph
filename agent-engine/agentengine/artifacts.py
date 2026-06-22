@@ -17,6 +17,9 @@ from agentengine.models import (
     ArtifactPoint,
     ArtifactPriceLine,
     ArtifactSeries,
+    ChartOverlay,
+    OverlayLine,
+    OverlayPoint,
 )
 from agentengine.provenance import _canonical_provenance, _filing_link, _market_hint
 
@@ -96,7 +99,90 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         if a:
             out.append(a)
 
+    if name.endswith("__technical_indicators") and isinstance(data.get("indicators"), list):
+        # PH-VIZ-4: a descriptive indicator artifact. `enrich_chart_overlays` later folds
+        # these onto a same-ticker price chart when one exists this turn; otherwise it
+        # renders standalone (price-pane lines on the price scale, RSI/MACD as sub-panes).
+        overlays = _overlays_from_technical(data)
+        if overlays:
+            tk = data.get("ticker")
+            out.append(Artifact(
+                kind="timeseries", title=f"{tk or ''} 기술적 지표".strip(),
+                overlays=overlays, source=data.get("source"), as_of=data.get("as_of"),
+                freshness=compute_freshness(data.get("as_of")), ticker=tk, tool=name,
+            ))
+
     return out
+
+
+# Descriptive, stable colors per indicator line (server-owned → consistent across turns).
+_OVERLAY_COLORS = {
+    "upper": "#9aa7bd", "lower": "#9aa7bd", "middle": "#4f8cff",
+    "macd": "#4f8cff", "signal": "#D9A300", "histogram": "#86868C",
+}
+_OVERLAY_PALETTE = ["#4f8cff", "#D9A300", "#1FA463", "#A05CF5", "#D1483A"]
+
+
+def _overlay_color(label: str, idx: int) -> str:
+    lab = (label or "").lower()
+    for key, color in _OVERLAY_COLORS.items():
+        if key in lab:
+            return color
+    if lab.startswith("sma"):
+        return "#4f8cff"
+    if lab.startswith("ema"):
+        return "#D9A300"
+    if lab.startswith("rsi"):
+        return "#A05CF5"
+    if lab.startswith("vol"):
+        return "#1FA463"
+    return _OVERLAY_PALETTE[idx % len(_OVERLAY_PALETTE)]
+
+
+def _overlays_from_technical(data: dict) -> list[ChartOverlay]:
+    """Shape PH-DATA-6's `/technical-indicators` result into chart overlays — pure
+    data-shaping (like _artifacts), drops gaps, no fabrication."""
+    out: list[ChartOverlay] = []
+    src = data.get("source")
+    for ind in (data.get("indicators") or []):
+        lines: list[OverlayLine] = []
+        for i, li in enumerate(ind.get("lines") or []):
+            pts = [OverlayPoint(time=str(p["date"])[:10], value=float(p["value"]))
+                   for p in (li.get("points") or [])
+                   if p.get("date") and p.get("value") is not None]
+            if pts:
+                lab = li.get("label") or ind.get("name") or ind.get("key") or "지표"
+                lines.append(OverlayLine(label=lab, color=_overlay_color(lab, i), points=pts))
+        if lines:
+            out.append(ChartOverlay(
+                key=str(ind.get("key") or ind.get("name") or "ind"),
+                name=str(ind.get("name") or ind.get("key") or "지표"),
+                pane=("sub" if ind.get("pane") == "sub" else "price"),
+                unit=ind.get("unit"), lines=lines, source=src,
+            ))
+    return out
+
+
+def enrich_chart_overlays(artifacts: list[Artifact]) -> None:
+    """PH-VIZ-4: fold each standalone technical-indicator artifact onto the same-ticker
+    price (candlestick) chart, so the overlays render ON the price. When no price chart
+    exists this turn, the technical artifact stays and renders on its own. Mutates the
+    list in place (removing the merged standalone artifacts)."""
+    tech = [a for a in artifacts if a.overlays and a.kind != "candlestick"]
+    if not tech:
+        return
+    merged: list[Artifact] = []
+    for p in artifacts:
+        if p.kind != "candlestick" or not p.candles or p.overlays:
+            continue
+        for t in tech:
+            if t in merged:
+                continue
+            if (t.ticker or "").upper() == (p.ticker or "").upper():
+                p.overlays = t.overlays
+                merged.append(t)
+    if merged:
+        artifacts[:] = [a for a in artifacts if a not in merged]
 
 
 def _is_date(s: str) -> bool:

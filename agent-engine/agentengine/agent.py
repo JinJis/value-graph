@@ -311,8 +311,11 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
 
     # PH-VIZ-2: attach descriptive price lines + sourced event markers (dividends/splits/
     # earnings from this turn) to the price chart, so the chart shows the cited events.
-    from agentengine.artifacts import enrich_chart_markers
+    from agentengine.artifacts import enrich_chart_markers, enrich_chart_overlays
     enrich_chart_markers(artifacts, history)
+    # PH-VIZ-4: fold technical-indicator overlays (SMA/EMA/Bollinger + RSI/MACD) onto the
+    # same-ticker price chart so they render on the price; else they stand alone.
+    enrich_chart_overlays(artifacts)
     # PH-VIZ-3: let Gemini annotate the price chart from the question (lines/levels/zones),
     # validated to historical points only (no projection). Gemini-only; best-effort.
     from agentengine.annotations import annotate_charts

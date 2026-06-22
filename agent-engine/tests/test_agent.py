@@ -1198,6 +1198,54 @@ def test_chart_markers_skip_other_ticker():
     assert a.markers == []   # MSFT events never bleed onto the AAPL chart
 
 
+def _tech_result(ticker="AAPL"):
+    # the shape datasets' /technical-indicators returns (PH-DATA-6).
+    return {"data": {"ticker": ticker, "market": "US", "interval": "day",
+                     "source": "Technical indicators (computed from Yahoo Finance)", "as_of": "2024-01-03",
+                     "indicators": [
+                         {"key": "sma_20", "name": "SMA(20)", "pane": "price", "unit": "price",
+                          "lines": [{"label": "SMA(20)", "points": [
+                              {"date": "2024-01-02", "value": 184.1}, {"date": "2024-01-03", "value": 184.6}]}]},
+                         {"key": "rsi_14", "name": "RSI(14)", "pane": "sub", "unit": "ratio_0_100",
+                          "lines": [{"label": "RSI(14)", "points": [
+                              {"date": "2024-01-02", "value": 55.0}, {"date": "2024-01-03", "value": 48.0}]}]},
+                     ]}}
+
+
+def test_artifacts_from_technical_indicators_become_overlay_artifact():
+    # PH-VIZ-4: /technical-indicators → a standalone overlay artifact (price-pane + sub-pane).
+    tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
+    a = A._artifacts(tool, _tech_result())[0]
+    assert a.ticker == "AAPL" and a.tool == "yahoo__technical_indicators" and not a.candles
+    keys = {o.key: o for o in a.overlays}
+    assert keys["sma_20"].pane == "price" and keys["rsi_14"].pane == "sub"
+    assert keys["sma_20"].lines[0].points[0].value == 184.1 and keys["sma_20"].lines[0].color
+    assert a.source.startswith("Technical indicators")
+
+
+def test_enrich_chart_overlays_merges_onto_price_chart():
+    # PH-VIZ-4: the standalone technical artifact folds onto the same-ticker price chart.
+    from agentengine.artifacts import enrich_chart_overlays
+    from agentengine.models import Artifact, ArtifactCandle
+    tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
+    price = Artifact(kind="candlestick", title="AAPL 주가", ticker="AAPL",
+                     candles=[ArtifactCandle(time="2024-01-02", open=1, high=2, low=1, close=1.5)])
+    tech = A._artifacts(tool, _tech_result())[0]
+    arts = [price, tech]
+    enrich_chart_overlays(arts)
+    assert arts == [price]                       # standalone merged away
+    assert {o.key for o in price.overlays} == {"sma_20", "rsi_14"}
+
+
+def test_enrich_chart_overlays_standalone_when_no_price_chart():
+    from agentengine.artifacts import enrich_chart_overlays
+    tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
+    tech = A._artifacts(tool, _tech_result("MSFT"))[0]
+    arts = [tech]
+    enrich_chart_overlays(arts)
+    assert arts == [tech] and tech.overlays   # no price chart → renders on its own
+
+
 def test_chart_annotation_validate_drops_future_and_out_of_range():
     # PH-VIZ-3: only historical, in-range, sane-price annotations survive (no projection).
     from agentengine.annotations import _validate

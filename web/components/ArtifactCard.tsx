@@ -29,6 +29,13 @@ export type ChartAnnotations = {
   rebase?: boolean;
   note?: string | null;
 };
+export type OverlayLine = {
+  label: string; color?: string | null; points: { time: string; value: number }[];
+};
+export type ChartOverlay = {
+  key: string; name: string; pane?: string; unit?: string | null;
+  lines: OverlayLine[]; source?: string | null;
+};
 export type Artifact = {
   kind: string;
   title: string;
@@ -37,6 +44,7 @@ export type Artifact = {
   markers?: ArtifactMarker[];  // PH-VIZ-2: sourced events on the time axis (click → evidence)
   pricelines?: ArtifactPriceLine[];  // PH-VIZ-2: descriptive period high/low lines
   annotations?: ChartAnnotations | null;  // PH-VIZ-3: agent-authored lines/levels/zones
+  overlays?: ChartOverlay[];   // PH-VIZ-4: technical indicators (price-pane + sub-panes)
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   source?: string | null;
   as_of?: string | null;
@@ -113,16 +121,19 @@ export function ArtifactCard(
   }
   const xs = Array.from(new Set(a.series.flatMap((s) => s.points.map((p) => p.x)))).sort();
   const hasCandles = (a.candles?.length ?? 0) > 0;
-  if (xs.length === 0 && !hasCandles) return null;
+  const hasOverlays = (a.overlays?.length ?? 0) > 0;  // PH-VIZ-4: technical-only chart
+  if (xs.length === 0 && !hasCandles && !hasOverlays) return null;
 
   return (
     <div className="artifact">
       <div className="artifact-head">
         <span className="artifact-title">{a.title}</span>
         <FreshnessDot f={a.freshness ?? undefined} />
-        <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
-          {table ? "📈 차트" : "⇄ 표로"}
-        </button>
+        {a.series.length > 0 && (
+          <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
+            {table ? "📈 차트" : "⇄ 표로"}
+          </button>
+        )}
         {onRefresh && (
           <button type="button" className="artifact-toggle" disabled={busy}
             onClick={async () => { setBusy(true); try { await onRefresh(); } finally { setBusy(false); } }}>
@@ -160,10 +171,17 @@ export function ArtifactCard(
       )}
 
       <div className="artifact-foot">
-        {!hasCandles && (
+        {!hasCandles && a.series.length > 0 && (
           <div className="artifact-legend">
             {a.series.map((s, i) => (
               <span key={s.label}><i style={{ background: STROKES[i % STROKES.length] }} /> {s.label}</span>
+            ))}
+          </div>
+        )}
+        {hasOverlays && (
+          <div className="artifact-legend">
+            {(a.overlays ?? []).flatMap((o) => o.lines).map((l) => (
+              <span key={l.label}><i style={{ background: l.color ?? "#86868C" }} /> {l.label}</span>
             ))}
           </div>
         )}

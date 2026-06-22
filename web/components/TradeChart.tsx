@@ -7,6 +7,7 @@ import {
   CrosshairMode,
   LineStyle,
   type IChartApi,
+  type ISeriesApi,
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
@@ -40,10 +41,18 @@ function daysBefore(last: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// PH-VIZ-4: normalize an overlay point time to 'YYYY-MM-DD' (overlays are daily).
+function overlayPoints(pts: { time: string; value: number }[]) {
+  return pts
+    .map((p) => ({ t: toTime(p.time), value: p.value }))
+    .filter((p): p is { t: string; value: number } => p.t != null && p.value != null);
+}
+
 export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Citation) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const isCandle = (a.candles?.length ?? 0) > 0;
   const lineCount = a.series?.length ?? 0;
+  const overlays = a.overlays ?? [];
   const [range, setRange] = useState("1Y");
   const [logScale, setLogScale] = useState(false);
   const [rebase, setRebase] = useState(false);   // line mode only: index each series to 100
@@ -64,6 +73,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
     });
 
     let lastTime: string | null = null;
+    let hasVol = false;
 
     if (isCandle) {
       const rows = (a.candles ?? [])
@@ -77,7 +87,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
       candle.setData(rows.map((r) => ({
         time: r.t as Time, open: r.c.open!, high: r.c.high!, low: r.c.low!, close: r.c.close!,
       })));
-      const hasVol = rows.some((r) => r.c.volume != null);
+      hasVol = rows.some((r) => r.c.volume != null);
       if (hasVol) {
         const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "" });
         vol.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
@@ -172,6 +182,62 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
         if (!lastTime || lt > lastTime) lastTime = lt;
       });
     }
+
+    // PH-VIZ-4: render technical indicators. Price-pane lines (SMA/EMA/Bollinger) draw on
+    // the right price scale over the price; sub-pane indicators (RSI/MACD/volatility) stack
+    // in bands at the bottom, each on its own overlay scale. Descriptive — never a signal.
+    const priceOv = overlays.filter((o) => (o.pane ?? "price") !== "sub");
+    const subOv = overlays.filter((o) => (o.pane ?? "price") === "sub");
+    const S = subOv.length;
+    const SUB_H = 0.16;
+    const subTotal = Math.min(S * SUB_H, 0.48);   // fraction of height reserved for sub-panes
+    const bh = S ? subTotal / S : 0;
+
+    if (subTotal > 0) {
+      // free room below the price for the sub-pane stack (+ keep volume above it)
+      chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.05, bottom: subTotal + (hasVol ? 0.14 : 0.04) } });
+      if (hasVol) chart.priceScale("").applyOptions({ scaleMargins: { top: 1 - subTotal - 0.12, bottom: subTotal } });
+    }
+
+    priceOv.forEach((o) =>
+      o.lines.forEach((l) => {
+        const pts = overlayPoints(l.points);
+        if (!pts.length) return;
+        const s = chart.addLineSeries({
+          color: l.color ?? "#86868C", lineWidth: 1, priceScaleId: "right",
+          lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, title: l.label,
+        });
+        s.setData(pts.map((p) => ({ time: p.t as Time, value: p.value })));
+        const lt = pts[pts.length - 1].t;
+        if (!lastTime || lt > lastTime) lastTime = lt;
+      }));
+
+    subOv.forEach((o, j) => {
+      const scaleId = `sub_${j}`;
+      const top = (1 - subTotal) + j * bh + 0.01;
+      const bottom = (S - 1 - j) * bh + 0.01;
+      let first: ISeriesApi<"Line"> | null = null;
+      o.lines.forEach((l, li) => {
+        const pts = overlayPoints(l.points);
+        if (!pts.length) return;
+        const s = chart.addLineSeries({
+          color: l.color ?? LINE_COLORS[li % LINE_COLORS.length], lineWidth: 1, priceScaleId: scaleId,
+          lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, title: l.label,
+        });
+        s.priceScale().applyOptions({ scaleMargins: { top, bottom } });
+        s.setData(pts.map((p) => ({ time: p.t as Time, value: p.value })));
+        if (!first) first = s;
+        const lt = pts[pts.length - 1].t;
+        if (!lastTime || lt > lastTime) lastTime = lt;
+      });
+      // RSI context bounds (30/70) — descriptive reference levels, not buy/sell signals.
+      if (o.unit === "ratio_0_100" && first) {
+        [30, 70].forEach((lvl) => (first as ISeriesApi<"Line">).createPriceLine({
+          price: lvl, color: "rgba(150,150,160,0.35)", lineStyle: LineStyle.Dotted,
+          lineWidth: 1, axisLabelVisible: false, title: String(lvl),
+        }));
+      }
+    });
 
     // apply the selected range (MAX → fit all)
     const days = RANGES.find(([k]) => k === range)?.[1] ?? 0;

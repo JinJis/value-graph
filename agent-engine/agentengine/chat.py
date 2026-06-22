@@ -200,8 +200,11 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # PH-VIZ-2: attach sourced event markers (dividends/splits/earnings this turn) + price
     # lines to the price chart, then re-emit the enriched artifacts in `done` (the streamed
     # `artifact` events went out before the later tool results existed).
-    from agentengine.artifacts import enrich_chart_markers
+    from agentengine.artifacts import enrich_chart_markers, enrich_chart_overlays
     enrich_chart_markers(art_objs, history)
+    # PH-VIZ-4: fold any technical-indicator artifact (SMA/EMA/Bollinger + RSI/MACD) onto
+    # the same-ticker price chart so the overlays render on the price; else it stands alone.
+    enrich_chart_overlays(art_objs)
     # PH-VIZ-3: Gemini annotates the price chart from the question (lines/levels/zones),
     # validated to historical points only (no projection). Gemini-only; best-effort.
     from agentengine.annotations import annotate_charts

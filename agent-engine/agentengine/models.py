@@ -168,6 +168,34 @@ class ChartAnnotations(BaseModel):
     note: str | None = None
 
 
+class OverlayPoint(BaseModel):
+    time: str          # 'YYYY-MM-DD'
+    value: float
+
+
+class OverlayLine(BaseModel):
+    """One plotted line of a technical indicator (e.g. SMA, Bollinger Upper, MACD Signal)."""
+
+    label: str
+    color: str | None = None
+    points: list[OverlayPoint] = []
+
+
+class ChartOverlay(BaseModel):
+    """PH-VIZ-4: a descriptive technical indicator rendered ON the price chart
+    (``pane='price'`` — SMA/EMA/Bollinger) or in a stacked sub-pane (``pane='sub'`` —
+    RSI/MACD/volatility). Computed from prices (PH-DATA-6), so sourced 'computed from
+    Yahoo'. Descriptive only — never a trading signal (the agent guardrail still refuses
+    advice)."""
+
+    key: str
+    name: str
+    pane: str = "price"        # price | sub
+    unit: str | None = None    # price | ratio_0_100 | percent
+    lines: list[OverlayLine] = []
+    source: str | None = None
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
     it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
@@ -182,6 +210,9 @@ class Artifact(BaseModel):
     pricelines: list[ArtifactPriceLine] = []
     # PH-VIZ-3: agent-authored annotations driven by the question (lines/zones/levels).
     annotations: ChartAnnotations | None = None
+    # PH-VIZ-4: descriptive technical indicators overlaid on the price chart (SMA/EMA/
+    # Bollinger) + stacked sub-panes (RSI/MACD/volatility). Computed from prices.
+    overlays: list[ChartOverlay] = []
     # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
     # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
     table: list[list[str]] | None = None

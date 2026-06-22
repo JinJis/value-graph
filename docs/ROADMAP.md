@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 282 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 89 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 285 unit** — datasets 116 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 92 · studio-api 36 (+ admin 16, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (27 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -563,9 +563,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     = no projection)** and a sane price band, else dropped. `<TradeChart>` renders trend lines (2-pt line
     series), level lines (price lines), date/zone marks + a note caption. Gemini-only (stub = no-op).
     +3 agent tests (84→87). *(zone shading + cross-ticker rebase compare = follow-on.)*
-  - ⬜ **PH-VIZ-4 · Technical overlays on the chart** — render PH-DATA-6's SMA/EMA/Bollinger as price-pane
-    overlays and RSI/MACD as sub-panes, descriptive labels, sourced "computed from Yahoo". (PH-DATA-6 =
-    the data; PH-VIZ-4 = the rendering.)
+  - ✅ **PH-VIZ-4 · Technical overlays on the chart.** PH-DATA-6's `/technical-indicators` result is
+    shaped into `ChartOverlay`s (agent-engine `artifacts.py`): SMA/EMA/Bollinger as `pane=price` lines,
+    RSI/MACD/volatility as `pane=sub`. `enrich_chart_overlays` folds a same-ticker technical artifact onto
+    the price (candlestick) chart so the overlays render **on** the price; with no price chart this turn it
+    renders standalone. `<TradeChart>` draws price-pane lines on the right scale and stacks each sub-pane in
+    its own overlay scale band at the bottom (volume moved above the stack), with RSI 30/70 context bounds —
+    descriptive labels, sourced "computed from Yahoo Finance", never a signal. Server-owned line colors;
+    line/candle/overlay-only artifacts all supported. +3 agent tests (89→92). *(user drawing = PH-VIZ-5.)*
   - ⬜ **PH-VIZ-5 · User drawing tools + pinnable annotated chart.** Let the user draw trend/horizontal
     lines + notes directly on `<TradeChart>` (Lightweight primitives), and **persist the annotation spec
     with the Board pin** so a pinned chart keeps its drawings and refreshes the underlying data live.
