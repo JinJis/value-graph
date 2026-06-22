@@ -210,6 +210,16 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-7: portfolio backtest — descriptive past performance over ingested prices.
+        "name": "Portfolio backtest (백테스트)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플 50%, 마이크로소프트 50% 포트폴리오의 과거 성과를 백테스트해줘.",
+        "criteria": ("매수후보유 과거 누적수익·연환산수익(CAGR)·최대낙폭 등을 저장된 가격 기반 사실로 제시하거나, "
+                     "데이터가 없으면 정직하게 밝힘. '과거 성과이며 미래 보장·조언이 아님'을 명확히 함."),
+        "checks": {"expect_connector": "datasets_store__backtest", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
         # CE-6: quant factor screener — cross-sectional, descriptive (depends on ingested store).
         "name": "Quant factor screener (퀀트 스크리너)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},

@@ -40,6 +40,7 @@ class Category(str, Enum):
     macro = "macro"  # 거시경제 분석 — 금리·물가·고용
     news = "news"  # 뉴스룸 — 최신 헤드라인
     screener = "screener"  # 스크리너·퀀트 — 재무 기준 스크리닝
+    portfolio = "portfolio"  # 포트폴리오 — 백테스트·포트폴리오 분석
 
 
 # Ordered, user-facing metadata for the builder (label + one-line description). The ONLY place
@@ -52,7 +53,8 @@ CATEGORIES: list[dict] = [
     {"id": "gurus", "label": "투자거장·수급", "description": "거장 13F·기관/내부자/ETF 보유"},
     {"id": "macro", "label": "거시경제 분석", "description": "금리·물가·고용 등 거시지표 (미국·한국)"},
     {"id": "news", "label": "뉴스룸", "description": "최신 뉴스 헤드라인"},
-    {"id": "screener", "label": "스크리너·퀀트", "description": "재무 기준 종목 스크리닝·라인아이템"},
+    {"id": "screener", "label": "스크리너·퀀트", "description": "재무·팩터 기준 종목 스크리닝"},
+    {"id": "portfolio", "label": "포트폴리오 관리", "description": "포트폴리오 백테스트·성과 분석"},
 ]
 
 

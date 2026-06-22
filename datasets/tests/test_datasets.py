@@ -909,6 +909,41 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce7_backtest_over_store():
+    # CE-7: buy-and-hold backtest over ingested PriceBar — descriptive past performance.
+    from datetime import date as _date
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import PriceBar
+    from app.store.backtest import run_backtest
+
+    init_db()
+    bars = {  # ticker → [(date, close)]
+        "ZBA": [(_date(2024, 1, 2), 100.0), (_date(2024, 6, 3), 110.0), (_date(2025, 1, 2), 121.0)],
+        "ZBB": [(_date(2024, 1, 2), 50.0), (_date(2024, 6, 3), 55.0), (_date(2025, 1, 2), 60.5)],
+    }
+    with SessionLocal() as db:
+        db.execute(delete(PriceBar).where(PriceBar.market == "ZB"))
+        for tk, rows in bars.items():
+            for bd, close in rows:
+                db.add(PriceBar(market="ZB", ticker=tk, interval="day", bar_date=bd, close=close, source="t"))
+        db.commit()
+    try:
+        res = run_backtest("ZB", [{"ticker": "ZBA", "weight": 0.5}, {"ticker": "ZBB", "weight": 0.5}], initial=10000.0)
+        assert abs(res["final"] - 12100.0) < 1e-6                  # both +21%
+        assert abs(res["metrics"]["total_return"] - 0.21) < 1e-6
+        assert res["metrics"]["max_drawdown"] <= 0 and res["curve"][0]["value"] == 10000.0
+        # missing coverage → honest note, never fabricated
+        no = run_backtest("ZB", [{"ticker": "NOPE", "weight": 1.0}])
+        assert no["results"] is None and no["note"]
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(PriceBar).where(PriceBar.market == "ZB"))
+            db.commit()
+
+
 def test_ce6_quant_factor_screen_over_store():
     # CE-6: compute factors from FinancialFact + PriceBar, then filter/rank.
     from datetime import date as _date, timedelta

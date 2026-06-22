@@ -1603,6 +1603,19 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_backtest_equity_curve():
+    # CE-7: backtest → an equity-curve timeseries (portfolio + benchmark).
+    tool = {"name": "datasets_store__backtest", "source": "ingestion store"}
+    result = {"data": {"metrics": {"total_return": 0.21}, "curve": [
+        {"date": "2024-01-02", "value": 10000.0}, {"date": "2025-01-02", "value": 12100.0}],
+        "benchmark": {"ticker": "SPY", "curve": [
+            {"date": "2024-01-02", "value": 10000.0}, {"date": "2025-01-02", "value": 11500.0}]}}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "timeseries" and "백테스트" in a.title and "+21.0%" in a.title
+    labels = {s.label for s in a.series}
+    assert "포트폴리오" in labels and "SPY" in labels
+
+
 def test_artifacts_quant_screen_table():
     # CE-6: factor screener → a sourced ranked table.
     tool = {"name": "datasets_store__quant_screen", "source": "ingestion store"}

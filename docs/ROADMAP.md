@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 331 unit** — datasets 136 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 114 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 333 unit** — datasets 137 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 115 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -447,7 +447,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   factor + ranks**. Cross-sectional description over ingested data (no forecasts; missing inputs → null,
   never faked). agent-engine renders a sourced ranked table. +2 tests (datasets 1, agent 1), +1 eval.
   *(no new upstream; quality scales with backfill coverage.)*
-- ⬜ **CE-7 · 백테스터.** Portfolio backtest over PriceBar — descriptive performance, no advice. 🔵
+- ✅ **CE-7 · 백테스터.** New `datasets_store__backtest` (`POST /backtest`): buy-and-hold backtest of a
+  weighted portfolio over ingested daily closes → **equity curve + total return / CAGR / volatility /
+  max drawdown**, optionally vs a benchmark (rebased). Strictly descriptive past performance — no
+  forecast/advice; missing price coverage → honest note (never fabricated). agent-engine renders the
+  equity curve (portfolio + benchmark) as a timeseries; new **포트폴리오** category. +2 tests (datasets 1,
+  agent 1), +1 eval. *(no new upstream; depends on PriceBar backfill.)*
 - ⬜ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model + analytics over PriceBar. 🔵
 - ⬜ **CE-9 · 거시 확장.** Broaden FRED/DBnomics indicator catalog + component grouping (하위요인) + cycle
   composites (사이클) + indicator browse (열람) + country panels (국가경제). 🟡

@@ -259,6 +259,10 @@ CONNECTORS: list[ConnectorManifest] = [
                              ResourceParam(name="query", required=True, description="공시 본문에서 찾을 주제/문구 (e.g. '공급망 리스크', 'AI 수요')."),
                              ResourceParam(name="top_k", type="integer", description="반환 문단 수 (기본 6)."), P_MARKET],
                      provenance=Provenance(source="공시 본문 (SEC/DART)", source_link_field="url", freshness=Freshness.periodic)),
+            Resource(name="backtest",
+                     description="포트폴리오 백테스트 — 종목·비중의 매수후보유 과거 성과(누적수익·CAGR·변동성·MDD, 벤치마크 대비) 서술적 계산. 미래 예측·조언 아님.",
+                     method="POST", path="/backtest", output_model="BacktestResponse", markets=["US", "KR"], cost_tier=CostTier.free,
+                     params=[P_MARKET], provenance=Provenance(source="ingestion store (Yahoo prices)", freshness=Freshness.eod)),
             Resource(name="valuation",
                      description="밸류에이션 모델 DCF/DDM/RIM — 실제 재무를 base로, 사용자 가정(성장률·할인율 등)에 따른 주당 내재가치 투명 계산. 예측·목표가 아님(가정 변경 시 결과도 변동).",
                      path="/valuation", output_model="ValuationResponse", markets=["US", "KR"], cost_tier=CostTier.free,
@@ -357,6 +361,7 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     ("datasets_store", "metrics_history"): Category.fundamentals,
     ("datasets_store", "filing_search"): Category.filings,
     ("datasets_store", "valuation"): Category.valuation,
+    ("datasets_store", "backtest"): Category.portfolio,
     # Document RAG
     ("rag", "search"): Category.filings,
 }

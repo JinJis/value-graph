@@ -120,6 +120,21 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__backtest") and isinstance(data.get("curve"), list) and data["curve"]:
+        # CE-7: portfolio equity curve → a timeseries (portfolio + benchmark, rebased to initial).
+        series = [ArtifactSeries(label="포트폴리오", points=[
+            ArtifactPoint(x=p["date"], y=_num(p.get("value"))) for p in data["curve"]])]
+        bench = data.get("benchmark") or {}
+        if isinstance(bench.get("curve"), list) and bench["curve"]:
+            series.append(ArtifactSeries(label=bench.get("ticker") or "벤치마크", points=[
+                ArtifactPoint(x=p["date"], y=_num(p.get("value"))) for p in bench["curve"]]))
+        m = data.get("metrics") or {}
+        tr = m.get("total_return")
+        title = "포트폴리오 백테스트" + (f" (누적 {tr*100:+.1f}%)" if isinstance(tr, (int, float)) else "")
+        a = _timeseries(title, series, "ingestion store (Yahoo prices)", name, None)
+        if a:
+            out.append(a)
+
     if name.endswith("__quant_screen") and isinstance(data.get("results"), list):
         # CE-6: factor screener → a sourced ranked table (key factors per ticker).
         def _r2(v):
