@@ -534,27 +534,66 @@ class SecEdgar13FProvider:
                 return n
         return ""
 
-    async def by_filer(self, filer_cik: str, limit: int) -> list[InstitutionalHolding]:
-        cik10 = _cik10(filer_cik)
-        sub = await _submissions(cik10)
+    @staticmethod
+    def _13f_filings(sub: dict) -> list[tuple[int, str, str | None, str | None, str]]:
+        """Indices of 13F-HR/A filings in the submissions 'recent' block, newest first,
+        as (idx, accession, report_date, filing_date, form)."""
         recent = (sub.get("filings") or {}).get("recent") or {}
         forms = recent.get("form") or []
         accns = recent.get("accessionNumber") or []
         fdates = recent.get("filingDate") or []
         rdates = recent.get("reportDate") or []
-        idx = next((i for i, f in enumerate(forms) if f in ("13F-HR", "13F-HR/A")), None)
-        if idx is None:
-            raise not_found(f"No 13F-HR filing for CIK {filer_cik}.")
-        accn = accns[idx]
+        out: list[tuple[int, str, str | None, str | None, str]] = []
+        for i, f in enumerate(forms):
+            if f in ("13F-HR", "13F-HR/A"):
+                out.append((i, accns[i], rdates[i] if i < len(rdates) else None,
+                            fdates[i] if i < len(fdates) else None, f))
+        return out
+
+    async def _holdings_for(self, cik10: str, accn: str, rdate: str | None,
+                            fdate: str | None, form: str) -> list[InstitutionalHolding]:
         nodash = accn.replace("-", "")
         name = await self._infotable_name(cik10, nodash)
         if not name:
-            raise not_found(f"No 13F information table found for CIK {filer_cik}.")
+            raise not_found(f"No 13F information table found for accession {accn}.")
         url = f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{nodash}/{name}"
         xml = await fetch_text("sec_edgar", url, headers=_UA)
-        holdings = _parse_13f(xml, rdates[idx] if idx < len(rdates) else None, fdates[idx] if idx < len(fdates) else None, forms[idx], accn)
+        holdings = _parse_13f(xml, rdate, fdate, form, accn)
         holdings.sort(key=lambda h: h.value_usd or 0, reverse=True)
+        return holdings
+
+    async def by_filer(self, filer_cik: str, limit: int) -> list[InstitutionalHolding]:
+        cik10 = _cik10(filer_cik)
+        sub = await _submissions(cik10)
+        filings = self._13f_filings(sub)
+        if not filings:
+            raise not_found(f"No 13F-HR filing for CIK {filer_cik}.")
+        _, accn, rdate, fdate, form = filings[0]
+        holdings = await self._holdings_for(cik10, accn, rdate, fdate, form)
         return holdings[:limit]
+
+    async def by_filer_quarters(self, filer_cik: str, quarters: int) -> list[dict]:
+        """The `quarters` most recent distinct 13F reporting periods for a filer, newest
+        first. Each entry: {report_period, filing_date, accession, form, holdings}.
+        Powers quarter-over-quarter delta ('거장 매매') without a stored history."""
+        cik10 = _cik10(filer_cik)
+        sub = await _submissions(cik10)
+        filings = self._13f_filings(sub)
+        if not filings:
+            raise not_found(f"No 13F-HR filing for CIK {filer_cik}.")
+        out: list[dict] = []
+        seen: set[str] = set()
+        for _, accn, rdate, fdate, form in filings:
+            key = rdate or accn
+            if key in seen:  # skip amendments of an already-captured quarter
+                continue
+            seen.add(key)
+            holdings = await self._holdings_for(cik10, accn, rdate, fdate, form)
+            out.append({"report_period": rdate, "filing_date": fdate,
+                        "accession": accn, "form": form, "holdings": holdings})
+            if len(out) >= quarters:
+                break
+        return out
 
     async def by_ticker(self, ref: SecurityRef, limit: int) -> list[InstitutionalHolding]:
         raise not_implemented(

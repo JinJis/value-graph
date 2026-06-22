@@ -117,6 +117,52 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__guru_trades") and isinstance(data.get("trades"), list):
+        # CE-3: 거장 매매 — quarter-over-quarter 13F moves → a sourced table card.
+        def _usd(v):
+            if not isinstance(v, (int, float)) or v == 0:
+                return "—"
+            sign = "-" if v < 0 else ""
+            a = abs(v)
+            if a >= 1e9:
+                return f"{sign}${a/1e9:,.2f}B"
+            if a >= 1e6:
+                return f"{sign}${a/1e6:,.1f}M"
+            return f"{sign}${a:,.0f}"
+
+        _ACTION = {"new": "신규", "added": "추가", "trimmed": "축소", "exited": "전량매도"}
+        rows = [["종목", "매매", "보유가치", "가치변동", "주식수 변동"]]
+        for t in data["trades"]:
+            sc = t.get("shares_change")
+            sc_s = f"{sc:+,}" if isinstance(sc, (int, float)) else "—"
+            rows.append([
+                t.get("ticker") or t.get("name_of_issuer") or t.get("cusip", ""),
+                _ACTION.get(t.get("action"), t.get("action", "")),
+                _usd(t.get("value_usd")), _usd(t.get("value_change_usd")), sc_s,
+            ])
+        if len(rows) > 1:
+            guru = (data.get("guru") or {}).get("investor") or "거장"
+            rp = data.get("report_period") or ""
+            out.append(Artifact(kind="table", title=f"{guru} 매매내역 ({rp})".strip(),
+                                table=rows, source=src or "SEC EDGAR 13F", as_of=data.get("filing_date"),
+                                freshness=compute_freshness(data.get("filing_date")), url=url, tool=name))
+
+    if name.endswith("__guru_common") and isinstance(data.get("common"), list):
+        # CE-3: 공통 보유종목 — securities held by the most superinvestors → sourced table.
+        rows = [["종목", "보유 거장 수", "보유 거장"]]
+        for c in data["common"]:
+            holders = ", ".join(h.get("investor", "") for h in (c.get("holders") or [])[:6])
+            if len(c.get("holders") or []) > 6:
+                holders += " 외"
+            rows.append([
+                c.get("ticker") or c.get("name_of_issuer") or c.get("cusip", ""),
+                str(c.get("holder_count", len(c.get("holders") or []))), holders,
+            ])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="거장 공통 보유종목", table=rows,
+                                source=src or "SEC EDGAR 13F", as_of=None,
+                                freshness=None, tool=name))
+
     if name.endswith("__technical_indicators") and isinstance(data.get("indicators"), list):
         # PH-VIZ-4: a descriptive indicator artifact. `enrich_chart_overlays` later folds
         # these onto a same-ticker price chart when one exists this turn; otherwise it

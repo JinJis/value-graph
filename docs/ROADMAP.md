@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 307 unit** — datasets 124 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 105 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 312 unit** — datasets 127 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 107 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -360,8 +360,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   agent), +1 eval scenario. *(no new upstream)*
 - ⬜ **CE-2 · 섹터 히트맵 (US).** Sector-ETF set → per-sector return heatmap (descriptive, sourced). 🔵
   *(KR sector indices = Wave 2, needs KRX/KIS.)*
-- ⬜ **CE-3 · 거장 매매 + 공통 보유종목.** 13F quarter deltas (new/added/trimmed/exited) + cross-guru
-  intersection over existing `gurus`/13F. 🔵
+- ✅ **CE-3 · 거장 매매 + 공통 보유종목.** Extended the SEC 13F provider with `by_filer_quarters`
+  (reads the two most recent distinct reporting periods from the submissions block, skipping amendment
+  dupes) → two new resources: `sec_edgar__guru_trades` (`GET /gurus/trades?slug=`) diffs the latest vs
+  prior quarter into discrete moves **신규/추가/축소/전량매도** with share+value deltas, each cited to its
+  13F accession; `sec_edgar__guru_common` (`GET /gurus/common`) intersects latest holdings across the
+  curated gurus (best-effort, failed filers dropped) ranked by holder count. Catalog/MCP/agent wired;
+  agent-engine renders both as sourced **table artifacts** (거장 매매내역 / 거장 공통 보유종목, $B/$M
+  abbreviation). +5 tests (datasets +3, agent +2), +2 eval scenarios. *(no new upstream — SEC keyless)*
 - ⬜ **CE-4 · 종목 내러티브 / 관전 포인트.** Gemini synthesis over a stock's facts+filings+news (RAG). 🔵
 - ⬜ **CE-5 · 밸류에이션 모델 (DCF/DDM/RIM/Reverse/Simplified).** Transparent model engine over financials +
   user inputs — labeled as models, not price targets (guardrail-safe). 🔵

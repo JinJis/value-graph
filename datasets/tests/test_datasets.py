@@ -1719,6 +1719,84 @@ def test_phdata1_gurus_list_and_holdings(monkeypatch):
     assert client.get("/gurus?slug=nobody").status_code == 404
 
 
+# --- CE-3: 거장 매매 (quarter deltas) + 공통 보유종목 (intersection) ---------
+def test_ce3_guru_trades_compute():
+    from app.models.generated import InstitutionalHolding
+    from app.providers.us.gurus import compute_trades
+
+    def H(cusip, shares, value, accn):
+        return InstitutionalHolding(name_of_issuer=cusip, cusip=cusip, ticker=cusip,
+                                    shares=shares, value_usd=value, accession_number=accn)
+
+    quarters = [
+        {"report_period": "2026-03-31", "filing_date": "2026-05-15", "accession": "Q2",
+         "holdings": [H("AAA", 200, 2000, "Q2"), H("BBB", 100, 1000, "Q2"), H("DDD", 50, 500, "Q2")]},
+        {"report_period": "2025-12-31", "filing_date": "2026-02-14", "accession": "Q1",
+         "holdings": [H("AAA", 100, 1000, "Q1"), H("BBB", 150, 1500, "Q1"), H("CCC", 80, 800, "Q1")]},
+    ]
+    res = compute_trades(quarters, limit=40)
+    assert res["comparable"] is True and res["report_period"] == "2026-03-31"
+    by = {t["cusip"]: t for t in res["trades"]}
+    assert by["AAA"]["action"] == "added" and by["AAA"]["shares_change"] == 100
+    assert by["BBB"]["action"] == "trimmed" and by["BBB"]["shares_change"] == -50
+    assert by["CCC"]["action"] == "exited"
+    assert by["DDD"]["action"] == "new"
+    # single quarter (no prior) → everything is 'new', not comparable
+    one = compute_trades(quarters[:1])
+    assert one["comparable"] is False and all(t["action"] == "new" for t in one["trades"])
+
+
+def test_ce3_guru_common_holdings():
+    from app.models.generated import InstitutionalHolding
+    from app.providers.us.gurus import common_holdings
+
+    def H(cusip, value):
+        return InstitutionalHolding(name_of_issuer=cusip, cusip=cusip, ticker=cusip,
+                                    shares=10, value_usd=value, accession_number=cusip + "-a")
+
+    per_guru = [
+        {"guru": {"slug": "buffett", "investor": "Warren Buffett", "name": "Berkshire"},
+         "holdings": [H("AAPL", 5000), H("KO", 2000)]},
+        {"guru": {"slug": "ackman", "investor": "Bill Ackman", "name": "Pershing"},
+         "holdings": [H("AAPL", 3000), H("CMG", 1500)]},
+        {"guru": {"slug": "burry", "investor": "Michael Burry", "name": "Scion"},
+         "holdings": [H("AAPL", 1000)]},
+    ]
+    rows = common_holdings(per_guru, min_holders=2, limit=40)
+    assert len(rows) == 1  # only AAPL is held by ≥2 gurus
+    aapl = rows[0]
+    assert aapl["cusip"] == "AAPL" and aapl["holder_count"] == 3
+    assert aapl["total_value_usd"] == 9000
+    assert aapl["holders"][0]["value_usd"] == 5000  # sorted desc by value
+
+
+def test_ce3_guru_trades_route(monkeypatch):
+    from app.models.generated import InstitutionalHolding
+    import app.routers.gurus as G
+
+    class _Fake:
+        async def by_filer_quarters(self, cik, quarters):
+            assert cik == "0001067983" and quarters == 2
+            return [
+                {"report_period": "2026-03-31", "filing_date": "2026-05-15", "accession": "Q2",
+                 "holdings": [InstitutionalHolding(cusip="AAA", ticker="AAA", shares=200,
+                                                   value_usd=2000, accession_number="Q2")]},
+                {"report_period": "2025-12-31", "filing_date": "2026-02-14", "accession": "Q1",
+                 "holdings": [InstitutionalHolding(cusip="AAA", ticker="AAA", shares=100,
+                                                   value_usd=1000, accession_number="Q1")]},
+            ]
+        async def by_filer(self, cik, limit):
+            return [InstitutionalHolding(cusip="AAA", ticker="AAA", shares=10, value_usd=100,
+                                         accession_number="X")]
+    monkeypatch.setattr(G, "get_institutional_provider", lambda m: _Fake())
+    b = client.get("/gurus/trades?slug=buffett").json()
+    assert b["comparable"] is True and b["trades"][0]["action"] == "added"
+    assert client.get("/gurus/trades?slug=nobody").status_code == 404
+
+    c = client.get("/gurus/common?slugs=buffett,ackman&min_holders=2").json()
+    assert c["resource"] == "gurus_common" and "buffett" in c["gurus_resolved"]
+
+
 # --- PH-DATA-2: peer valuation comparables --------------------------------
 def test_phdata2_comparables(monkeypatch):
     from app.models.generated import FinancialMetricSnapshot

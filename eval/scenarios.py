@@ -238,6 +238,22 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        "name": "Superinvestor trades → 13F quarter deltas (거장 매매)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "워런 버핏(버크셔)이 가장 최근 분기에 새로 사거나 늘리고, 줄이거나 전량 매도한 종목을 알려줘.",
+        "criteria": "직전 분기 대비 신규/추가/축소/전량매도 변화를 SEC 13F 출처로 사실만 제시; 전망/매수의견 없이 매매내역만.",
+        "checks": {"expect_connector": "sec_edgar__guru_trades", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        "name": "Common superinvestor holdings (거장 공통 보유종목)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "여러 투자 거장들이 공통으로 보유한 종목은 무엇이야?",
+        "criteria": "여러 거장이 공통 보유한 종목을 보유 거장 수와 함께 제시하고 각 보유를 SEC 13F 출처로 귀속; 전망/매수의견 없이 보유현황만.",
+        "checks": {"expect_connector": "sec_edgar__guru_common", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Index-fund holdings → SEC N-PORT",
         "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
         "question": "SPY ETF가 가장 많이 보유한 종목 3개를 비중과 함께 알려줘.",

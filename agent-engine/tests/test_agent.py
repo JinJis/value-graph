@@ -508,6 +508,30 @@ def test_artifacts_from_metrics_history_multi_series():
     assert a.kind == "timeseries" and {"매출총이익률", "순이익률"} <= labels
 
 
+def test_artifacts_from_guru_trades_table():
+    tool = {"name": "datasets_store__guru_trades", "source": "SEC EDGAR 13F"}
+    result = {"data": {"guru": {"investor": "Warren Buffett"}, "report_period": "2026-03-31",
+                       "filing_date": "2026-05-15", "comparable": True, "trades": [
+        {"ticker": "AAPL", "action": "added", "value_usd": 2_000_000_000, "value_change_usd": 500_000_000, "shares_change": 1000},
+        {"ticker": "OXY", "action": "exited", "value_usd": 0, "value_change_usd": -300_000_000, "shares_change": -2000}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "Warren Buffett" in a.title
+    assert a.table[0] == ["종목", "매매", "보유가치", "가치변동", "주식수 변동"]
+    assert a.table[1][1] == "추가" and a.table[1][2] == "$2.00B"
+    assert a.table[2][1] == "전량매도" and a.table[2][3] == "-$300.0M"
+
+
+def test_artifacts_from_guru_common_table():
+    tool = {"name": "datasets_store__guru_common", "source": "SEC EDGAR 13F"}
+    result = {"data": {"common": [
+        {"ticker": "AAPL", "holder_count": 3, "holders": [
+            {"investor": "Warren Buffett"}, {"investor": "Bill Ackman"}, {"investor": "Michael Burry"}]}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.title == "거장 공통 보유종목"
+    assert a.table[1][0] == "AAPL" and a.table[1][1] == "3"
+    assert "Warren Buffett" in a.table[1][2]
+
+
 def test_artifacts_none_for_unchartable_result():
     assert A._artifacts({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"filings": []}}) == []
 
