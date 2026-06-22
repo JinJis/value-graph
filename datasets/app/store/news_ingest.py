@@ -42,14 +42,17 @@ def _news_to_doc(market: str, article: News) -> dict | None:
     title = (article.title or "").strip()
     if not title:
         return None
+    url = str(article.url) if article.url else None
     return {
         "text": title,
+        # stable per article (url, else ticker+title) → re-ingest UPSERTs instead of duplicating
+        "doc_id": url or f"{article.ticker or ''}:{title}",
         "source": article.source or "Google News",  # publisher (Reuters/연합뉴스/…) when present
         "doc_type": "news",
         "ticker": article.ticker,
         "market": market,
         "as_of": str(article.date) if article.date else None,
-        "url": str(article.url) if article.url else None,
+        "url": url,
     }
 
 

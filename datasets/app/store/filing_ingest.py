@@ -41,6 +41,8 @@ def _pdf_to_docs(pdf_path: str, market: str, ticker: str, accession: str, source
             if len(text) < _MIN_PAGE_CHARS:
                 continue
             out.append({"text": text, "source": source, "doc_type": "filing",
+                        # stable per (filing, page) → re-ingest UPSERTs instead of duplicating
+                        "doc_id": f"{accession}:p.{i + 1}",
                         "ticker": ticker, "market": market, "accession": accession,
                         "section": f"p.{i + 1}", "url": url})
     finally:

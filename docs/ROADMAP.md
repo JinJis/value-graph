@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 322 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 323 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
 > semantic) · agent-engine 111 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -352,6 +352,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **FIX · RAG 중복 제거 (corpus dedup).** The default in-memory vector store appended on every
+  ingest, so a re-run pipeline duplicated news/filing chunks each sweep (retrieval then returns repeated
+  passages). Fix: `MemoryStore.upsert` now dedups by chunk id (replace-in-place, matching pgvector's
+  `ON CONFLICT DO UPDATE`), and news/filing docs carry a **stable `doc_id`** (news=url, filing=accession:page)
+  so re-ingest upserts deterministically instead of relying on a text hash. +1 rag test.
 - ✅ **FIX · 홈 프롬프트 폭포수 (waterfall hints).** Chat empty-state now shows the prompt-library
   examples rising in a seamless infinite loop (CSS transform marquee, two copies → translateY -50%),
   with a top/bottom fade mask. **Hover/focus pauses** it (key UX). Each chip shows the prompt's short
