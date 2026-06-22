@@ -12,6 +12,7 @@ import {
   type Time,
 } from "lightweight-charts";
 import type { Artifact, ArtifactMarker, ChartAnnotations } from "./ArtifactCard";
+import { fmtBig } from "./ArtifactCard";
 import type { Citation } from "./SourceCard";
 
 const MARKER_SHAPE: Record<string, "circle" | "arrowUp" | "arrowDown" | "square"> = {
@@ -49,10 +50,10 @@ function overlayPoints(pts: { time: string; value: number }[]) {
 }
 
 export function TradeChart(
-  { a, onEvidence, userAnn, onDraw, bars }:
+  { a, onEvidence, userAnn, onDraw, bars, currency = "USD" }:
   { a: Artifact; onEvidence?: (c: Citation) => void;
     userAnn?: ChartAnnotations | null; onDraw?: (next: ChartAnnotations | null) => void;
-    bars?: NonNullable<Artifact["candles"]> | null },
+    bars?: NonNullable<Artifact["candles"]> | null; currency?: "KRW" | "USD" },
 ) {
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);   // PH-VIZ-6: for the PNG snapshot export
@@ -76,6 +77,11 @@ export function TradeChart(
       width: el.clientWidth,
       height: 260,
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#86868C", fontSize: 11 },
+      // readable axis/crosshair: abbreviate big figures (revenue → 조/억 or $B/M); prices stay plain.
+      localization: {
+        priceFormatter: (v: number) =>
+          Math.abs(v) >= 1e6 ? fmtBig(v, currency) : v.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+      },
       grid: { vertLines: { color: "rgba(150,150,160,0.08)" }, horzLines: { color: "rgba(150,150,160,0.08)" } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: "rgba(150,150,160,0.2)", mode: logScale ? 1 : 0 },
@@ -337,7 +343,7 @@ export function TradeChart(
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
     ro.observe(el);
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
-  }, [a, bars, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
+  }, [a, bars, currency, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
 
   const hasDrawings = (userAnn?.lines?.length || 0) + (userAnn?.hlines?.length || 0) > 0;
 

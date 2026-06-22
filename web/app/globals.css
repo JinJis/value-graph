@@ -520,6 +520,9 @@ select.input { appearance: none; }
 }
 .tc-ranges button:hover, .tc-toggles button:hover { color: var(--text); }
 .tc-ranges button.on, .tc-toggles button.on { background: var(--ink); color: var(--on-ink); }
+.table-more { width: 100%; margin-top: 6px; padding: 7px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--text-2); font-size: 12px; font-family: inherit; cursor: pointer; }
+.table-more:hover { border-color: var(--ink); color: var(--text); }
 .tc-canvas { width: 100%; height: 260px; }
 .tc-canvas.drawing { cursor: crosshair; }
 .tc-sep { width: 1px; align-self: stretch; margin: 1px 2px; background: var(--line-2); }

@@ -99,14 +99,45 @@ function TableArtifact(
   );
 }
 
-function fmt(y: number | null | undefined, unit?: string | null) {
+// currency for a ticker — KR 6-digit codes are KRW, else USD.
+function currencyOf(ticker?: string | null): "KRW" | "USD" {
+  return /^\d/.test(ticker || "") ? "KRW" : "USD";
+}
+
+// Big-number abbreviation so tables/axes stay readable — KRW in 조/억/만, USD in $T/B/M.
+export function fmtBig(y: number | null | undefined, currency: "KRW" | "USD" = "USD"): string {
+  if (y == null) return "—";
+  const a = Math.abs(y), sign = y < 0 ? "-" : "";
+  if (currency === "KRW") {
+    if (a >= 1e12) return `${sign}${(a / 1e12).toFixed(a >= 1e13 ? 1 : 2)}조`;
+    if (a >= 1e8) return `${sign}${Math.round(a / 1e8).toLocaleString()}억`;
+    if (a >= 1e4) return `${sign}${Math.round(a / 1e4).toLocaleString()}만`;
+    return `${sign}${Math.round(a).toLocaleString()}`;
+  }
+  if (a >= 1e12) return `${sign}$${(a / 1e12).toFixed(2)}T`;
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`;
+  return `${sign}$${a.toLocaleString()}`;
+}
+
+// price = full number (prices are small); volume = compact count.
+function fmtPrice(y: number | null | undefined) {
+  return y == null ? "—" : y.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+function fmtVol(y: number | null | undefined) {
+  if (y == null) return "—";
+  const a = Math.abs(y);
+  if (a >= 1e9) return (a / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return (a / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return (a / 1e3).toFixed(0) + "K";
+  return String(Math.round(a));
+}
+
+// financials/series table cell: ratio → %, large currency → abbreviated.
+function fmt(y: number | null | undefined, unit?: string | null, currency: "KRW" | "USD" = "USD") {
   if (y == null) return "—";
   if (unit === "ratio") return (y * 100).toFixed(1) + "%";
-  const abs = Math.abs(y);
-  if (abs >= 1e12) return (y / 1e12).toFixed(2) + "T";
-  if (abs >= 1e9) return (y / 1e9).toFixed(2) + "B";
-  if (abs >= 1e6) return (y / 1e6).toFixed(2) + "M";
-  return y.toLocaleString();
+  return fmtBig(y, currency);
 }
 
 export function ArtifactCard(
@@ -146,6 +177,27 @@ export function ArtifactCard(
     })();
     return () => { cancel = true; };
   }, [ticker, a.args]);
+
+  const currency = currencyOf(ticker);
+  // KR shows a 6-digit code by default → resolve the company NAME for the title.
+  const [coName, setCoName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ticker || currency !== "KRW") return;
+    let cancel = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/company/search?q=${encodeURIComponent(ticker)}&market=KR&limit=5`);
+        if (!r.ok) return;
+        const items = ((await r.json())?.results ?? []) as { name?: string; ticker?: string }[];
+        const hit = items.find((x) => String(x.ticker) === ticker) || items[0];
+        if (!cancel && hit?.name) setCoName(hit.name);
+      } catch { /* fall back to the code */ }
+    })();
+    return () => { cancel = true; };
+  }, [ticker, currency]);
+  // display title with the KR code swapped for the name ("005930 주가" → "삼성전자 주가")
+  const displayTitle = coName && ticker ? a.title.replace(ticker, coName) : a.title;
+  const [rowLimit, setRowLimit] = useState(30);  // OHLCV table: show recent N, expand for more
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
@@ -158,7 +210,7 @@ export function ArtifactCard(
   return (
     <div className="artifact">
       <div className="artifact-head">
-        <span className="artifact-title">{a.title}</span>
+        <span className="artifact-title">{displayTitle}</span>
         <FreshnessDot f={a.freshness ?? undefined} />
         {a.series.length > 0 && (
           <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
@@ -184,22 +236,35 @@ export function ArtifactCard(
 
       {table ? (
         hasCandles ? (
-          // OHLCV table (the chart is candlestick) — newest first, full history from /api/prices
-          <table className="artifact-table">
-            <thead><tr><th>날짜</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>거래량</th></tr></thead>
-            <tbody>
-              {[...(bars ?? a.candles ?? [])].reverse().slice(0, 260).map((c) => (
-                <tr key={c.time}>
-                  <td className="mono">{c.time}</td>
-                  <td className="mono">{fmt(c.open)}</td>
-                  <td className="mono">{fmt(c.high)}</td>
-                  <td className="mono">{fmt(c.low)}</td>
-                  <td className="mono">{fmt(c.close)}</td>
-                  <td className="mono">{fmt(c.volume)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          // OHLCV table (candlestick) — newest first, full history; 더보기 reveals older rows.
+          (() => {
+            const all = [...(bars ?? a.candles ?? [])].reverse();
+            const shown = all.slice(0, rowLimit);
+            return (
+              <>
+                <table className="artifact-table">
+                  <thead><tr><th>날짜</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>거래량</th></tr></thead>
+                  <tbody>
+                    {shown.map((c) => (
+                      <tr key={c.time}>
+                        <td className="mono">{c.time}</td>
+                        <td className="mono">{fmtPrice(c.open)}</td>
+                        <td className="mono">{fmtPrice(c.high)}</td>
+                        <td className="mono">{fmtPrice(c.low)}</td>
+                        <td className="mono">{fmtPrice(c.close)}</td>
+                        <td className="mono">{fmtVol(c.volume)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {all.length > shown.length && (
+                  <button type="button" className="table-more" onClick={() => setRowLimit((n) => n + 120)}>
+                    ↓ 과거 더보기 ({shown.length.toLocaleString()}/{all.length.toLocaleString()})
+                  </button>
+                )}
+              </>
+            );
+          })()
         ) : (
           <table className="artifact-table">
             <thead><tr><th>기간</th>{a.series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead>
@@ -209,7 +274,7 @@ export function ArtifactCard(
                   <td className="mono">{x}</td>
                   {a.series.map((s) => {
                     const pt = s.points.find((p) => p.x === x);
-                    return <td key={s.label} className="mono">{fmt(pt?.y, s.unit)}</td>;
+                    return <td key={s.label} className="mono">{fmt(pt?.y, s.unit, currency)}</td>;
                   })}
                 </tr>
               ))}
@@ -217,7 +282,7 @@ export function ArtifactCard(
           </table>
         )
       ) : (
-        <TradeChart a={a} bars={bars} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
+        <TradeChart a={a} bars={bars} currency={currency} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
       )}
 
       <div className="artifact-foot">
