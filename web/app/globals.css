@@ -1,48 +1,47 @@
-/* ValueGraph — Claude-like warm theme. Cream page, white surfaces, warm dark text, and the
-   signature coral accent for primary actions / links / citations. Trust signals (freshness)
-   stay green/amber/red. */
+/* ValueGraph — our identity: light grayscale surfaces, near-black ink for actions, and a
+   calm indigo accent for citations/@groups/links. Trust signals (freshness) are the only other
+   saturated color. Claude-like LAYOUT (centered column, soft rail, inline sources) — our PALETTE. */
 :root {
-  --bg: #FAF9F5;          /* warm cream app backdrop (Claude) */
+  --bg: #E9E9EB;          /* app backdrop */
   --panel: #ffffff;       /* primary card / surface */
-  --panel-2: #F2F0E9;     /* sidebar / subtle warm inset */
-  --panel-3: #FAF9F5;     /* chat scroll = cream */
-  --text: #28261F;        /* warm near-black */
-  --text-2: #514F46;      /* secondary body */
-  --muted: #8C887C;       /* meta / labels */
-  --faint: #B2AE9F;       /* placeholder / faintest */
-  --line: #EAE7DD;        /* default hairline (warm) */
-  --line-2: #DCD8CC;      /* stronger card outline */
-  --line-3: #F2F0E8;      /* faintest divider */
-  --ink: #C96442;         /* primary action = Claude coral */
-  --paper: #C96442;       /* primary action background */
-  --on-ink: #ffffff;      /* text on coral */
-  --focus: #C96442;       /* active input border */
-  /* accent — links, citations, @groups (coral) */
-  --accent: #C96442;
-  --accent-bg: #F6EBE4;
-  --accent-fg: #A8472A;
-  --rail-active: #E9E4D8;  /* subtle active nav highlight */
-  /* trust signals */
-  --fresh: #1F9E5F;
-  --aging: #C68A00;
-  --stale: #C8463A;
-  --gap: #B2AE9F;
-  --danger: #C8463A;
+  --panel-2: #FAFAFB;     /* sidebar / subtle inset */
+  --panel-3: #FCFCFD;     /* faintest surface (chat scroll) */
+  --text: #26262A;        /* primary text */
+  --text-2: #4A4A50;      /* secondary body */
+  --muted: #86868C;       /* meta / labels */
+  --faint: #A6A6AC;       /* placeholder / faintest */
+  --line: #E4E4E7;        /* default hairline */
+  --line-2: #D8D8DC;      /* stronger card outline */
+  --line-3: #F0F0F2;      /* faintest divider */
+  --ink: #1A1B1E;         /* near-black — primary action, active rail, user bubble */
+  --paper: #1A1B1E;       /* primary action background */
+  --on-ink: #ffffff;      /* text on ink */
+  --focus: #1A1B1E;       /* active input border */
+  /* accent — citations, @groups, links (calm indigo, our color) */
+  --accent: #6E72B0;
+  --accent-bg: #EEF0F6;
+  --accent-fg: #5A5E86;
+  --rail-active: #EDEDF0;  /* subtle active nav highlight (light gray) */
+  /* trust signals — the only other saturated colors */
+  --fresh: #1FA463;
+  --aging: #D9A300;
+  --stale: #D1483A;
+  --gap: #A6A6AC;
+  --danger: #D1483A;
   /* guardrail label (visible, not fine print) */
   --warn-fg: #8A6A00;
   --warn-bg: #FBF3DA;
   --warn-line: #EFE0AE;
   --mark: #FCEFC4;        /* verbatim highlight */
-  --ui: -apple-system, system-ui, "Segoe UI", Roboto, Inter, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --serif: "Tiempos Text", "Iowan Old Style", Georgia, "Times New Roman", serif;
-  --mono: "SF Mono", "JetBrains Mono", ui-monospace, "Roboto Mono", monospace;
-  --shadow-card: 0 1px 2px rgba(40,38,31,.04), 0 6px 20px rgba(40,38,31,.05);
-  --shadow-pop: 0 8px 26px rgba(40,38,31,.08);
+  --ui: "Space Grotesk", -apple-system, system-ui, "Segoe UI", Inter, Roboto, "Apple SD Gothic Neo", sans-serif;
+  --mono: "Space Mono", "SF Mono", "JetBrains Mono", ui-monospace, "Roboto Mono", monospace;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.04);
+  --shadow-pop: 0 8px 26px rgba(0,0,0,.06);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
   font-family: var(--ui); -webkit-font-smoothing: antialiased; }
-::selection { background: #F0D9CC; }
+::selection { background: #C9D2E8; }
 a { color: var(--text); text-decoration-color: var(--muted); }
 .mono, .ticker, .num { font-family: var(--mono); font-feature-settings: "tnum" 1; }
 
@@ -68,7 +67,7 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .rail-item .ic { font-size: 15px; line-height: 1; width: 18px; text-align: center; flex: none; }
 .rail-item .lbl { flex: 1; }
 .rail-item:hover:not(.soon) { color: var(--text); background: var(--rail-active); }
-.rail-item.on { color: var(--text); background: var(--rail-active); font-weight: 600; }
+.rail-item.on { color: var(--on-ink); background: var(--ink); font-weight: 600; }
 .rail-item.soon { opacity: .5; cursor: default; }
 .rail-item .soon-tag { font-size: 9px; border: 1px solid var(--line-2); border-radius: 999px; padding: 0 5px; color: var(--muted); }
 .rail-spacer { flex: 1; }
@@ -119,7 +118,7 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 
 .srcprev { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; margin-bottom: 11px; }
 .srcprev[role="button"] { cursor: pointer; }
-.srcprev[role="button"]:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(201,100,66,.12); }
+.srcprev[role="button"]:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(110,114,176,.12); }
 .sp-head { display: flex; align-items: center; gap: 7px; padding: 8px 10px; border-bottom: 1px solid var(--line-3); background: var(--panel-2); }
 .sp-n { color: var(--accent); font-size: 9px; flex: none; }
 .sp-ic { font-size: 11px; flex: none; }
@@ -299,7 +298,7 @@ select.input { appearance: none; }
 /* Claude-like single centered conversation column */
 .chat { flex: 1; overflow-y: auto; padding: 28px 18px; display: flex; flex-direction: column; align-items: center; gap: 22px; background: var(--panel-3); }
 .empty { margin: auto; text-align: center; color: var(--muted); max-width: 560px; }
-.empty h2 { color: var(--text); margin-bottom: 6px; font-family: var(--serif); font-weight: 500; font-size: 28px; }
+.empty h2 { color: var(--text); margin-bottom: 6px; }
 .examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
 .chip { background: var(--panel); border: 1px solid var(--line-2); color: var(--text); padding: 8px 12px;
   border-radius: 999px; cursor: pointer; font-size: 13px; font-family: inherit; }
@@ -308,9 +307,9 @@ select.input { appearance: none; }
 .msg { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 760px; }
 .msg.user { align-items: flex-end; }
 .bubble { line-height: 1.6; }
-/* user message = soft warm chip; assistant = flush document text (no card box), Claude-style */
-.msg.user .bubble { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
-  padding: 10px 14px; border-radius: 16px; border-bottom-right-radius: 5px; max-width: 80%; white-space: pre-wrap; }
+/* user message = ink chip (our identity); assistant = flush document text (no card box) */
+.msg.user .bubble { background: var(--ink); border: 1px solid var(--ink); color: #EDEDEF;
+  padding: 10px 14px; border-radius: 15px; border-bottom-right-radius: 5px; max-width: 80%; white-space: pre-wrap; }
 .msg.assistant .bubble { background: transparent; border: none; box-shadow: none; padding: 0; max-width: 100%; }
 /* inline evidence cards woven directly under the answer (Live Context panel removed) */
 .answer-sources { width: 100%; margin-top: 4px; }
@@ -350,8 +349,8 @@ select.input { appearance: none; }
 .composer-meta .grow { flex: 1; }
 .input { flex: 1; background: var(--panel); border: 1px solid var(--line-2); color: var(--text);
   padding: 13px 16px; border-radius: 14px; font-size: 15px; outline: none; font-family: inherit; }
-.input:focus { border-color: var(--focus); box-shadow: 0 0 0 3px rgba(201,100,66,.10); }
-/* primary action = Claude coral */
+.input:focus { border-color: var(--focus); box-shadow: 0 0 0 3px rgba(110,114,176,.12); }
+/* primary action = ink (our identity) */
 .btn { background: var(--paper); color: var(--on-ink); border: 1px solid var(--ink); padding: 0 18px; border-radius: 12px; cursor: pointer; font-weight: 600; font-family: inherit; }
 .btn:hover:not(:disabled) { filter: brightness(1.05); }
 .btn:disabled { opacity: .4; cursor: default; }
