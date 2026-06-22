@@ -169,6 +169,16 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-1: cross-asset / 자산군 — descriptive market snapshot across asset classes.
+        "name": "Cross-asset snapshot (자산군)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["yahoo"]},
+        "question": "주요 자산군(지수·금리·원자재·환율·가상자산)의 현재 수준과 등락을 알려줘.",
+        "criteria": ("지수·금리·원자재·환율 등 자산군의 최근 수준/등락을 Yahoo 출처 기반 사실로 제시; "
+                     "전망·매수의견 없이 현황만."),
+        "checks": {"expect_connector": "yahoo__", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # A2A: a complex, multi-facet request → decomposed into parallel sub-agents, then combined.
         "name": "A2A: comprehensive multi-facet analysis (combined)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},

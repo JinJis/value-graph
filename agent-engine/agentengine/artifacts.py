@@ -99,6 +99,24 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         if a:
             out.append(a)
 
+    if name.endswith("__asset_classes") and isinstance(data.get("groups"), list):
+        # CE-1: cross-asset snapshot → a sourced table card (자산군 현황).
+        def _px(v):
+            return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
+
+        def _pct(v):
+            return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+        rows = [["자산군", "종목", "현재가", "등락%"]]
+        for g in data["groups"]:
+            for m in (g.get("members") or []):
+                rows.append([g.get("name", ""), m.get("label") or m.get("ticker", ""),
+                             _px(m.get("price")), _pct(m.get("change_percent"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="자산군 현황", table=rows,
+                                source=src or "Yahoo Finance", as_of=data.get("as_of"),
+                                freshness=compute_freshness(data.get("as_of")), tool=name))
+
     if name.endswith("__technical_indicators") and isinstance(data.get("indicators"), list):
         # PH-VIZ-4: a descriptive indicator artifact. `enrich_chart_overlays` later folds
         # these onto a same-ticker price chart when one exists this turn; otherwise it

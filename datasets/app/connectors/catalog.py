@@ -133,6 +133,10 @@ CONNECTORS: list[ConnectorManifest] = [
                              ResourceParam(name="interval", enum=["day", "week", "month", "year"]),
                              ResourceParam(name="start_date", type="date"), ResourceParam(name="end_date", type="date"), P_MARKET],
                      provenance=PROV_TECHNICAL),
+            Resource(name="asset_classes",
+                     description="Cross-asset snapshot (자산군): indices, rates, commodities, FX, crypto — descriptive levels + day change.",
+                     path="/market/asset-classes", output_model="CrossAssetResponse", cost_tier=CostTier.free,
+                     params=[], provenance=PROV_YAHOO),
         ],
     ),
     ConnectorManifest(

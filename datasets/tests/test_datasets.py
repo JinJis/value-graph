@@ -396,6 +396,28 @@ async def test_kr_universe_falls_back_to_opendart(monkeypatch):
     assert "kr_listed" in {u["id"] for u in U.list_presets()}  # the OpenDART-only KR source exists
 
 
+async def test_cross_asset_snapshot_drops_failures(monkeypatch):
+    # CE-1: cross-asset snapshot keeps reachable proxies, DROPS failures (never fabricates).
+    import app.store.cross_asset as CA
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 12.3, 0.45, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker == "^GSPC":
+                return _Snap(5000.0)
+            raise RuntimeError("upstream blocked")  # all others fail → dropped
+
+    monkeypatch.setattr(CA, "get_prices_provider", lambda m: _Prov())
+    data = await CA.cross_asset_snapshot()
+    members = [m for g in data["groups"] for m in g["members"]]
+    assert data["source"] == "Yahoo Finance"
+    assert any(m["ticker"] == "^GSPC" and m["price"] == 5000.0 for m in members)
+    assert members and all(m["price"] is not None for m in members)  # failures omitted, not faked
+
+
 def test_universe_sources_listed_and_endpoint():
     from app.store.universes import SOURCES, list_presets
     ids = {u["id"] for u in list_presets()}

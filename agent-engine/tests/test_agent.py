@@ -1511,6 +1511,17 @@ def _tech_result(ticker="AAPL"):
                      ]}}
 
 
+def test_artifacts_asset_classes_table():
+    # CE-1: cross-asset snapshot → a sourced table card.
+    tool = {"name": "yahoo__asset_classes", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "주가지수", "members": [
+        {"label": "S&P 500", "ticker": "^GSPC", "price": 5000.0, "change_percent": 0.5}]}],
+        "source": "Yahoo Finance", "as_of": "2024-01-02"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.table[0] == ["자산군", "종목", "현재가", "등락%"]
+    assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
+
+
 def test_artifacts_from_technical_indicators_become_overlay_artifact():
     # PH-VIZ-4: /technical-indicators → a standalone overlay artifact (price-pane + sub-pane).
     tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}

@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 305 unit** — datasets 121 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 103 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 307 unit** — datasets 124 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 105 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -353,8 +353,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   prices/financials is long on SQLite (WAL helps; Postgres for prod). *(no new upstream)*
 
 **Wave 1 — existing/free data, new compute (fully cited, fastest):**
-- ⬜ **CE-1 · 자산군 (cross-asset).** Curated index/bond/commodity/FX/crypto proxy tickers (yahoo) → market
-  dashboard + asset-class view. 🔵
+- ✅ **CE-1 · 자산군 (cross-asset).** New `yahoo__asset_classes` resource (`GET /market/asset-classes`):
+  curated index/rates/commodity/FX/crypto proxy tickers → snapshot (level + day change) via the existing
+  Yahoo provider, grouped, best-effort per member (failures dropped, never faked). Catalog/MCP/agent
+  wired; agent-engine renders it as a sourced **table artifact** (자산군 현황). +2 tests (datasets +
+  agent), +1 eval scenario. *(no new upstream)*
 - ⬜ **CE-2 · 섹터 히트맵 (US).** Sector-ETF set → per-sector return heatmap (descriptive, sourced). 🔵
   *(KR sector indices = Wave 2, needs KRX/KIS.)*
 - ⬜ **CE-3 · 거장 매매 + 공통 보유종목.** 13F quarter deltas (new/added/trimmed/exited) + cross-guru
