@@ -120,6 +120,29 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__quant_screen") and isinstance(data.get("results"), list):
+        # CE-6: factor screener → a sourced ranked table (key factors per ticker).
+        def _r2(v):
+            return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
+
+        def _pct(v):
+            return f"{v*100:+.1f}%" if isinstance(v, (int, float)) else "—"
+
+        def _mc(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e12:,.2f}T" if abs(v) >= 1e12 else (f"{v/1e9:,.1f}B" if abs(v) >= 1e9 else f"{v/1e6:,.0f}M")
+
+        rows = [["종목", "시총", "PER", "PBR", "ROE", "기간수익"]]
+        for r in data["results"]:
+            rows.append([r.get("ticker", ""), _mc(r.get("market_cap")), _r2(r.get("pe")),
+                         _r2(r.get("pb")), _pct(r.get("roe")), _pct(r.get("return_window"))])
+        if len(rows) > 1:
+            srt = data.get("sort")
+            title = f"퀀트 스크리너 ({data.get('market', '')}{' · ' + srt + ' 순' if srt else ''}) — {data.get('count', 0)}종목"
+            out.append(Artifact(kind="table", title=title.strip(), table=rows,
+                                source="ingestion store (SEC/DART + Yahoo)", tool=name))
+
     if name.endswith("__valuation") and data.get("model"):
         # CE-5: a transparent valuation calc → a sourced table (projection + intrinsic value).
         model = str(data.get("model")).upper()

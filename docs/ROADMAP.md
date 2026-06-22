@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 329 unit** — datasets 135 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 113 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 331 unit** — datasets 136 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 114 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -440,8 +440,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   data → honest note, never fabricated; bad math (discount ≤ terminal) → 400. agent-engine renders a sourced
   table; the guardrail still refuses the agent *volunteering* a target. +3 tests (datasets 2, agent 1),
   +1 eval. *(no new upstream)*
-- ⬜ **CE-6 · 퀀트 탐색 + 스크리너 확장.** Factor compute over FinancialFact+PriceBar; expand screener to
-  price/technical/factor criteria. 🔵
+- ✅ **CE-6 · 퀀트 탐색 + 스크리너 확장.** New `datasets_store__quant_screen` (`POST /quant/screen`):
+  computes a descriptive **factor set** per ticker from the ingested store (FinancialFact ⨝ PriceBar) —
+  valuation (PE/PB/PS), quality (ROE/net·gross margin), growth (revenue_growth), size (market_cap),
+  fcf_yield, and price momentum (return_window / pct_from_high / 52w high·low) — then **filters by any
+  factor + ranks**. Cross-sectional description over ingested data (no forecasts; missing inputs → null,
+  never faked). agent-engine renders a sourced ranked table. +2 tests (datasets 1, agent 1), +1 eval.
+  *(no new upstream; quality scales with backfill coverage.)*
 - ⬜ **CE-7 · 백테스터.** Portfolio backtest over PriceBar — descriptive performance, no advice. 🔵
 - ⬜ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model + analytics over PriceBar. 🔵
 - ⬜ **CE-9 · 거시 확장.** Broaden FRED/DBnomics indicator catalog + component grouping (하위요인) + cycle

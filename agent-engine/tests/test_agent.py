@@ -1603,6 +1603,17 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_quant_screen_table():
+    # CE-6: factor screener → a sourced ranked table.
+    tool = {"name": "datasets_store__quant_screen", "source": "ingestion store"}
+    result = {"data": {"market": "US", "sort": "roe", "count": 1, "results": [
+        {"ticker": "AAPL", "market_cap": 3_000_000_000_000, "pe": 30.0, "pb": 45.0, "roe": 1.5, "return_window": 0.18}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "퀀트 스크리너" in a.title
+    assert a.table[0] == ["종목", "시총", "PER", "PBR", "ROE", "기간수익"]
+    assert a.table[1][0] == "AAPL" and "T" in a.table[1][1] and a.table[1][5] == "+18.0%"
+
+
 def test_artifacts_valuation_table():
     # CE-5: a valuation calc → a sourced table with the projection + intrinsic value summary.
     tool = {"name": "datasets_store__valuation", "source": "재무제표 기반 모델"}

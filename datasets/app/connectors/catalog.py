@@ -244,6 +244,10 @@ CONNECTORS: list[ConnectorManifest] = [
             Resource(name="line_items", description="Fetch line items across tickers.", method="POST",
                      path="/financials/search/line-items", output_model="FinancialsSearchResponse", cost_tier=CostTier.free,
                      params=[], provenance=Provenance(source="ingestion store (SEC/DART)", as_of_field="report_period", freshness=Freshness.periodic)),
+            Resource(name="quant_screen",
+                     description="퀀트 팩터 스크리너 — 밸류(PER/PBR/PSR)·퀄리티(ROE/마진)·성장·모멘텀·사이즈 팩터를 store에서 계산해 필터·랭킹. 서술적 횡단면 분석(예측 아님).",
+                     method="POST", path="/quant/screen", output_model="QuantScreenResponse", markets=["US", "KR"], cost_tier=CostTier.free,
+                     params=[P_MARKET], provenance=Provenance(source="ingestion store (SEC/DART + Yahoo prices)", freshness=Freshness.periodic)),
             Resource(name="metrics_history", description="Derived financial ratios across periods (margins, returns, leverage, growth).",
                      path="/financial-metrics", output_model="FinancialMetricsHistoryResponse", markets=["US", "KR"], cost_tier=CostTier.free,
                      params=[P_TICKER_REQ, ResourceParam(name="period", enum=["annual", "quarterly", "ttm"]), P_LIMIT, P_MARKET],
@@ -349,6 +353,7 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     # Ingestion store (screener)
     ("datasets_store", "screener"): Category.screener,
     ("datasets_store", "line_items"): Category.screener,
+    ("datasets_store", "quant_screen"): Category.screener,
     ("datasets_store", "metrics_history"): Category.fundamentals,
     ("datasets_store", "filing_search"): Category.filings,
     ("datasets_store", "valuation"): Category.valuation,

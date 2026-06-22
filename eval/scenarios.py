@@ -210,6 +210,16 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-6: quant factor screener — cross-sectional, descriptive (depends on ingested store).
+        "name": "Quant factor screener (퀀트 스크리너)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "ROE가 높고 PER이 낮은 미국 종목을 스크리닝해줘.",
+        "criteria": ("저장된 데이터에서 ROE·PER 등 팩터로 종목을 필터·랭킹해 제시하거나, 데이터가 없으면 "
+                     "정직하게 밝힘. 횡단면 사실 위주이며 매수/매도 의견·전망은 없음."),
+        "checks": {"expect_connector": "datasets_store__quant_screen", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
         # CE-5: transparent valuation model (DCF) — user-input calculator, NOT a price target.
         "name": "Valuation model (DCF 내재가치)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},

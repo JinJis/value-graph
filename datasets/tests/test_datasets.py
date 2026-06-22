@@ -909,6 +909,53 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce6_quant_factor_screen_over_store():
+    # CE-6: compute factors from FinancialFact + PriceBar, then filter/rank.
+    from datetime import date as _date, timedelta
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import FinancialFact, PriceBar
+    from app.store.quant import compute_factors, run_quant_screen
+
+    init_db()
+    facts = {  # ticker → {line_item: value}
+        "ZQA": {"revenue": 1000.0, "net_income": 200.0, "shareholders_equity": 800.0,
+                "earnings_per_share": 4.0, "outstanding_shares": 50.0, "gross_profit": 600.0},
+        "ZQB": {"revenue": 500.0, "net_income": 10.0, "shareholders_equity": 1000.0,
+                "earnings_per_share": 0.2, "outstanding_shares": 50.0, "gross_profit": 100.0},
+    }
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.market == "ZQ"))
+        db.execute(delete(PriceBar).where(PriceBar.market == "ZQ"))
+        for tk, items in facts.items():
+            for li, val in items.items():
+                db.add(FinancialFact(market="ZQ", ticker=tk, statement="x", line_item=li, value=val,
+                                     currency="USD", period="annual", report_period=_date(2025, 1, 1),
+                                     accession_number="t", source="test"))
+        # price window: ZQA rose 100→120, ZQB fell 50→40
+        for tk, (p0, p1) in {"ZQA": (100.0, 120.0), "ZQB": (50.0, 40.0)}.items():
+            db.add(PriceBar(market="ZQ", ticker=tk, interval="day", bar_date=_date.today() - timedelta(days=200), close=p0, source="t"))
+            db.add(PriceBar(market="ZQ", ticker=tk, interval="day", bar_date=_date.today(), close=p1, source="t"))
+        db.commit()
+    try:
+        f = compute_factors("ZQ")["ZQA"]
+        assert abs(f["pe"] - 120.0 / 4.0) < 1e-6           # price/eps = 30
+        assert abs(f["market_cap"] - 120.0 * 50.0) < 1e-6  # 6000
+        assert abs(f["roe"] - 200.0 / 800.0) < 1e-6        # 0.25
+        assert abs(f["return_window"] - (120.0 / 100.0 - 1)) < 1e-6  # +20%
+        # screen: ROE > 20% → only ZQA; rank by roe desc
+        res = run_quant_screen([{"field": "roe", "operator": "gt", "value": 0.2}],
+                               sort="roe", order="desc", limit=10, market="ZQ")
+        assert [r["ticker"] for r in res["results"]] == ["ZQA"] and res["count"] == 1
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(FinancialFact).where(FinancialFact.market == "ZQ"))
+            db.execute(delete(PriceBar).where(PriceBar.market == "ZQ"))
+            db.commit()
+
+
 def test_ce5_valuation_models_math():
     # CE-5: transparent user-input calculators. Verify the arithmetic, not a forecast.
     from app.store import valuation as V
