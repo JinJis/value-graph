@@ -534,7 +534,7 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     - ⬜ **Sector heatmap (slice 2).** Needs sector membership (sector-ETF set or GICS map) → per-sector
       return grid. Deferred until a sourced sector-classification input is wired.
   *(KR realtime/flow/rankings come via the KIS connector; estimates/valuation-models intentionally excluded.)*
-- 🔭 **PH-VIZ · Professional trader charts + chart-as-evidence** — *(new; replaces the dependency-free SVG
+- ✅ **PH-VIZ · Professional trader charts + chart-as-evidence** *(all 6 slices done)* — *(replaces the dependency-free SVG
   artifact chart with a real trading chart engine, and makes the chart itself a sourced, annotatable
   artifact the agent can drive)*. **Engine choice:** [TradingView **Lightweight Charts**](https://github.com/tradingview/lightweight-charts)
   (Apache-2.0, ~45 KB, **client-side canvas — no data egress, no paid API, keys stay server-side**): real
@@ -578,8 +578,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     every chart mode (candle/line/overlay-only). They **persist with the Board pin**: the spec carries
     `user_annotations`, a new `POST /board/{id}/annotate` saves edits to an already-pinned chart, and
     `refresh_pin` carries the drawings across a live data refresh. +1 studio-api test (36→37); web build green.
-  - ⬜ **PH-VIZ-6 · Chart snapshot as exportable evidence** — render the annotated chart to a PNG (with the
-    source footer) so a chart can be cited/shared like any other source-preview card.
+  - ✅ **PH-VIZ-6 · Chart snapshot as exportable evidence.** A 📸 PNG button on `<TradeChart>` calls
+    Lightweight Charts' `takeScreenshot()` and composes it onto a self-describing canvas — a title header
+    + a sourced footer (`{source} · as of {as_of} · value-graph`) at the chart's pixel resolution (dpr-aware)
+    — then downloads it. The exported snapshot includes the user's drawings + agent annotations + indicator
+    overlays, so any chart can be cited/shared like a source-preview card. Web build green. *(in-app cite to
+    SourceViewer = follow-on.)*
 - 🔁 **PH-THINK · Transparent multi-agent reasoning + live thinking stream** — the chat turn now narrates
   its reasoning to the user in real time, replacing the bare "…".
   - ✅ **Live thinking stream.** A new SSE `thinking` event (phase: analyze · plan · fetch · found ·

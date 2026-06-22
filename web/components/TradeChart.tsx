@@ -54,6 +54,7 @@ export function TradeChart(
     userAnn?: ChartAnnotations | null; onDraw?: (next: ChartAnnotations | null) => void },
 ) {
   const box = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);   // PH-VIZ-6: for the PNG snapshot export
   const isCandle = (a.candles?.length ?? 0) > 0;
   const lineCount = a.series?.length ?? 0;
   const overlays = a.overlays ?? [];
@@ -318,12 +319,43 @@ export function TradeChart(
       chart.timeScale().fitContent();
     }
 
+    chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
     ro.observe(el);
-    return () => { ro.disconnect(); chart.remove(); };
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
   }, [a, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
 
   const hasDrawings = (userAnn?.lines?.length || 0) + (userAnn?.hlines?.length || 0) > 0;
+
+  // PH-VIZ-6: export the chart as a self-describing PNG — title header + a sourced footer
+  // (source · as_of · value-graph) so the snapshot can be cited/shared like any source card.
+  function exportPng() {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const shot = chart.takeScreenshot();   // canvas at the chart's pixel resolution
+    const dpr = Math.max(1, Math.round(shot.width / (box.current?.clientWidth || shot.width)));
+    const headH = 30 * dpr, footH = 26 * dpr, pad = 14 * dpr;
+    const out = document.createElement("canvas");
+    out.width = shot.width;
+    out.height = shot.height + headH + footH;
+    const ctx = out.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#0E0E10";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#E8E8EA";
+    ctx.font = `600 ${14 * dpr}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.fillText(a.title || "차트", pad, headH / 2 + 2 * dpr);
+    ctx.drawImage(shot, 0, headH);
+    ctx.fillStyle = "#86868C";
+    ctx.font = `${11 * dpr}px ui-sans-serif, system-ui, sans-serif`;
+    const foot = `${a.source || "출처"}${a.as_of ? ` · as of ${a.as_of}` : ""} · value-graph`;
+    ctx.fillText(foot, pad, headH + shot.height + footH / 2);
+    const link = document.createElement("a");
+    link.href = out.toDataURL("image/png");
+    link.download = `${(a.ticker || a.title || "chart").toString().replace(/\s+/g, "_")}.png`;
+    link.click();
+  }
 
   return (
     <div className="tradechart">
@@ -354,6 +386,9 @@ export function TradeChart(
               )}
             </>
           )}
+          {/* PH-VIZ-6: export the (annotated) chart as a sourced PNG */}
+          <span className="tc-sep" />
+          <button type="button" onClick={exportPng} title="차트를 출처 포함 PNG로 내보내기">📸 PNG</button>
         </div>
       </div>
       <div ref={box} className={`tc-canvas${drawMode ? " drawing" : ""}`} />
