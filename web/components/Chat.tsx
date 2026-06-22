@@ -161,7 +161,12 @@ export default function Chat({ name }: { name: string }) {
   async function loadAgents() {
     try {
       const r = await fetch("/api/agents");
-      if (r.ok) setAgents((await r.json()).agents ?? []);
+      if (!r.ok) return;
+      const list: Agent[] = (await r.json()).agents ?? [];
+      setAgents(list);
+      // land on the fully-loaded Gemini default agent (tpl_desk), not the bare/stub default
+      const def = list.find((x) => x.id === "tpl_desk") || list.find((x) => x.is_template);
+      if (def) setAgentId((prev) => prev || def.id);
     } catch {}
   }
   async function loadHandles() {
@@ -193,6 +198,28 @@ export default function Chat({ name }: { name: string }) {
   function pickHandle(h: string) {
     setInput((v) => v.replace(/@([^\s@]*)$/, `@${h} `));
     setMention([]);
+    inputRef.current?.focus();
+  }
+
+  // {tickers}/{ticker} placeholder fill — from a prompt-library import. Click a watchlist group
+  // or search a company; the chosen value replaces the first placeholder in the box.
+  const [tkQuery, setTkQuery] = useState("");
+  const [tkRes, setTkRes] = useState<{ ticker: string; name?: string; market?: string }[]>([]);
+  const hasPlaceholder = /\{tickers?\}/.test(input);
+  async function searchTicker(q: string) {
+    setTkQuery(q);
+    if (!q.trim()) { setTkRes([]); return; }
+    try {
+      const [us, kr] = await Promise.all([
+        fetch(`/api/company/search?q=${encodeURIComponent(q)}&market=US&limit=4`).then((r) => (r.ok ? r.json() : { results: [] })),
+        fetch(`/api/company/search?q=${encodeURIComponent(q)}&market=KR&limit=4`).then((r) => (r.ok ? r.json() : { results: [] })),
+      ]);
+      setTkRes([...(us.results || []), ...(kr.results || [])].slice(0, 8));
+    } catch { setTkRes([]); }
+  }
+  function fillPlaceholder(v: string) {
+    setInput((s) => s.replace(/\{tickers?\}/, v));
+    setTkQuery(""); setTkRes([]);
     inputRef.current?.focus();
   }
 
@@ -469,6 +496,20 @@ export default function Chat({ name }: { name: string }) {
             </main>
 
             <footer className="composer">
+              {hasPlaceholder && (
+                <div className="tickerfill">
+                  <span className="tf-label">⌗ 종목 채우기</span>
+                  {handles.slice(0, 6).map((h) => (
+                    <button key={h} type="button" className="tf-chip group" onClick={() => fillPlaceholder("@" + h)}>@{h}</button>
+                  ))}
+                  <input className="tf-search" value={tkQuery} placeholder="종목 검색 (예: 삼성, AAPL)…"
+                    onChange={(e) => searchTicker(e.target.value)} />
+                  {tkRes.map((r, i) => (
+                    <button key={`${r.ticker}${i}`} type="button" className="tf-chip" title={r.name}
+                      onClick={() => fillPlaceholder(r.ticker)}>{r.ticker} · {(r.name || "").slice(0, 12)}</button>
+                  ))}
+                </div>
+              )}
               {mention.length > 0 && (
                 <div className="mention">
                   {mention.map((h, i) => (

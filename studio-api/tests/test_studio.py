@@ -194,9 +194,10 @@ def test_agents_list_includes_templates(monkeypatch):
     _mock_control_plane()
     agents = client.get("/agents", headers=_hdr("ab@u.com")).json()["agents"]
     ids = {a["id"] for a in agents}
-    assert {"tpl_research", "tpl_filings", "tpl_market", "tpl_macro"} <= ids
-    tpl = next(a for a in agents if a["id"] == "tpl_research")
+    assert "tpl_desk" in ids   # the single fully-loaded default agent
+    tpl = next(a for a in agents if a["id"] == "tpl_desk")
     assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"]
+    assert tpl["model"] == "gemini"  # default is Gemini, never stub
 
 
 @respx.mock
@@ -233,10 +234,10 @@ def test_template_not_editable_or_deletable(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
     h = _hdr("t@u.com")
-    assert client.patch("/agents/tpl_research", headers=h, json={"name": "hijack"}).status_code == 404
-    assert client.delete("/agents/tpl_research", headers=h).status_code == 404
+    assert client.patch("/agents/tpl_desk", headers=h, json={"name": "hijack"}).status_code == 404
+    assert client.delete("/agents/tpl_desk", headers=h).status_code == 404
     # but it can be read (to clone)
-    assert client.get("/agents/tpl_research", headers=h).status_code == 200
+    assert client.get("/agents/tpl_desk", headers=h).status_code == 200
 
 
 @respx.mock
@@ -364,13 +365,13 @@ def test_chat_with_agent_sends_spec_and_records_agent(monkeypatch):
 
     email = "agentchat@u.com"
     r = client.post("/chat/stream", headers=_hdr(email),
-                    json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_filings"})
+                    json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_desk"})
     assert r.status_code == 200
     spec = captured["body"]["spec"]
-    assert spec["backend"] == "stub" and "sec_edgar" in spec["allowed_tools"]
+    assert spec["backend"] == "gemini" and "sec_edgar" in spec["allowed_tools"]  # default = Gemini
     # the conversation remembers which agent drove it
     conv = client.get("/conversations", headers=_hdr(email)).json()["conversations"][0]
-    assert conv["agent_id"] == "tpl_filings"
+    assert conv["agent_id"] == "tpl_desk"
 
 
 # --- F2: prompt library ---------------------------------------------------
