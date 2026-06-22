@@ -22,7 +22,7 @@ from typing import AsyncIterator
 
 from agentengine import guardrails
 from agentengine.agent import (
-    _artifacts, _citations, _NARRATIVE_GUIDE, analyze_task, anchor_markers,
+    _artifacts, _citations, _NARRATIVE_GUIDE, _NEWS_BRIEF_GUIDE, analyze_task, anchor_markers,
     build_narrative_artifact, call_sig, fallback_answer, filter_tools, has_anchors,
     number_sources, refine_evidence,
 )
@@ -95,6 +95,10 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     if intake.narrative:
         yield {"type": "thinking", "phase": "plan", "text": "종목 내러티브(관전 포인트)로 정리할게요…"}
         system = ((system or "") + _NARRATIVE_GUIDE).strip()
+    # CE-10: a news-briefing request → steer synthesis into a structured, sourced news narrative.
+    if intake.news_brief:
+        yield {"type": "thinking", "phase": "plan", "text": "최신 뉴스 브리핑으로 정리할게요…"}
+        system = ((system or "") + _NEWS_BRIEF_GUIDE).strip()
 
     planner = get_planner(bk)
     from agentengine.planner import resolve_ticker
@@ -344,7 +348,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
 
     # CE-4: parse the structured answer into a pinnable 종목 내러티브 card (deterministic split;
     # None when the answer wasn't sectioned, e.g. stub backend → no narrative card).
-    if intake.narrative and final_text:
+    if (intake.narrative or intake.news_brief) and final_text:
         tk = next((c.get("ticker") for c in citations if c.get("ticker")),
                   next((o.ticker for o in art_objs if getattr(o, "ticker", None)), None))
         na = build_narrative_artifact(final_text, tk)

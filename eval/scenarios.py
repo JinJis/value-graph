@@ -210,6 +210,16 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-10: news briefing / real-time narrative over the news ingestion.
+        "name": "News brief (실시간 내러티브)",
+        "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
+        "question": "엔비디아 관련 최근 뉴스 흐름을 브리핑해줘.",
+        "criteria": ("핵심 흐름·주요 헤드라인(발행사·날짜)·맥락을 최근 뉴스 기반 사실로 정리하고 각 항목을 [n]으로 "
+                     "인용. 전망/목표가/매수의견 없이 현황·맥락만."),
+        "checks": {"expect_connector": "google_news__news", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
         # CE-9: macro country panel — latest key indicators + change, sourced to DBnomics.
         "name": "Macro country panel (거시 패널)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fred"]},

@@ -99,6 +99,9 @@ class TaskIntake:
     # CE-4 NARRATIVE: the user wants a holistic STORY / 관전 포인트 for a specific company →
     # gather across facets and synthesize a structured, sourced narrative (+ a narrative card).
     narrative: bool = False
+    # CE-10 NEWS BRIEF: the user wants a news briefing / market pulse (시황·무슨 일·뉴스 정리) →
+    # gather recent news and synthesize a structured, sourced news narrative.
+    news_brief: bool = False
 
 
 _INTAKE_PROMPT = (
@@ -134,7 +137,10 @@ _INTAKE_PROMPT = (
     "포인트 / overview of a SPECIFIC company (e.g. '엔비디아 관전 포인트', '테슬라 스토리 알려줘', "
     "'tell me the story of Apple', '이 종목 정리해줘'). Then do NOT clarify — gather across the company's "
     "business, recent financials, valuation, recent filings and news, and set steps ≈ 8-12. For a single "
-    "narrow fact (e.g. '엔비디아 매출') leave narrative=false.\n\n"
+    "narrow fact (e.g. '엔비디아 매출') leave narrative=false.\n"
+    "NEWS BRIEF — set news_brief=true when the user wants a NEWS briefing / market pulse / 시황 / 뉴스 "
+    "정리 / '무슨 일이야' / what's happening (a company's news flow, or the market's). Then gather RECENT "
+    "NEWS (and related context) and do NOT clarify.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
@@ -146,6 +152,7 @@ _INTAKE_PROMPT = (
     '"options": [{{"label": "<short choice>", "description": "<one line>"}}],  '
     '"subtasks": [{{"title": "<short facet name, SAME LANGUAGE>", "question": "<self-contained sub-question>"}}],  '
     '"narrative": <bool — true for a holistic company story / 관전 포인트 request>, '
+    '"news_brief": <bool — true for a news briefing / 시황 / 뉴스 정리 request>, '
     '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
@@ -175,6 +182,7 @@ _INTAKE_SCHEMA = {
         "subtasks": {"type": "array", "items": {"type": "object", "properties": {
             "title": {"type": "string"}, "question": {"type": "string"}}, "required": ["title", "question"]}},
         "narrative": {"type": "boolean"},
+        "news_brief": {"type": "boolean"},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -239,7 +247,8 @@ async def analyze_task(task: str, backend: str | None = None, conversation: list
         # CE-4: a holistic company-story request → narrative synthesis (and never a clarify prompt;
         # we already know the intent). Requires data + not restricted.
         narrative = bool(d.get("narrative")) and needs_data and not restricted
-        clarify = bool(d.get("clarify")) and not restricted and not narrative and len(opts) >= 2
+        news_brief = bool(d.get("news_brief")) and needs_data and not restricted
+        clarify = bool(d.get("clarify")) and not restricted and not narrative and not news_brief and len(opts) >= 2
         # decompose only for a clear, complex request (not restricted/clarify/conceptual) with ≥2 facets.
         subs = []
         for s in (d.get("subtasks") or []):
@@ -258,6 +267,7 @@ async def analyze_task(task: str, backend: str | None = None, conversation: list
             multi=bool(d.get("multi")),
             subtasks=subtasks,
             narrative=narrative,
+            news_brief=news_brief,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)
@@ -434,6 +444,15 @@ _NARRATIVE_GUIDE = (
 
 # section headings the guide asks for (used to title the parsed narrative artifact)
 _NARRATIVE_HEADINGS = ("사업 개요", "최근 실적·재무", "밸류에이션", "최근 이슈", "관전 포인트")
+
+# CE-10: appended for a news-briefing request → a structured, sourced news narrative.
+_NEWS_BRIEF_GUIDE = (
+    "\n\n[뉴스 브리핑 형식] 이 답변은 최신 뉴스 브리핑입니다. 아래 제목으로, 순서대로 작성하세요:\n"
+    "## 핵심 흐름\n## 주요 헤드라인\n## 맥락·배경\n## 지켜볼 점\n"
+    "수집한 뉴스에서 사실만 가져와 각 항목 끝에 [n]으로 발행사·날짜와 함께 인용하세요. '주요 헤드라인'은 "
+    "최근 3-6개를 발행사와 함께 bullet로. '지켜볼 점'은 앞으로 모니터링할 사안을 서술형으로만 적고, 가격 "
+    "예측·목표가·매수/매도 의견은 절대 넣지 마세요."
+)
 
 
 def build_narrative_artifact(text: str, ticker: str | None = None) -> Artifact | None:

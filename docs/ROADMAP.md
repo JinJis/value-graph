@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 336 unit** — datasets 138 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 116 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 337 unit** — datasets 138 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 117 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -471,7 +471,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   best-effort; failed series dropped, never faked), grouped. agent-engine renders a sourced panel table.
   +2 tests (datasets 1, agent 1), +1 eval. *(no new upstream; cycle/regime composites deferred — they
   verge on interpretation, kept to descriptive change.)*
-- ⬜ **CE-10 · 실시간 내러티브.** LLM narrative over the existing news ingestion. 🔵
+- ✅ **CE-10 · 실시간 내러티브.** Two parts over the existing news ingestion: (1) a deterministic **news
+  digest artifact** — `google_news__news` results → a sourced, pinnable table (헤드라인·발행사·날짜);
+  (2) an intake **`news_brief`** flag + `_NEWS_BRIEF_GUIDE` → for a 시황/뉴스 브리핑 request the agent
+  gathers recent news and synthesizes a **structured, sourced news narrative** (핵심 흐름·주요 헤드라인·
+  맥락·지켜볼 점, each cited; descriptive — no forecast/advice), parsed into a pinnable narrative card.
+  +1 agent test (digest table), +1 eval. *(no new upstream; reuses CE-4 narrative wiring.)*
 
 **Wave 2 — new upstreams** *(build start ON HOLD per user; CE-11 upstream + estimates policy CONFIRMED — DATA_EXPANSION §E)*:
 - ⬜ **CE-11 · 시장 movers · 실적/경제 캘린더 · 컨센서스 추정치** via **FMP** (confirmed; platform key).

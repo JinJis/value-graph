@@ -1603,6 +1603,18 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_news_digest_table():
+    # CE-10: recent news → a sourced, pinnable digest table.
+    tool = {"name": "google_news__news", "source": "Google News"}
+    result = {"data": {"news": [
+        {"title": "엔비디아, AI 데이터센터 수요 급증", "source": "Reuters", "date": "2026-06-20", "ticker": "NVDA"},
+        {"title": "반도체 업황 회복 신호", "source": "연합뉴스", "date": "2026-06-19", "ticker": "NVDA"}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "뉴스 다이제스트" in a.title and a.ticker == "NVDA"
+    assert a.table[0] == ["헤드라인", "발행사", "날짜"]
+    assert a.table[1][1] == "Reuters" and a.table[1][2] == "2026-06-20"
+
+
 def test_artifacts_macro_panel_table():
     # CE-9: 국가경제 패널 → a sourced table (지표·최신·변화·그룹).
     tool = {"name": "fred__macro_panel", "source": "DBnomics"}

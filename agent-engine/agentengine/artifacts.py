@@ -120,6 +120,19 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__news") and isinstance(data.get("news"), list) and data["news"]:
+        # CE-10: recent news → a sourced, pinnable digest table (headline · publisher · date).
+        rows = [["헤드라인", "발행사", "날짜"]]
+        for a in data["news"][:12]:
+            if not isinstance(a, dict) or not a.get("title"):
+                continue
+            rows.append([str(a.get("title"))[:120], str(a.get("source") or "")[:40], str(a.get("date") or "")[:10]])
+        if len(rows) > 1:
+            tk = (data["news"][0] or {}).get("ticker")
+            out.append(Artifact(kind="table", title=f"{tk + ' ' if tk else ''}뉴스 다이제스트".strip(),
+                                table=rows, source="Google News", as_of=(data["news"][0] or {}).get("date"),
+                                tool=name, ticker=tk))
+
     if name.endswith("__macro_panel") and isinstance(data.get("indicators"), list):
         # CE-9: 국가경제 패널 → a sourced table (지표·최신값·변화·그룹).
         def _v(v, unit):
