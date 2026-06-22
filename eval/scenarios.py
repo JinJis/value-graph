@@ -200,6 +200,16 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-4: holistic company narrative (관전 포인트) — structured, sourced, descriptive only.
+        "name": "Stock narrative (종목 내러티브 / 관전 포인트)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플(AAPL) 관전 포인트를 정리해줘. 전망·매수의견은 빼고.",
+        "criteria": ("사업 개요·최근 실적/재무·밸류에이션·최근 이슈·관전 포인트를 출처(Yahoo/SEC EDGAR/뉴스) "
+                     "기반 사실로 섹션화해 제시하고 구체적 수치는 [n]으로 인용. '관전 포인트'는 모니터링 항목만 "
+                     "서술하고 가격 예측·목표가·매수/매도 의견은 없음. 거절하지 않음."),
+        "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "News → Google News",
         "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
         "question": "엔비디아(NVDA) 관련 최근 뉴스를 알려줘.",

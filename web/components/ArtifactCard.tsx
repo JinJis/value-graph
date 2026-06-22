@@ -47,6 +47,7 @@ export type Artifact = {
   user_annotations?: ChartAnnotations | null;  // PH-VIZ-5: the user's own drawings (persisted on pin)
   overlays?: ChartOverlay[];   // PH-VIZ-4: technical indicators (price-pane + sub-panes)
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
+  sections?: { heading: string; body: string }[];  // kind=narrative (CE-4): 종목 내러티브 sections
   source?: string | null;
   as_of?: string | null;
   freshness?: string | null;
@@ -94,6 +95,42 @@ function TableArtifact(
           {a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}
           <span className="kpi-evlabel"> · 각 수치는 공시 원문에 인용</span>
         </span>
+      </div>
+    </div>
+  );
+}
+
+// CE-4: a 종목 내러티브 (관전 포인트) card — structured, sourced sections. Pinnable like other cards.
+function NarrativeArtifact(
+  { a, onPin, onRemove }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void },
+) {
+  const [pinned, setPinned] = useState(false);
+  const secs = a.sections ?? [];
+  if (secs.length === 0) return null;
+  return (
+    <div className="artifact narrative-card">
+      <div className="artifact-head">
+        <span className="artifact-title">{a.title}</span>
+        <FreshnessDot f={a.freshness ?? undefined} />
+        <span className="grow" />
+        {onPin && (
+          <button type="button" className="artifact-toggle" disabled={pinned}
+            onClick={() => { onPin(a); setPinned(true); }}>{pinned ? "📌 핀됨" : "📌 핀"}</button>
+        )}
+        {onRemove && (
+          <button type="button" className="artifact-toggle" onClick={onRemove} title="보드에서 제거">✕</button>
+        )}
+      </div>
+      <div className="narrative-body">
+        {secs.map((s, i) => (
+          <div key={i} className="narrative-sec">
+            <div className="narrative-h">{s.heading}</div>
+            <p className="narrative-p">{s.body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="artifact-foot">
+        <span className="artifact-src">출처는 답변의 [n] 인용을 따릅니다 · 전망·매수의견 없음</span>
       </div>
     </div>
   );
@@ -222,6 +259,10 @@ export function ArtifactCard(
     return () => { cancel = true; };
   }, [ticker, a.tool, a.args]);
 
+  // CE-4: a narrative artifact carries structured sections instead of a chart/table.
+  if (a.kind === "narrative" && (a.sections?.length ?? 0) > 0) {
+    return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} />;
+  }
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;

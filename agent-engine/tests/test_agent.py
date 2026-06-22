@@ -532,6 +532,26 @@ def test_artifacts_from_guru_common_table():
     assert "Warren Buffett" in a.table[1][2]
 
 
+def test_build_narrative_artifact_splits_sections():
+    # CE-4: a structured markdown answer → a narrative artifact with one section per ## heading.
+    text = (
+        "## 사업 개요\nApple은 아이폰 중심의 하드웨어 기업이다 [1].\n\n"
+        "## 최근 실적·재무\n매출 391B달러 [2].\n\n"
+        "## 관전 포인트\n서비스 매출 비중과 중국 수요를 지켜볼 만하다."
+    )
+    a = A.build_narrative_artifact(text, "AAPL")
+    assert a is not None and a.kind == "narrative" and a.ticker == "AAPL"
+    assert a.title == "AAPL 종목 내러티브" and a.tool == "narrative"
+    assert [s.heading for s in a.sections] == ["사업 개요", "최근 실적·재무", "관전 포인트"]
+    assert "391B" in a.sections[1].body and "[1]" in a.sections[0].body
+
+
+def test_build_narrative_artifact_none_when_unstructured():
+    # plain prose (e.g. the stub backend, no headings) → no narrative card, never fabricated.
+    assert A.build_narrative_artifact("그냥 평범한 한 문단짜리 답변입니다. 섹션이 없어요.") is None
+    assert A.build_narrative_artifact("## 사업 개요\n한 섹션뿐.") is None  # needs ≥2 sections
+
+
 def test_artifacts_none_for_unchartable_result():
     assert A._artifacts({"name": "sec_edgar__filings", "source": "SEC EDGAR"}, {"data": {"filings": []}}) == []
 

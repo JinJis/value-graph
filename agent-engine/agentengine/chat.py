@@ -22,8 +22,9 @@ from typing import AsyncIterator
 
 from agentengine import guardrails
 from agentengine.agent import (
-    _artifacts, _citations, analyze_task, anchor_markers, call_sig, fallback_answer,
-    filter_tools, has_anchors, number_sources, refine_evidence,
+    _artifacts, _citations, _NARRATIVE_GUIDE, analyze_task, anchor_markers,
+    build_narrative_artifact, call_sig, fallback_answer, filter_tools, has_anchors,
+    number_sources, refine_evidence,
 )
 from agentengine.client import PlatformClient
 from agentengine.config import settings
@@ -86,6 +87,12 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "thinking", "phase": "plan", "text": f"계획: {plan}"}
         # the plan guides tool selection + synthesis (quality), without hardcoding logic.
         system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
+
+    # CE-4: a holistic company-story request → steer the synthesis into a structured, sourced
+    # 종목 내러티브 (the gather stays the normal multi-tool flow; we parse a narrative card after).
+    if intake.narrative:
+        yield {"type": "thinking", "phase": "plan", "text": "종목 내러티브(관전 포인트)로 정리할게요…"}
+        system = ((system or "") + _NARRATIVE_GUIDE).strip()
 
     planner = get_planner(bk)
     from agentengine.planner import resolve_ticker
@@ -332,6 +339,18 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # validated to historical points only (no projection). Gemini-only; best-effort.
     from agentengine.annotations import annotate_charts
     await annotate_charts(art_objs, task, settings.model, spec.backend if spec else settings.llm_backend)
+
+    # CE-4: parse the structured answer into a pinnable 종목 내러티브 card (deterministic split;
+    # None when the answer wasn't sectioned, e.g. stub backend → no narrative card).
+    if intake.narrative and final_text:
+        tk = next((c.get("ticker") for c in citations if c.get("ticker")),
+                  next((o.ticker for o in art_objs if getattr(o, "ticker", None)), None))
+        na = build_narrative_artifact(final_text, tk)
+        if na and na.title not in seen_artifacts:
+            seen_artifacts.add(na.title)
+            art_objs.append(na)
+            yield {"type": "artifact", "artifact": na.model_dump()}
+
     if art_objs:
         artifacts = [o.model_dump() for o in art_objs]
 

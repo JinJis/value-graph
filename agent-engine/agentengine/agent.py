@@ -96,6 +96,9 @@ class TaskIntake:
     # A2A DECOMPOSITION: for a complex, multi-facet request, the orchestrator splits it into
     # 2-4 focused sub-tasks researched by parallel sub-agents, then combined. Empty = single agent.
     subtasks: list = field(default_factory=list)  # [{"title": str, "question": str}]
+    # CE-4 NARRATIVE: the user wants a holistic STORY / 관전 포인트 for a specific company →
+    # gather across facets and synthesize a structured, sourced narrative (+ a narrative card).
+    narrative: bool = False
 
 
 _INTAKE_PROMPT = (
@@ -126,7 +129,12 @@ _INTAKE_PROMPT = (
     "'엔비디아 매출').\n"
     "DECOMPOSE — set subtasks ONLY when the user EXPLICITLY asks for a comprehensive / all-in-one analysis "
     "(e.g. '종합적으로 분석', '전반적으로', 'comprehensive', '다 분석해줘') → 2-4 focused "
-    "{{\"title\", \"question\"}} sub-tasks researched in PARALLEL. Otherwise leave subtasks empty.\n\n"
+    "{{\"title\", \"question\"}} sub-tasks researched in PARALLEL. Otherwise leave subtasks empty.\n"
+    "NARRATIVE — set narrative=true when the user wants a holistic STORY / 관전 포인트 / 내러티브 / 투자 "
+    "포인트 / overview of a SPECIFIC company (e.g. '엔비디아 관전 포인트', '테슬라 스토리 알려줘', "
+    "'tell me the story of Apple', '이 종목 정리해줘'). Then do NOT clarify — gather across the company's "
+    "business, recent financials, valuation, recent filings and news, and set steps ≈ 8-12. For a single "
+    "narrow fact (e.g. '엔비디아 매출') leave narrative=false.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
@@ -137,6 +145,7 @@ _INTAKE_PROMPT = (
     '"multi": <bool — may several options be combined>, '
     '"options": [{{"label": "<short choice>", "description": "<one line>"}}],  '
     '"subtasks": [{{"title": "<short facet name, SAME LANGUAGE>", "question": "<self-contained sub-question>"}}],  '
+    '"narrative": <bool — true for a holistic company story / 관전 포인트 request>, '
     '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
@@ -160,6 +169,7 @@ _INTAKE_SCHEMA = {
             "label": {"type": "string"}, "description": {"type": "string"}}, "required": ["label"]}},
         "subtasks": {"type": "array", "items": {"type": "object", "properties": {
             "title": {"type": "string"}, "question": {"type": "string"}}, "required": ["title", "question"]}},
+        "narrative": {"type": "boolean"},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -207,7 +217,10 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
             if isinstance(o, dict) and o.get("label"):
                 opts.append({"label": str(o["label"])[:80],
                              "description": (str(o.get("description") or "").strip()[:160] or None)})
-        clarify = bool(d.get("clarify")) and not restricted and len(opts) >= 2
+        # CE-4: a holistic company-story request → narrative synthesis (and never a clarify prompt;
+        # we already know the intent). Requires data + not restricted.
+        narrative = bool(d.get("narrative")) and needs_data and not restricted
+        clarify = bool(d.get("clarify")) and not restricted and not narrative and len(opts) >= 2
         # decompose only for a clear, complex request (not restricted/clarify/conceptual) with ≥2 facets.
         subs = []
         for s in (d.get("subtasks") or []):
@@ -225,6 +238,7 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
             options=(opts if clarify else []),
             multi=bool(d.get("multi")),
             subtasks=subtasks,
+            narrative=narrative,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)
@@ -387,6 +401,44 @@ def number_sources(cites) -> str:
             bits.append(str(get("as_of")))
         lines.append(" · ".join(bits))
     return "\n".join(lines)
+
+
+# CE-4: appended to the system prompt for a holistic company-story request, so the synthesis
+# produces a structured, sourced 종목 내러티브 (parsed into a narrative artifact afterwards).
+_NARRATIVE_GUIDE = (
+    "\n\n[종목 내러티브 형식] 이 답변은 한 종목의 '관전 포인트' 내러티브입니다. 아래 다섯 섹션을 정확히 이 "
+    "마크다운 제목으로, 순서대로 작성하세요 (각 섹션 2-4문장):\n"
+    "## 사업 개요\n## 최근 실적·재무\n## 밸류에이션\n## 최근 이슈 (뉴스·공시)\n## 관전 포인트\n"
+    "모든 구체적 수치·사실은 수집한 출처에서 가져와 문장 끝에 [n]으로 인용하세요. '관전 포인트'는 앞으로 "
+    "지켜볼 모니터링 항목을 서술형으로만 적고, 가격 예측·목표가·매수/매도 의견은 절대 넣지 마세요."
+)
+
+# section headings the guide asks for (used to title the parsed narrative artifact)
+_NARRATIVE_HEADINGS = ("사업 개요", "최근 실적·재무", "밸류에이션", "최근 이슈", "관전 포인트")
+
+
+def build_narrative_artifact(text: str, ticker: str | None = None) -> Artifact | None:
+    """CE-4: split the synthesized markdown answer into the 종목 내러티브 sections (## heading →
+    body) → a pinnable narrative card. Deterministic (presentation, not reasoning); returns None
+    when the answer isn't structured into ≥2 sections (e.g. the stub backend)."""
+    from agentengine.models import NarrativeSection
+
+    sections: list[NarrativeSection] = []
+    heading, body = None, []
+    for line in (text or "").splitlines():
+        m = re.match(r"^\s{0,3}#{1,3}\s+(.*\S)\s*$", line)
+        if m:
+            if heading and body and "".join(body).strip():
+                sections.append(NarrativeSection(heading=heading, body="\n".join(body).strip()))
+            heading, body = m.group(1).strip().lstrip("#").strip(), []
+        elif heading is not None:
+            body.append(line)
+    if heading and body and "".join(body).strip():
+        sections.append(NarrativeSection(heading=heading, body="\n".join(body).strip()))
+    if len(sections) < 2:
+        return None
+    title = f"{ticker} 종목 내러티브" if ticker else "종목 내러티브 (관전 포인트)"
+    return Artifact(kind="narrative", title=title, sections=sections, ticker=ticker, tool="narrative")
 
 
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:

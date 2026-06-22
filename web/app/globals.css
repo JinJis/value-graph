@@ -525,6 +525,13 @@ select.input { appearance: none; }
 .kpi-card .artifact-head .grow { flex: 1; }
 .kpi-table th, .kpi-table td { text-align: left; }
 .kpi-table td.mono, .kpi-table th.mono { text-align: right; }
+
+/* CE-4: 종목 내러티브 (관전 포인트) card */
+.narrative-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 6px; }
+.narrative-sec { display: flex; flex-direction: column; gap: 3px; }
+.narrative-h { font-size: 12.5px; font-weight: 600; color: var(--text);
+  border-left: 2px solid var(--ink); padding-left: 8px; }
+.narrative-p { margin: 0; padding-left: 10px; font-size: 13px; line-height: 1.6; color: var(--muted); white-space: pre-wrap; }
 .kpi-evlabel { color: var(--muted); }
 .kpi-evidence { display: flex; flex-direction: column; gap: 8px; }
 .kpi-ev-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }

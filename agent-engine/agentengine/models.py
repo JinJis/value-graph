@@ -201,11 +201,19 @@ class ChartOverlay(BaseModel):
     source: str | None = None
 
 
+class NarrativeSection(BaseModel):
+    """CE-4: one section of a 종목 내러티브 (관전 포인트) — a heading + sourced prose. Built from
+    the synthesized answer's markdown; each body keeps its inline [n] anchors to the citations."""
+
+    heading: str
+    body: str
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
     it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
 
-    kind: str                    # timeseries | candlestick | compare | table | kpi
+    kind: str                    # timeseries | candlestick | compare | table | kpi | narrative
     title: str
     series: list[ArtifactSeries] = []
     # for kind=candlestick (prices): real OHLCV bars rendered as candles + a volume pane.
@@ -225,6 +233,8 @@ class Artifact(BaseModel):
     # for kind in {table, kpi}: a header-first matrix (e.g. [["지표","값","기간"], …]).
     # each data row is sourced via the matching Citation → /evidence (PH-DATA-5).
     table: list[list[str]] | None = None
+    # for kind=narrative (CE-4): the structured 종목 내러티브 sections (heading + sourced body).
+    sections: list[NarrativeSection] = []
     source: str | None = None
     as_of: str | None = None
     freshness: str | None = None

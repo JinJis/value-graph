@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 317 unit** — datasets 131 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 108 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 319 unit** — datasets 131 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> semantic) · agent-engine 110 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -379,7 +379,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   curated gurus (best-effort, failed filers dropped) ranked by holder count. Catalog/MCP/agent wired;
   agent-engine renders both as sourced **table artifacts** (거장 매매내역 / 거장 공통 보유종목, $B/$M
   abbreviation). +5 tests (datasets +3, agent +2), +2 eval scenarios. *(no new upstream — SEC keyless)*
-- ⬜ **CE-4 · 종목 내러티브 / 관전 포인트.** Gemini synthesis over a stock's facts+filings+news (RAG). 🔵
+- ✅ **CE-4 · 종목 내러티브 / 관전 포인트.** Agent-engine capability (no new datasets endpoint — respects
+  per-connector entitlement; synthesis stays in Gemini). Intake (LLM) gains a `narrative` flag → for a
+  holistic company-story request it skips clarify, gathers across the company's facts/financials/
+  valuation/filings/news via the normal entitled tool flow, and synthesizes a **structured, sourced**
+  내러티브 in five sections (사업 개요·최근 실적·재무·밸류에이션·최근 이슈·관전 포인트), each claim cited [n];
+  '관전 포인트' is descriptive monitoring only (guardrail: no forecast/target). `build_narrative_artifact`
+  deterministically splits the answer into a pinnable **narrative artifact** (web `NarrativeArtifact`
+  card). +2 agent tests, +1 eval scenario. *(no new upstream)*
 - ⬜ **CE-5 · 밸류에이션 모델 (DCF/DDM/RIM/Reverse/Simplified).** Transparent model engine over financials +
   user inputs — labeled as models, not price targets (guardrail-safe). 🔵
 - ⬜ **CE-6 · 퀀트 탐색 + 스크리너 확장.** Factor compute over FinancialFact+PriceBar; expand screener to
