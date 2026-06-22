@@ -63,9 +63,6 @@ class Settings(BaseSettings):
     # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
     # registry's default set (financials, prices, corp_actions, news).
     scheduler_pipelines: str = "financials,prices,corp_actions,news"
-    # Legacy single-pipeline flags (kept for back-compat; the pipeline set above supersedes).
-    scheduler_deep: bool = False
-    scheduler_news: bool = False
 
     # --- RAG news-ingestion pipeline (PH-2b) ------------------------------
     # The RAG service the news pipeline indexes into.
