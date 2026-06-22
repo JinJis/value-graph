@@ -38,19 +38,49 @@ before being asked**. Three pillars carry the whole plan:
 **Sequencing logic.** The plumbing works, but it's hollow and reads robotic, and it isn't operable. So
 the order is:
 
-1. **Phase 1 — Platform Hardening & Quality (PH).** Make the data *real*, the answers *human*, the system
-   *operable*. Everything visual is hollow until this is done. **← current top priority.**
-2. **Phase 2 — Research-desk UX (U2–U5, U0).** Convert "a chatbot with a data-source picker" into the
-   research desk of `UX_SPEC.md`. Each milestone depends on PH trust/data being solid.
+1. **Phase 0 — Content & Data Expansion (CE).** ✅ foundation is real/human/operable, so now **keep adding
+   investment/finance/economics content** (the 8 feature categories) on top — every feature cited, with
+   live provenance/evidence. **← current top priority.** See `DATA_EXPANSION.md`.
+2. **Phase 1 — Platform Hardening & Quality (PH).** ✅ shipped — data made real, answers human, system
+   operable (multi-agent reasoning, charts, provenance, pipelines, ops console).
+3. **Phase 2 — Research-desk UX (U2–U5, U0).** Convert "a chatbot with a data-source picker" into the
+   research desk of `UX_SPEC.md`. (Much delivered; standing analysts/push/community remain.)
 
 Within a phase, follow the tier/dependency order given. The foundation milestones (**U1 watchlists**,
 **U-SHELL desk shell**) are already done — Phase 2 builds on them.
 
 ---
 
-## 1. What's built ✅
+## 1. What's built ✅ — shipped summary
 
-### Data plane (`datasets/`, pkg `app`)
+> The platform foundation is **done and operable**. Condensed below; the detailed per-task archive
+> follows (kept for reference). **Active work is now §2 → the CE phase (top of the plan).**
+
+**Shipped phases (all ✅):**
+- **Data plane** — US+KR fundamentals/filings/prices/macro/news/earnings/insider/13F/ETF-holdings;
+  point-in-time store + screener; company search; **PH-PIPE** pipeline registry + multi-pipeline
+  scheduler + `PriceBar`/`CorporateAction` stores + dynamic universes (S&P500/KOSPI/KOSDAQ via SEC/
+  pykrx→OpenDART fallback); WAL concurrency fix.
+- **Platform core** — connector manifest/`/catalog` (single source) · control-plane gateway (tenancy/
+  keys/entitlement/meter) · MCP · RAG (provenance-first) · agent-engine · unified docker compose.
+- **Provenance/evidence (PH-PROV)** — every structured figure → highlighted filing screenshot +
+  "원문 열기" real PDF; filing/news text → RAG with passage evidence; data-card evidence for non-docs.
+- **Answer quality (PH-3/4/13/14/15/THINK)** — inline `[n]` citations + source-preview cards; LLM
+  guardrail folded into the intake (no regex); multi-step planner; **multi-agent orchestration**
+  (intake → clarify-with-options → conceptual route → A2A decompose → **parallel** gather → verify +
+  per-source confidence → **rich responder that mixes evidence + analysis**); **real token streaming**;
+  deep follow-up suggestions; model tiering (flash-lite intake · flash routing · **pro synthesis**).
+- **Charts (PH-VIZ 1–6)** — TradingView Lightweight engine; sourced event markers; Gemini annotations;
+  technical overlays; user drawing tools + pinnable; PNG export; full-history load + OHLCV/financials
+  tables with 더보기; KR names + abbreviated big numbers.
+- **Product/UX** — chat UI (Claude-like centered column, our gray+indigo palette) with **session
+  history/resume**, inline sources, pinning, watchlists/@groups, prompt library (27 prompts), the
+  fully-loaded **Gemini default agent**; admin ops console (catalog/pipelines/data/users/DB + operator-
+  controlled refresh); KPI desk; macro DBnomics.
+
+---
+
+### (archive) Data plane (`datasets/`, pkg `app`)
 - ✅ US+KR financial API: company facts, prices + snapshot, 3 financial statements (+combined), filings,
   macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer-mode), ETF/fund holdings (US N-PORT).
 - ✅ Point-in-time / restatement-aware ingestion store (SQLite/Postgres); screener + line-item search.
@@ -301,7 +331,52 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 
 ## 2. The plan
 
-### Phase 1 · Platform Hardening & Quality (PH) — 🔴 CURRENT TOP PRIORITY
+### Phase 0 · Content & Data Expansion (CE) — 🔴 CURRENT TOP PRIORITY *(new, 2026-06-22)*
+
+> Keep adding investment/finance/economics **content** on the working platform — every feature
+> answerable from licensed, point-in-time, **cited** data, combined by the multi-agent layer, with
+> **live provenance + evidence**. Full research + feature→data→API map + the policy on estimates/
+> guardrail is in **[`DATA_EXPANSION.md`](./DATA_EXPANSION.md)** — read it before any CE task.
+>
+> **Strategy:** maximize EXISTING free upstreams first (Wave 1 — no new API, fully sourced), then the
+> **confirmed** new upstreams (Wave 2 — see Open Questions in DATA_EXPANSION §E; do NOT integrate a new
+> upstream until the user confirms its spec/coverage). Each CE task = new connector + manifest entry (or
+> store + compute) · unit tests · an eval scenario · agent tool-use · provenance/evidence wired · docs +
+> roadmap updated (DoD §7). One task per PR; verify each end-to-end before the next.
+
+- ⬜ **CE-0 · Broad backfill foundation.** Run PH-PIPE pipelines to depth so `PriceBar` + `FinancialFact`
+  cover the screenable universe (dynamic S&P500/KOSPI/KOSDAQ) — prerequisite for screener/quant/backtest/
+  heatmap. *(no new upstream)*
+
+**Wave 1 — existing/free data, new compute (fully cited, fastest):**
+- ⬜ **CE-1 · 자산군 (cross-asset).** Curated index/bond/commodity/FX/crypto proxy tickers (yahoo) → market
+  dashboard + asset-class view. 🔵
+- ⬜ **CE-2 · 섹터 히트맵 (US).** Sector-ETF set → per-sector return heatmap (descriptive, sourced). 🔵
+  *(KR sector indices = Wave 2, needs KRX/KIS.)*
+- ⬜ **CE-3 · 거장 매매 + 공통 보유종목.** 13F quarter deltas (new/added/trimmed/exited) + cross-guru
+  intersection over existing `gurus`/13F. 🔵
+- ⬜ **CE-4 · 종목 내러티브 / 관전 포인트.** Gemini synthesis over a stock's facts+filings+news (RAG). 🔵
+- ⬜ **CE-5 · 밸류에이션 모델 (DCF/DDM/RIM/Reverse/Simplified).** Transparent model engine over financials +
+  user inputs — labeled as models, not price targets (guardrail-safe). 🔵
+- ⬜ **CE-6 · 퀀트 탐색 + 스크리너 확장.** Factor compute over FinancialFact+PriceBar; expand screener to
+  price/technical/factor criteria. 🔵
+- ⬜ **CE-7 · 백테스터.** Portfolio backtest over PriceBar — descriptive performance, no advice. 🔵
+- ⬜ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model + analytics over PriceBar. 🔵
+- ⬜ **CE-9 · 거시 확장.** Broaden FRED/DBnomics indicator catalog + component grouping (하위요인) + cycle
+  composites (사이클) + indicator browse (열람) + country panels (국가경제). 🟡
+- ⬜ **CE-10 · 실시간 내러티브.** LLM narrative over the existing news ingestion. 🔵
+
+**Wave 2 — new upstreams (BLOCKED on user confirmation — DATA_EXPANSION §E):**
+- ⬜ **CE-11 · 시장 movers · 실적/경제 캘린더 · 컨센서스 추정치** via the confirmed provider (FMP/Finnhub).
+  Covers 금융시장 동향(movers), 실적 및 전망, 실적 발표 일정, 경제지표 일정. 🔴❓
+- ⬜ **CE-12 · KR 실시간·플로우·랭킹·ETF NAV** via KIS (= KIS-* tasks). KR movers/flows/realtime/sector. 🔴
+- ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
+- ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
+  filings, labeled "derived"). 🔴❓
+
+---
+
+### Phase 1 · Platform Hardening & Quality (PH) — ✅ shipped *(see §1 summary; detail archived below)*
 
 > Pulled ahead of UX (2026-06-14, after a full audit). Three things undermine the working plumbing:
 > **(1) answers read like a machine** (raw tool ids, canned disclaimer, ugly citations); **(2) the data
