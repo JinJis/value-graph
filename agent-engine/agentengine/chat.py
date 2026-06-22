@@ -125,7 +125,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         if refined or not citations:
             return None
         refined = True
-        note, scores = await refine_evidence(task, citations, settings.model, bk)
+        note, scores = await refine_evidence(task, citations, settings.reasoning_model, bk)
         if note:
             system = ((system or "") + f"\n\n[검증 메모] {note}").strip()
         for c in citations:
@@ -195,11 +195,13 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
                     artifacts.append(art)
                     yield {"type": "artifact", "artifact": art}
 
-            # combine: ONE rich synthesis weaving every facet, citing the unified sources.
+            # combine: ONE rich synthesis weaving every facet, citing the unified sources. Pass the
+            # full sub-agent `history` (the actual tool results) so the deep synthesis model grounds
+            # on real evidence, not just the per-facet notes.
             yield {"type": "thinking", "phase": "synthesize", "text": "하위 분석을 종합해 답변을 작성하는 중…"}
             notes = "\n".join(f"- [{r.title}] {r.note or '근거 수집 완료'}" for r in results if r)
             system_c = ((system or "") + f"\n\n[하위 분석 결과]\n{notes}").strip()
-            dec = await planner.plan(task, {}, [], system_c, conversation=messages,
+            dec = await planner.plan(task, {}, history, system_c, conversation=messages,
                                      force_final=True, sources=number_sources(citations))
             final_text = dec.final or fallback_answer(citations)
             for ch in _chunks(final_text):

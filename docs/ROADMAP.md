@@ -601,6 +601,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
     SourceViewer = follow-on.)*
 - 🔁 **PH-THINK · Transparent multi-agent reasoning + live thinking stream** — the chat turn now narrates
   its reasoning to the user in real time, replacing the bare "…".
+  - ✅ **Model tiering for quality.** Quality where the answer is READ, economy where it's MECHANICAL:
+    intake/decisions = `AGENT_BUDGET_MODEL` (flash-lite); tool routing + annotations + KPI = `AGENT_MODEL`
+    (flash); verify/confidence = `AGENT_REASONING_MODEL` (flash, bump to pro for stricter grounding);
+    **synthesis/combiner/conceptual = `AGENT_SYNTHESIS_MODEL` = `gemini-pro-latest`** (the user-facing
+    answer → deep tier). The A2A combiner now also receives the sub-agents' full tool-result history (not
+    just notes) so pro grounds on real evidence. All env-overridable; stub backend = no LLM.
   - ✅ **Live thinking stream.** A new SSE `thinking` event (phase: analyze · plan · fetch · found ·
     synthesize) flows through `stream_chat`; the web renders a live panel (latest step spinning, earlier
     steps ✓) that collapses into "🧠 분석 과정 · N단계" after the answer. E.g. "요청을 분석하고 있어요 →
