@@ -390,12 +390,17 @@ def number_sources(cites) -> str:
 
 
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
-    """Restrict ``tools`` to ``allowed`` — entries match a full tool name
-    (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
+    """Restrict ``tools`` to ``allowed``. Entries match, in order of precedence, a full tool
+    name (``sec_edgar__guru_trades`` — the new per-tool selection), a user-facing category id
+    (``gurus`` → every tool in that category), or a connector id (``sec_edgar`` → all of its
+    tools — legacy/back-compat). Empty/None means no restriction."""
     if not allowed:
         return tools
     sel = set(allowed)
-    return {name: t for name, t in tools.items() if name in sel or name.split("__")[0] in sel}
+    return {
+        name: t for name, t in tools.items()
+        if name in sel or t.get("category") in sel or name.split("__")[0] in sel
+    }
 
 
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:

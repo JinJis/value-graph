@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.connectors.catalog import get_catalog, get_connector
+from app.connectors.catalog import get_catalog, get_categories, get_connector
 from app.errors import not_found
 
 router = APIRouter(tags=["Catalog"])
@@ -19,6 +19,9 @@ async def list_catalog() -> dict:
     connectors = get_catalog()
     return {
         "count": len(connectors),
+        # User-facing categories the agent builder groups tools by (each resource carries a
+        # `category`; connectors stay the data-plane routing unit).
+        "categories": get_categories(),
         "connectors": [c.model_dump(mode="json") for c in connectors],
     }
 

@@ -273,6 +273,7 @@ select.input { appearance: none; }
 .sources-list { display: flex; flex-direction: column; gap: 6px; }
 .src-row { border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); overflow: hidden; }
 .src-row.on { border-color: var(--ink); background: var(--panel-3); }
+.src-row.partial { border-color: var(--line-2); }
 .src-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; }
 .src-pick { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
 .src-expand { background: none; border: 1px solid var(--line-2); border-radius: 999px; color: var(--muted);
@@ -283,6 +284,9 @@ select.input { appearance: none; }
 .tool-list li { display: flex; flex-direction: column; gap: 1px; }
 .tool-name { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
 .tool-desc { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.tool-pick { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text); cursor: pointer; }
+.tool-label { flex: 1; line-height: 1.35; }
+.tool-src { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
 .err { color: var(--danger); font-size: 13px; margin-bottom: 10px; }
 .modal-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .modal-foot .grow { flex: 1; }

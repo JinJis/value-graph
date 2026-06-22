@@ -8,6 +8,8 @@ Each resource's ``path`` must map to a real registered route (enforced by a test
 from __future__ import annotations
 
 from app.connectors.manifest import (
+    CATEGORIES,
+    Category,
     ConnectorManifest,
     CostTier,
     Freshness,
@@ -272,6 +274,90 @@ CONNECTORS: list[ConnectorManifest] = [
         ],
     ),
 ]
+
+
+# --- user-facing categories ------------------------------------------------
+# Central (connector_id, resource_name) → category map. The SINGLE place tools get categorized.
+# Applied at import; a resource missing here fails the load, so EVERY tool (incl. future ones)
+# must be categorized. Connectors remain the data-plane routing unit — this is presentation only.
+_CATEGORY: dict[tuple[str, str], Category] = {
+    # SEC EDGAR (US)
+    ("sec_edgar", "company_facts"): Category.fundamentals,
+    ("sec_edgar", "company_search"): Category.fundamentals,
+    ("sec_edgar", "income_statements"): Category.fundamentals,
+    ("sec_edgar", "balance_sheets"): Category.fundamentals,
+    ("sec_edgar", "cash_flow_statements"): Category.fundamentals,
+    ("sec_edgar", "all_financials"): Category.fundamentals,
+    ("sec_edgar", "as_reported"): Category.fundamentals,
+    ("sec_edgar", "filings"): Category.filings,
+    ("sec_edgar", "earnings"): Category.filings,
+    ("sec_edgar", "insider_trades"): Category.gurus,
+    ("sec_edgar", "institutional_holdings"): Category.gurus,
+    ("sec_edgar", "index_funds"): Category.gurus,
+    ("sec_edgar", "gurus"): Category.gurus,
+    ("sec_edgar", "guru_trades"): Category.gurus,
+    ("sec_edgar", "guru_common"): Category.gurus,
+    ("sec_edgar", "metrics_snapshot"): Category.valuation,
+    ("sec_edgar", "comparables"): Category.valuation,
+    # Yahoo Finance
+    ("yahoo", "prices"): Category.market,
+    ("yahoo", "price_snapshot"): Category.market,
+    ("yahoo", "corporate_actions"): Category.market,
+    ("yahoo", "technical_indicators"): Category.market,
+    ("yahoo", "asset_classes"): Category.market,
+    ("yahoo", "sector_heatmap"): Category.market,
+    # FRED / DBnomics (US macro)
+    ("fred", "interest_rates"): Category.macro,
+    ("fred", "interest_rates_snapshot"): Category.macro,
+    ("fred", "economic_indicators"): Category.macro,
+    # OpenDART (KR)
+    ("opendart", "company_facts"): Category.fundamentals,
+    ("opendart", "company_search"): Category.fundamentals,
+    ("opendart", "income_statements"): Category.fundamentals,
+    ("opendart", "balance_sheets"): Category.fundamentals,
+    ("opendart", "cash_flow_statements"): Category.fundamentals,
+    ("opendart", "all_financials"): Category.fundamentals,
+    ("opendart", "filings"): Category.filings,
+    ("opendart", "earnings"): Category.filings,
+    ("opendart", "insider_trades"): Category.gurus,
+    ("opendart", "metrics_snapshot"): Category.valuation,
+    ("opendart", "comparables"): Category.valuation,
+    # Bank of Korea ECOS (KR macro)
+    ("ecos", "interest_rates"): Category.macro,
+    ("ecos", "interest_rates_snapshot"): Category.macro,
+    # Google News
+    ("google_news", "news"): Category.news,
+    # Ingestion store (screener)
+    ("datasets_store", "screener"): Category.screener,
+    ("datasets_store", "line_items"): Category.screener,
+    ("datasets_store", "metrics_history"): Category.fundamentals,
+    # Document RAG
+    ("rag", "search"): Category.filings,
+}
+
+
+def _apply_categories() -> None:
+    """Stamp each resource with its user-facing category. Raises if a resource has no mapping
+    (forces every new tool to be categorized) or the map has a stale entry."""
+    actual = {(c.id, r.name) for c in CONNECTORS for r in c.resources}
+    missing = actual - set(_CATEGORY)
+    stale = set(_CATEGORY) - actual
+    if missing or stale:
+        raise RuntimeError(
+            f"Catalog category map out of sync — missing {sorted(missing)}, stale {sorted(stale)}. "
+            "Every catalog resource must have a _CATEGORY entry (datasets/app/connectors/catalog.py)."
+        )
+    for c in CONNECTORS:
+        for r in c.resources:
+            r.category = _CATEGORY[(c.id, r.name)]
+
+
+_apply_categories()
+
+
+def get_categories() -> list[dict]:
+    """Ordered user-facing categories (label + description) for the agent builder."""
+    return CATEGORIES
 
 
 def get_catalog() -> list[ConnectorManifest]:

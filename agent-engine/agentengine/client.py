@@ -48,6 +48,7 @@ class PlatformClient:
                     "path": res["path"],
                     "params": res.get("params", []),
                     "markets": res.get("markets") or con.get("markets"),
+                    "category": res.get("category"),  # user-facing group (market/macro/…)
                     "description": res.get("description", ""),
                     "source": (res.get("provenance") or {}).get("source"),
                 }

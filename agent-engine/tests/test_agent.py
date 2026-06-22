@@ -1241,11 +1241,21 @@ def test_chat_chunks_reconstruct_text():
 
 # --- F1: agent spec (connector filter / backend / system) -----------------
 def test_filter_tools_by_connector_or_tool_name():
-    tools = {"yahoo__prices": {}, "sec_edgar__company_facts": {}, "sec_edgar__filings": {}, "rag__search": {}}
-    # connector id selects all of its tools
+    tools = {
+        "yahoo__prices": {"category": "market"},
+        "sec_edgar__company_facts": {"category": "fundamentals"},
+        "sec_edgar__filings": {"category": "filings"},
+        "rag__search": {"category": "filings"},
+    }
+    # full tool name selects exactly one (the new per-tool model)
+    assert set(A.filter_tools(tools, ["yahoo__prices"])) == {"yahoo__prices"}
+    # category id selects every tool in that category, across connectors
+    assert set(A.filter_tools(tools, ["filings"])) == {"sec_edgar__filings", "rag__search"}
+    # connector id still selects all of its tools (legacy/back-compat)
     assert set(A.filter_tools(tools, ["sec_edgar"])) == {"sec_edgar__company_facts", "sec_edgar__filings"}
-    # full tool name selects exactly one; entries can mix granularity
-    assert set(A.filter_tools(tools, ["yahoo__prices", "rag"])) == {"yahoo__prices", "rag__search"}
+    # entries can mix granularity (tool name + category)
+    assert set(A.filter_tools(tools, ["yahoo__prices", "filings"])) == {
+        "yahoo__prices", "sec_edgar__filings", "rag__search"}
     # empty/None = no restriction
     assert A.filter_tools(tools, None) == tools
     assert A.filter_tools(tools, []) == tools

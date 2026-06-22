@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import AgentBuilder, { Agent, Connector } from "./AgentBuilder";
+import AgentBuilder, { Agent, Category } from "./AgentBuilder";
 import PromptLibrary from "./PromptLibrary";
 import Watchlists, { Watchlist } from "./Watchlists";
 import KpiPanel from "./KpiPanel";
@@ -116,7 +116,7 @@ export default function Chat({ name }: { name: string }) {
 
   // agents
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [agentId, setAgentId] = useState<string>(""); // "" = default agent
   const [builder, setBuilder] = useState<{ open: boolean; base: Agent | null }>({ open: false, base: null });
   const [library, setLibrary] = useState(false);
@@ -211,7 +211,7 @@ export default function Chat({ name }: { name: string }) {
     (async () => {
       try {
         const r = await fetch("/api/connectors");
-        if (r.ok) setConnectors((await r.json()).connectors ?? []);
+        if (r.ok) setCategories((await r.json()).categories ?? []);
       } catch {}
     })();
   }, []);
@@ -598,7 +598,7 @@ export default function Chat({ name }: { name: string }) {
       {builder.open && (
         <AgentBuilder
           base={builder.base}
-          connectors={connectors}
+          categories={categories}
           onClose={() => setBuilder({ open: false, base: null })}
           onSaved={onSaved}
         />

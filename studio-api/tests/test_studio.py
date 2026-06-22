@@ -196,7 +196,8 @@ def test_agents_list_includes_templates(monkeypatch):
     ids = {a["id"] for a in agents}
     assert "tpl_desk" in ids   # the single fully-loaded default agent
     tpl = next(a for a in agents if a["id"] == "tpl_desk")
-    assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"]
+    # data_sources == [] means UNRESTRICTED (every tool); the default desk uses all tools
+    assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"] == []
     assert tpl["model"] == "gemini"  # default is Gemini, never stub
 
 
@@ -349,21 +350,35 @@ def test_financials_proxy_forwards_to_gateway(monkeypatch):
 
 
 @respx.mock
-def test_connectors_proxy(monkeypatch):
+def test_connectors_grouped_by_category(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
-    respx.get("http://cp.test/catalog").mock(return_value=httpx.Response(200, json={"connectors": [
-        {"id": "yahoo", "name": "Yahoo Finance", "description": "prices", "resources": [
-            {"name": "prices", "description": "Historical EOD OHLCV."},
-            {"name": "price_snapshot", "description": "Latest price snapshot."}]},
-        {"id": "sec_edgar", "name": "SEC EDGAR", "description": "filings", "resources": []},
-    ]}))
-    cons = client.get("/connectors", headers=_hdr("c@u.com")).json()["connectors"]
-    assert {c["id"] for c in cons} == {"yahoo", "sec_edgar"}
-    # U-BUILDER-01: each connector surfaces the tools inside it (name + description)
-    yahoo = next(c for c in cons if c["id"] == "yahoo")
-    assert {t["name"] for t in yahoo["tools"]} == {"prices", "price_snapshot"}
-    assert any(t["description"] for t in yahoo["tools"])
+    # the catalog now carries user-facing categories + a `category` on each resource
+    respx.get("http://cp.test/catalog").mock(return_value=httpx.Response(200, json={
+        "categories": [
+            {"id": "market", "label": "금융시장 현황", "description": "지수·시세"},
+            {"id": "filings", "label": "공시·문서", "description": "공시"},
+            {"id": "macro", "label": "거시경제 분석", "description": "금리"},  # no tools → omitted
+        ],
+        "connectors": [
+            {"id": "yahoo", "name": "Yahoo Finance", "markets": ["US", "KR"], "resources": [
+                {"name": "prices", "description": "Historical EOD OHLCV.", "category": "market",
+                 "provenance": {"source": "Yahoo Finance"}},
+                {"name": "sector_heatmap", "description": "Sector heatmap.", "category": "market",
+                 "provenance": {"source": "Yahoo Finance"}}]},
+            {"id": "sec_edgar", "name": "SEC EDGAR", "markets": ["US"], "resources": [
+                {"name": "filings", "description": "SEC filings.", "category": "filings",
+                 "provenance": {"source": "SEC EDGAR"}}]},
+        ]}))
+    cats = client.get("/connectors", headers=_hdr("c@u.com")).json()["categories"]
+    # categories WITH tools only, in catalog order; API grouping is gone
+    assert [c["id"] for c in cats] == ["market", "filings"]
+    market = next(c for c in cats if c["id"] == "market")
+    # tools carry FULLY-QUALIFIED ids (what gets stored in data_sources), grouped across APIs
+    assert {t["name"] for t in market["tools"]} == {"yahoo__prices", "yahoo__sector_heatmap"}
+    assert all(t["source"] == "Yahoo Finance" for t in market["tools"])
+    filings = next(c for c in cats if c["id"] == "filings")
+    assert filings["tools"][0]["name"] == "sec_edgar__filings"
 
 
 @respx.mock
@@ -383,7 +398,8 @@ def test_chat_with_agent_sends_spec_and_records_agent(monkeypatch):
                     json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_desk"})
     assert r.status_code == 200
     spec = captured["body"]["spec"]
-    assert spec["backend"] == "gemini" and "sec_edgar" in spec["allowed_tools"]  # default = Gemini
+    # default desk = Gemini + unrestricted tools (data_sources [] → allowed_tools None = every tool)
+    assert spec["backend"] == "gemini" and spec["allowed_tools"] is None
     # the conversation remembers which agent drove it
     conv = client.get("/conversations", headers=_hdr(email)).json()["conversations"][0]
     assert conv["agent_id"] == "tpl_desk"

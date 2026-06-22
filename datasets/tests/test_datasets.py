@@ -1443,6 +1443,31 @@ def test_catalog_manifests_valid():
             assert r.provenance and r.provenance.source  # trust envelope present
 
 
+def test_every_resource_has_a_valid_category():
+    # The builder groups tools by user-facing category (not by API) — so EVERY tool, present or
+    # future, must carry a known category. _apply_categories() raises on a gap; assert it held.
+    from app.connectors.catalog import get_catalog, get_categories
+    from app.connectors.manifest import Category
+
+    valid = {c["id"] for c in get_categories()}
+    assert valid == {c.value for c in Category}  # metadata + enum stay in lockstep
+    for c in get_catalog():
+        for r in c.resources:
+            assert r.category is not None, f"{c.id}__{r.name} has no category"
+            assert r.category.value in valid
+
+
+def test_catalog_endpoint_exposes_categories_and_resource_category():
+    body = client.get("/catalog").json()
+    cat_ids = {c["id"] for c in body["categories"]}
+    assert {"market", "macro", "gurus", "fundamentals"} <= cat_ids
+    # the new guru tools are categorized under 'gurus'
+    sec = next(c for c in body["connectors"] if c["id"] == "sec_edgar")
+    cats = {r["name"]: r["category"] for r in sec["resources"]}
+    assert cats["guru_trades"] == "gurus" and cats["guru_common"] == "gurus"
+    assert cats["company_facts"] == "fundamentals"
+
+
 def test_ticker_is_required_where_a_company_is_mandatory():
     # A user/agent must name a company for price + fundamentals pulls — the manifest
     # (and thus the MCP/OpenAPI schema) must mark ticker required there, so clients

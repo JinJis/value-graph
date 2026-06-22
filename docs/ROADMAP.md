@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 315 unit** — datasets 129 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
+> **Test totals (current): 317 unit** — datasets 131 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
 > semantic) · agent-engine 108 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -344,6 +344,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > store + compute) · unit tests · an eval scenario · agent tool-use · provenance/evidence wired · docs +
 > roadmap updated (DoD §7). One task per PR; verify each end-to-end before the next.
 
+- ✅ **CAT · 카테고리화 + 개별 툴 선택 (builder UX).** The agent builder now groups tools by **user-facing
+  category** (금융시장 현황·종목 재무분석·밸류에이션·공시·문서·투자거장·수급·거시경제·뉴스룸·스크리너) and lets
+  the user pick **individual tools** — never by upstream API. Connectors stay the data-plane routing unit;
+  a single `Category` enum + `CATEGORIES` metadata + a `_CATEGORY` map in `catalog.py` stamp every resource
+  (load **fails** if a tool is uncategorized → all future tools auto-follow the rule). `/catalog` exposes
+  `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
+  (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
+  individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
 - 🚧 **CE-0 · Broad backfill foundation.** Make the store deep + easy to fill (prerequisite for
   screener/quant/backtest/heatmap). **Code done:** prices pipeline depth is configurable
   (`PRICES_BACKFILL_YEARS`, default **5y**) so `PriceBar` holds enough history; admin backfill gains a

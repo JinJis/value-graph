@@ -46,7 +46,10 @@ These hold across every service; breaking one fails review.
    provider; don't fork auth/tenancy across services.
 8. **Two surfaces over one core stay consistent:** the **connector manifest/catalog**
    (`datasets/app/connectors/`) is the single source REST docs, MCP tools, RAG registration, entitlement,
-   metering, and the agent's tool list all derive from. Touch the manifest, not forked copies.
+   metering, the agent's tool list, **and the builder's user-facing categories** all derive from. Every
+   Resource carries a `category` (set in `catalog.py`'s `_CATEGORY` map — load fails if any tool is
+   uncategorized); users pick **individual tools grouped by category**, never whole APIs. Touch the
+   manifest, not forked copies.
 9. **Deterministic *data*, not deterministic *logic*.** "Deterministic" describes the **data plane** —
    connectors are API-based, so figures are reproducible and **always accurately sourced**. It is **not**
    license to hardcode reasoning. **Answer quality, routing, and orchestration come from Gemini and
