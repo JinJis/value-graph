@@ -8,7 +8,7 @@ import Watchlists, { Watchlist } from "./Watchlists";
 import KpiPanel from "./KpiPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Citation, CiteChip, SourceCard } from "./SourceCard";
+import { Citation, SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
 import { Artifact, ArtifactCard, ChartAnnotations } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
@@ -583,24 +583,33 @@ export default function Chat({ name }: { name: string }) {
                   )}
                   {m.role === "assistant" && (() => {
                     const cites = m.citations ?? [];
-                    const evidence = evidenceOf(m);
+                    const used = evidenceOf(m);
+                    const usedKeys = new Set(used.map((c) => `${c.source}|${c.url}`));
+                    // every consulted source the answer DIDN'T directly cite (so nothing "disappears"
+                    // when the answer finishes — the full sweep stays in its own section).
+                    const others = cites.filter((c) => !usedKeys.has(`${c.source}|${c.url}`));
                     return (
                       <>
-                        {evidence.length > 0 && (
+                        {used.length > 0 && (
                           <div className="answer-sources">
-                            <div className="as-label">출처 {evidence.length}</div>
+                            <div className="as-label">답변에 사용된 출처 {used.length}</div>
                             <div className="as-cards">
-                              {evidence.map((c, j) => <SourceCard key={`s${j}`} c={c} onExpand={setViewer} />)}
+                              {used.map((c, j) => <SourceCard key={`u${j}`} c={c} onExpand={setViewer} />)}
                             </div>
                           </div>
                         )}
+                        {others.length > 0 && (
+                          <details className="answer-sources all-sources">
+                            <summary className="as-label">참고한 모든 출처 {cites.length} · 답변 외 {others.length}</summary>
+                            <div className="as-cards">
+                              {others.map((c, j) => <SourceCard key={`o${j}`} c={c} onExpand={setViewer} />)}
+                            </div>
+                          </details>
+                        )}
                         {(m.tools?.length || 0) > 0 && (
                           <details className="sources">
-                            <summary>도구 {uniqueTools(m.tools).length}개{cites.length ? ` · 참고 출처 ${cites.length}` : ""}</summary>
+                            <summary>훑어본 도구 {uniqueTools(m.tools).length}개</summary>
                             {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
-                            {cites.length > 0 && (
-                              <div className="cite-chips">{cites.map((c, j) => <CiteChip key={`c${j}`} c={c} />)}</div>
-                            )}
                           </details>
                         )}
                       </>

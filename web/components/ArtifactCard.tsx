@@ -38,6 +38,7 @@ export type ChartOverlay = {
 };
 export type Artifact = {
   kind: string;
+  chart_style?: string | null;  // "bar" for money amounts (revenue/income); else line
   title: string;
   series: ArtifactSeries[];
   candles?: ArtifactCandle[];  // kind=candlestick (prices): real OHLCV → candles + volume

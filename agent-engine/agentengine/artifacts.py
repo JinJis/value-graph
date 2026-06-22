@@ -28,7 +28,8 @@ def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
-def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker, url=None) -> Artifact | None:
+def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker, url=None,
+                chart_style: str | None = None) -> Artifact | None:
     series = [s for s in series if s.points]
     if not series:
         return None
@@ -36,6 +37,8 @@ def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, tic
     lengths = {len(s.points) for s in series}
     return Artifact(
         kind="timeseries", title=title.strip() or "추이", series=series, source=source,
+        # money amounts (revenue/income) read better as bars; ratios/prices stay lines.
+        chart_style=chart_style,
         as_of=as_of, freshness=compute_freshness(as_of), ticker=ticker,
         has_gap=len(lengths) > 1,  # series of differing coverage → a gap to draw
         url=url, tool=tool_name,
@@ -95,7 +98,7 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                    for r in rows if r.get("report_period") and r.get(key) is not None]
             if pts:
                 series.append(ArtifactSeries(label=label, points=sorted(pts, key=lambda p: p.x)))
-        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker, url)
+        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker, url, chart_style="bar")
         if a:
             out.append(a)
 

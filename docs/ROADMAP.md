@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 324 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 111 · studio-api 40 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 325 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 112 · studio-api 40 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -352,6 +352,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
   (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
   individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **FIX · 차트 타입 (돈=막대) + 출처 2섹션.** (1) Money-amount series (매출·순이익) now render as a
+  **bar/histogram** chart, not a line — the artifact builder flags `chart_style="bar"` (ratios/prices stay
+  line/candle); web TradeChart honors it. (2) Chat sources no longer "shrink" when the answer finishes —
+  split into **답변에 사용된 출처** (cited) + a collapsible **참고한 모든 출처** (every consulted source),
+  so the full sweep stays visible. +1 agent test. *(pin-everything + multi-board canvas = next phase)*
 - ✅ **FIX · 백그라운드 생성 + 이어보기 (background runs).** Generation was tied to the browser's SSE
   connection — leaving a chat mid-answer cancelled it and lost the turn. Now a chat turn runs as a
   server-side **Run** (`studio-api/runs.py`): the agent-engine stream is driven by a detached background

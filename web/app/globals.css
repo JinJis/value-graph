@@ -350,6 +350,10 @@ select.input { appearance: none; }
 .answer-sources { width: 100%; margin-top: 4px; }
 .answer-sources .as-label { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
 .answer-sources .as-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.all-sources { margin-top: 12px; }
+.all-sources > summary { cursor: pointer; list-style: revert; }
+.all-sources > summary.as-label { margin-bottom: 0; }
+.all-sources[open] > summary.as-label { margin-bottom: 8px; }
 /* follow-up suggestions — deepen the research, one click continues */
 .followups { width: 100%; margin-top: 10px; }
 .followups .fu-label { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }

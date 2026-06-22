@@ -214,6 +214,9 @@ class Artifact(BaseModel):
     it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
 
     kind: str                    # timeseries | candlestick | compare | table | kpi | narrative
+    # how a timeseries should render: bar (money amounts — revenue/income) vs line (ratios,
+    # prices). Set by the artifact builder per the series' nature; the web honors it.
+    chart_style: str | None = None  # bar | line | area
     title: str
     series: list[ArtifactSeries] = []
     # for kind=candlestick (prices): real OHLCV bars rendered as candles + a volume pane.

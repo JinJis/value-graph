@@ -506,6 +506,18 @@ def test_artifacts_from_metrics_history_multi_series():
     a = A._artifacts(tool, result)[0]
     labels = {s.label for s in a.series}
     assert a.kind == "timeseries" and {"매출총이익률", "순이익률"} <= labels
+    assert a.chart_style is None  # ratios → line, not bar
+
+
+def test_artifacts_income_statements_render_as_bars():
+    # money amounts (매출·순이익) → bar chart; ratios stay line (chart_style differs).
+    tool = {"name": "sec_edgar__income_statements", "source": "SEC EDGAR"}
+    result = {"data": {"income_statements": [
+        {"ticker": "AAPL", "report_period": "2024-09-28", "revenue": 391_000_000_000, "net_income": 93_000_000_000},
+        {"ticker": "AAPL", "report_period": "2025-09-27", "revenue": 410_000_000_000, "net_income": 99_000_000_000}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "timeseries" and a.chart_style == "bar"
+    assert {s.label for s in a.series} == {"매출", "순이익"}
 
 
 def test_artifacts_from_guru_trades_table():
