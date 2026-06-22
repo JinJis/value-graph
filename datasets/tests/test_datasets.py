@@ -909,6 +909,42 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce_health_upstream_probe(monkeypatch):
+    # CE-HEALTH: classify each upstream — ok / degraded / down / key-missing.
+    import asyncio
+
+    import app.store.upstream_health as UH
+    from app.config import settings
+
+    class _Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    class _Client:
+        def __init__(self, mode):
+            self.mode = mode
+
+        async def get(self, url, **kw):
+            if self.mode == "degraded":
+                return _Resp(503)
+            if self.mode == "down":
+                raise RuntimeError("unreachable")
+            return _Resp(200)
+
+    keyless = {"id": "x", "name": "X", "url": "u", "key": None}
+    assert asyncio.run(UH._probe(_Client("ok"), keyless))["status"] == "ok"
+    assert asyncio.run(UH._probe(_Client("degraded"), keyless))["status"] == "degraded"
+    down = asyncio.run(UH._probe(_Client("down"), keyless))
+    assert down["status"] == "down" and down["reachable"] is False
+    # required key absent → key-missing even if reachable; present → ok
+    keyed = {"id": "od", "name": "OD", "url": "u", "key": "opendart_api_key"}
+    monkeypatch.setattr(settings, "opendart_api_key", "", raising=False)
+    r = asyncio.run(UH._probe(_Client("ok"), keyed))
+    assert r["status"] == "key-missing" and r["key_present"] is False
+    monkeypatch.setattr(settings, "opendart_api_key", "k", raising=False)
+    assert asyncio.run(UH._probe(_Client("ok"), keyed))["status"] == "ok"
+
+
 def test_ce9_macro_catalog_grouping_and_panel(monkeypatch):
     # CE-9: catalog browses by group/region; the panel snapshots a region's latest + change.
     import asyncio

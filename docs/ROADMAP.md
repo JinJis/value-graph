@@ -14,7 +14,7 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 337 unit** — datasets 138 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> **Test totals (current): 338 unit** — datasets 139 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
 > semantic) · agent-engine 117 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -486,10 +486,11 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
   filings, labeled "derived"). 🔴❓
-- ⬜ **CE-HEALTH · Upstream API health in admin** *(follow-up, per user)*. A monitoring view that probes
-  every connector's upstream (SEC/DART/Yahoo/FRED-DBnomics/ECOS/news/FMP/KIS…) — reachable? latency?
-  last success? key present? rate-limit headroom? — surfaced in the admin console (extends the existing
-  self-test) so an operator sees at a glance which data source is degraded. *(admin + datasets)*
+- ✅ **CE-HEALTH · Upstream API health in admin.** datasets `GET /admin/upstream-health` probes every
+  connector's upstream (SEC/DART/Yahoo/DBnomics/ECOS/news) **lightly** (cheap GET, short timeout, no quota
+  burn) → reachability, HTTP status, latency, and required-key presence (key value never exposed),
+  classified **정상/불안정/키 없음/다운**. New admin **📡 Upstream** page renders the health table (refresh
+  = re-probe). +1 datasets test. *(admin + datasets; FMP/KIS rows appear once those Wave-2 connectors land.)*
 
 ---
 

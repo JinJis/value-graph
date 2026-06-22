@@ -27,6 +27,7 @@ NAV = [
     ("/", "Overview", "▦"),
     ("/catalog", "Catalog", "◈"),
     ("/pipelines", "Pipelines", "⏣"),
+    ("/upstream", "Upstream", "📡"),
     ("/data", "Data", "▤"),
     ("/users", "Users", "⚇"),
     ("/db", "DB browser", "🗄"),
