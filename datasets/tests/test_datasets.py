@@ -909,6 +909,52 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce5_valuation_models_math():
+    # CE-5: transparent user-input calculators. Verify the arithmetic, not a forecast.
+    from app.store import valuation as V
+
+    # DCF: base FCF 100, g=10%, r=12%, 5y, terminal 2% — value must be positive + net-debt aware
+    d = V.dcf(100.0, 10.0, 50.0, growth=0.10, discount=0.12, years=5, terminal_growth=0.02)
+    assert d and len(d["rows"]) == 5 and abs(d["rows"][0]["fcf"] - 110.0) < 1e-6  # 100*1.1
+    assert d["enterprise_value"] > d["pv_explicit"] > 0  # EV includes the terminal value
+    assert abs(d["equity_value"] - (d["enterprise_value"] - 50.0)) < 1e-6
+    assert abs(d["value_per_share"] - d["equity_value"] / 10.0) < 1e-6
+    # guardrail of the math: discount must exceed terminal growth
+    import pytest
+    with pytest.raises(ValueError):
+        V.dcf(100.0, 10.0, 0.0, growth=0.10, discount=0.02, years=5, terminal_growth=0.03)
+    # DDM Gordon: D0=2, g=3%, r=8% → 2*1.03/(0.08-0.03)
+    dd = V.ddm(2.0, growth=0.03, discount=0.08)
+    assert abs(dd["value_per_share"] - (2.0 * 1.03 / 0.05)) < 1e-6
+    # RIM: BVPS 50, ROE 15%, r 10% → value > book (positive residual income)
+    r = V.rim(50.0, 0.15, discount=0.10, years=5, growth=0.04)
+    assert r and r["value_per_share"] > 50.0 and len(r["rows"]) == 5
+    # insufficient data → None (never fabricated)
+    assert V.dcf(None, 10.0, 0.0, growth=0.1, discount=0.1, years=5, terminal_growth=0.02) is None
+    assert V.ddm(None, growth=0.03, discount=0.08) is None
+
+
+def test_ce5_valuation_endpoint(monkeypatch):
+    import app.routers.valuation as VR
+
+    async def fake_base(market, ticker):
+        return {"base_fcf": 1000.0, "shares": 100.0, "net_debt": 200.0, "fcf_history": [1000.0],
+                "equity": 5000.0, "net_income": 750.0, "bvps": 50.0, "roe": 0.15,
+                "as_of": "2025-09-27", "accession": "acc1"}
+    monkeypatch.setattr(VR.V, "base_inputs", fake_base)
+
+    b = client.get("/valuation?ticker=AAPL&model=dcf&growth_rate=0.08&discount_rate=0.10&years=5").json()
+    assert b["model"] == "dcf" and b["value_per_share"] and b["breakdown"]["rows"]
+    assert "예측" in b["disclaimer"] and b["as_of"] == "2025-09-27"  # always labelled, sourced
+    # DDM needs the user's dividend; without it → honest note, no fabrication
+    nod = client.get("/valuation?ticker=AAPL&model=ddm&growth_rate=0.03&discount_rate=0.08").json()
+    assert nod["value_per_share"] is None and nod["note"]
+    yesd = client.get("/valuation?ticker=AAPL&model=ddm&dividend_per_share=2&growth_rate=0.03&discount_rate=0.08").json()
+    assert yesd["value_per_share"]
+    # bad math (discount <= terminal) → 400
+    assert client.get("/valuation?ticker=AAPL&model=dcf&discount_rate=0.01&terminal_growth=0.03").status_code == 400
+
+
 def test_kr_filings_rank_prioritizes_substantive_reports(monkeypatch):
     # the bug: DART date-order floods the list with 지분/소유 reports → 사업보고서 buried.
     # fix: rank so 정기보고서 surfaces first; filing_type post-filters by report name.

@@ -120,6 +120,43 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__valuation") and data.get("model"):
+        # CE-5: a transparent valuation calc → a sourced table (projection + intrinsic value).
+        model = str(data.get("model")).upper()
+        vps = data.get("value_per_share")
+        bd = data.get("breakdown") or {}
+        rows_in = bd.get("rows") or []
+
+        def _m(v):  # money, abbreviated
+            if not isinstance(v, (int, float)):
+                return "—"
+            a = abs(v)
+            if a >= 1e9:
+                return f"{v/1e9:,.2f}B"
+            if a >= 1e6:
+                return f"{v/1e6:,.1f}M"
+            return f"{v:,.2f}"
+
+        if data.get("model") == "rim":
+            table = [["연차", "BVPS", "잔여이익", "현재가치"]] + [
+                [str(r.get("year")), _m(r.get("bvps")), _m(r.get("residual_income")), _m(r.get("pv"))] for r in rows_in]
+        elif data.get("model") == "dcf":
+            table = [["연차", "예상 FCF", "현재가치(PV)"]] + [
+                [str(r.get("year")), _m(r.get("fcf")), _m(r.get("pv"))] for r in rows_in]
+        else:  # ddm — no projection rows; show the components
+            table = [["구분", "값"], ["D0 (현재 배당)", _m(bd.get("d0"))], ["D1", _m(bd.get("d1"))]]
+        if isinstance(vps, (int, float)):  # summary row, padded to the table's column count
+            cols = len(table[0])
+            table.append((["내재가치 / 주", f"{vps:,.2f}"] + [""] * cols)[:cols])
+        title = f"{data.get('ticker') or ''} {model} 내재가치"
+        if isinstance(vps, (int, float)):
+            title += f" — {vps:,.2f}/주 (가정 기반)"
+        if len(table) > 1:
+            out.append(Artifact(kind="table", title=title.strip(), table=table,
+                                source=data.get("source") or "재무제표 기반 모델", as_of=data.get("as_of"),
+                                freshness=compute_freshness(data.get("as_of")), tool=name,
+                                ticker=data.get("ticker")))
+
     if name.endswith("__sector_heatmap") and isinstance(data.get("sectors"), list):
         # CE-2: US sector heatmap → a sourced, ranked table card (섹터 히트맵).
         def _pct(v):

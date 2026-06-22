@@ -33,6 +33,7 @@ from app.routers import (
     scaffold,
     search,
     technical,
+    valuation,
 )
 from app.scheduler import scheduler
 from app.store.db import init_db
@@ -80,7 +81,7 @@ register_error_handlers(app)
 for module in (
     company, prices, financials, filings, macro, metrics,
     news, earnings, insider, institutional, funds, gurus, corporate_actions, technical,
-    market, search, evidence, catalog, admin, scaffold,
+    market, search, evidence, catalog, admin, scaffold, valuation,
 ):
     app.include_router(module.router)
 

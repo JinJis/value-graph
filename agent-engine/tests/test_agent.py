@@ -1603,6 +1603,18 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_valuation_table():
+    # CE-5: a valuation calc → a sourced table with the projection + intrinsic value summary.
+    tool = {"name": "datasets_store__valuation", "source": "재무제표 기반 모델"}
+    result = {"data": {"model": "dcf", "ticker": "AAPL", "value_per_share": 182.5, "as_of": "2025-09-27",
+                       "source": "SEC EDGAR", "breakdown": {"rows": [
+                           {"year": 1, "fcf": 1100.0, "pv": 1000.0}, {"year": 2, "fcf": 1210.0, "pv": 980.0}]}}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "DCF" in a.title and "182.5" in a.title
+    assert a.table[0] == ["연차", "예상 FCF", "현재가치(PV)"]
+    assert a.table[-1][0] == "내재가치 / 주" and a.table[-1][1] == "182.50"
+
+
 def test_artifacts_sector_heatmap_table():
     # CE-2: sector heatmap → a sourced ranked table card.
     tool = {"name": "yahoo__sector_heatmap", "source": "Yahoo Finance"}

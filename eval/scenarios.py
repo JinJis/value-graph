@@ -210,6 +210,17 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-5: transparent valuation model (DCF) — user-input calculator, NOT a price target.
+        "name": "Valuation model (DCF 내재가치)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플(AAPL)을 성장률 8%, 할인율 10% 가정으로 DCF 내재가치를 계산해줘.",
+        "criteria": ("실제 재무(FCF 등)를 base로 한 DCF 주당 내재가치를 제시하되, 사용한 가정(성장률·할인율)을 "
+                     "명시하고 '예측·목표가가 아닌 가정 기반 계산'임을 분명히 함. 출처(SEC EDGAR) 표기. "
+                     "매수/매도 의견·목표주가 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # filing-text semantic search (on-demand RAG ingest) — quote real filing passages.
         "name": "Filing passage search (공시 본문 인용)",
         "agent": {"name": "Eval Filings", "model": "gemini", "data_sources": ALL_SOURCES},

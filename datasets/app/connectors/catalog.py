@@ -255,6 +255,18 @@ CONNECTORS: list[ConnectorManifest] = [
                              ResourceParam(name="query", required=True, description="공시 본문에서 찾을 주제/문구 (e.g. '공급망 리스크', 'AI 수요')."),
                              ResourceParam(name="top_k", type="integer", description="반환 문단 수 (기본 6)."), P_MARKET],
                      provenance=Provenance(source="공시 본문 (SEC/DART)", source_link_field="url", freshness=Freshness.periodic)),
+            Resource(name="valuation",
+                     description="밸류에이션 모델 DCF/DDM/RIM — 실제 재무를 base로, 사용자 가정(성장률·할인율 등)에 따른 주당 내재가치 투명 계산. 예측·목표가 아님(가정 변경 시 결과도 변동).",
+                     path="/valuation", output_model="ValuationResponse", markets=["US", "KR"], cost_tier=CostTier.free,
+                     params=[P_TICKER_REQ,
+                             ResourceParam(name="model", enum=["dcf", "ddm", "rim"], description="밸류에이션 모델 (기본 dcf)."),
+                             ResourceParam(name="growth_rate", type="number", description="연간 성장률 가정 (예: 0.08)."),
+                             ResourceParam(name="discount_rate", type="number", description="할인율/자본비용 (예: 0.10)."),
+                             ResourceParam(name="years", type="integer", description="명시적 추정 기간(년)."),
+                             ResourceParam(name="terminal_growth", type="number", description="DCF 영구성장률."),
+                             ResourceParam(name="dividend_per_share", type="number", description="DDM 전용: 현재 주당배당금(D0)."),
+                             P_MARKET],
+                     provenance=Provenance(source="재무제표 기반 모델 (SEC/DART)", as_of_field="as_of", freshness=Freshness.periodic)),
         ],
     ),
     ConnectorManifest(
@@ -339,6 +351,7 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     ("datasets_store", "line_items"): Category.screener,
     ("datasets_store", "metrics_history"): Category.fundamentals,
     ("datasets_store", "filing_search"): Category.filings,
+    ("datasets_store", "valuation"): Category.valuation,
     # Document RAG
     ("rag", "search"): Category.filings,
 }

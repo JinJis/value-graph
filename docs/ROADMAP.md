@@ -14,8 +14,8 @@
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 326 unit** — datasets 133 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 112 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 329 unit** — datasets 135 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 113 · studio-api 41 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -432,8 +432,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   '관전 포인트' is descriptive monitoring only (guardrail: no forecast/target). `build_narrative_artifact`
   deterministically splits the answer into a pinnable **narrative artifact** (web `NarrativeArtifact`
   card). +2 agent tests, +1 eval scenario. *(no new upstream)*
-- ⬜ **CE-5 · 밸류에이션 모델 (DCF/DDM/RIM/Reverse/Simplified).** Transparent model engine over financials +
-  user inputs — labeled as models, not price targets (guardrail-safe). 🔵
+- ✅ **CE-5 · 밸류에이션 모델 (DCF/DDM/RIM).** New `datasets_store__valuation` (`GET /valuation?model=`):
+  a **transparent, user-input calculator** — base figures (FCF / dividend / book value+ROE) pulled from the
+  company's real financials (sourced + as-of), the projection is the arithmetic of the caller's assumptions
+  (growth/discount/years/terminal). DCF (two-stage + Gordon terminal), DDM (Gordon, user D0), RIM (residual
+  income). Returns the **full breakdown + a disclaimer** ("가정 기반 계산 — 예측·목표가 아님"); insufficient
+  data → honest note, never fabricated; bad math (discount ≤ terminal) → 400. agent-engine renders a sourced
+  table; the guardrail still refuses the agent *volunteering* a target. +3 tests (datasets 2, agent 1),
+  +1 eval. *(no new upstream)*
 - ⬜ **CE-6 · 퀀트 탐색 + 스크리너 확장.** Factor compute over FinancialFact+PriceBar; expand screener to
   price/technical/factor criteria. 🔵
 - ⬜ **CE-7 · 백테스터.** Portfolio backtest over PriceBar — descriptive performance, no advice. 🔵
