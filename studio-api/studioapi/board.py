@@ -26,6 +26,11 @@ class PinIn(BaseModel):
     spec: dict
 
 
+class AnnotateIn(BaseModel):
+    # PH-VIZ-5: the user's drawings (ChartAnnotations shape) for this pinned chart, or null to clear.
+    user_annotations: dict | None = None
+
+
 def _row(p: PinnedArtifact) -> dict:
     return {"id": p.id, "title": p.title, "spec": json.loads(p.spec),
             "created_at": p.created_at.isoformat() if p.created_at else None}
@@ -50,6 +55,23 @@ async def pin(body: PinIn, user: User = Depends(current_user)) -> dict:
         p = PinnedArtifact(user_email=user.email, title=title,
                            spec=json.dumps(body.spec, ensure_ascii=False))
         db.add(p)
+        db.commit()
+        db.refresh(p)
+        return _row(p)
+
+
+@router.post("/{pin_id}/annotate", summary="Save the user's drawings on a pinned chart (PH-VIZ-5)")
+async def annotate_pin(pin_id: str, body: AnnotateIn, user: User = Depends(current_user)) -> dict:
+    with SessionLocal() as db:
+        p = db.get(PinnedArtifact, pin_id)
+        if p is None or p.user_email != user.email:
+            raise HTTPException(404, "Pinned artifact not found.")
+        spec = json.loads(p.spec)
+        if body.user_annotations:
+            spec["user_annotations"] = body.user_annotations
+        else:
+            spec.pop("user_annotations", None)   # null clears the drawings
+        p.spec = json.dumps(spec, ensure_ascii=False)
         db.commit()
         db.refresh(p)
         return _row(p)
@@ -80,6 +102,9 @@ async def refresh_pin(pin_id: str, user: User = Depends(current_user)) -> dict:
     fresh = (resp.json() or {}).get("artifact")
     if not fresh:
         raise HTTPException(502, "Refresh returned no artifact.")
+    # PH-VIZ-5: a refresh re-fetches the underlying data but must keep the user's drawings.
+    if spec.get("user_annotations"):
+        fresh["user_annotations"] = spec["user_annotations"]
     with SessionLocal() as db:
         p = db.get(PinnedArtifact, pin_id)
         p.spec = json.dumps(fresh, ensure_ascii=False)

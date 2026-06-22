@@ -11,7 +11,7 @@ import {
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
-import type { Artifact, ArtifactMarker } from "./ArtifactCard";
+import type { Artifact, ArtifactMarker, ChartAnnotations } from "./ArtifactCard";
 import type { Citation } from "./SourceCard";
 
 const MARKER_SHAPE: Record<string, "circle" | "arrowUp" | "arrowDown" | "square"> = {
@@ -48,7 +48,11 @@ function overlayPoints(pts: { time: string; value: number }[]) {
     .filter((p): p is { t: string; value: number } => p.t != null && p.value != null);
 }
 
-export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Citation) => void }) {
+export function TradeChart(
+  { a, onEvidence, userAnn, onDraw }:
+  { a: Artifact; onEvidence?: (c: Citation) => void;
+    userAnn?: ChartAnnotations | null; onDraw?: (next: ChartAnnotations | null) => void },
+) {
   const box = useRef<HTMLDivElement>(null);
   const isCandle = (a.candles?.length ?? 0) > 0;
   const lineCount = a.series?.length ?? 0;
@@ -56,6 +60,10 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
   const [range, setRange] = useState("1Y");
   const [logScale, setLogScale] = useState(false);
   const [rebase, setRebase] = useState(false);   // line mode only: index each series to 100
+  // PH-VIZ-5: drawing mode (only when onDraw is provided). The pending point of a 2-click
+  // trend line lives in a ref so it survives a re-render between clicks.
+  const [drawMode, setDrawMode] = useState<null | "trend" | "hline">(null);
+  const pending = useRef<{ time: string; price: number } | null>(null);
 
   useEffect(() => {
     const el = box.current;
@@ -74,6 +82,8 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
 
     let lastTime: string | null = null;
     let hasVol = false;
+    // PH-VIZ-5: the reference series for pixel→price conversion + drawing user annotations.
+    let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null = null;
 
     if (isCandle) {
       const rows = (a.candles ?? [])
@@ -87,6 +97,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
       candle.setData(rows.map((r) => ({
         time: r.t as Time, open: r.c.open!, high: r.c.high!, low: r.c.low!, close: r.c.close!,
       })));
+      mainSeries = candle;
       hasVol = rows.some((r) => r.c.volume != null);
       if (hasVol) {
         const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "" });
@@ -158,6 +169,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
       }
       if (onEvidence) {
         chart.subscribeClick((param) => {
+          if (drawMode) return;   // a click in draw mode is a drawing, not an evidence open
           const t = param.time as string | undefined;
           const m = t ? byTime.get(t) : undefined;
           if (m) onEvidence({
@@ -174,6 +186,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
         if (!pts.length) return;
         const base = pts[0].y;
         const line = chart.addLineSeries({ color: LINE_COLORS[i % LINE_COLORS.length], lineWidth: 2, title: s.label });
+        if (!mainSeries) mainSeries = line;
         line.setData(pts.map((p) => ({
           time: p.t as Time,
           value: rebase && base ? ((p.y / base) - 1) * 100 : (s.unit === "ratio" ? p.y * 100 : p.y),
@@ -207,6 +220,7 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
           color: l.color ?? "#86868C", lineWidth: 1, priceScaleId: "right",
           lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, title: l.label,
         });
+        if (!mainSeries) mainSeries = s;
         s.setData(pts.map((p) => ({ time: p.t as Time, value: p.value })));
         const lt = pts[pts.length - 1].t;
         if (!lastTime || lt > lastTime) lastTime = lt;
@@ -239,6 +253,61 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
       }
     });
 
+    // PH-VIZ-5: render the user's own drawings (distinct accent style) — trend lines as a
+    // 2-point series, horizontal lines on the main price scale. Works in every chart mode.
+    if (userAnn && mainSeries) {
+      const ms = mainSeries;
+      (userAnn.lines ?? []).forEach((l) => {
+        const t1 = toTime(l.x1), t2 = toTime(l.x2);
+        if (!t1 || !t2) return;
+        const pts = [{ time: t1, value: l.y1 }, { time: t2, value: l.y2 }]
+          .sort((p, q) => (p.time < q.time ? -1 : 1));
+        const ls = chart.addLineSeries({
+          color: l.color ?? "#E8E8EA", lineWidth: 2, lastValueVisible: false,
+          priceLineVisible: false, crosshairMarkerVisible: false, title: l.label ?? "",
+        });
+        ls.setData(pts.map((p) => ({ time: p.time as Time, value: p.value })));
+      });
+      (userAnn.hlines ?? []).forEach((h) =>
+        ms.createPriceLine({
+          price: h.price, color: h.color ?? "#E8E8EA", lineStyle: LineStyle.Solid,
+          lineWidth: 1, axisLabelVisible: true, title: h.label ?? "",
+        }));
+    }
+
+    // PH-VIZ-5: capture drawing clicks → (time, price) → append to the user annotations.
+    if (onDraw && drawMode) {
+      const ms = mainSeries;
+      chart.subscribeClick((param) => {
+        if (!ms || !param.point || param.time == null) return;
+        const price = ms.coordinateToPrice(param.point.y);
+        const time = param.time as string;
+        if (price == null) return;
+        const px = Math.round(price * 10000) / 10000;
+        if (drawMode === "hline") {
+          const next: ChartAnnotations = {
+            ...(userAnn ?? {}),
+            hlines: [...(userAnn?.hlines ?? []), { price: px, label: String(px) }],
+          };
+          onDraw(next);
+          setDrawMode(null);
+        } else {
+          if (!pending.current) {
+            pending.current = { time, price: px };
+          } else {
+            const p0 = pending.current;
+            pending.current = null;
+            const next: ChartAnnotations = {
+              ...(userAnn ?? {}),
+              lines: [...(userAnn?.lines ?? []), { x1: p0.time, y1: p0.price, x2: time, y2: px }],
+            };
+            onDraw(next);
+            setDrawMode(null);
+          }
+        }
+      });
+    }
+
     // apply the selected range (MAX → fit all)
     const days = RANGES.find(([k]) => k === range)?.[1] ?? 0;
     if (days && lastTime) {
@@ -252,7 +321,9 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
     ro.observe(el);
     return () => { ro.disconnect(); chart.remove(); };
-  }, [a, range, logScale, rebase, isCandle]);
+  }, [a, range, logScale, rebase, isCandle, userAnn, drawMode, onDraw]);
+
+  const hasDrawings = (userAnn?.lines?.length || 0) + (userAnn?.hlines?.length || 0) > 0;
 
   return (
     <div className="tradechart">
@@ -267,9 +338,30 @@ export function TradeChart({ a, onEvidence }: { a: Artifact; onEvidence?: (c: Ci
           {!isCandle && lineCount >= 1 && (
             <button type="button" className={rebase ? "on" : ""} onClick={() => setRebase((v) => !v)} title="시작점=100 기준 % 변화">% 기준</button>
           )}
+          {/* PH-VIZ-5: drawing tools (only when the parent persists them via onDraw) */}
+          {onDraw && (
+            <>
+              <span className="tc-sep" />
+              <button type="button" className={drawMode === "trend" ? "on" : ""}
+                onClick={() => { pending.current = null; setDrawMode((m) => (m === "trend" ? null : "trend")); }}
+                title="추세선: 두 점을 클릭">✏ 추세선</button>
+              <button type="button" className={drawMode === "hline" ? "on" : ""}
+                onClick={() => { pending.current = null; setDrawMode((m) => (m === "hline" ? null : "hline")); }}
+                title="수평선: 한 점을 클릭">─ 수평선</button>
+              {hasDrawings && (
+                <button type="button" onClick={() => { pending.current = null; setDrawMode(null); onDraw(null); }}
+                  title="내 드로잉 지우기">🗑 지우기</button>
+              )}
+            </>
+          )}
         </div>
       </div>
-      <div ref={box} className="tc-canvas" />
+      <div ref={box} className={`tc-canvas${drawMode ? " drawing" : ""}`} />
+      {drawMode && (
+        <div className="tc-note">
+          {drawMode === "trend" ? "추세선: 시작점과 끝점을 차례로 클릭하세요." : "수평선: 차트에서 원하는 가격대를 클릭하세요."}
+        </div>
+      )}
       {a.annotations?.note && <div className="tc-note">✎ {a.annotations.note}</div>}
     </div>
   );

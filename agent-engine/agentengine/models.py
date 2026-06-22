@@ -210,6 +210,10 @@ class Artifact(BaseModel):
     pricelines: list[ArtifactPriceLine] = []
     # PH-VIZ-3: agent-authored annotations driven by the question (lines/zones/levels).
     annotations: ChartAnnotations | None = None
+    # PH-VIZ-5: drawings the USER added on the chart (trend/horizontal lines + notes). Kept
+    # separate from agent `annotations` so a re-answer / refresh never clobbers them; persists
+    # with the Board pin (carried across refresh by studio-api). Agent never sets this.
+    user_annotations: ChartAnnotations | None = None
     # PH-VIZ-4: descriptive technical indicators overlaid on the price chart (SMA/EMA/
     # Bollinger) + stacked sub-panes (RSI/MACD/volatility). Computed from prices.
     overlays: list[ChartOverlay] = []

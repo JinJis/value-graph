@@ -9,7 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Citation, CiteChip, SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
-import { Artifact, ArtifactCard } from "./ArtifactCard";
+import { Artifact, ArtifactCard, ChartAnnotations } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
 
 type ToolUse = { name: string; label?: string };
@@ -91,6 +91,16 @@ export default function Chat({ name }: { name: string }) {
     try {
       const r = await fetch(`/api/board/${id}/refresh`, { method: "POST" });
       if (r.ok) { const fresh = await r.json(); setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: fresh.spec } : x))); }
+    } catch {}
+  }
+  // PH-VIZ-5: persist the user's drawings on an already-pinned chart.
+  async function annotatePin(id: string, ann: ChartAnnotations | null) {
+    setPins((p) => p.map((x) => (x.id === id ? { ...x, spec: { ...x.spec, user_annotations: ann ?? undefined } } : x)));
+    try {
+      await fetch(`/api/board/${id}/annotate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_annotations: ann }),
+      });
     } catch {}
   }
 
@@ -283,7 +293,8 @@ export default function Chat({ name }: { name: string }) {
               <p className="live-empty">아직 핀한 카드가 없어요. 답변의 차트 카드에서 <b>📌 핀</b>을 누르면 여기에 모여요.</p>
             ) : (
               <div className="board-grid">
-                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)} onRemove={() => unpin(p.id)} />)}
+                {pins.map((p) => <ArtifactCard key={p.id} a={p.spec} onRefresh={() => refreshPin(p.id)}
+                  onRemove={() => unpin(p.id)} onEvidence={setViewer} onAnnotate={(ann) => annotatePin(p.id, ann)} />)}
               </div>
             )}
           </div>
@@ -352,7 +363,7 @@ export default function Chat({ name }: { name: string }) {
                   )}
                   {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
                     <div className="artifacts">
-                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={() => pinArtifact(a)} onEvidence={setViewer} />)}
+                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={pinArtifact} onEvidence={setViewer} />)}
                     </div>
                   )}
                   {m.role === "assistant" && ((m.tools?.length || 0) > 0 || (m.citations?.length || 0) > 0) && (

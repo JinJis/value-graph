@@ -288,6 +288,34 @@ def test_board_refresh_updates_spec(monkeypatch):
 
 
 @respx.mock
+def test_board_annotate_saves_and_survives_refresh(monkeypatch):
+    # PH-VIZ-5: user drawings persist on the pin and are carried across a live refresh.
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    spec = {"kind": "candlestick", "title": "AAPL 주가", "tool": "yahoo__prices",
+            "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": [], "candles": []}
+    pinned = client.post("/board", headers=_hdr("dr@u.com"), json={"spec": spec}).json()
+    ann = {"hlines": [{"price": 190.0, "label": "저항"}], "lines": []}
+    r = client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("dr@u.com"),
+                    json={"user_annotations": ann})
+    assert r.status_code == 200 and r.json()["spec"]["user_annotations"]["hlines"][0]["price"] == 190.0
+    # a live refresh re-fetches data but keeps the drawings
+    respx.post("http://ae.test/agent/artifact/refresh").mock(return_value=httpx.Response(200, json={"artifact": {
+        "kind": "candlestick", "title": "AAPL 주가", "tool": "yahoo__prices", "args": {"ticker": "AAPL"},
+        "as_of": "2024-03-01", "series": [], "candles": []}}))
+    rf = client.post(f"/board/{pinned['id']}/refresh", headers=_hdr("dr@u.com")).json()
+    assert rf["spec"]["as_of"] == "2024-03-01"
+    assert rf["spec"]["user_annotations"]["hlines"][0]["price"] == 190.0  # drawings survived
+    # clearing removes them
+    cleared = client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("dr@u.com"),
+                          json={"user_annotations": None}).json()
+    assert "user_annotations" not in cleared["spec"]
+    # user-scoped
+    assert client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("intruder-dr@u.com"),
+                       json={"user_annotations": ann}).status_code == 404
+
+
+@respx.mock
 def test_connectors_proxy(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()

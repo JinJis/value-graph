@@ -44,6 +44,7 @@ export type Artifact = {
   markers?: ArtifactMarker[];  // PH-VIZ-2: sourced events on the time axis (click → evidence)
   pricelines?: ArtifactPriceLine[];  // PH-VIZ-2: descriptive period high/low lines
   annotations?: ChartAnnotations | null;  // PH-VIZ-3: agent-authored lines/levels/zones
+  user_annotations?: ChartAnnotations | null;  // PH-VIZ-5: the user's own drawings (persisted on pin)
   overlays?: ChartOverlay[];   // PH-VIZ-4: technical indicators (price-pane + sub-panes)
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   source?: string | null;
@@ -59,7 +60,7 @@ const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // table-view lege
 // PH-DATA-5: a table/KPI artifact (no time series) — render the header-first matrix as a
 // card so a pinned KPI card shows on the Board too. Pin/remove reuse the chart-card chrome.
 function TableArtifact(
-  { a, onPin, onRemove }: { a: Artifact; onPin?: () => void; onRemove?: () => void },
+  { a, onPin, onRemove }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void },
 ) {
   const [pinned, setPinned] = useState(false);
   const t = a.table ?? [];
@@ -73,7 +74,7 @@ function TableArtifact(
         <span className="grow" />
         {onPin && (
           <button type="button" className="artifact-toggle" disabled={pinned}
-            onClick={() => { onPin(); setPinned(true); }}>{pinned ? "📌 핀됨" : "📌 핀"}</button>
+            onClick={() => { onPin(a); setPinned(true); }}>{pinned ? "📌 핀됨" : "📌 핀"}</button>
         )}
         {onRemove && (
           <button type="button" className="artifact-toggle" onClick={onRemove} title="보드에서 제거">✕</button>
@@ -108,13 +109,18 @@ function fmt(y: number | null | undefined, unit?: string | null) {
 }
 
 export function ArtifactCard(
-  { a, onPin, onRemove, onRefresh, onEvidence }:
-  { a: Artifact; onPin?: () => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void;
-    onEvidence?: (c: Citation) => void },
+  { a, onPin, onRemove, onRefresh, onEvidence, onAnnotate }:
+  { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void;
+    onEvidence?: (c: Citation) => void;
+    // PH-VIZ-5: persist the user's drawings (provided for already-pinned Board cards).
+    onAnnotate?: (ann: ChartAnnotations | null) => void },
 ) {
   const [table, setTable] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [busy, setBusy] = useState(false);
+  // PH-VIZ-5: the user's drawings — seeded from the spec so a pinned chart keeps them.
+  const [userAnn, setUserAnn] = useState<ChartAnnotations | null>(a.user_annotations ?? null);
+  const draw = (next: ChartAnnotations | null) => { setUserAnn(next); onAnnotate?.(next); };
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
@@ -142,7 +148,7 @@ export function ArtifactCard(
         )}
         {onPin && (
           <button type="button" className="artifact-toggle" disabled={pinned}
-            onClick={() => { onPin(); setPinned(true); }}>
+            onClick={() => { onPin({ ...a, user_annotations: userAnn ?? undefined }); setPinned(true); }}>
             {pinned ? "📌 핀됨" : "📌 핀"}
           </button>
         )}
@@ -167,7 +173,7 @@ export function ArtifactCard(
           </tbody>
         </table>
       ) : (
-        <TradeChart a={a} onEvidence={onEvidence} />
+        <TradeChart a={a} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
       )}
 
       <div className="artifact-foot">

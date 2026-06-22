@@ -483,6 +483,8 @@ select.input { appearance: none; }
 .tc-ranges button:hover, .tc-toggles button:hover { color: var(--text); }
 .tc-ranges button.on, .tc-toggles button.on { background: var(--ink); color: var(--on-ink); }
 .tc-canvas { width: 100%; height: 260px; }
+.tc-canvas.drawing { cursor: crosshair; }
+.tc-sep { width: 1px; align-self: stretch; margin: 1px 2px; background: var(--line-2); }
 .tc-note { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
 
 /* ── live thinking stream (PH-THINK) ───────────────────────────────────── */
