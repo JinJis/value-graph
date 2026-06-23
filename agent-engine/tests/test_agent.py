@@ -1864,7 +1864,18 @@ async def test_suggest_followups_parses_and_caps(monkeypatch):
     mc.models.generate_content.return_value = mr
     monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mc)
     out = await suggest_followups("엔비디아 실적", "매출 X, 순이익 Y …", "gemini-x", "gemini")
-    assert len(out) == 4 and out[0].startswith("NVDA")   # capped at 4
+    # parallel personas → merged + deduped + capped (both personas mock-identical → 3 unique)
+    assert 1 <= len(out) <= 4 and out[0].startswith("NVDA") and len(out) == len(set(out))
+
+
+def test_merge_followups_interleaves_and_dedups():
+    from agentengine.agent import _merge_followups
+    a = ["엔비디아 매출 비중은?", "마진 추이는?", "공급 리스크는?"]
+    b = ["엔비디아 매출 비중은?!", "외국인·기관 수급은?", "DCF 내재가치는?"]  # [0] is a near-dup of a[0]
+    out = _merge_followups([a, b], limit=4)
+    assert len(out) == 4 and len(out) == len(set(out))
+    assert out[0] == "엔비디아 매출 비중은?" and "외국인·기관 수급은?" in out  # interleaved across personas
+    assert "엔비디아 매출 비중은?!" not in out  # near-duplicate dropped (normalized)
 
 
 async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):

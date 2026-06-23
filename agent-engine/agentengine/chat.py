@@ -395,10 +395,19 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "token", "text": " " + anchor_markers(used_idx)}
     used = [c.get("index") for c in citations if c.get("used")]
 
-    # PH-THINK: 3-4 deep follow-up questions to keep deepening the research (clickable chips).
+    # PH-THINK: capability-aware deep follow-up chips. Pass which tickers + data kinds were used
+    # so the parallel suggester proposes concrete questions that showcase our differentiators.
     if final_text and (bk or settings.llm_backend) == "gemini":
         from agentengine.agent import suggest_followups
-        sugg = await suggest_followups(task, final_text, settings.model, bk)
+        tickers = sorted({c.get("ticker") for c in citations if c.get("ticker")})
+        kinds = sorted({c.get("kind") for c in citations if c.get("kind")})
+        ctx_bits = []
+        if tickers:
+            ctx_bits.append("다룬 종목: " + ", ".join(tickers[:5]))
+        if kinds:
+            ctx_bits.append("사용한 데이터: " + ", ".join(kinds))
+        sugg = await suggest_followups(task, final_text, settings.model, bk,
+                                       context=" · ".join(ctx_bits) or None)
         if sugg:
             yield {"type": "suggestions", "items": sugg}
 

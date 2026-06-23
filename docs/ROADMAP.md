@@ -21,8 +21,8 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 349 unit** — datasets 145 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 122 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 350 unit** — datasets 145 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 123 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -426,7 +426,14 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   Yahoo provider, grouped, best-effort per member (failures dropped, never faked). Catalog/MCP/agent
   wired; agent-engine renders it as a sourced **table artifact** (자산군 현황). +2 tests (datasets +
   agent), +1 eval scenario. *(no new upstream)*
-- ✅ **CE-COMMODITY · 원자재 시세 패널.** New `yahoo__commodities` (`GET /market/commodities`): curated
+- ✅ **SMART-FOLLOWUPS · 고도화 후속 질문 엔진.** Below every answer, 3-4 capability-aware follow-up chips
+  that scratch the user's curiosity AND naturally lead them into our differentiators. `suggest_followups`
+  now runs **two personas in PARALLEL on the deep model** (gemini-pro): "가려운 곳"(curiosity, beginner→
+  expert skill-span) + "차별화 쇼케이스"(maps each suggestion to a real capability via a maintained
+  `_CAPABILITY_MENU` — 수급/13F/백테스트/밸류에이션/증거/거시/반도체프록시/컨센서스/내러티브), then
+  `_merge_followups` interleaves + dedups → 3-4 DIVERSE chips. chat passes context (tickers + data kinds
+  used) for concreteness. e.g. 하이닉스 폭락 "왜?" → 마이크론 실적/컨센서스 · 외국인·기관 수급 · 과거 급락
+  후 N일 통계 · 반도체 PPI/SOX 사이클. +1 agent test (merge); best-effort, degrades gracefully. New `yahoo__commodities` (`GET /market/commodities`): curated
   commodity futures grouped 귀금속(금·은·백금·팔라듐)·산업금속(구리)·에너지(WTI·브렌트·천연가스·가솔린)·
   농산물(옥수수·밀·대두·설탕·커피·면화) → level + day change via the Yahoo provider, best-effort (drop on
   fail). agent renders a sourced grouped table. +2 tests, live-verified.

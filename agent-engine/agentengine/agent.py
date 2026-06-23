@@ -286,19 +286,66 @@ async def analyze_task(task: str, backend: str | None = None, conversation: list
         return TaskIntake(steps=default)
 
 
-_FOLLOWUP_PROMPT = (
-    "You are a senior buy-side research lead. Given the user's question and the answer just given, "
-    "propose 3-4 follow-up questions that DEEPEN the research — each should be the next genuinely "
-    "insightful analytical step, not a restatement. Good follow-ups: probe a key DRIVER behind a "
-    "figure, COMPARE against a peer/benchmark/prior period, drill into a RISK or segment, connect a "
-    "macro factor, or pull the supporting filing passage. Each must be:\n"
-    "- a concrete, specific question in the SAME LANGUAGE as the user's question;\n"
-    "- answerable by a SOURCED financial-data service (filings, financials, prices, macro, news, "
-    "evidence) — NOT asking for forecasts, price targets, or buy/sell advice;\n"
-    "- self-contained (name the company/metric explicitly).\n"
-    "Return JSON: {{\"followups\": [\"…\", \"…\", \"…\"]}}.\n\n"
-    "User question: {task}\n\nAnswer given:\n{answer}"
+# What our platform can uniquely show — the suggester maps follow-ups to these so each click
+# experiences a real differentiator (sourced data + the capability), not a generic question.
+_CAPABILITY_MENU = (
+    "우리 서비스가 특히 잘 보여줄 수 있는 것 (후속 질문이 이걸 자연스럽게 경험시키게):\n"
+    "- 출처·증거: 모든 수치에 [n] 출처 + 공시 원문 하이라이트·뉴스 원문 구절 딥링크.\n"
+    "- 차트: 가격/캔들·재무 막대·기술지표(SMA/RSI/MACD) 시각화.\n"
+    "- 공시 본문 검색: 위험요소·공급망·수요 등 실제 문단 인용.\n"
+    "- 밸류에이션 모델: DCF/DDM/RIM (사용자 가정 기반, 예측 아님).\n"
+    "- 퀀트 스크리너: 밸류/퀄리티/모멘텀 팩터로 종목 필터·랭킹.\n"
+    "- 백테스트: 포트폴리오 과거 성과·CAGR·최대낙폭, '이런 국면 이후 N일 통계'.\n"
+    "- 투자거장 13F: 거장 매매·공통 보유.\n"
+    "- 한국 수급(KIS 실시간): 외국인/기관 순매수·거래량/등락률/시총 순위·ETF NAV.\n"
+    "- 거시: 국가 경제 패널·금리/물가·반도체 생산자물가.\n"
+    "- 자산군/원자재/반도체 사이클 프록시.\n"
+    "- 컨센서스 추정치·실적 캘린더(FMP, 제3자 데이터).\n"
+    "- 종목 내러티브·밸류체인·뉴스 브리핑(구조화 합성).\n"
 )
+
+# Two complementary personas, run in PARALLEL (deep model), then merged → diverse, itch-scratching,
+# capability-showcasing follow-ups that span beginner→expert.
+_FOLLOWUP_PERSONAS = {
+    "itch": (
+        "당신은 통찰 있는 리서치 멘토입니다. 방금 답변을 본 사용자가 '진짜 다음에 궁금해할' 후속 질문 3개를 제안하세요. "
+        "사용자의 가려운 곳을 긁어주는 질문 — 수치 뒤의 '왜?'/드라이버, 비교, 리스크, 거시 연결, 과거 통계/시나리오. "
+        "초보~전문가를 아우르게 섞으세요(쉬운 설명형 1개 + 깊은 분석형). "
+    ),
+    "showcase": (
+        "당신은 우리 데이터 플랫폼의 제품 전문가입니다. 답변 맥락에서, 우리 서비스의 차별화 기능/데이터를 "
+        "자연스럽게 경험시킬 후속 질문 3개를 제안하세요(거부감 없이). 각 질문은 아래 능력 중 서로 다른 것을 자극해야 합니다.\n"
+        + _CAPABILITY_MENU
+    ),
+}
+
+_FOLLOWUP_PROMPT = (
+    "{persona}\n"
+    "규칙: 각 질문은 (1) 사용자 질문과 같은 언어, (2) 출처 기반 데이터로 답 가능(예측·목표가·매수/매도 의견 요청 "
+    "금지), (3) 자기완결적(종목·지표를 명시), (4) 서로 다른 각도. 답변을 반복하지 말 것.\n"
+    'JSON만: {{"followups": ["…", "…", "…"]}}\n\n'
+    "사용자 질문: {task}\n{context}\n답변:\n{answer}"
+)
+
+
+def _merge_followups(lists: list[list[str]], limit: int = 4) -> list[str]:
+    """Interleave persona candidate lists, dedup near-duplicates (normalized), cap to `limit` —
+    so the final chips are DIVERSE across personas, not three variants of one idea."""
+    def norm(s: str) -> str:
+        return re.sub(r"[\s\W]+", "", (s or "").lower())[:60]
+
+    out, seen = [], set()
+    for i in range(max((len(c) for c in lists), default=0)):
+        for cand in lists:
+            if i < len(cand):
+                s = cand[i].strip()
+                k = norm(s)
+                if s and k and k not in seen:
+                    seen.add(k)
+                    out.append(s)
+                    if len(out) >= limit:
+                        return out
+    return out
 _FOLLOWUP_SCHEMA = {
     "type": "object",
     "properties": {"followups": {"type": "array", "items": {"type": "string"}}},
@@ -306,26 +353,46 @@ _FOLLOWUP_SCHEMA = {
 }
 
 
-async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None) -> list[str]:
-    """PH-THINK: 3-4 DEEP follow-up questions to continue the research (shown as clickable chips).
-    Gemini-only, best-effort; [] on stub / no answer / error."""
+async def _followups_one(client, model: str, persona: str, task: str, answer: str, context: str) -> list[str]:
+    import asyncio
+
+    from google.genai import types
+
+    resp = await asyncio.to_thread(
+        client.models.generate_content, model=model,
+        contents=_FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
+                                         context=context, answer=(answer or "")[:2500]),
+        config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=400,
+                                           response_mime_type="application/json",
+                                           response_schema=_FOLLOWUP_SCHEMA))
+    d = json.loads(getattr(resp, "text", "") or "{}")
+    return [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+
+
+async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None,
+                            context: str | None = None) -> list[str]:
+    """PH-THINK / 고도화: capability-aware DEEP follow-up chips. Runs two personas in PARALLEL on
+    the deep model — one scratches the user's curiosity (skill-spanning), one showcases our
+    differentiated data/features — then merges to 3-4 DIVERSE suggestions. Each click naturally
+    leads the user into a real capability (수급·13F·백테스트·밸류에이션·증거·거시 등). Best-effort;
+    [] on stub/no-answer; degrades to a single persona if the other call fails."""
+    import asyncio
+
     if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
         return []
+    ctx = f"맥락: {context}" if context else ""
+    deep = settings.synthesis_model or model  # deep model for richer, more insightful suggestions
     try:
-        import asyncio
         from google import genai
-        from google.genai import types
 
         client = genai.Client()
-        resp = await asyncio.to_thread(
-            client.models.generate_content, model=model,
-            contents=_FOLLOWUP_PROMPT.format(task=(task or "")[:400], answer=(answer or "")[:2500]),
-            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=400,
-                                               response_mime_type="application/json",
-                                               response_schema=_FOLLOWUP_SCHEMA))
-        d = json.loads(getattr(resp, "text", "") or "{}")
-        out = [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()]
-        return out[:4]
+        results = await asyncio.gather(
+            *[_followups_one(client, deep, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
+            return_exceptions=True)
+        lists = [r for r in results if isinstance(r, list)]
+        if not lists:
+            return []
+        return _merge_followups(lists, limit=4)
     except Exception as exc:  # noqa: BLE001 — suggestions are a nicety, never block
         logger.warning("followup suggestions failed (%s); skipping", exc)
         return []
