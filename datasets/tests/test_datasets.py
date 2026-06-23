@@ -950,6 +950,39 @@ def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
         K._creds()
 
 
+def test_ce12_kis_prices_provider(monkeypatch):
+    # KIS-PRICES: realtime snapshot + paginated daily OHLCV, as a drop-in PricesProvider.
+    import asyncio
+    from datetime import date as _date
+
+    import app.providers.kr.kis as K
+    from app.symbols import Market, build_ref
+
+    async def fake_get(path, tr_id, params, output_key="output"):
+        if "inquire-price" in path:
+            return [{"stck_prpr": "338500", "prdy_vrss": "-15000", "prdy_ctrt": "-4.24"}]
+        if "inquire-daily-itemchartprice" in path:
+            end = params["FID_INPUT_DATE_2"]
+            if end >= "20260610":  # first window → recent bars
+                return [{"stck_bsop_date": "20260612", "stck_oprc": "100", "stck_hgpr": "110",
+                         "stck_lwpr": "95", "stck_clpr": "105", "acml_vol": "1000"},
+                        {"stck_bsop_date": "20260610", "stck_oprc": "98", "stck_hgpr": "102",
+                         "stck_lwpr": "97", "stck_clpr": "100", "acml_vol": "900"}]
+            return [{"stck_bsop_date": "20260602", "stck_oprc": "90", "stck_hgpr": "92",
+                     "stck_lwpr": "88", "stck_clpr": "91", "acml_vol": "800"}]  # older window
+        return []
+    monkeypatch.setattr(K, "_get", fake_get)
+
+    p = K.KisPricesProvider()
+    ref = build_ref(Market.KR, "005930")
+    snap = asyncio.run(p.snapshot(ref))
+    assert snap.price == 338500.0 and snap.day_change_percent == -4.24 and snap.ticker == "005930"
+    bars = asyncio.run(p.prices(ref, "day", _date(2026, 6, 1), _date(2026, 6, 23)))
+    # paginated across two windows, deduped + sorted ascending by date
+    assert [b.time for b in bars] == ["2026-06-02", "2026-06-10", "2026-06-12"]
+    assert bars[0].close == 91.0 and bars[-1].high == 110.0 and bars[-1].volume == 1000
+
+
 def test_ce11_fmp_estimates_and_earnings_calendar(monkeypatch):
     # CE-11: consensus estimates (mapped) + earnings calendar (client-side filtered by symbol).
     import asyncio

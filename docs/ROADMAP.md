@@ -21,7 +21,7 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 343 unit** — datasets 141 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> **Test totals (current): 344 unit** — datasets 142 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
 > semantic) · agent-engine 120 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -506,7 +506,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   market + gurus(수급). +2 tests (datasets 1, agent 1), +1 eval. `KIS_APP_KEY/SECRET` in `.env.example`.
   **Extended (live-verified):** `kis__fluctuation_rank` (`/kr/rankings/fluctuation` — 상승/하락률 순위
   = gainers/losers) + `kis__etf_nav` (`/kr/etf-nav` — ETF 현재가 vs NAV + 괴리율). Both render sourced
-  tables. **Remaining follow-on:** 시총 순위, realtime/intraday KR prices (KIS-PRICES).
+  tables. **KIS-PRICES (live-verified):** `KisPricesProvider` — a drop-in PricesProvider (realtime
+  snapshot + paginated daily OHLCV) selected by `PRICES_PROVIDER_KR=kis`, so charts/snapshots/backtest/
+  portfolio all use KIS realtime KR prices. +1 datasets test. **Remaining follow-on:** 시총 순위.
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
   filings, labeled "derived"). 🔴❓

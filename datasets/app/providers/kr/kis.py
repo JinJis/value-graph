@@ -53,15 +53,14 @@ async def _token() -> str:
         return token
 
 
-async def _get(path: str, tr_id: str, params: dict) -> list:
+async def _get(path: str, tr_id: str, params: dict, output_key: str = "output") -> list:
     app_key, app_secret = _creds()
     headers = {"authorization": f"Bearer {await _token()}", "appkey": app_key,
                "appsecret": app_secret, "tr_id": tr_id, "custtype": "P"}
     data = await fetch_json("kis", f"{settings.kis_domain}{path}", params=params, headers=headers)
-    if isinstance(data, dict) and str(data.get("rt_cd")) not in ("0", "None") and data.get("rt_cd") is not None:
-        if str(data.get("rt_cd")) != "0":
-            raise upstream_error("kis", str(data.get("msg1") or "KIS error")[:160])
-    out = (data.get("output") if isinstance(data, dict) else None) or []
+    if isinstance(data, dict) and data.get("rt_cd") is not None and str(data.get("rt_cd")) != "0":
+        raise upstream_error("kis", str(data.get("msg1") or "KIS error")[:160])
+    out = (data.get(output_key) if isinstance(data, dict) else None) or []
     return out if isinstance(out, list) else [out]
 
 
@@ -123,6 +122,55 @@ async def etf_nav(ticker: str) -> dict:
             "name": r.get("hts_kor_isnm"), "price": _i(r.get("stck_prpr")), "nav": _f(r.get("nav")),
             "premium_discount_pct": _f(r.get("dprt")), "price_change_percent": _f(r.get("prdy_ctrt")),
             "nav_change_percent": _f(r.get("nav_prdy_ctrt"))}
+
+
+# --- KIS-PRICES: realtime KR prices provider (drop-in for the Yahoo KR provider) ----------
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
+
+from app.models.generated import Price, PriceSnapshot  # noqa: E402
+from app.symbols import SecurityRef  # noqa: E402
+
+_PERIOD = {"day": "D", "week": "W", "month": "M", "year": "Y"}
+
+
+class KisPricesProvider:
+    """Realtime/intraday KR prices via KIS — a drop-in PricesProvider (snapshot + OHLCV) so the
+    whole app (charts, snapshots, backtest, portfolio) uses live broker data when
+    ``PRICES_PROVIDER_KR=kis``. Daily-chart calls cap ~100 bars, so history is paginated back."""
+
+    async def snapshot(self, ref: SecurityRef) -> PriceSnapshot:
+        rows = await _get("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100",
+                          {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ref.ticker})
+        r = rows[0] if rows else {}
+        return PriceSnapshot(ticker=ref.ticker, price=_f(r.get("stck_prpr")),
+                             day_change=_f(r.get("prdy_vrss")), day_change_percent=_f(r.get("prdy_ctrt")),
+                             time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+
+    async def prices(self, ref: SecurityRef, interval: str, start: date, end: date) -> list[Price]:
+        period = _PERIOD.get(interval, "D")
+        bars: dict[str, Price] = {}
+        cur_end = end
+        for _ in range(40):  # paginate ~100-bar windows back to `start` (bounded)
+            rows = await _get(
+                "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", "FHKST03010100",
+                {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ref.ticker,
+                 "FID_INPUT_DATE_1": start.strftime("%Y%m%d"), "FID_INPUT_DATE_2": cur_end.strftime("%Y%m%d"),
+                 "FID_PERIOD_DIV_CODE": period, "FID_ORG_ADJ_PRC": "0"}, output_key="output2")
+            rows = [r for r in rows if r.get("stck_bsop_date")]
+            if not rows:
+                break
+            oldest = min(r["stck_bsop_date"] for r in rows)
+            for r in rows:
+                d = r["stck_bsop_date"]
+                bars[d] = Price(time=f"{d[:4]}-{d[4:6]}-{d[6:8]}", open=_f(r.get("stck_oprc")),
+                                high=_f(r.get("stck_hgpr")), low=_f(r.get("stck_lwpr")),
+                                close=_f(r.get("stck_clpr")), volume=_i(r.get("acml_vol")))
+            if oldest <= start.strftime("%Y%m%d") or len(rows) < 2:
+                break
+            cur_end = datetime.strptime(oldest, "%Y%m%d").date() - timedelta(days=1)
+            if cur_end < start:
+                break
+        return [bars[k] for k in sorted(bars)]
 
 
 async def investor_flow(ticker: str, limit: int = 10) -> dict:
