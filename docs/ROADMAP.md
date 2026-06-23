@@ -566,6 +566,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > raw-HTML + insecure, no ingestion visibility). Order respects dependencies. UX resumes in Phase 2.
 
 #### Tier 0 — make the data real *(everything else is hollow without it)*
+- ⬜ **PH-FRESH-1 · US macro freshness (queued 2026-06-23, user-reported).** Chat showed 실업률 4.0% +
+  비농업 고용 159,069K both "2025년 1월 기준" — ~17 months stale. Source: DBnomics BLS monthly series in
+  `macro_indicators.py` (`unemployment=BLS/ln/LNS14000000`, `nonfarm_payrolls=BLS/ce/CES0000000001`).
+  Investigate whether the answer cites a stale ingest/cache vs the live `region_panel`; confirm DBnomics'
+  latest obs date; if it lags, switch to BLS-direct / FRED (`UNRATE`/`PAYEMS`). Per honesty rule: show a
+  freshness/stale label or DRAW THE GAP — never present a year-old figure as current; drop indicators we
+  can't keep fresh. +eval asserting freshness. *(datasets)*
 - ✅ **PH-1 · Ingestion operability.** `IngestionJob` log + `app/store/jobs.py`
   (start/finish/list + `run_backfill`); `POST /admin/backfill` + `GET /admin/jobs`; admin dashboard shows
   **per-market store breakdown + empty-store warning + recent-jobs table**; `.env.example` documents
