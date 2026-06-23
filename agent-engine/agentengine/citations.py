@@ -8,6 +8,8 @@ backed the answer (evidence vs merely consulted).
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from agentengine.evidence import _evidence_url, rag_evidence_url
 from agentengine.freshness import compute_freshness
 from agentengine.models import Citation
@@ -58,6 +60,17 @@ def _datasets_type(tool: dict) -> str:
     return "metric" if any(h in tool["name"].lower() for h in _METRIC_HINTS) else "data"
 
 
+def text_fragment_url(url: str | None, phrase: str | None) -> str | None:
+    """Universal web evidence: append a W3C text-fragment (`#:~:text=`) so opening the source
+    scrolls to + highlights the cited phrase in the live article (browser-native, no screenshot).
+    Best-effort — the browser ignores it if the text isn't found. Skipped if the url already has
+    a fragment or there's nothing to highlight."""
+    if not url or not phrase or "#" in url:
+        return url
+    frag = " ".join(phrase.strip().split()[:10])[:140]
+    return f"{url}#:~:text={quote(frag)}" if frag else url
+
+
 def _news_citations(tool: dict, data) -> list[Citation] | None:
     """Google News (/news) returns articles that each carry their OWN publisher +
     headline + date — cite those, not the connector's generic 'Google News' label."""
@@ -75,10 +88,11 @@ def _news_citations(tool: dict, data) -> list[Citation] | None:
             continue
         seen.add(key)
         as_of = a.get("date")
+        title = a.get("title") or ""
         cites.append(Citation(
-            tool=tool["name"], source=src, url=url, kind="news", doc_type="news",
+            tool=tool["name"], source=src, url=text_fragment_url(url, title), kind="news", doc_type="news",
             as_of=as_of, freshness=compute_freshness(as_of),
-            snippet=(a.get("title") or "")[:300] or None, ticker=a.get("ticker"),
+            snippet=title[:300] or None, ticker=a.get("ticker"),
         ))
     return cites or None
 
@@ -99,8 +113,12 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
         seen.add(key)
         as_of = prov.get("as_of")
         text = (h or {}).get("text") or ""
+        # news/web passages get a text-fragment deep link so opening the source highlights the
+        # cited passage in the live page; filing passages keep a clean url (+ PDF screenshot below).
+        is_news = (prov.get("doc_type") or "").lower() == "news" and not prov.get("accession")
+        link = text_fragment_url(url, text) if is_news else url
         cites.append(Citation(
-            tool=tool["name"], source=src or tool.get("source"), url=url,
+            tool=tool["name"], source=src or tool.get("source"), url=link,
             kind=_rag_type(prov), doc_type=prov.get("doc_type"), as_of=as_of,
             freshness=compute_freshness(as_of),
             snippet=text[:300] or None,

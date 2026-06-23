@@ -10,12 +10,19 @@
 > - **Engineering rules + invariants:** [`../CLAUDE.md`](../CLAUDE.md)
 > - **Exploratory ideas (not commitments; promote only with approval):** [`IDEA.md`](./IDEA.md)
 >
-> **Status:** ✅ done · 🚧 partial · ⬜ todo. **One task per PR;** tag the id in branch/commits/PR
+> **Status:** ✅ done · 🚧 partial · ⬜ todo · 🗑 dropped. **One task per PR;** tag the id in branch/commits/PR
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 338 unit** — datasets 139 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 117 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **🗑 Scope decision (2026-06-23, per user):** CE **Wave 2** (CE-11..14 — FMP / KIS / premium news,
+> built when keys land) **will proceed**. **All other unstarted backlog is DROPPED** (not building):
+> PH-10/11/12 productionization (Postgres/Redis/governance/metering), PH-2d, PH-6b 13F ticker-mode,
+> PH-7b XBRL segments, PH-SOURCES, PH-DEFER paid adapters, and the U4/U5/U6/U0 product epics
+> (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
+> is the scope.
+>
+> **Test totals (current): 339 unit** — datasets 139 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 118 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -238,8 +245,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         the bind (`type 'AnyUrl' is not supported`) so the KR `_upsert` failed and **no KR pointer ever
         persisted** → `/evidence` always 204 (US matched because its path uses plain-str dict values).
         Coerced to `str`; verified live (Samsung revenue → matched, scale=6). +1 regression test → 106.
-    - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
-      *(folded into PH-PROV3 below — same PDF + on-demand-locate mechanism.)*
+    - ✅ **PH-PROV2e** — **universal web evidence**: news/web citations now carry a W3C **text-fragment
+      deep link** (`url#:~:text=…`) so "원문 ↗" opens the live article scrolled to + highlighting the
+      cited phrase (browser-native, best-effort, no screenshot). Filings keep the PDF screenshot path.
+      `text_fragment_url` in citations.py; applied to Google News + news RAG passages. +1 agent test.
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
   - ✅ **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
     concept-precompute model; approved 2026-06-20; a–f all shipped)*. The pointer-precompute (PH-PROV2a–d) only covered a
@@ -356,7 +365,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   canvas now has a **click-to-edit title** (card header) + an editable **description** row ("＋ 설명 추가") —
   inline (no modal): click → input, Enter/blur saves, Esc cancels. Persisted via the existing
   `PATCH /board/{id}` spec merge (description lives in the spec JSON; title also updates the card). web
-  `BoardCanvas` `InlineEdit`.
+  `BoardCanvas` `InlineEdit`. **+ rich-text memo:** text blocks are now **markdown** — render formatted
+  (react-markdown: 제목·굵게·목록·링크·표), click to edit the source, blur to save (TextBlock).
 - ✅ **BOARD · 다중 보드 + 무엇이든 pin + 노션형 캔버스.** The pinboard became the differentiator surface:
   (1) **multiple named boards** (`Board` table; `/boards` CRUD; tab switcher + new/rename/delete); (2) **pin
   anything** — charts/tables **and source/evidence/provenance cards** (SourceCard 📌 → `kind:"source"` pin)

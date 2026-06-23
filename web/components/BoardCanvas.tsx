@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Rnd } from "react-rnd";
 import { ArtifactCard, type Artifact } from "./ArtifactCard";
 import { SourceCard, type Citation } from "./SourceCard";
@@ -10,6 +12,27 @@ type Board = { id: string; name: string };
 type Item = { id: string; spec: any; x: number | null; y: number | null; w: number | null; h: number | null };
 
 const DEF = { artifact: { w: 380, h: 320 }, source: { w: 300, h: 210 }, text: { w: 320, h: 160 } };
+
+// A rich (markdown) memo block: renders formatted text; click to edit the markdown source,
+// blur to save + re-render. "Word처럼" writing — headings/bold/lists/links/tables via markdown.
+function TextBlock({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <textarea className="bc-text" autoFocus defaultValue={value}
+        placeholder="마크다운으로 메모… ( ## 제목 · **굵게** · - 목록 · [링크](url) )"
+        onMouseDown={(e) => e.stopPropagation()}
+        onBlur={(e) => { setEditing(false); onSave(e.target.value); }} />
+    );
+  }
+  return (
+    <div className="bc-md md" onClick={() => setEditing(true)} title="클릭해 편집">
+      {value
+        ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
+        : <span className="bc-ph">클릭해 메모 작성 (마크다운 지원)</span>}
+    </div>
+  );
+}
 
 // Click-to-edit text (title / description). User-friendly: shows the value (or a placeholder),
 // click turns it into an input; Enter or blur saves, Esc cancels. Stops drag while editing.
@@ -174,9 +197,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                     {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} />}
                     {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} />}
                     {kind === "text" && (
-                      <textarea className="bc-text" defaultValue={it.spec?.text ?? ""}
-                        placeholder="여기에 분석 메모를 적어보세요…"
-                        onBlur={(e) => saveText(it.id, e.target.value)} />
+                      <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveText(it.id, v)} />
                     )}
                   </div>
                 </div>

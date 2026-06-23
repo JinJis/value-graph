@@ -467,6 +467,20 @@ def test_freshness_buckets_from_as_of():
     assert compute_freshness("not-a-date", today) is None
 
 
+def test_universal_evidence_text_fragment_links():
+    # news + web RAG passages get a #:~:text= deep link so the source opens highlighted;
+    # filing passages keep their clean url (they get a PDF screenshot instead).
+    assert A.text_fragment_url("https://x/y", "Apple beats on iPhone revenue").startswith(
+        "https://x/y#:~:text=Apple%20beats")
+    assert A.text_fragment_url("https://x#frag", "phrase") == "https://x#frag"  # don't double-fragment
+    assert A.text_fragment_url(None, "p") is None
+    # a news citation carries the fragment on its url
+    tool = {"name": "google_news__news", "source": "Google News"}
+    c = A._citations(tool, {"data": {"news": [
+        {"title": "엔비디아 AI 수요 급증", "source": "Reuters", "url": "https://r/a", "date": "2026-06-20"}]}})[0]
+    assert c.url.startswith("https://r/a#:~:text=") and c.snippet == "엔비디아 AI 수요 급증"
+
+
 def test_rag_citation_is_enriched_for_preview_card():
     tool = {"name": "rag__search", "connector": "rag", "source": "Platform RAG"}
     result = {"data": {"hits": [

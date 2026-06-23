@@ -49,6 +49,7 @@ from agentengine.citations import (  # noqa: E402,F401
     _rag_citations,
     _rag_type,
     _shape_table,
+    text_fragment_url,
 )
 from agentengine.evidence import (  # noqa: E402,F401
     _FIELD_CONCEPTS,
