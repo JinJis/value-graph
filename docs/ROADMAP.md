@@ -21,9 +21,9 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 352 unit** — datasets 146 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 124 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses.
-> **Full suite re-verified green (2026-06-23):** datasets 146 · agent-engine 124 · studio 42 · control-plane 13 · mcp 9 · rag 20 · admin 18.
+> **Test totals (current): 339 unit** — datasets 148 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 111 · studio-api 40 (+ admin 18, renderer 4) — plus the web build, four docker harnesses.
+> **Full suite re-verified green (2026-06-23):** datasets 148 · agent-engine 111 (+9 skip) · studio 40 · control-plane 13 · mcp 9 · rag 20 · admin 18.
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -572,13 +572,17 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 > raw-HTML + insecure, no ingestion visibility). Order respects dependencies. UX resumes in Phase 2.
 
 #### Tier 0 — make the data real *(everything else is hollow without it)*
-- ⬜ **PH-FRESH-1 · US macro freshness (queued 2026-06-23, user-reported).** Chat showed 실업률 4.0% +
-  비농업 고용 159,069K both "2025년 1월 기준" — ~17 months stale. Source: DBnomics BLS monthly series in
-  `macro_indicators.py` (`unemployment=BLS/ln/LNS14000000`, `nonfarm_payrolls=BLS/ce/CES0000000001`).
-  Investigate whether the answer cites a stale ingest/cache vs the live `region_panel`; confirm DBnomics'
-  latest obs date; if it lags, switch to BLS-direct / FRED (`UNRATE`/`PAYEMS`). Per honesty rule: show a
-  freshness/stale label or DRAW THE GAP — never present a year-old figure as current; drop indicators we
-  can't keep fresh. +eval asserting freshness. *(datasets)*
+- ✅ **PH-FRESH-1 · US macro freshness (2026-06-23, user-reported).** Chat showed 실업률 4.0% + 비농업 고용
+  159,069K both "2025년 1월 기준" — ~17 months stale. Root cause: **DBnomics' BLS mirror froze at 2025-01**
+  (verified — unemployment/payrolls/CPI all stop there); the code was correct, the source was dead. Fix:
+  new keyless **BLS public-API provider** (`providers/us/bls.py`, batches ≤25 series/request, optional
+  `BLS_API_KEY`→500/day) — `macro_indicators` now routes BLS series there (fresh: 2026-05) and keeps the
+  rest on DBnomics. The staleness flag then surfaced **two more frozen series** (`treasury_10y`/`3m` on
+  OECD/KEI, stuck 2024-01) → swapped to fresh **Fed H.15** (`FED/H15/RIFLG…`). **Honesty:** every row now
+  carries `as_of` + a **`stale` flag** (>270d old) and the panel labels stale rows "⚠지연" — a frozen
+  upstream is shown, never presented as current. Live-verified: all 10 US indicators fresh, none stale.
+  +4 tests (datasets: BLS provider, both fetch paths, stale flag, panel batching), +2 eval (CPI freshness,
+  unemployment freshness). *(datasets + agent-engine renderer)*
 - ✅ **PH-1 · Ingestion operability.** `IngestionJob` log + `app/store/jobs.py`
   (start/finish/list + `run_backfill`); `POST /admin/backfill` + `GET /admin/jobs`; admin dashboard shows
   **per-market store breakdown + empty-store warning + recent-jobs table**; `.env.example` documents

@@ -73,11 +73,24 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
-        # PH-DATA-4: economic-indicators DB via DBnomics (keyless, cloud-safe).
-        "name": "Economic indicators → US CPI (DBnomics)",
+        # PH-DATA-4 / PH-FRESH-1: economic indicators — BLS series read FRESH from the BLS API
+        # (the DBnomics BLS mirror froze at 2025-01); other series stay on keyless DBnomics.
+        "name": "Economic indicators → US CPI (BLS, fresh)",
         "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},
         "question": "미국 소비자물가지수(CPI) 최근 추이를 알려줘.",
-        "criteria": "최근 CPI 관측치(기간+값)를 DBnomics 출처로 사실만 제시; 인플레이션 전망/예측은 하지 않음.",
+        "criteria": "최근 CPI 관측치(기간+값)를 BLS 출처로 사실만 제시; 기준 시점이 최근(수개월 내)이어야 하고 "
+                    "1년 넘게 묵은 값을 현재처럼 제시하면 안 됨; 인플레이션 전망/예측은 하지 않음.",
+        "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # PH-FRESH-1: the exact user-reported regression — unemployment/payrolls must be CURRENT,
+        # not the ~17-month-old (2025-01) values the frozen DBnomics BLS mirror was serving.
+        "name": "Economic indicators → US unemployment (freshness)",
+        "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 실업률과 비농업 고용(나우)은 어떻게 돼? 기준 시점도 알려줘.",
+        "criteria": "실업률(%)과 비농업 고용 최신값을 BLS 출처로 제시하고, 기준 시점(연-월)이 최근(대략 3개월 이내) "
+                    "이어야 함 — 1년 이상 묵은 값을 현재처럼 제시하면 오답. 전망/예측 없이 현황만.",
         "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
@@ -253,8 +266,8 @@ SCENARIOS = [
         "name": "Macro country panel (거시 패널)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fred"]},
         "question": "미국 거시경제 핵심 지표(물가·고용·성장·금리)의 최신 수준과 변화를 정리해줘.",
-        "criteria": ("물가/고용/성장/금리 지표의 최신값과 직전 대비 변화를 DBnomics 출처로 사실만 제시; "
-                     "전망/투자의견 없이 현황만."),
+        "criteria": ("물가/고용/성장/금리 지표의 최신값과 직전 대비 변화를 출처(BLS·DBnomics)와 함께 사실만 제시; "
+                     "각 지표 기준 시점이 최근이어야 하고 묵은 값은 지연 표시; 전망/투자의견 없이 현황만."),
         "checks": {"expect_connector": "fred__macro_panel", "expect_status": 200,
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },

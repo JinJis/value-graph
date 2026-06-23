@@ -1130,14 +1130,23 @@ def test_ce9_macro_catalog_grouping_and_panel(monkeypatch):
     assert all(c["region"] == "US" for c in MI.list_indicators(region="US"))
     assert "US" in MI.list_regions()
 
-    async def fake_fetch(slug, limit=2):
-        return {"name": f"N-{slug}", "unit": "%", "source_url": "u",
-                "observations": [{"date": "2025-08", "value": 3.0}, {"date": "2025-09", "value": 3.2}]}
-    monkeypatch.setattr(MI, "fetch_indicator", fake_fetch)
+    # region_panel batches BLS (fresh, from BLS API) + DBnomics (rest) — patch both sources.
+    async def fake_dbn(slug, limit=2):
+        return [{"date": "2026-03", "value": 3.0}, {"date": "2026-04", "value": 3.2}]
+
+    async def fake_bls(ids, years=3):
+        return {i: [{"date": "2026-04", "value": 4.1}, {"date": "2026-05", "value": 4.3}] for i in ids}
+    monkeypatch.setattr(MI, "_dbnomics_obs", fake_dbn)
+    monkeypatch.setattr(MI.bls_api, "fetch_bls", fake_bls)
     panel = asyncio.run(MI.region_panel("US"))
     assert panel["region"] == "US" and panel["indicators"]
-    one = panel["indicators"][0]
-    assert one["latest"] == 3.2 and abs(one["change"] - 0.2) < 1e-9 and one["as_of"] == "2025-09"
+    by = {r["slug"]: r for r in panel["indicators"]}
+    # BLS-backed series now read fresh from the BLS API (not the frozen DBnomics mirror)
+    assert by["unemployment"]["source"] == "BLS" and by["unemployment"]["latest"] == 4.3
+    assert by["unemployment"]["as_of"] == "2026-05" and by["unemployment"]["stale"] is False
+    assert abs(by["unemployment"]["change"] - 0.2) < 1e-9
+    # non-BLS series (BEA GDP) still come from DBnomics
+    assert by["gdp_growth"]["source"] == "DBnomics" and by["gdp_growth"]["latest"] == 3.2
 
 
 def test_ce7_backtest_over_store():
@@ -2352,19 +2361,65 @@ def test_phdata3_corporate_actions_endpoint(monkeypatch):
     assert b["dividends"][0]["amount"] == 0.25 and b["splits"][0]["ratio"] == "4:1"
 
 
-# --- PH-DATA-4: economic indicators DB (DBnomics) -------------------------
+# --- PH-DATA-4 / PH-FRESH-1: economic indicators (BLS direct + DBnomics) --
 @respx.mock
 async def test_phdata4_indicators_fetch():
     from app.providers.macro_indicators import fetch_indicator, list_indicators
 
-    payload = {"series": {"docs": [{"period": ["2025-11", "2025-12"], "value": ["NA", 319.1]}]}}
-    respx.get("https://api.db.nomics.world/v22/series/BLS/cu/CUSR0000SA0").mock(
-        return_value=httpx.Response(200, json=payload))
+    # BLS path: `cpi` is a BLS series → read FRESH from the BLS public API (the DBnomics BLS
+    # mirror froze at 2025-01). M13 (annual avg) is skipped; observations come back ascending.
+    bls_payload = {"status": "REQUEST_SUCCEEDED", "Results": {"series": [
+        {"seriesID": "CUSR0000SA0", "data": [
+            {"year": "2026", "period": "M05", "value": "322.0"},
+            {"year": "2026", "period": "M04", "value": "321.0"},
+            {"year": "2026", "period": "M13", "value": "999"}]}]}}  # annual avg → dropped
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(200, json=bls_payload))
     res = await fetch_indicator("cpi", 24)
-    assert res["source"] == "DBnomics" and res["source_url"].endswith("BLS/cu/CUSR0000SA0")
-    assert res["observations"] == [{"date": "2025-12", "value": 319.1}]  # "NA" dropped, never faked
+    assert res["source"] == "BLS" and res["source_url"].endswith("CUSR0000SA0")
+    assert res["observations"][-1] == {"date": "2026-05", "value": 322.0}  # newest last, M13 gone
+    assert res["as_of"] == "2026-05" and res["stale"] is False             # fresh → not flagged
+
+    # DBnomics path: a non-BLS series (BEA GDP) still reads keyless DBnomics.
+    dbn = {"series": {"docs": [{"period": ["2026-Q1", "2026-Q2"], "value": ["NA", 2.5]}]}}
+    respx.get("https://api.db.nomics.world/v22/series/BEA/NIPA-T10101/A191RL-Q").mock(
+        return_value=httpx.Response(200, json=dbn))
+    g = await fetch_indicator("gdp_growth", 24)
+    assert g["source"] == "DBnomics" and g["observations"] == [{"date": "2026-Q2", "value": 2.5}]
     assert any(i["slug"] == "cpi" for i in list_indicators())
     assert await fetch_indicator("nope") is None
+
+
+@respx.mock
+async def test_bls_provider_parses_and_batches():
+    from app.providers.us.bls import fetch_bls, series_page
+
+    payload = {"status": "REQUEST_SUCCEEDED", "Results": {"series": [
+        {"seriesID": "LNS14000000", "data": [
+            {"year": "2026", "period": "M05", "value": "4.3"},
+            {"year": "2026", "period": "M04", "value": "4.1"}]},
+        {"seriesID": "CES0000000001", "data": [
+            {"year": "2026", "period": "M05", "value": "159001"},
+            {"year": "2025", "period": "M13", "value": "1"}]}]}}  # M13 annual avg → dropped
+    route = respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(200, json=payload))
+    out = await fetch_bls(["LNS14000000", "CES0000000001"])      # both series in ONE request
+    assert out["LNS14000000"][-1] == {"date": "2026-05", "value": 4.3}   # ascending, latest last
+    assert out["CES0000000001"] == [{"date": "2026-05", "value": 159001.0}]  # M13 dropped, never faked
+    assert series_page("LNS14000000").endswith("LNS14000000")
+    assert route.called
+
+
+async def test_macro_stale_value_flagged(monkeypatch):
+    # Honesty (PH-FRESH-1): a present-but-old value is FLAGGED stale, never shown as if current —
+    # so if an upstream freezes again (like the DBnomics BLS mirror did at 2025-01) the UI shows it.
+    import app.providers.macro_indicators as MI
+
+    async def frozen(ids, years=3):
+        return {i: [{"date": "2025-01", "value": 4.0}] for i in ids}  # ~17mo old
+    monkeypatch.setattr(MI.bls_api, "fetch_bls", frozen)
+    res = await MI.fetch_indicator("unemployment", 24)
+    assert res["as_of"] == "2025-01" and res["stale"] is True and res["source"] == "BLS"
 
 
 def test_phdata4_indicators_endpoint():

@@ -257,8 +257,12 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         for ind in data["indicators"]:
             ch = ind.get("change")
             ch_s = f"{ch:+,.2f}" if isinstance(ch, (int, float)) else "—"
+            # honesty: a stale-but-present value is LABELLED (지연), never shown as if current.
+            asof = ind.get("as_of") or ""
+            if ind.get("stale"):
+                asof = f"{asof} ⚠지연" if asof else "⚠지연"
             rows.append([ind.get("group") or "", ind.get("name", ""), _v(ind.get("latest"), ind.get("unit")),
-                         ch_s, ind.get("as_of") or ""])
+                         ch_s, asof])
         if len(rows) > 1:
             out.append(Artifact(kind="table", title=f"{data.get('region', '')} 거시경제 패널".strip(),
                                 table=rows, source=data.get("source") or "DBnomics", tool=name))

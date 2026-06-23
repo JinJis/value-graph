@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # SEC requires a descriptive User-Agent ("Sample Company name@example.com").
     sec_edgar_user_agent: str = "ValueGraph Datasets contact@example.com"
     fred_api_key: str = ""
+    # BLS public API (labor/price series). Keyless works (25 queries/day); a free key raises
+    # the limit to 500/day. The DBnomics BLS *mirror* froze at 2025-01, so we read BLS direct.
+    bls_api_key: str = ""
     polygon_api_key: str = ""
     tiingo_api_key: str = ""
     fmp_api_key: str = ""
