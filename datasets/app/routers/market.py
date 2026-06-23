@@ -10,6 +10,7 @@ from app.store.commodities import commodities_snapshot
 from app.store.cross_asset import cross_asset_snapshot
 from app.store.sectors import sector_heatmap
 from app.store.semiconductor import semiconductor_proxy
+from app.store.themes import themes_snapshot
 
 router = APIRouter(tags=["Market"])
 
@@ -36,6 +37,12 @@ class SemiconductorProxyResponse(BaseModel):
     groups: list[dict]
     source: str
     note: str | None = None
+    as_of: str | None = None
+
+
+class ThemesResponse(BaseModel):
+    groups: list[dict]
+    source: str
     as_of: str | None = None
 
 
@@ -86,3 +93,16 @@ async def get_commodities() -> CommoditiesResponse:
 )
 async def get_semiconductor() -> SemiconductorProxyResponse:
     return SemiconductorProxyResponse(**(await semiconductor_proxy()))
+
+
+@router.get(
+    "/market/themes",
+    response_model=ThemesResponse,
+    dependencies=[ApiKeyDep],
+    summary="테마/섹터 시세 — AI·반도체·배터리·청정에너지·바이오·방산·우주·지역 등 (ETF 프록시, 서술적)",
+    description="Broad thematic coverage via representative ETF proxies (tech/AI · energy/resources · "
+                "health/bio · industrials/defense · consumer/REIT · regions · digital assets) — level + "
+                "day change, Yahoo-sourced, grouped. Descriptive only; failed members omitted (gaps drawn).",
+)
+async def get_themes() -> ThemesResponse:
+    return ThemesResponse(**(await themes_snapshot()))

@@ -416,6 +416,27 @@ async def test_commodities_snapshot_grouped_drops_failures(monkeypatch):
     assert data["source"] == "Yahoo Finance" and {g["name"] for g in data["groups"]} == {"귀금속", "에너지"}
 
 
+async def test_themes_panel_broad_grouped(monkeypatch):
+    # broad thematic coverage via ETF proxies, grouped; failures dropped, never faked.
+    import app.store.themes as T
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.0, 1.5, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in ("SOXX", "ICLN", "EWY", "BTC-USD"):
+                return _Snap(100.0)
+            raise RuntimeError("blocked")  # everything else dropped
+    monkeypatch.setattr(T, "get_prices_provider", lambda m: _Prov())
+    data = await T.themes_snapshot()
+    members = {m["ticker"] for g in data["groups"] for m in g["members"]}
+    assert members == {"SOXX", "ICLN", "EWY", "BTC-USD"}  # only reachable kept across groups
+    names = {g["name"] for g in data["groups"]}
+    assert {"테크·AI", "에너지·자원", "지역·국가", "디지털자산"} <= names and data["source"] == "Yahoo Finance"
+
+
 async def test_semiconductor_proxy_panel(monkeypatch):
     # DRAM-spot proxy: SOX index + ETFs + memory makers via Yahoo; labelled NOT a spot price.
     import app.store.semiconductor as S

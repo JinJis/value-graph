@@ -1628,6 +1628,16 @@ def test_artifacts_commodities_table():
     assert a.table[1][1] == "금" and a.table[1][3] == "+0.80%"
 
 
+def test_artifacts_themes_table():
+    # thematic panel → grouped sourced table (분류·종목·현재가·등락%).
+    tool = {"name": "yahoo__themes", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "테크·AI", "members": [
+        {"label": "반도체", "ticker": "SOXX", "price": 655.0, "change_percent": 2.4}]}],
+        "source": "Yahoo Finance"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.title == "테마·섹터 시세" and a.table[1][1] == "반도체"
+
+
 def test_artifacts_semiconductor_proxy_table():
     # DRAM-spot proxy panel → grouped table, labelled NOT a spot price (in the title).
     tool = {"name": "yahoo__semiconductor", "source": "Yahoo Finance"}

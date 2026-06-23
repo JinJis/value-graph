@@ -21,8 +21,9 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 350 unit** — datasets 145 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 123 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 352 unit** — datasets 146 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 124 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses.
+> **Full suite re-verified green (2026-06-23):** datasets 146 · agent-engine 124 · studio 42 · control-plane 13 · mcp 9 · rag 20 · admin 18.
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -426,6 +427,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   Yahoo provider, grouped, best-effort per member (failures dropped, never faked). Catalog/MCP/agent
   wired; agent-engine renders it as a sourced **table artifact** (자산군 현황). +2 tests (datasets +
   agent), +1 eval scenario. *(no new upstream)*
+- ✅ **THEMES · 테마/섹터 광역 커버리지.** New `yahoo__themes` (`GET /market/themes`): broad thematic
+  coverage via ~35 representative ETF/asset proxies grouped — 테크·AI(반도체/AI/클라우드/사이버보안/핀테크)
+  · 에너지·자원(청정에너지/태양광/원자력/금광/리튬/농업) · 헬스·바이오 · 산업·방산·우주·로봇·인프라·항공 ·
+  소비·리츠 · 지역·국가(한국/중국/일본/인도/신흥국/유럽) · 디지털자산(BTC/ETH). level + day change,
+  best-effort (drop on fail). agent renders the shared grouped table (테마·섹터 시세). +2 tests,
+  live-verified (7 groups · 35 members). *(no new upstream; more themes/KR ETFs can be appended.)*
 - ✅ **SMART-FOLLOWUPS · 고도화 후속 질문 엔진.** Below every answer, 3-4 capability-aware follow-up chips
   that scratch the user's curiosity AND naturally lead them into our differentiators. `suggest_followups`
   now runs **two personas in PARALLEL on the deep model** (gemini-pro): "가려운 곳"(curiosity, beginner→
@@ -527,7 +534,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   portfolio all use KIS realtime KR prices. +1 datasets test. **시총 순위 (live-verified):**
   `kis__market_cap_rank` (`/kr/rankings/market-cap` — KR 대형주 시총·시장 비중·등락). CE-12 KIS suite
   complete: 실시간 시세 · 거래량/등락률/시총 순위 · 투자자 수급 · ETF NAV.
-- ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
+- 🗑 **CE-13 · 실시간/프리미엄 뉴스** — **SKIPPED (per user)**. Would need a paid news provider
+  (Finnhub/Benzinga/Polygon) + key/provider decision; existing Google News covers free headlines.
+  Revisit if a provider is chosen.
 - ✅ **CE-14 · IR자료실 + 밸류체인.** (1) **IR 자료실** — `datasets_store__ir_materials` (`/filings/ir`):
   IR/실적 공시 목록 (US 8-K · KR 주요사항보고서) via the filings provider's type filter. (2) **밸류체인** —
   intake `value_chain` flag + `_VALUE_CHAIN_GUIDE`: for a 밸류체인/공급망 구조 request the agent gathers

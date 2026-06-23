@@ -160,6 +160,10 @@ CONNECTORS: list[ConnectorManifest] = [
                      description="반도체 사이클 프록시 (필라델피아 반도체지수·반도체 ETF·메모리 제조사 주가) — DRAM 현물가의 무료 대용(현물가 아님).",
                      path="/market/semiconductor", output_model="SemiconductorProxyResponse", cost_tier=CostTier.free,
                      params=[], provenance=PROV_YAHOO),
+            Resource(name="themes",
+                     description="테마/섹터 시세 — AI·반도체·2차전지·청정에너지·원자력·바이오·방산·우주·로봇·핀테크·금광·농업·리츠·지역·디지털자산 등 대표 ETF 프록시 현재 수준+등락.",
+                     path="/market/themes", output_model="ThemesResponse", cost_tier=CostTier.free,
+                     params=[], provenance=PROV_YAHOO),
         ],
     ),
     ConnectorManifest(
@@ -412,6 +416,7 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     ("yahoo", "sector_heatmap"): Category.market,
     ("yahoo", "commodities"): Category.market,
     ("yahoo", "semiconductor"): Category.market,
+    ("yahoo", "themes"): Category.market,
     # FRED / DBnomics (US macro)
     ("fred", "interest_rates"): Category.macro,
     ("fred", "interest_rates_snapshot"): Category.macro,

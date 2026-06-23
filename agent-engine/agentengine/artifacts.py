@@ -102,11 +102,12 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         if a:
             out.append(a)
 
-    if name.endswith(("__asset_classes", "__commodities", "__semiconductor")) and isinstance(data.get("groups"), list):
-        # CE-1 cross-asset / commodities / semiconductor-proxy snapshot → a sourced grouped table.
-        _GTITLE = {"__commodities": "원자재 시세", "__semiconductor": "반도체 사이클 프록시 (DRAM 현물가 아님)"}
+    if name.endswith(("__asset_classes", "__commodities", "__semiconductor", "__themes")) and isinstance(data.get("groups"), list):
+        # CE-1 cross-asset / commodities / semiconductor / themes snapshot → a sourced grouped table.
+        _GTITLE = {"__commodities": "원자재 시세", "__semiconductor": "반도체 사이클 프록시 (DRAM 현물가 아님)",
+                   "__themes": "테마·섹터 시세"}
         gtitle = next((t for suf, t in _GTITLE.items() if name.endswith(suf)), "자산군 현황")
-        col0 = "분류" if name.endswith(("__commodities", "__semiconductor")) else "자산군"
+        col0 = "분류" if name.endswith(("__commodities", "__semiconductor", "__themes")) else "자산군"
 
         def _px(v):
             return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
