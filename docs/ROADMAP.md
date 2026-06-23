@@ -430,9 +430,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ✅ **THEMES · 테마/섹터 광역 커버리지.** New `yahoo__themes` (`GET /market/themes`): broad thematic
   coverage via ~35 representative ETF/asset proxies grouped — 테크·AI(반도체/AI/클라우드/사이버보안/핀테크)
   · 에너지·자원(청정에너지/태양광/원자력/금광/리튬/농업) · 헬스·바이오 · 산업·방산·우주·로봇·인프라·항공 ·
-  소비·리츠 · 지역·국가(한국/중국/일본/인도/신흥국/유럽) · 디지털자산(BTC/ETH). level + day change,
-  best-effort (drop on fail). agent renders the shared grouped table (테마·섹터 시세). +2 tests,
-  live-verified (7 groups · 35 members). *(no new upstream; more themes/KR ETFs can be appended.)*
+  소비·리츠 · 지역·국가(한국/중국/일본/인도/신흥국/유럽) · 디지털자산(BTC/ETH) **+ 한국 테마 ETF**
+  (KODEX/TIGER 반도체·2차전지·자동차·바이오·헬스·방산·조선·은행·미디어, .KS) — 11 groups · ~49 members.
+  level + day change, best-effort (drop on fail). agent renders the shared grouped table (테마·섹터 시세).
+  +2 tests, live-verified (global 35 + KR 14). *(no new upstream; more themes can be appended.)*
 - ✅ **SMART-FOLLOWUPS · 고도화 후속 질문 엔진.** Below every answer, 3-4 capability-aware follow-up chips
   that scratch the user's curiosity AND naturally lead them into our differentiators. `suggest_followups`
   now runs **two personas in PARALLEL on the deep model** (gemini-pro): "가려운 곳"(curiosity, beginner→

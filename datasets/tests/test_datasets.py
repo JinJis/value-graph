@@ -426,15 +426,15 @@ async def test_themes_panel_broad_grouped(monkeypatch):
 
     class _Prov:
         async def snapshot(self, ref):
-            if ref.ticker in ("SOXX", "ICLN", "EWY", "BTC-USD"):
+            if ref.ticker in ("SOXX", "ICLN", "EWY", "BTC-USD", "091160.KS"):
                 return _Snap(100.0)
             raise RuntimeError("blocked")  # everything else dropped
     monkeypatch.setattr(T, "get_prices_provider", lambda m: _Prov())
     data = await T.themes_snapshot()
     members = {m["ticker"] for g in data["groups"] for m in g["members"]}
-    assert members == {"SOXX", "ICLN", "EWY", "BTC-USD"}  # only reachable kept across groups
+    assert members == {"SOXX", "ICLN", "EWY", "BTC-USD", "091160.KS"}  # incl. a KR theme ETF
     names = {g["name"] for g in data["groups"]}
-    assert {"테크·AI", "에너지·자원", "지역·국가", "디지털자산"} <= names and data["source"] == "Yahoo Finance"
+    assert {"테크·AI", "지역·국가", "디지털자산", "KR 반도체·테크"} <= names and data["source"] == "Yahoo Finance"
 
 
 async def test_semiconductor_proxy_panel(monkeypatch):

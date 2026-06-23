@@ -161,7 +161,7 @@ CONNECTORS: list[ConnectorManifest] = [
                      path="/market/semiconductor", output_model="SemiconductorProxyResponse", cost_tier=CostTier.free,
                      params=[], provenance=PROV_YAHOO),
             Resource(name="themes",
-                     description="테마/섹터 시세 — AI·반도체·2차전지·청정에너지·원자력·바이오·방산·우주·로봇·핀테크·금광·농업·리츠·지역·디지털자산 등 대표 ETF 프록시 현재 수준+등락.",
+                     description="테마/섹터 시세 — 글로벌(AI·반도체·2차전지·청정에너지·원자력·바이오·방산·우주·로봇·핀테크·금광·농업·리츠·지역·디지털자산) + 한국(KODEX/TIGER 반도체·2차전지·바이오·방산·조선 등) 대표 ETF 프록시 현재 수준+등락.",
                      path="/market/themes", output_model="ThemesResponse", cost_tier=CostTier.free,
                      params=[], provenance=PROV_YAHOO),
         ],

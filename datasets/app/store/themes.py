@@ -31,6 +31,15 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("지역·국가", [("한국", "EWY"), ("중국", "MCHI"), ("일본", "EWJ"), ("인도", "INDA"),
                ("신흥국", "EEM"), ("유럽", "VGK")]),
     ("디지털자산", [("비트코인", "BTC-USD"), ("이더리움", "ETH-USD"), ("블록체인", "BLOK")]),
+    # --- KR 테마 ETF (KODEX/TIGER, Yahoo .KS) — verified live ---
+    ("KR 반도체·테크", [("KODEX 반도체", "091160.KS"), ("TIGER Fn반도체TOP10", "396500.KS"),
+                  ("KODEX AI반도체핵심장비", "463250.KS"), ("TIGER 200 IT", "139260.KS")]),
+    ("KR 2차전지·자동차", [("KODEX 2차전지산업", "305720.KS"), ("TIGER 2차전지테마", "305540.KS"),
+                    ("KODEX 자동차", "091180.KS")]),
+    ("KR 바이오·헬스", [("KODEX 헬스케어", "266420.KS"), ("KODEX 바이오", "244580.KS"),
+                  ("TIGER 헬스케어", "385520.KS")]),
+    ("KR 방산·조선·금융", [("TIGER K-방산", "449450.KS"), ("KODEX 조선TOP", "494340.KS"),
+                   ("KODEX 은행", "091170.KS"), ("TIGER 미디어컨텐츠", "228810.KS")]),
 ]
 
 
