@@ -498,12 +498,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   forecast/advice; missing price coverage → honest note (never fabricated). agent-engine renders the
   equity curve (portfolio + benchmark) as a timeseries; new **포트폴리오** category. +2 tests (datasets 1,
   agent 1), +1 eval. *(no new upstream; depends on PriceBar backfill.)*
-- ✅ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model in studio-api (per-user,
-  new tables → create_all) + CRUD (`/portfolios` …) + a live **analytics** endpoint: values the book via
-  the gateway (`/prices/snapshot` per holding, concurrent), computes **allocation + 평가손익**, and
-  **backtests the current allocation** via the gateway `/backtest` (equity curve + metrics). Web
-  `PortfolioPanel` (new **포트폴리오** rail view): manage holdings, live value/weight/gain table, backtest
-  curve. Descriptive only; all data gateway-entitled. +1 studio test (CRUD + analytics + scoping). 🔵→✅
+- ⛔ **CE-8 · 포트폴리오 (대시보드/분석) — REMOVED (user request).** Built then dropped: the `Portfolio`/
+  `Holding` model, `/portfolios` CRUD + analytics endpoint, the web `PortfolioPanel` rail view, the BFF
+  routes, and the CRUD test were all deleted as an unneeded feature. (The CE-7 `/backtest` data tool +
+  the 포트폴리오 **category** stay — they're data-plane, not the panel.)
 - ✅ **CE-9 · 거시 확장.** Broadened the DBnomics indicator catalog (+ industrial production, labor
   participation, 3M rate) and tagged every indicator with a **group/하위요인** (물가/고용/성장/금리) + region;
   `economic_indicators` now browses by `region`/`group` (열람). New **`fred__macro_panel`** (`GET
@@ -971,8 +969,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   - ✅ **PH-ADMIN-6 · Information architecture.** Left-nav console (Overview · Catalog · Pipelines · Data ·
     Users · DB browser) with a one-glance **Overview** (tiles + per-subsystem health dots + recent errors).
     *(admin is out-of-band; not in the request path.)*
-- 🔁 **PH-9 · KPIs via Gemini (#22)** from earnings text (Gemini extraction + metering) → **delivered by
-  PH-DATA-5 slice 1** (`/agent/kpis`). *(↳ PH-RAG text, now via PROV3e)*
+- ⛔ **PH-9 / PH-DATA-5 slice 1 · KPI 패널 — REMOVED (user request).** Was delivered as `/agent/kpis`
+  (agent-engine `kpi.py` Gemini extraction), the studio `/kpis` proxy, and the web `KpiPanel` 지표 rail
+  view — all deleted as an unneeded feature. (Asking the agent about reported KPIs still works via the
+  `cpr_kpi` prompt + RAG filing corpus; only the standalone panel/endpoint is gone.)
 - ✅ **PH-MACRO · cloud-safe macro provider (FRED alternative).** FRED's `api.stlouisfred.org` serves a
   **JS bot-wall (not JSON) from datacenter IPs** even with a valid key → US macro breaks in cloud. Added a
   `macro_provider_us` selection (mirrors `prices_provider_*`): `auto` (default) | `fred` | `dbnomics`.

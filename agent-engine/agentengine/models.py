@@ -35,16 +35,6 @@ class CompileRequest(BaseModel):
     description: str
 
 
-class KpiRequest(BaseModel):
-    """PH-DATA-5 / PH-9: extract a company's reported KPIs from its filing-text corpus,
-    each KPI cited to (and highlighted in) the source filing passage."""
-
-    ticker: str
-    market: str | None = None      # US | KR (inferred from the ticker when omitted)
-    top_k: int | None = None       # filing passages to consider (default in kpi.py)
-    spec: AgentSpec | None = None  # planner-backend override (stub|gemini)
-
-
 class ArtifactRefreshRequest(BaseModel):
     """Re-run a pinned artifact's tool+args to refresh it (U3-03b)."""
 
