@@ -1617,6 +1617,17 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_commodities_table():
+    # commodity panel → a sourced grouped table (분류·종목·현재가·등락%).
+    tool = {"name": "yahoo__commodities", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "귀금속", "members": [
+        {"label": "금", "ticker": "GC=F", "price": 2000.0, "change_percent": 0.8}]}],
+        "source": "Yahoo Finance", "as_of": "2024-01-02"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.title == "원자재 시세" and a.table[0][0] == "분류"
+    assert a.table[1][1] == "금" and a.table[1][3] == "+0.80%"
+
+
 def test_artifacts_kis_volume_rank_and_flow_tables():
     # CE-12: KR volume ranking + investor flow → sourced tables.
     vr = A._artifacts({"name": "kis__volume_rank", "source": "KIS"},

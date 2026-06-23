@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.deps import ApiKeyDep
+from app.store.commodities import commodities_snapshot
 from app.store.cross_asset import cross_asset_snapshot
 from app.store.sectors import sector_heatmap
 
@@ -20,6 +21,12 @@ class CrossAssetResponse(BaseModel):
 
 class SectorHeatmapResponse(BaseModel):
     sectors: list[dict]
+    source: str
+    as_of: str | None = None
+
+
+class CommoditiesResponse(BaseModel):
+    groups: list[dict]
     source: str
     as_of: str | None = None
 
@@ -47,3 +54,15 @@ async def get_asset_classes() -> CrossAssetResponse:
 )
 async def get_sectors() -> SectorHeatmapResponse:
     return SectorHeatmapResponse(**(await sector_heatmap()))
+
+
+@router.get(
+    "/market/commodities",
+    response_model=CommoditiesResponse,
+    dependencies=[ApiKeyDep],
+    summary="원자재 시세 (귀금속·산업금속·에너지·농산물) — Yahoo 선물, 서술적",
+    description="Curated commodity futures (metals/energy/agriculture) — latest level + day change, "
+                "sourced to Yahoo Finance. Descriptive only. (DRAM/메모리 현물가는 무료 소스가 없어 미포함.)",
+)
+async def get_commodities() -> CommoditiesResponse:
+    return CommoditiesResponse(**(await commodities_snapshot()))

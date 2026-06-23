@@ -396,6 +396,26 @@ async def test_kr_universe_falls_back_to_opendart(monkeypatch):
     assert "kr_listed" in {u["id"] for u in U.list_presets()}  # the OpenDART-only KR source exists
 
 
+async def test_commodities_snapshot_grouped_drops_failures(monkeypatch):
+    # commodity panel: grouped metals/energy/agri via Yahoo; failures dropped, never faked.
+    import app.store.commodities as C
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.2, 0.8, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in ("GC=F", "CL=F"):
+                return _Snap(2000.0)
+            raise RuntimeError("upstream blocked")  # others dropped
+    monkeypatch.setattr(C, "get_prices_provider", lambda m: _Prov())
+    data = await C.commodities_snapshot()
+    members = [m for g in data["groups"] for m in g["members"]]
+    assert {m["ticker"] for m in members} == {"GC=F", "CL=F"}  # only reachable kept
+    assert data["source"] == "Yahoo Finance" and {g["name"] for g in data["groups"]} == {"귀금속", "에너지"}
+
+
 async def test_cross_asset_snapshot_drops_failures(monkeypatch):
     # CE-1: cross-asset snapshot keeps reachable proxies, DROPS failures (never fabricates).
     import app.store.cross_asset as CA

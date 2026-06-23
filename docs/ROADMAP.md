@@ -21,8 +21,8 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 345 unit** — datasets 143 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 120 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 347 unit** — datasets 144 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 121 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -426,6 +426,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   Yahoo provider, grouped, best-effort per member (failures dropped, never faked). Catalog/MCP/agent
   wired; agent-engine renders it as a sourced **table artifact** (자산군 현황). +2 tests (datasets +
   agent), +1 eval scenario. *(no new upstream)*
+- ✅ **CE-COMMODITY · 원자재 시세 패널.** New `yahoo__commodities` (`GET /market/commodities`): curated
+  commodity futures grouped 귀금속(금·은·백금·팔라듐)·산업금속(구리)·에너지(WTI·브렌트·천연가스·가솔린)·
+  농산물(옥수수·밀·대두·설탕·커피·면화) → level + day change via the Yahoo provider, best-effort (drop on
+  fail). agent renders a sourced grouped table. **DRAM/메모리 현물가는 무료 소스가 없어 미포함**(TrendForce/
+  DRAMeXchange 유료) — 날조하지 않음; 필요 시 유료 소스 연동이 별도 과제. +2 tests (datasets+agent),
+  live-verified. *(no new upstream.)*
 - ✅ **CE-2 · 섹터 히트맵 (US).** New `yahoo__sector_heatmap` resource (`GET /market/sectors`): the 11
   SPDR Select Sector ETFs (XLK/XLF/XLV/…) → per-sector day change via the existing Yahoo prices provider,
   ranked leaders→laggards, best-effort (failed ETFs dropped, never faked). Catalog/MCP/agent wired;
