@@ -96,6 +96,35 @@ async def volume_rank(limit: int = 30) -> dict:
     return {"market": "KR", "source": "한국투자증권 (KIS)", "ranking": "volume", "results": out}
 
 
+async def fluctuation_rank(direction: str = "up", limit: int = 30) -> dict:
+    """등락률 순위 — 상승률(up=gainers) / 하락률(down=losers) top KR stocks."""
+    sort = "1" if str(direction).lower() in ("down", "losers", "하락") else "0"
+    rows = await _get(
+        "/uapi/domestic-stock/v1/ranking/fluctuation", "FHPST01700000",
+        {"FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20170", "FID_INPUT_ISCD": "0000",
+         "FID_RANK_SORT_CLS_CODE": sort, "FID_INPUT_CNT_1": "0", "FID_PRC_CLS_CODE": "0",
+         "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "", "FID_VOL_CNT": "", "FID_TRGT_CLS_CODE": "0",
+         "FID_TRGT_EXLS_CLS_CODE": "0", "FID_DIV_CLS_CODE": "0", "FID_RSFL_RATE1": "", "FID_RSFL_RATE2": ""})
+    out = []
+    for r in rows[:limit]:
+        out.append({"rank": _i(r.get("data_rank")), "ticker": r.get("stck_shrn_iscd"),
+                    "name": r.get("hts_kor_isnm"), "price": _i(r.get("stck_prpr")),
+                    "change_percent": _f(r.get("prdy_ctrt")), "volume": _i(r.get("acml_vol"))})
+    return {"market": "KR", "source": "한국투자증권 (KIS)", "ranking": "fluctuation",
+            "direction": "down" if sort == "1" else "up", "results": out}
+
+
+async def etf_nav(ticker: str) -> dict:
+    """ETF 현재가 vs NAV + 괴리율(premium/discount) — is the ETF trading rich/cheap to its NAV?"""
+    rows = await _get("/uapi/etfetn/v1/quotations/inquire-price", "FHPST02400000",
+                      {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker})
+    r = rows[0] if rows else {}
+    return {"market": "KR", "ticker": ticker, "source": "한국투자증권 (KIS)",
+            "name": r.get("hts_kor_isnm"), "price": _i(r.get("stck_prpr")), "nav": _f(r.get("nav")),
+            "premium_discount_pct": _f(r.get("dprt")), "price_change_percent": _f(r.get("prdy_ctrt")),
+            "nav_change_percent": _f(r.get("nav_prdy_ctrt"))}
+
+
 async def investor_flow(ticker: str, limit: int = 10) -> dict:
     """투자자별 순매수 (개인/외국인/기관) for a KR stock — recent days; KR 수급 differentiator."""
     rows = await _get(

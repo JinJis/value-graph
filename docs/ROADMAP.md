@@ -504,7 +504,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   KR movers/활발 종목 — the movers FMP gated) and `kis__investor_flow` (`/kr/investor-flow` = 개인/외국인/
   기관 순매수 = 수급, KR differentiator). Descriptive realtime; agent renders sourced tables; categories
   market + gurus(수급). +2 tests (datasets 1, agent 1), +1 eval. `KIS_APP_KEY/SECRET` in `.env.example`.
-  **Follow-on (same connector):** KR rankings 등락률/시총, ETF NAV, realtime/intraday prices (KIS-ETF/PRICES).
+  **Extended (live-verified):** `kis__fluctuation_rank` (`/kr/rankings/fluctuation` — 상승/하락률 순위
+  = gainers/losers) + `kis__etf_nav` (`/kr/etf-nav` — ETF 현재가 vs NAV + 괴리율). Both render sourced
+  tables. **Remaining follow-on:** 시총 순위, realtime/intraday KR prices (KIS-PRICES).
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
   filings, labeled "derived"). 🔴❓

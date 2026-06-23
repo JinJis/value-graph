@@ -325,6 +325,16 @@ CONNECTORS: list[ConnectorManifest] = [
                      path="/kr/investor-flow", output_model="KisInvestorFlowResponse", markets=["KR"], cost_tier=CostTier.medium,
                      params=[P_TICKER_REQ, P_LIMIT],
                      provenance=Provenance(source="한국투자증권 (KIS)", as_of_field="date", freshness=Freshness.realtime)),
+            Resource(name="fluctuation_rank",
+                     description="등락률 순위 — 상승률(up)/하락률(down) 상위 종목(현재가·등락%·거래량).",
+                     path="/kr/rankings/fluctuation", output_model="KisFluctuationRankResponse", markets=["KR"], cost_tier=CostTier.medium,
+                     params=[ResourceParam(name="direction", enum=["up", "down"], description="up(상승)/down(하락)"), P_LIMIT],
+                     provenance=Provenance(source="한국투자증권 (KIS)", freshness=Freshness.realtime)),
+            Resource(name="etf_nav",
+                     description="ETF 현재가 vs NAV + 괴리율(프리미엄/디스카운트) — ETF가 NAV 대비 비싼지/싼지.",
+                     path="/kr/etf-nav", output_model="KisEtfNavResponse", markets=["KR"], cost_tier=CostTier.medium,
+                     params=[P_TICKER_REQ],
+                     provenance=Provenance(source="한국투자증권 (KIS)", freshness=Freshness.realtime)),
         ],
     ),
     ConnectorManifest(
@@ -410,6 +420,8 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     # KIS (CE-12) — KR realtime rankings + investor flows
     ("kis", "volume_rank"): Category.market,
     ("kis", "investor_flow"): Category.gurus,  # 수급 (투자거장·수급)
+    ("kis", "fluctuation_rank"): Category.market,
+    ("kis", "etf_nav"): Category.market,
     # Ingestion store (screener)
     ("datasets_store", "screener"): Category.screener,
     ("datasets_store", "line_items"): Category.screener,

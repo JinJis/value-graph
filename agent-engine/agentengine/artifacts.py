@@ -137,6 +137,36 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
             out.append(Artifact(kind="table", title="거래량 순위 (KR)", table=rows,
                                 source=data.get("source") or "한국투자증권 (KIS)", tool=name))
 
+    if name.endswith("__fluctuation_rank") and isinstance(data.get("results"), list) and data["results"]:
+        # CE-12: 등락률 순위 (gainers/losers) → a sourced table.
+        rows = [["순위", "종목", "현재가", "등락%", "거래량"]]
+        for r in data["results"][:20]:
+            cp = r.get("change_percent")
+            rows.append([str(r.get("rank") or ""), r.get("name") or r.get("ticker") or "",
+                         f"{r.get('price'):,}" if isinstance(r.get("price"), (int, float)) else "—",
+                         f"{cp:+.2f}%" if isinstance(cp, (int, float)) else "—",
+                         f"{r.get('volume'):,}" if isinstance(r.get("volume"), (int, float)) else "—"])
+        if len(rows) > 1:
+            dlabel = "하락률" if data.get("direction") == "down" else "상승률"
+            out.append(Artifact(kind="table", title=f"{dlabel} 순위 (KR)", table=rows,
+                                source=data.get("source") or "한국투자증권 (KIS)", tool=name))
+
+    if name.endswith("__etf_nav") and isinstance(data, dict) and data.get("nav") is not None:
+        # CE-12: ETF 현재가 vs NAV + 괴리율 → a compact sourced table.
+        def _pc(v):
+            return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+        price, nav, dprt = data.get("price"), data.get("nav"), data.get("premium_discount_pct")
+        table = [["구분", "값"],
+                 ["현재가", f"{price:,}" if isinstance(price, (int, float)) else "—"],
+                 ["NAV", f"{nav:,.2f}" if isinstance(nav, (int, float)) else "—"],
+                 ["괴리율", _pc(dprt)],
+                 ["가격 등락", _pc(data.get("price_change_percent"))],
+                 ["NAV 등락", _pc(data.get("nav_change_percent"))]]
+        out.append(Artifact(kind="table", title=f"{data.get('name') or data.get('ticker') or ''} ETF NAV".strip(),
+                            table=table, source=data.get("source") or "한국투자증권 (KIS)", tool=name,
+                            ticker=data.get("ticker")))
+
     if name.endswith("__investor_flow") and isinstance(data.get("flows"), list) and data["flows"]:
         # CE-12: 투자자별 순매수 (수급) → a sourced table (개인/외국인/기관, 순매수 주식수).
         def _q(v):

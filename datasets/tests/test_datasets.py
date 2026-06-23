@@ -919,6 +919,13 @@ def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
         if "volume-rank" in path:
             return [{"data_rank": "1", "mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자",
                      "stck_prpr": "337250", "prdy_ctrt": "-4.6", "acml_vol": "12345678", "acml_tr_pbmn": "4160000000000"}]
+        if "ranking/fluctuation" in path:
+            assert params["FID_RANK_SORT_CLS_CODE"] == "1"  # down → losers
+            return [{"data_rank": "1", "stck_shrn_iscd": "000660", "hts_kor_isnm": "SK하이닉스",
+                     "stck_prpr": "100000", "prdy_ctrt": "-9.9", "acml_vol": "555"}]
+        if "etfetn" in path:
+            return [{"hts_kor_isnm": "KODEX 200", "stck_prpr": "141675", "nav": "141792.70",
+                     "dprt": "-0.06", "prdy_ctrt": "-4.50", "nav_prdy_ctrt": "-4.40"}]
         if "inquire-investor" in path:
             return [{"stck_bsop_date": "20260622", "stck_clpr": "353500",
                      "prsn_ntby_qty": "-100", "frgn_ntby_qty": "5000", "orgn_ntby_qty": "-2000"}]
@@ -930,6 +937,11 @@ def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
     assert vr["results"][0]["change_percent"] == -4.6 and vr["results"][0]["value"] == 4160000000000
     fl = asyncio.run(K.investor_flow("005930", 10))
     assert fl["flows"][0]["foreign_net"] == 5000 and fl["flows"][0]["institution_net"] == -2000
+    # CE-12 extension: fluctuation ranking (losers) + ETF NAV/괴리율
+    fr = asyncio.run(K.fluctuation_rank("down", 30))
+    assert fr["direction"] == "down" and fr["results"][0]["ticker"] == "000660" and fr["results"][0]["change_percent"] == -9.9
+    etf = asyncio.run(K.etf_nav("069500"))
+    assert etf["nav"] == 141792.70 and etf["premium_discount_pct"] == -0.06 and etf["name"] == "KODEX 200"
 
     # missing creds → clear error
     monkeypatch.setattr(K.settings, "kis_app_key", "", raising=False)

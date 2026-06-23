@@ -1630,6 +1630,17 @@ def test_artifacts_kis_volume_rank_and_flow_tables():
                           {"date": "20260622", "close": 353500, "individual_net": -100,
                            "foreign_net": 5000, "institution_net": -2000}]}})[0]
     assert fl.kind == "table" and "수급" in fl.title and fl.table[1][3] == "+5,000"
+    # fluctuation ranking (losers) + ETF NAV
+    fr = A._artifacts({"name": "kis__fluctuation_rank", "source": "KIS"},
+                      {"data": {"direction": "down", "results": [
+                          {"rank": 1, "ticker": "000660", "name": "SK하이닉스", "price": 100000,
+                           "change_percent": -9.9, "volume": 555}]}})[0]
+    assert fr.kind == "table" and "하락률 순위" in fr.title and fr.table[1][3] == "-9.90%"
+    etf = A._artifacts({"name": "kis__etf_nav", "source": "KIS"},
+                       {"data": {"ticker": "069500", "name": "KODEX 200", "price": 141675,
+                                 "nav": 141792.70, "premium_discount_pct": -0.06,
+                                 "price_change_percent": -4.5, "nav_change_percent": -4.4}})[0]
+    assert etf.kind == "table" and "ETF NAV" in etf.title and etf.table[3] == ["괴리율", "-0.06%"]
 
 
 def test_artifacts_fmp_estimates_and_calendar_tables():
