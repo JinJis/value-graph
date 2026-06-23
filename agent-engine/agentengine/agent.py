@@ -103,6 +103,9 @@ class TaskIntake:
     # CE-10 NEWS BRIEF: the user wants a news briefing / market pulse (시황·무슨 일·뉴스 정리) →
     # gather recent news and synthesize a structured, sourced news narrative.
     news_brief: bool = False
+    # CE-14 VALUE CHAIN: the user asks about a company's 밸류체인/공급망 구조 (공급사·고객·경쟁사) →
+    # extract upstream/downstream/competitors from filings+news, labelled derived.
+    value_chain: bool = False
 
 
 _INTAKE_PROMPT = (
@@ -141,7 +144,10 @@ _INTAKE_PROMPT = (
     "narrow fact (e.g. '엔비디아 매출') leave narrative=false.\n"
     "NEWS BRIEF — set news_brief=true when the user wants a NEWS briefing / market pulse / 시황 / 뉴스 "
     "정리 / '무슨 일이야' / what's happening (a company's news flow, or the market's). Then gather RECENT "
-    "NEWS (and related context) and do NOT clarify.\n\n"
+    "NEWS (and related context) and do NOT clarify.\n"
+    "VALUE CHAIN — set value_chain=true when the user asks about a company's 밸류체인 / 공급망 구조 / "
+    "공급사·고객사 / value chain / supply chain (who it buys from, sells to, competes with). Then gather "
+    "its filings + news and do NOT clarify.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
@@ -154,6 +160,7 @@ _INTAKE_PROMPT = (
     '"subtasks": [{{"title": "<short facet name, SAME LANGUAGE>", "question": "<self-contained sub-question>"}}],  '
     '"narrative": <bool — true for a holistic company story / 관전 포인트 request>, '
     '"news_brief": <bool — true for a news briefing / 시황 / 뉴스 정리 request>, '
+    '"value_chain": <bool — true for a 밸류체인 / 공급망 구조 request>, '
     '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
@@ -184,6 +191,7 @@ _INTAKE_SCHEMA = {
             "title": {"type": "string"}, "question": {"type": "string"}}, "required": ["title", "question"]}},
         "narrative": {"type": "boolean"},
         "news_brief": {"type": "boolean"},
+        "value_chain": {"type": "boolean"},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -249,7 +257,9 @@ async def analyze_task(task: str, backend: str | None = None, conversation: list
         # we already know the intent). Requires data + not restricted.
         narrative = bool(d.get("narrative")) and needs_data and not restricted
         news_brief = bool(d.get("news_brief")) and needs_data and not restricted
-        clarify = bool(d.get("clarify")) and not restricted and not narrative and not news_brief and len(opts) >= 2
+        value_chain = bool(d.get("value_chain")) and needs_data and not restricted
+        clarify = (bool(d.get("clarify")) and not restricted and not narrative
+                   and not news_brief and not value_chain and len(opts) >= 2)
         # decompose only for a clear, complex request (not restricted/clarify/conceptual) with ≥2 facets.
         subs = []
         for s in (d.get("subtasks") or []):
@@ -269,6 +279,7 @@ async def analyze_task(task: str, backend: str | None = None, conversation: list
             subtasks=subtasks,
             narrative=narrative,
             news_brief=news_brief,
+            value_chain=value_chain,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)
@@ -445,6 +456,15 @@ _NARRATIVE_GUIDE = (
 
 # section headings the guide asks for (used to title the parsed narrative artifact)
 _NARRATIVE_HEADINGS = ("사업 개요", "최근 실적·재무", "밸류에이션", "최근 이슈", "관전 포인트")
+
+# CE-14: appended for a value-chain request → a structured, sourced (derived) supply-chain map.
+_VALUE_CHAIN_GUIDE = (
+    "\n\n[밸류체인 형식] 이 답변은 한 기업의 밸류체인/공급망 구조 정리입니다. 아래 제목으로, 순서대로 "
+    "작성하세요:\n## 핵심 사업\n## 주요 공급사 (상류)\n## 주요 고객 (하류)\n## 경쟁사\n## 밸류체인 내 위치\n"
+    "공시(사업의 내용·위험요소)와 뉴스에서 언급된 관계만 근거로 삼고 각 항목 끝에 [n]으로 인용하세요. "
+    "추측으로 관계를 만들지 말고, 근거가 없으면 '공시상 명시 없음'이라고 적으세요. 이 분석은 '공시·뉴스 "
+    "기반 LLM 추출(derived) — 확정된 거래관계가 아님'임을 마지막에 한 줄로 밝히세요. 가격 예측·매수의견 금지."
+)
 
 # CE-10: appended for a news-briefing request → a structured, sourced news narrative.
 _NEWS_BRIEF_GUIDE = (

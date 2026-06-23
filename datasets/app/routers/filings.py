@@ -31,6 +31,21 @@ async def get_filings(
     return FilingsResponse(filings=filings)
 
 
+_IR_TYPES = {Market.US: ["8-K"], Market.KR: ["주요사항보고서"]}  # the IR/news vehicle per market
+
+
+@router.get("/filings/ir", response_model=FilingsResponse, dependencies=[ApiKeyDep],
+            summary="IR 자료실 — IR/실적 관련 공시 (US: 8-K · KR: 주요사항보고서)")
+async def ir_materials(
+    ticker: str = Query(..., description="Company ticker / KR 6-digit code."),
+    limit: int = Query(10, ge=1, le=50),
+    market: MarketParam = Market.US,
+) -> FilingsResponse:
+    ref = build_ref(market, ticker)
+    filings = await get_filings_provider(market).filings(ref, _IR_TYPES.get(market), limit)
+    return FilingsResponse(filings=filings)
+
+
 @router.get("/filings/search", dependencies=[ApiKeyDep])
 async def filing_search(
     ticker: str = Query(..., description="Company ticker (US) or KR 6-digit code."),

@@ -210,6 +210,15 @@ SCENARIOS = [
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-14: value-chain / supply-chain map — derived from filings + news, labelled.
+        "name": "Value chain (밸류체인/공급망 구조)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "엔비디아(NVDA)의 밸류체인(공급사·고객·경쟁사) 구조를 정리해줘.",
+        "criteria": ("핵심 사업·주요 공급사(상류)·주요 고객(하류)·경쟁사를 공시/뉴스 근거로 [n] 인용해 정리하고, "
+                     "이것이 공시·뉴스 기반 추출(derived)이며 확정 거래관계가 아님을 밝힘. 전망/매수의견 없음."),
+        "checks": {"expect_status": 200, "answer_regex": r"\w", "expect_refused": False, "judge": True},
+    },
+    {
         # CE-10: news briefing / real-time narrative over the news ingestion.
         "name": "News brief (실시간 내러티브)",
         "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},

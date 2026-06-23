@@ -21,7 +21,7 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 344 unit** — datasets 142 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> **Test totals (current): 345 unit** — datasets 143 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
 > semantic) · agent-engine 120 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
@@ -512,8 +512,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `kis__market_cap_rank` (`/kr/rankings/market-cap` — KR 대형주 시총·시장 비중·등락). CE-12 KIS suite
   complete: 실시간 시세 · 거래량/등락률/시총 순위 · 투자자 수급 · ETF NAV.
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
-- ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
-  filings, labeled "derived"). 🔴❓
+- ✅ **CE-14 · IR자료실 + 밸류체인.** (1) **IR 자료실** — `datasets_store__ir_materials` (`/filings/ir`):
+  IR/실적 공시 목록 (US 8-K · KR 주요사항보고서) via the filings provider's type filter. (2) **밸류체인** —
+  intake `value_chain` flag + `_VALUE_CHAIN_GUIDE`: for a 밸류체인/공급망 구조 request the agent gathers
+  filings+news and synthesizes a structured map (핵심 사업·주요 공급사(상류)·주요 고객(하류)·경쟁사·밸류체인
+  내 위치), each cited, **labelled 공시·뉴스 기반 LLM 추출(derived) — 확정 거래관계 아님**; parsed into a
+  pinnable narrative card (reuses CE-4 wiring). No node-graph render (structured sections, per CLAUDE).
+  +1 datasets test (IR market filter), +1 eval. *(no new upstream.)*
 - ✅ **CE-HEALTH · Upstream API health in admin.** datasets `GET /admin/upstream-health` probes every
   connector's upstream (SEC/DART/Yahoo/DBnomics/ECOS/news) **lightly** (cheap GET, short timeout, no quota
   burn) → reachability, HTTP status, latency, and required-key presence (key value never exposed),

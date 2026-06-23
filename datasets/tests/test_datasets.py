@@ -1241,6 +1241,26 @@ def test_kr_filings_rank_prioritizes_substantive_reports(monkeypatch):
     assert [f.filing_type for f in only] == ["사업보고서 (2025.12)"]
 
 
+def test_ce14_ir_materials_filters_by_market(monkeypatch):
+    # CE-14 IR 자료실: US → 8-K, KR → 주요사항보고서 (the IR vehicle per market).
+    from app.models.generated import Filing
+    import app.routers.filings as F
+
+    captured = {}
+
+    class _Fake:
+        async def filings(self, ref, filing_types, limit):
+            captured["types"] = filing_types
+            return [Filing(cik=1, accession_number="a", filing_type=(filing_types or ["?"])[0],
+                           filing_date="2026-06-01", ticker=ref.ticker, url="https://x")]
+    monkeypatch.setattr(F, "get_filings_provider", lambda m: _Fake())
+
+    us = client.get("/filings/ir?ticker=AAPL&market=US").json()
+    assert captured["types"] == ["8-K"] and us["filings"][0]["filing_type"] == "8-K"
+    client.get("/filings/ir?ticker=005930&market=KR").json()
+    assert captured["types"] == ["주요사항보고서"]
+
+
 def test_filing_search_ingests_on_demand_then_returns_passages(monkeypatch):
     # on-demand RAG ingest: corpus empty for a ticker → ingest its filings, then search again.
     import app.routers.filings as F
