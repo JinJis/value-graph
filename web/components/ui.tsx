@@ -1,8 +1,8 @@
 "use client";
 
 // ── ValueGraph design-system primitives ────────────────────────────────────
-// Single source of truth for the recurring UI patterns from docs/wireframe.dc.html
-// (see docs/DESIGN_SYSTEM.md). Every screen composes these instead of re-deriving
+// Single source of truth for the recurring UI patterns from the wireframes
+// (see docs/deprecate/DESIGN_SYSTEM.md — design docs being rewritten). Every screen composes these instead of re-deriving
 // markup/classes, so the visual language stays unified. Tokens live in globals.css
 // :root; these primitives own the structural classNames that consume them.
 

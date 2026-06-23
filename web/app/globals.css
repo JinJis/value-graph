@@ -511,7 +511,7 @@ select.input { appearance: none; }
 
 /* ─────────────────────────────────────────────────────────────────────────
    Design-system primitives (web/components/ui.tsx). One definition, reused
-   across every screen — the unified visual language. (docs/DESIGN_SYSTEM.md) */
+   across every screen — the unified visual language. (docs/deprecate/DESIGN_SYSTEM.md) */
 
 /* analyst switcher reads as an inline name + ▾, not a boxed control */
 .desk-id .agentpick { border-color: transparent; background: transparent; font-weight: 600;

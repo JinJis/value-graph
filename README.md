@@ -8,8 +8,9 @@ The goal: a **multi-tenant platform for investment agents** — a data-source la
 to their needs, exposed as a **REST API, an MCP server, a RAG server, and an Agent Engine**, where
 builders develop against a defined interface or via natural language.
 
-📖 **Docs:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) (detailed design + progress) ·
-[`docs/ROADMAP.md`](./docs/ROADMAP.md) (task tracker / what's next).
+📖 **Docs:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) (detailed design + progress). The roadmap
+& UX-design docs are being rewritten (full UX overhaul + MVP); the old ones are in
+[`docs/deprecate/`](./docs/deprecate/) for reference.
 
 ## Status
 
@@ -62,8 +63,9 @@ builders develop against a defined interface or via natural language.
 
 ## Roadmap
 
-P0–P3 are built (see the status table above). **Next: P4 Agent Engine**, then the **value-chain**
-flagship. Full task tracker in [`docs/ROADMAP.md`](./docs/ROADMAP.md).
+The platform (PH hardening + connector waves) is built (see the status table above). The roadmap is
+being rewritten for a **full UX overhaul + MVP**; the old task tracker is archived in
+[`docs/deprecate/ROADMAP.md`](./docs/deprecate/ROADMAP.md).
 
 ## Run the whole stack (Docker — recommended)
 

@@ -4,16 +4,20 @@
 > **The legacy ValueGraph engine (`services/`, `apps/`, CVE, Deep-Research acquisition) has been removed**
 > — not a dependency.
 >
-> **Docs map (read before building):**
-> - **What we're building / why it's not a chatbot, screen by screen:** [`docs/UX_SPEC.md`](./docs/UX_SPEC.md)
-> - **The plan — one prioritised, dependency-ordered task list + test totals (source of truth):**
->   [`docs/ROADMAP.md`](./docs/ROADMAP.md) ← *pull your next task here*
-> - **How the services fit together (current state):** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+> **⚠️ Roadmap & UX docs are being rewritten (2026-06-23).** The old roadmap and UX-design docs
+> (`ROADMAP.md`, `UX_SPEC.md`, `DESIGN_SYSTEM.md`, `wireframes/`) have moved to
+> [`docs/deprecate/`](./docs/deprecate/) — reference only, **not** the source of truth. A **new roadmap**
+> (full UX overhaul + MVP) will land in `docs/`; pull tasks from it once it exists.
 >
-> **Always pull your next task from `docs/ROADMAP.md`** (it merges the old technical + UX roadmaps into one
-> phased plan: PH hardening first, then U2–U5 UX). One task at a time, **one task per PR**; tag the
-> task id in branch/commits/PR (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Don't mark done until every acceptance
-> criterion + the Definition of Done (§7) passes.
+> **Docs map (read before building):**
+> - **How the services fit together (current state):** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+> - **Product idea / vision:** [`docs/IDEA.md`](./docs/IDEA.md)
+> - **Data expansion plans:** [`docs/DATA_EXPANSION.md`](./docs/DATA_EXPANSION.md)
+> - **The plan (new):** *being authored — full UX overhaul + MVP. Until it lands, the deprecated
+>   `docs/deprecate/ROADMAP.md` is history only, not a task source.*
+>
+> One task at a time, **one task per PR**; tag the task id in branch/commits/PR. Don't mark done until
+> every acceptance criterion + the Definition of Done (§7) passes.
 
 ---
 
@@ -23,7 +27,8 @@ A **personal research desk**: the user staffs **standing analysts** (agents) on 
 of companies. Every analyst works **only from licensed, point-in-time, fully-cited data**, renders
 figures as **live, sourced artifacts**, and **pushes what changed before being asked** (schedule +
 disclosure calendar). It is *not* a chatbot — the differentiators are **trust by construction**,
-**pull→push**, and a **clone-from-others ecosystem**. See `docs/UX_SPEC.md` §1.
+**pull→push**, and a **clone-from-others ecosystem**. (The new UX spec is being authored; the old one
+is in `docs/deprecate/UX_SPEC.md` for reference.)
 
 ## 2. Architecture invariants — never violate
 
@@ -102,7 +107,7 @@ python3 eval/run_eval.py             # quality eval (stack up first; skips witho
 service(s) touched · the relevant e2e/coverage harness still green · **the quality eval
 (`python3 eval/run_eval.py`, deep-model rubric — see `eval/RUBRIC.md`) run before push and still above the
 bar; if the task adds a tool / endpoint / feature, add an eval scenario (with `criteria`) for it** ·
-`docs/ROADMAP.md` test totals + the task status updated in the same PR.
+the new roadmap's test totals + the task status updated in the same PR.
 
 ## 6. Environment (Gemini only; never commit secrets — document new keys in `.env.example`)
 ```
@@ -120,13 +125,11 @@ Model IDs are env-overridable and Gemini-only; verify exact IDs/SDK details agai
 not memory.
 
 ## 7. Working style
-- **Pull the next task from `docs/ROADMAP.md`**; read the `UX_SPEC.md` section it implements. Match
-  terminology exactly (Desk/analyst/watchlist/@group,
-  brief, Live Context Feed, source-preview card, freshness/confidence, Disclosure Calendar, template↔
-  instance/clone, Staging-free — everything is gateway-entitled production data).
+- **Pull the next task from the new roadmap** (being authored — full UX overhaul + MVP); read the UX
+  spec section it implements. The old roadmap/UX docs in `docs/deprecate/` are history, not a task source.
 - **One task per PR.** Prefer iterative refinement over rewrites; preserve working code and tests.
 - **Keep docs in sync in the same PR:** if architecture drifts, update `docs/ARCHITECTURE.md`; if you
-  finish/advance a task, update its status + test totals in `docs/ROADMAP.md`.
+  finish/advance a task, update its status + test totals in the new roadmap.
 - **Do:** tag every figure (source+as_of+next_update+freshness+confidence) · route all data through the
   gateway · draw gaps & show freshness · show the guardrail label · reuse the manifest/catalog and the
   prompt-import clone pattern.
