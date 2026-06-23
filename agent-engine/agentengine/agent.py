@@ -353,20 +353,32 @@ _FOLLOWUP_SCHEMA = {
 }
 
 
-async def _followups_one(client, model: str, persona: str, task: str, answer: str, context: str) -> list[str]:
+async def _followups_one(client, model: str, persona: str, task: str, answer: str, context: str,
+                         retries: int = 3) -> list[str]:
+    """One persona's follow-ups with exponential backoff — rides out transient 429/503/timeouts
+    (the two personas fire in parallel, so a paid pro key can momentarily hit per-minute RPM)."""
     import asyncio
+    import random
 
     from google.genai import types
 
-    resp = await asyncio.to_thread(
-        client.models.generate_content, model=model,
-        contents=_FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
-                                         context=context, answer=(answer or "")[:2500]),
-        config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=400,
-                                           response_mime_type="application/json",
-                                           response_schema=_FOLLOWUP_SCHEMA))
-    d = json.loads(getattr(resp, "text", "") or "{}")
-    return [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+    cfg = types.GenerateContentConfig(temperature=0.6, max_output_tokens=400,
+                                      response_mime_type="application/json",
+                                      response_schema=_FOLLOWUP_SCHEMA)
+    contents = _FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
+                                       context=context, answer=(answer or "")[:2500])
+    last: Exception | None = None
+    for i in range(retries):
+        try:
+            resp = await asyncio.to_thread(client.models.generate_content, model=model,
+                                           contents=contents, config=cfg)
+            d = json.loads(getattr(resp, "text", "") or "{}")
+            return [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+        except Exception as exc:  # noqa: BLE001 — retry transient errors with backoff
+            last = exc
+            if i < retries - 1:
+                await asyncio.sleep(0.7 * (2 ** i) + random.uniform(0, 0.5))
+    raise last if last else RuntimeError("followups: no result")
 
 
 async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None,
@@ -381,10 +393,10 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
     if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
         return []
     ctx = f"맥락: {context}" if context else ""
-    # model fallback chain — try the fast, proven model FIRST (so chips reliably appear), then
-    # the deep model. A flaky/quota-limited pro model must never silently suppress suggestions.
+    # model chain — DEEP model first (pro, paid key → best suggestions), each call already does
+    # backoff retry; fall back to the fast model only if the deep one is truly down.
     chain: list[str] = []
-    for m in (model, settings.model, settings.synthesis_model):
+    for m in (settings.synthesis_model, model, settings.model):
         if m and m not in chain:
             chain.append(m)
     try:

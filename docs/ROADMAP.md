@@ -445,8 +445,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   `_merge_followups` interleaves + dedups → 3-4 DIVERSE chips. chat passes context (tickers + data kinds
   used) for concreteness. e.g. 하이닉스 폭락 "왜?" → 마이크론 실적/컨센서스 · 외국인·기관 수급 · 과거 급락
   후 N일 통계 · 반도체 PPI/SOX 사이클. +1 agent test (merge); best-effort, degrades gracefully.
-  **Reliability fix:** model **fallback chain** (fast `model` FIRST → deep `synthesis_model`) so a
-  flaky/quota-limited pro model never silently suppresses the chips; logs which model failed. New `yahoo__commodities` (`GET /market/commodities`): curated
+  **Reliability:** each persona call does **exponential backoff retry** (rides out transient 429/503
+  from two parallel pro calls hitting per-minute RPM); model chain is **deep (pro) FIRST** → fast model
+  fallback only if pro is truly down. Logs which model failed. New `yahoo__commodities` (`GET /market/commodities`): curated
   commodity futures grouped 귀금속(금·은·백금·팔라듐)·산업금속(구리)·에너지(WTI·브렌트·천연가스·가솔린)·
   농산물(옥수수·밀·대두·설탕·커피·면화) → level + day change via the Yahoo provider, best-effort (drop on
   fail). agent renders a sourced grouped table. +2 tests, live-verified.
