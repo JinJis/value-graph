@@ -431,7 +431,8 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   coverage via ~35 representative ETF/asset proxies grouped — 테크·AI(반도체/AI/클라우드/사이버보안/핀테크)
   · 에너지·자원(청정에너지/태양광/원자력/금광/리튬/농업) · 헬스·바이오 · 산업·방산·우주·로봇·인프라·항공 ·
   소비·리츠 · 지역·국가(한국/중국/일본/인도/신흥국/유럽) · 디지털자산(BTC/ETH) **+ 한국 테마 ETF**
-  (KODEX/TIGER 반도체·2차전지·자동차·바이오·헬스·방산·조선·은행·미디어, .KS) — 11 groups · ~49 members.
+  (KODEX/TIGER/KINDEX/KBSTAR/ARIRANG: 반도체·2차전지·자동차·바이오·헬스·방산·조선·은행·인터넷·게임·
+  엔터·미디어·고배당·원자력, .KS) — **14 groups · ~57 members** (글로벌 35 + KR 22).
   level + day change, best-effort (drop on fail). agent renders the shared grouped table (테마·섹터 시세).
   +2 tests, live-verified (global 35 + KR 14). *(no new upstream; more themes can be appended.)*
 - ✅ **SMART-FOLLOWUPS · 고도화 후속 질문 엔진.** Below every answer, 3-4 capability-aware follow-up chips
