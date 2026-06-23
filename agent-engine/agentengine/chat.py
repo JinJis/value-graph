@@ -43,6 +43,30 @@ def _last_user(messages: list[dict]) -> str:
     return messages[-1].get("content", "") if messages else ""
 
 
+async def _followups_event(task: str, final_text: str, citations: list[dict],
+                           bk: str | None) -> dict | None:
+    """Build the 'suggestions' SSE event for a finished answer. Always non-empty when there's an
+    answer — suggest_followups uses the deep LLM on gemini and a deterministic capability-aware
+    fallback otherwise — so the chip row renders on EVERY answer path (conceptual + data)."""
+    if not (final_text or "").strip():
+        return None
+    from agentengine.agent import suggest_followups
+    tickers = sorted({c.get("ticker") for c in citations if c.get("ticker")})
+    kinds = sorted({c.get("kind") for c in citations if c.get("kind")})
+    ctx_bits = []
+    if tickers:
+        ctx_bits.append("다룬 종목: " + ", ".join(tickers[:5]))
+    if kinds:
+        ctx_bits.append("사용한 데이터: " + ", ".join(kinds))
+    eff_backend = bk or settings.llm_backend
+    logger.info("chat: requesting follow-up chips (backend=%s, answer_len=%d, tickers=%s, kinds=%s)",
+                eff_backend, len(final_text), tickers, kinds)
+    sugg = await suggest_followups(task, final_text, settings.model, bk,
+                                   context=" · ".join(ctx_bits) or None, tickers=tickers, kinds=kinds)
+    logger.info("chat: follow-up chips → %d suggestion(s)", len(sugg))
+    return {"type": "suggestions", "items": sugg} if sugg else None
+
+
 def _chunks(text: str, size: int = 28) -> list[str]:
     """Slice text into fixed-size spans for the fallback/stub stream. CHARACTER-based so it
     preserves newlines + markdown structure verbatim (word-splitting collapsed `\\n` → broke
@@ -163,6 +187,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
         async for ev in _synthesize({}, [], system):
             yield ev
+        sev = await _followups_event(task, final_text, [], bk)
+        if sev:
+            yield sev
         yield {"type": "done", "citations": [], "artifacts": [], "refused": False, "used": []}
         return
 
@@ -395,28 +422,10 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "token", "text": " " + anchor_markers(used_idx)}
     used = [c.get("index") for c in citations if c.get("used")]
 
-    # PH-THINK: capability-aware deep follow-up chips. Pass which tickers + data kinds were used
-    # so the parallel suggester proposes concrete questions that showcase our differentiators.
-    eff_backend = bk or settings.llm_backend
-    if final_text and eff_backend == "gemini":
-        from agentengine.agent import suggest_followups
-        tickers = sorted({c.get("ticker") for c in citations if c.get("ticker")})
-        kinds = sorted({c.get("kind") for c in citations if c.get("kind")})
-        ctx_bits = []
-        if tickers:
-            ctx_bits.append("다룬 종목: " + ", ".join(tickers[:5]))
-        if kinds:
-            ctx_bits.append("사용한 데이터: " + ", ".join(kinds))
-        logger.info("chat: requesting follow-up chips (backend=%s, answer_len=%d, tickers=%s, kinds=%s)",
-                    eff_backend, len(final_text), tickers, kinds)
-        sugg = await suggest_followups(task, final_text, settings.model, bk,
-                                       context=" · ".join(ctx_bits) or None)
-        logger.info("chat: follow-up chips → %d suggestion(s)%s", len(sugg),
-                    "" if sugg else " (none emitted)")
-        if sugg:
-            yield {"type": "suggestions", "items": sugg}
-    else:
-        logger.info("chat: skipping follow-up chips (backend=%s, has_answer=%s)",
-                    eff_backend, bool(final_text))
+    # PH-THINK: capability-aware follow-up chips — ALWAYS shown after a real answer (deep LLM when
+    # gemini, deterministic capability-aware fallback otherwise), so the chip row is never empty.
+    sev = await _followups_event(task, final_text, citations, bk)
+    if sev:
+        yield sev
 
     yield {"type": "done", "citations": citations, "artifacts": artifacts, "refused": False, "used": used}

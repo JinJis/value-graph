@@ -389,6 +389,8 @@ async def test_chat_stream_conceptual_skips_tools(monkeypatch):
     events = [e async for e in stream_chat([{"role": "user", "content": "PER이 뭐야?"}], "vgk_x")]
     assert all(e["type"] != "tool" for e in events)          # no tool call
     assert any(e["type"] == "token" for e in events)         # but a real answer streamed
+    sugg = [e for e in events if e["type"] == "suggestions"]
+    assert sugg and sugg[0]["items"]                          # chips ALWAYS render (stub → fallback)
     done = events[-1]
     assert done["type"] == "done" and done["refused"] is False and done["citations"] == []
 
@@ -1790,9 +1792,12 @@ async def test_refine_evidence_noop_without_gemini_or_evidence():
 
 
 async def test_suggest_followups_parses_and_caps(monkeypatch):
-    # PH-THINK: 3-4 deep follow-up questions from the answer (stub → none, gemini → parsed, ≤4).
+    # PH-THINK: chips ALWAYS render after an answer. stub (no LLM) → deterministic capability-aware
+    # fallback (3-4, ticker-aware); empty answer → none; gemini → parsed deep chips (≤4).
     from agentengine.agent import suggest_followups
-    assert await suggest_followups("q", "an answer", "m", "stub") == []
+    stub = await suggest_followups("엔비디아 분석", "an answer", "m", "stub", tickers=["NVDA"])
+    assert 3 <= len(stub) <= 4 and any("NVDA" in s for s in stub)   # never empty on stub
+    assert await suggest_followups("q", "an answer", "m", "stub") != []  # no ticker → generic fallback
     assert await suggest_followups("q", "", "m", "gemini") == []   # no answer → none
 
     pytest.importorskip("google.genai")
@@ -1805,6 +1810,17 @@ async def test_suggest_followups_parses_and_caps(monkeypatch):
     out = await suggest_followups("엔비디아 실적", "매출 X, 순이익 Y …", "gemini-x", "gemini")
     # parallel personas → merged + deduped + capped (both personas mock-identical → 3 unique)
     assert 1 <= len(out) <= 4 and out[0].startswith("NVDA") and len(out) == len(set(out))
+
+
+def test_fallback_followups_always_nonempty_and_capability_aware():
+    # The deterministic safety net: chips are NEVER empty, ticker-aware when we know the company,
+    # generic-but-differentiated otherwise, deduped + capped at 4.
+    from agentengine.agent import _fallback_followups
+    with_tk = _fallback_followups("삼성전자 분석", tickers=["005930", "000660"])
+    assert 3 <= len(with_tk) <= 4 and len(with_tk) == len(set(with_tk))
+    assert any("005930" in s for s in with_tk) and any("000660" in s for s in with_tk)  # compare chip
+    generic = _fallback_followups("금리 인상 영향은?", tickers=[])
+    assert 3 <= len(generic) <= 4 and any("출처" in s for s in generic)  # provenance showcase
 
 
 def test_merge_followups_interleaves_and_dedups():

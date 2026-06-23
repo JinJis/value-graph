@@ -391,20 +391,59 @@ async def _followups_one(client, model: str, persona: str, task: str, answer: st
     raise last if last else RuntimeError("followups: no result")
 
 
+def _fallback_followups(task: str, tickers: list[str] | None = None,
+                        kinds: list[str] | None = None) -> list[str]:
+    """Deterministic, capability-aware follow-up chips — used when the LLM suggester can't run
+    (stub backend / no key) or returns nothing. GUARANTEES the chips always render: each one still
+    leads into a real differentiator (공시·출처·수급·밸류에이션·거시·차트), so the UX never degrades to
+    an empty footer. Not hardcoded *reasoning* (invariant #9) — just a safety net for the chip row
+    when the deep suggester is unavailable; the gemini path stays primary for quality."""
+    tickers = [t for t in (tickers or []) if t]
+    out: list[str] = []
+    if tickers:
+        tk = tickers[0]
+        if len(tickers) > 1:
+            out.append(f"{tickers[0]}와 {tickers[1]}를 핵심 지표로 비교해줘")
+        out += [
+            f"{tk}의 최근 공시에서 핵심 내용을 출처와 함께 보여줘",
+            f"{tk}의 매출·영업이익 추이를 차트로 보여줘",
+            f"{tk}의 외국인·기관 수급 동향은 어때?",
+            f"{tk}와 같은 업종 종목들과 밸류에이션을 비교해줘",
+        ]
+    else:
+        out += [
+            "관련 거시지표(금리·물가·고용)의 최신값을 출처와 함께 보여줘",
+            "이 주제와 관련된 ETF·섹터 동향을 보여줘",
+            "관련 기업들의 최근 공시·뉴스를 출처와 함께 정리해줘",
+            "방금 답변의 근거 출처를 더 자세히 보여줘",
+        ]
+    seen, res = set(), []
+    for s in out:
+        k = re.sub(r"[\s\W]+", "", s.lower())
+        if s.strip() and k not in seen:
+            seen.add(k)
+            res.append(s.strip())
+    return res[:4]
+
+
 async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None,
-                            context: str | None = None) -> list[str]:
-    """PH-THINK / 고도화: capability-aware DEEP follow-up chips. Runs two personas in PARALLEL on
-    the deep model — one scratches the user's curiosity (skill-spanning), one showcases our
-    differentiated data/features — then merges to 3-4 DIVERSE suggestions. Each click naturally
-    leads the user into a real capability (수급·13F·백테스트·밸류에이션·증거·거시 등). Best-effort;
-    [] on stub/no-answer; degrades to a single persona if the other call fails."""
+                            context: str | None = None, tickers: list[str] | None = None,
+                            kinds: list[str] | None = None) -> list[str]:
+    """PH-THINK / 고도화: capability-aware follow-up chips. On gemini, runs two personas in PARALLEL
+    on the deep model — one scratches the user's curiosity (skill-spanning), one showcases our
+    differentiated data/features — then merges to 3-4 DIVERSE suggestions. ALWAYS returns chips when
+    there's an answer: if the backend is stub, the client init fails, or every model yields nothing,
+    it falls back to deterministic capability-aware chips so the row is never empty. Each click leads
+    into a real capability (수급·13F·백테스트·밸류에이션·증거·거시 등)."""
     import asyncio
 
-    eff_backend = backend or settings.llm_backend
-    if eff_backend != "gemini" or not (answer or "").strip():
-        logger.info("followups: skipped (backend=%s, answer_len=%d) — needs gemini + non-empty answer",
-                    eff_backend, len((answer or "").strip()))
+    if not (answer or "").strip():
         return []
+    eff_backend = backend or settings.llm_backend
+    fallback = _fallback_followups(task, tickers, kinds)
+    if eff_backend != "gemini":
+        logger.info("followups: backend=%s → deterministic fallback (%d chips)", eff_backend, len(fallback))
+        return fallback
     ctx = f"맥락: {context}" if context else ""
     # model chain — DEEP model first (pro, paid key → best suggestions), each call already does
     # backoff retry; fall back to the fast model only if the deep one is truly down.
@@ -417,8 +456,9 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
 
         client = genai.Client()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("followups: genai client init failed (%s: %s)", type(exc).__name__, exc, exc_info=True)
-        return []
+        logger.warning("followups: genai client init failed (%s: %s) → deterministic fallback",
+                       type(exc).__name__, exc, exc_info=True)
+        return fallback
     logger.info("followups: generating (chain=%s, personas=%s, answer_len=%d, ctx=%r)",
                 chain, list(_FOLLOWUP_PERSONAS), len(answer), context)
     for m in chain:
@@ -440,8 +480,9 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
         except Exception as exc:  # noqa: BLE001 — never block on suggestions
             logger.warning("followups: model %s errored (%s: %s); trying next",
                            m, type(exc).__name__, exc, exc_info=True)
-    logger.warning("followups: all models in chain %s produced no suggestions", chain)
-    return []
+    logger.warning("followups: all models in chain %s produced nothing → deterministic fallback (%d chips)",
+                   chain, len(fallback))
+    return fallback
 
 
 _REFINE_PROMPT = (
