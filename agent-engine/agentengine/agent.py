@@ -381,21 +381,34 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
     if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
         return []
     ctx = f"맥락: {context}" if context else ""
-    deep = settings.synthesis_model or model  # deep model for richer, more insightful suggestions
+    # model fallback chain — try the fast, proven model FIRST (so chips reliably appear), then
+    # the deep model. A flaky/quota-limited pro model must never silently suppress suggestions.
+    chain: list[str] = []
+    for m in (model, settings.model, settings.synthesis_model):
+        if m and m not in chain:
+            chain.append(m)
     try:
         from google import genai
 
         client = genai.Client()
-        results = await asyncio.gather(
-            *[_followups_one(client, deep, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
-            return_exceptions=True)
-        lists = [r for r in results if isinstance(r, list)]
-        if not lists:
-            return []
-        return _merge_followups(lists, limit=4)
-    except Exception as exc:  # noqa: BLE001 — suggestions are a nicety, never block
-        logger.warning("followup suggestions failed (%s); skipping", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("followups: genai client init failed (%s)", exc)
         return []
+    for m in chain:
+        try:
+            results = await asyncio.gather(
+                *[_followups_one(client, m, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
+                return_exceptions=True)
+            lists = [r for r in results if isinstance(r, list) and r]
+            merged = _merge_followups(lists, limit=4)
+            if merged:
+                return merged
+            errs = [r for r in results if isinstance(r, Exception)]
+            if errs:
+                logger.warning("followups: model %s failed (%s); trying next", m, errs[0])
+        except Exception as exc:  # noqa: BLE001 — never block on suggestions
+            logger.warning("followups: model %s errored (%s); trying next", m, exc)
+    return []
 
 
 _REFINE_PROMPT = (
