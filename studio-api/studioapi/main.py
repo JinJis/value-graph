@@ -26,6 +26,9 @@ from studioapi.board import boards_router, router as board_router
 from studioapi.evidence import router as evidence_router
 from studioapi.prices import router as prices_router
 from studioapi.financials import router as financials_router
+from studioapi.logging_config import install_request_logging, setup_logging
+
+setup_logging()
 
 
 @asynccontextmanager
@@ -37,6 +40,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Studio API", version="0.1.0", lifespan=lifespan)
+install_request_logging(app)
 
 
 class ChatIn(BaseModel):

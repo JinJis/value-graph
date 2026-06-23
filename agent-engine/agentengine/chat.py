@@ -397,7 +397,8 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
 
     # PH-THINK: capability-aware deep follow-up chips. Pass which tickers + data kinds were used
     # so the parallel suggester proposes concrete questions that showcase our differentiators.
-    if final_text and (bk or settings.llm_backend) == "gemini":
+    eff_backend = bk or settings.llm_backend
+    if final_text and eff_backend == "gemini":
         from agentengine.agent import suggest_followups
         tickers = sorted({c.get("ticker") for c in citations if c.get("ticker")})
         kinds = sorted({c.get("kind") for c in citations if c.get("kind")})
@@ -406,9 +407,16 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
             ctx_bits.append("다룬 종목: " + ", ".join(tickers[:5]))
         if kinds:
             ctx_bits.append("사용한 데이터: " + ", ".join(kinds))
+        logger.info("chat: requesting follow-up chips (backend=%s, answer_len=%d, tickers=%s, kinds=%s)",
+                    eff_backend, len(final_text), tickers, kinds)
         sugg = await suggest_followups(task, final_text, settings.model, bk,
                                        context=" · ".join(ctx_bits) or None)
+        logger.info("chat: follow-up chips → %d suggestion(s)%s", len(sugg),
+                    "" if sugg else " (none emitted)")
         if sugg:
             yield {"type": "suggestions", "items": sugg}
+    else:
+        logger.info("chat: skipping follow-up chips (backend=%s, has_answer=%s)",
+                    eff_backend, bool(final_text))
 
     yield {"type": "done", "citations": citations, "artifacts": artifacts, "refused": False, "used": used}

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
-from app.logging_config import setup_logging
+from app.logging_config import install_request_logging, setup_logging
 from app.routers import (  # noqa: I001
     backtest,
     fmp,
@@ -80,6 +80,7 @@ app = FastAPI(
 )
 
 register_error_handlers(app)
+install_request_logging(app)
 
 for module in (
     company, prices, financials, filings, macro, metrics,

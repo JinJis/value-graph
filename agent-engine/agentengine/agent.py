@@ -370,14 +370,24 @@ async def _followups_one(client, model: str, persona: str, task: str, answer: st
     last: Exception | None = None
     for i in range(retries):
         try:
+            logger.debug("followups[%s/%s]: attempt %d/%d", model, persona, i + 1, retries)
             resp = await asyncio.to_thread(client.models.generate_content, model=model,
                                            contents=contents, config=cfg)
-            d = json.loads(getattr(resp, "text", "") or "{}")
-            return [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+            raw = getattr(resp, "text", "") or "{}"
+            logger.debug("followups[%s/%s]: raw response = %s", model, persona, raw[:500])
+            d = json.loads(raw)
+            out = [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+            logger.debug("followups[%s/%s]: parsed %d item(s): %s", model, persona, len(out), out)
+            return out
         except Exception as exc:  # noqa: BLE001 — retry transient errors with backoff
             last = exc
+            logger.warning("followups[%s/%s]: attempt %d/%d failed: %s: %s",
+                           model, persona, i + 1, retries, type(exc).__name__, exc)
             if i < retries - 1:
-                await asyncio.sleep(0.7 * (2 ** i) + random.uniform(0, 0.5))
+                delay = 0.7 * (2 ** i) + random.uniform(0, 0.5)
+                logger.debug("followups[%s/%s]: backing off %.2fs", model, persona, delay)
+                await asyncio.sleep(delay)
+    logger.error("followups[%s/%s]: exhausted %d retries", model, persona, retries, exc_info=last)
     raise last if last else RuntimeError("followups: no result")
 
 
@@ -390,7 +400,10 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
     [] on stub/no-answer; degrades to a single persona if the other call fails."""
     import asyncio
 
-    if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
+    eff_backend = backend or settings.llm_backend
+    if eff_backend != "gemini" or not (answer or "").strip():
+        logger.info("followups: skipped (backend=%s, answer_len=%d) — needs gemini + non-empty answer",
+                    eff_backend, len((answer or "").strip()))
         return []
     ctx = f"맥락: {context}" if context else ""
     # model chain — DEEP model first (pro, paid key → best suggestions), each call already does
@@ -404,22 +417,30 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
 
         client = genai.Client()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("followups: genai client init failed (%s)", exc)
+        logger.warning("followups: genai client init failed (%s: %s)", type(exc).__name__, exc, exc_info=True)
         return []
+    logger.info("followups: generating (chain=%s, personas=%s, answer_len=%d, ctx=%r)",
+                chain, list(_FOLLOWUP_PERSONAS), len(answer), context)
     for m in chain:
         try:
             results = await asyncio.gather(
                 *[_followups_one(client, m, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
                 return_exceptions=True)
             lists = [r for r in results if isinstance(r, list) and r]
-            merged = _merge_followups(lists, limit=4)
-            if merged:
-                return merged
             errs = [r for r in results if isinstance(r, Exception)]
+            merged = _merge_followups(lists, limit=4)
+            logger.info("followups: model %s → %d/%d personas produced items, %d error(s), merged=%d",
+                        m, len(lists), len(results), len(errs), len(merged))
+            if merged:
+                logger.info("followups: returning %d chip(s): %s", len(merged), merged)
+                return merged
             if errs:
-                logger.warning("followups: model %s failed (%s); trying next", m, errs[0])
+                logger.warning("followups: model %s yielded nothing usable; first error: %s: %s; trying next",
+                               m, type(errs[0]).__name__, errs[0])
         except Exception as exc:  # noqa: BLE001 — never block on suggestions
-            logger.warning("followups: model %s errored (%s); trying next", m, exc)
+            logger.warning("followups: model %s errored (%s: %s); trying next",
+                           m, type(exc).__name__, exc, exc_info=True)
+    logger.warning("followups: all models in chain %s produced no suggestions", chain)
     return []
 
 

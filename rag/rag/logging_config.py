@@ -1,9 +1,9 @@
-"""Logging + request tracing for the datasets service.
+"""Logging + request tracing for the rag service.
 
 A single LOG_LEVEL (read straight from the environment, so it works regardless of the
 pydantic ``env_prefix``) drives verbosity for the app logger, uvicorn, and the request
 middleware. Set ``LOG_LEVEL=DEBUG`` for full traces (file:line + funcName, raw model
-payloads, per-retry backoff). Without this, ``app.*`` loggers have no level/handler
+payloads, per-retry backoff). Without this, ``rag.*`` loggers have no level/handler
 so INFO/DEBUG never reach ``docker logs`` and best-effort except-blocks go silent.
 """
 
@@ -15,9 +15,9 @@ import sys
 import time
 import uuid
 
-from app.config import settings
+from rag.config import settings
 
-_PKG = "app"
+_PKG = "rag"
 _BASE_FMT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 _DEBUG_FMT = "%(asctime)s %(levelname)-7s %(name)s [%(filename)s:%(lineno)d %(funcName)s]: %(message)s"
 

@@ -16,6 +16,7 @@ from agentengine.agent import refresh_artifact, run_agent
 from agentengine.chat import stream_chat
 from agentengine.client import PlatformClient
 from agentengine.config import settings
+from agentengine.logging_config import install_request_logging, setup_logging
 from agentengine.models import (
     AgentSpec,
     ArtifactRefreshRequest,
@@ -24,10 +25,13 @@ from agentengine.models import (
     RunRequest,
 )
 
+setup_logging()
+
 app = FastAPI(
     title="Platform Agent Engine", version="0.1.0",
     description="Run agents over activated connectors + RAG, via the gateway, with provenance + guardrails.",
 )
+install_request_logging(app)
 
 
 @app.get("/health", tags=["Meta"])

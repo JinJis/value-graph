@@ -10,13 +10,17 @@ from fastapi import FastAPI, Request
 
 from rag.config import settings
 from rag.ingest import ingest_docs
+from rag.logging_config import install_request_logging, setup_logging
 from rag.models import IngestRequest, SearchRequest
 from rag.search import search as run_search
+
+setup_logging()
 
 app = FastAPI(
     title="Platform RAG", version="0.1.0",
     description="Provenance-first RAG with pluggable embedding/reranker/store backends.",
 )
+install_request_logging(app)
 
 # Header the gateway injects from the caller's authenticated key (control-plane
 # project_id). Direct callers (admin ops, dev) omit it → docs stay unscoped/global.

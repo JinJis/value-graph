@@ -10,6 +10,10 @@ class Settings(BaseSettings):
         env_prefix="AGENT_", env_file=("../.env", ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
+    # App log verbosity (DEBUG|INFO|WARNING|…). A bare `LOG_LEVEL` env var (prefix-independent,
+    # shared across all services) overrides this in logging_config — see setup_logging().
+    log_level: str = "INFO"
+
     # Model tiering — quality where it's READ, economy where it's MECHANICAL. Override via env.
     # Planner backend: stub (deterministic, dev/CI) | gemini (real LLM)
     llm_backend: str = "stub"

@@ -8,6 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=("../.env", ".env"), env_file_encoding="utf-8", extra="ignore")
 
+    # App log verbosity (DEBUG|INFO|WARNING|…); a bare shared `LOG_LEVEL` env overrides it.
+    log_level: str = "INFO"
     # Trust token shared with the first-party web BFF.
     service_token: str = "dev-service-token"            # SERVICE_TOKEN
     # Control plane (for provisioning tenants/keys/activations) + its admin token.

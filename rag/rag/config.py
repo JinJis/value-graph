@@ -18,6 +18,9 @@ class Settings(BaseSettings):
         env_prefix="RAG_", env_file=("../.env", ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
+    # App log verbosity (DEBUG|INFO|WARNING|…); a bare shared `LOG_LEVEL` env overrides it.
+    log_level: str = "INFO"
+
     # --- embeddings --------------------------------------------------------
     embedding_backend: str = "hash"          # hash | oss-cpu | oss-gpu | tei | gcp
     embedding_model: str = "BAAI/bge-m3"

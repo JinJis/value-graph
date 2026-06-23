@@ -23,9 +23,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from adminpanel.config import DATABASES, settings
+from adminpanel.logging_config import install_request_logging, setup_logging
 from adminpanel.views import _cell, _esc, badge, login_page, page, progress, sdot
 
+setup_logging()
+
 app = FastAPI(title="ValueGraph Admin")
+install_request_logging(app)
 
 DB_STATUS: dict[str, dict] = {}   # key -> {title, tables:[...], error, meta:{table->{columns,pk}}}
 ENGINES: dict[str, object] = {}   # key -> sqlalchemy Engine
