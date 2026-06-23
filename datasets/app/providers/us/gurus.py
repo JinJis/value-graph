@@ -51,3 +51,90 @@ def list_gurus() -> list[dict]:
 
 def get_guru(slug: str) -> dict | None:
     return _BY_SLUG.get((slug or "").strip().lower())
+
+
+# --- CE-3: quarter-over-quarter trades + cross-guru common holdings -----------
+
+def _agg_by_cusip(holdings: list) -> dict[str, dict]:
+    """Aggregate 13F rows by CUSIP (a filer may split one issuer across classes/managers)."""
+    out: dict[str, dict] = {}
+    for h in holdings:
+        cusip = getattr(h, "cusip", None)
+        if not cusip:
+            continue
+        slot = out.setdefault(cusip, {
+            "cusip": cusip, "ticker": getattr(h, "ticker", None),
+            "name_of_issuer": getattr(h, "name_of_issuer", None),
+            "shares": 0, "value_usd": 0, "accession_number": getattr(h, "accession_number", None),
+        })
+        slot["shares"] += getattr(h, "shares", 0) or 0
+        slot["value_usd"] += getattr(h, "value_usd", 0) or 0
+        slot["ticker"] = slot["ticker"] or getattr(h, "ticker", None)
+    return out
+
+
+def compute_trades(quarters: list[dict], limit: int = 40) -> dict:
+    """Diff a filer's two most recent 13F quarters into discrete moves
+    (new / added / trimmed / exited). `quarters` is `by_filer_quarters` output, newest first."""
+    if not quarters:
+        return {"trades": [], "report_period": None, "prev_report_period": None, "comparable": False}
+    latest = quarters[0]
+    prior = quarters[1] if len(quarters) > 1 else None
+    lat = _agg_by_cusip(latest["holdings"])
+    pri = _agg_by_cusip(prior["holdings"]) if prior else {}
+    rows: list[dict] = []
+    for cusip in set(lat) | set(pri):
+        a, b = lat.get(cusip), pri.get(cusip)
+        sh, psh = (a["shares"] if a else 0), (b["shares"] if b else 0)
+        val, pval = (a["value_usd"] if a else 0), (b["value_usd"] if b else 0)
+        if a and not b:
+            action = "new"
+        elif b and not a:
+            action = "exited"
+        elif sh > psh:
+            action = "added"
+        elif sh < psh:
+            action = "trimmed"
+        else:
+            continue  # unchanged — not a move
+        ref = a or b
+        rows.append({
+            "cusip": cusip, "ticker": ref["ticker"], "name_of_issuer": ref["name_of_issuer"],
+            "action": action, "shares": sh, "prev_shares": psh, "shares_change": sh - psh,
+            "shares_change_pct": round((sh - psh) / psh * 100, 1) if psh else None,
+            "value_usd": val, "prev_value_usd": pval, "value_change_usd": val - pval,
+            "accession_number": (a or b)["accession_number"],
+        })
+    rows.sort(key=lambda r: abs(r["value_change_usd"]), reverse=True)
+    return {
+        "trades": rows[:limit],
+        "report_period": latest.get("report_period"),
+        "prev_report_period": prior.get("report_period") if prior else None,
+        "filing_date": latest.get("filing_date"),
+        "comparable": prior is not None,
+    }
+
+
+def common_holdings(per_guru: list[dict], min_holders: int = 2, limit: int = 40) -> list[dict]:
+    """Securities held by the most gurus right now. `per_guru` = [{guru, holdings}]."""
+    bucket: dict[str, dict] = {}
+    for entry in per_guru:
+        g = entry["guru"]
+        for cusip, slot in _agg_by_cusip(entry["holdings"]).items():
+            row = bucket.setdefault(cusip, {
+                "cusip": cusip, "ticker": slot["ticker"], "name_of_issuer": slot["name_of_issuer"],
+                "total_value_usd": 0, "holders": [],
+            })
+            row["ticker"] = row["ticker"] or slot["ticker"]
+            row["total_value_usd"] += slot["value_usd"]
+            row["holders"].append({
+                "slug": g["slug"], "investor": g["investor"], "name": g["name"],
+                "shares": slot["shares"], "value_usd": slot["value_usd"],
+                "accession_number": slot["accession_number"],
+            })
+    rows = [r for r in bucket.values() if len(r["holders"]) >= min_holders]
+    for r in rows:
+        r["holder_count"] = len(r["holders"])
+        r["holders"].sort(key=lambda h: h["value_usd"] or 0, reverse=True)
+    rows.sort(key=lambda r: (r["holder_count"], r["total_value_usd"]), reverse=True)
+    return rows[:limit]

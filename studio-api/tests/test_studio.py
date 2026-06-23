@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from studioapi import provision
 from studioapi.agents import agent_to_spec, seed_templates
-from studioapi.chat import _title, stream_and_persist
+from studioapi.chat import _title, sse_tail, start_turn
 from studioapi.config import settings
 from studioapi.db import init_db
 from studioapi.main import app
@@ -137,6 +138,72 @@ def test_messages_of_unknown_conversation_is_empty(monkeypatch):
 
 
 @respx.mock
+def test_portfolio_crud_and_analytics(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    h = _hdr("pf@u.com")
+    # create a portfolio + add two holdings (upsert on re-add)
+    pid = client.post("/portfolios", headers=h, json={"name": "코어"}).json()["id"]
+    client.post(f"/portfolios/{pid}/holdings", headers=h,
+                json={"market": "US", "ticker": "AAPL", "shares": 10, "cost_basis": 150})
+    client.post(f"/portfolios/{pid}/holdings", headers=h,
+                json={"market": "US", "ticker": "MSFT", "shares": 5, "cost_basis": 300})
+    detail = client.get(f"/portfolios/{pid}", headers=h).json()
+    assert {x["ticker"] for x in detail["holdings"]} == {"AAPL", "MSFT"}
+
+    # analytics: live price per holding + a backtest, both via the gateway (mocked)
+    respx.get("http://cp.test/prices/snapshot").mock(side_effect=lambda req: httpx.Response(
+        200, json={"snapshot": {"price": 200.0 if req.url.params.get("ticker") == "AAPL" else 400.0}}))
+    respx.post("http://cp.test/backtest").mock(return_value=httpx.Response(200, json={
+        "metrics": {"total_return": 0.25}, "curve": [{"date": "2024-01-02", "value": 10000.0}]}))
+    a = client.get(f"/portfolios/{pid}/analytics", headers=h).json()
+    # AAPL 10×200=2000, MSFT 5×400=2000 → total 4000, equal weights, gain vs cost
+    assert a["total_value"] == 4000.0
+    byt = {p["ticker"]: p for p in a["positions"]}
+    assert byt["AAPL"]["value"] == 2000.0 and byt["AAPL"]["weight"] == 0.5
+    assert byt["AAPL"]["gain"] == 2000.0 - 1500.0  # (200-150)*10
+    assert a["backtest"]["metrics"]["total_return"] == 0.25 and a["total_gain"] is not None
+
+    # scoping + delete
+    assert client.get(f"/portfolios/{pid}", headers=_hdr("other-pf@u.com")).status_code == 404
+    assert client.delete(f"/portfolios/{pid}", headers=h).status_code == 200
+    assert all(p["id"] != pid for p in client.get("/portfolios", headers=h).json()["portfolios"])
+
+
+async def test_run_manager_survives_leave_and_resumes():
+    # generation lives server-side: a run keeps going after a tail (the client) stops, and a
+    # fresh tail (re-entering the conversation) replays the buffer then continues live.
+    from studioapi.runs import RunManager
+
+    mgr = RunManager()
+    gate = asyncio.Event()
+
+    async def driver(run):
+        await mgr.append(run, {"type": "token", "text": "a"})
+        await gate.wait()  # simulate work in progress while the client leaves
+        await mgr.append(run, {"type": "token", "text": "b"})
+
+    run = mgr.start("conv1", driver)
+    await asyncio.sleep(0.02)  # let the driver emit the first token
+    assert mgr.active_run_id("conv1") == run.id  # still generating → resumable
+
+    # a fresh tail (re-entry) replays from index 0: the seeded `run` event + token 'a' so far
+    early = []
+    async for ev in mgr.tail(run, 0):
+        early.append(ev)
+        if len(early) >= 2:
+            break  # the "client" leaves again mid-run — driver keeps going
+    assert early[0]["type"] == "run" and early[1] == {"type": "token", "text": "a"}
+
+    gate.set()  # driver finishes in the background regardless of any client
+    await run.task
+    assert mgr.active_run_id("conv1") is None  # finished
+    # a final tail sees the COMPLETE buffer (both tokens) — nothing was lost
+    tokens = [ev["text"] async for ev in mgr.tail(run, 0) if ev.get("type") == "token"]
+    assert tokens == ["a", "b"]
+
+
+@respx.mock
 async def test_chat_reuses_existing_conversation(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
@@ -146,17 +213,25 @@ async def test_chat_reuses_existing_conversation(monkeypatch):
     ).encode()
     respx.post("http://ae.test/agent/chat").mock(return_value=httpx.Response(200, content=sse))
 
+    import json as _json
     user = User(email="multi@u.com", tenant_id="t", project_id="p", api_key="vgk_m")
-    # first turn -> new conversation
-    cid = None
-    async for chunk in stream_and_persist(user, None, [{"role": "user", "content": "first"}]):
-        if '"type": "conversation"' in chunk:
-            import json as _json
-            cid = _json.loads(chunk[5:].strip())["id"]
+
+    async def _drive(conv_id, content):
+        # start the background run + tail it to completion; return the conversation id seen
+        run = start_turn(user, conv_id, [{"role": "user", "content": content}], None)
+        seen = conv_id
+        async for chunk in sse_tail(run, 0):
+            line = next((l for l in chunk.split("\n") if l.startswith("data:")), None)
+            if not line:
+                continue
+            ev = _json.loads(line[5:].strip())
+            seen = ev.get("conversation_id") or (ev.get("id") if ev.get("type") == "conversation" else None) or seen
+        return seen
+
+    # first turn -> new conversation; second on the same id -> messages accumulate, no new row
+    cid = await _drive(None, "first")
     assert cid
-    # second turn on the same id -> no new conversation row, messages accumulate
-    async for _ in stream_and_persist(user, cid, [{"role": "user", "content": "second"}]):
-        pass
+    assert await _drive(cid, "second") == cid
 
     convs = client.get("/conversations", headers=_hdr("multi@u.com")).json()["conversations"]
     assert len([c for c in convs if c["id"] == cid]) == 1
@@ -196,7 +271,8 @@ def test_agents_list_includes_templates(monkeypatch):
     ids = {a["id"] for a in agents}
     assert "tpl_desk" in ids   # the single fully-loaded default agent
     tpl = next(a for a in agents if a["id"] == "tpl_desk")
-    assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"]
+    # data_sources == [] means UNRESTRICTED (every tool); the default desk uses all tools
+    assert tpl["is_template"] and tpl["editable"] is False and tpl["data_sources"] == []
     assert tpl["model"] == "gemini"  # default is Gemini, never stub
 
 
@@ -258,9 +334,9 @@ def test_board_pin_list_unpin_user_scoped(monkeypatch):
     _mock_control_plane()
     spec = {"kind": "timeseries", "title": "AAPL 종가", "source": "Yahoo Finance", "tool": "yahoo__prices",
             "series": [{"label": "종가", "points": [{"x": "2024-01-02", "y": 185.6}]}]}
-    pinned = client.post("/board", headers=_hdr("b@u.com"), json={"spec": spec}).json()
+    pinned = client.post("/board", headers=_hdr("b@u.com"), json={"spec": spec}).json()["pinned"][0]
     assert pinned["id"].startswith("pin") and pinned["title"] == "AAPL 종가"
-    assert pinned["spec"]["tool"] == "yahoo__prices"
+    assert pinned["spec"]["tool"] == "yahoo__prices" and pinned["board_id"]  # lands on the default board
     mine = client.get("/board", headers=_hdr("b@u.com")).json()["pinned"]
     assert any(p["id"] == pinned["id"] for p in mine)
     # user-scoped: another user can't see it
@@ -269,8 +345,44 @@ def test_board_pin_list_unpin_user_scoped(monkeypatch):
     # unpin
     assert client.delete(f"/board/{pinned['id']}", headers=_hdr("b@u.com")).status_code == 200
     assert client.get("/board", headers=_hdr("b@u.com")).json()["pinned"] == []
-    # a non-artifact spec is rejected
+    # a non-allowed spec kind is rejected
     assert client.post("/board", headers=_hdr("b@u.com"), json={"spec": {"title": "x"}}).status_code == 422
+
+
+@respx.mock
+def test_boards_multi_pin_layout_and_source_text(monkeypatch):
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    h = _hdr("brd@u.com")
+    # a default board always exists
+    boards = client.get("/boards", headers=h).json()["boards"]
+    assert len(boards) == 1 and boards[0]["name"]
+    b1 = boards[0]["id"]
+    # create a second board + rename it
+    b2 = client.post("/boards", headers=h, json={"name": "리서치"}).json()["id"]
+    assert client.patch(f"/boards/{b2}", headers=h, json={"name": "반도체 리서치"}).json()["name"] == "반도체 리서치"
+
+    # pin a SOURCE card to BOTH boards at once (multi-select), plus a text block to b2
+    src = {"kind": "source", "title": "SEC 10-K", "source": "SEC EDGAR", "url": "https://sec.gov/x"}
+    res = client.post("/board", headers=h, json={"spec": src, "board_ids": [b1, b2]}).json()["pinned"]
+    assert len(res) == 2 and {r["board_id"] for r in res} == {b1, b2}
+    txt = client.post("/board", headers=h, json={"spec": {"kind": "text", "text": "메모"}, "board_ids": [b2]}).json()["pinned"][0]
+
+    # move/resize the text block on the canvas (layout persists)
+    moved = client.patch(f"/board/{txt['id']}", headers=h, json={"x": 40, "y": 20, "w": 300, "h": 120}).json()
+    assert (moved["x"], moved["y"], moved["w"], moved["h"]) == (40, 20, 300, 120)
+    # edit the text block content
+    edited = client.patch(f"/board/{txt['id']}", headers=h, json={"spec": {"kind": "text", "text": "수정됨"}}).json()
+    assert edited["spec"]["text"] == "수정됨"
+
+    # b2 has the source + the text; b1 has only the source
+    b2_items = client.get(f"/board?board_id={b2}", headers=h).json()["pinned"]
+    assert {i["spec"]["kind"] for i in b2_items} == {"source", "text"}
+    b1_items = client.get(f"/board?board_id={b1}", headers=h).json()["pinned"]
+    assert [i["spec"]["kind"] for i in b1_items] == ["source"]
+    # deleting a board removes its pins
+    client.delete(f"/boards/{b2}", headers=h)
+    assert client.get(f"/board?board_id={b2}", headers=h).json()["pinned"] == []
 
 
 @respx.mock
@@ -279,7 +391,7 @@ def test_board_refresh_updates_spec(monkeypatch):
     _mock_control_plane()
     spec = {"kind": "timeseries", "title": "AAPL 종가", "tool": "yahoo__prices",
             "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": []}
-    pinned = client.post("/board", headers=_hdr("rf@u.com"), json={"spec": spec}).json()
+    pinned = client.post("/board", headers=_hdr("rf@u.com"), json={"spec": spec}).json()["pinned"][0]
     # agent-engine re-fetches → a fresher artifact (new as_of)
     respx.post("http://ae.test/agent/artifact/refresh").mock(return_value=httpx.Response(200, json={"artifact": {
         "kind": "timeseries", "title": "AAPL 종가", "tool": "yahoo__prices", "args": {"ticker": "AAPL"},
@@ -295,7 +407,7 @@ def test_board_annotate_saves_and_survives_refresh(monkeypatch):
     _mock_control_plane()
     spec = {"kind": "candlestick", "title": "AAPL 주가", "tool": "yahoo__prices",
             "args": {"ticker": "AAPL"}, "as_of": "2024-01-02", "series": [], "candles": []}
-    pinned = client.post("/board", headers=_hdr("dr@u.com"), json={"spec": spec}).json()
+    pinned = client.post("/board", headers=_hdr("dr@u.com"), json={"spec": spec}).json()["pinned"][0]
     ann = {"hlines": [{"price": 190.0, "label": "저항"}], "lines": []}
     r = client.post(f"/board/{pinned['id']}/annotate", headers=_hdr("dr@u.com"),
                     json={"user_annotations": ann})
@@ -349,21 +461,35 @@ def test_financials_proxy_forwards_to_gateway(monkeypatch):
 
 
 @respx.mock
-def test_connectors_proxy(monkeypatch):
+def test_connectors_grouped_by_category(monkeypatch):
     _cfg(monkeypatch)
     _mock_control_plane()
-    respx.get("http://cp.test/catalog").mock(return_value=httpx.Response(200, json={"connectors": [
-        {"id": "yahoo", "name": "Yahoo Finance", "description": "prices", "resources": [
-            {"name": "prices", "description": "Historical EOD OHLCV."},
-            {"name": "price_snapshot", "description": "Latest price snapshot."}]},
-        {"id": "sec_edgar", "name": "SEC EDGAR", "description": "filings", "resources": []},
-    ]}))
-    cons = client.get("/connectors", headers=_hdr("c@u.com")).json()["connectors"]
-    assert {c["id"] for c in cons} == {"yahoo", "sec_edgar"}
-    # U-BUILDER-01: each connector surfaces the tools inside it (name + description)
-    yahoo = next(c for c in cons if c["id"] == "yahoo")
-    assert {t["name"] for t in yahoo["tools"]} == {"prices", "price_snapshot"}
-    assert any(t["description"] for t in yahoo["tools"])
+    # the catalog now carries user-facing categories + a `category` on each resource
+    respx.get("http://cp.test/catalog").mock(return_value=httpx.Response(200, json={
+        "categories": [
+            {"id": "market", "label": "금융시장 현황", "description": "지수·시세"},
+            {"id": "filings", "label": "공시·문서", "description": "공시"},
+            {"id": "macro", "label": "거시경제 분석", "description": "금리"},  # no tools → omitted
+        ],
+        "connectors": [
+            {"id": "yahoo", "name": "Yahoo Finance", "markets": ["US", "KR"], "resources": [
+                {"name": "prices", "description": "Historical EOD OHLCV.", "category": "market",
+                 "provenance": {"source": "Yahoo Finance"}},
+                {"name": "sector_heatmap", "description": "Sector heatmap.", "category": "market",
+                 "provenance": {"source": "Yahoo Finance"}}]},
+            {"id": "sec_edgar", "name": "SEC EDGAR", "markets": ["US"], "resources": [
+                {"name": "filings", "description": "SEC filings.", "category": "filings",
+                 "provenance": {"source": "SEC EDGAR"}}]},
+        ]}))
+    cats = client.get("/connectors", headers=_hdr("c@u.com")).json()["categories"]
+    # categories WITH tools only, in catalog order; API grouping is gone
+    assert [c["id"] for c in cats] == ["market", "filings"]
+    market = next(c for c in cats if c["id"] == "market")
+    # tools carry FULLY-QUALIFIED ids (what gets stored in data_sources), grouped across APIs
+    assert {t["name"] for t in market["tools"]} == {"yahoo__prices", "yahoo__sector_heatmap"}
+    assert all(t["source"] == "Yahoo Finance" for t in market["tools"])
+    filings = next(c for c in cats if c["id"] == "filings")
+    assert filings["tools"][0]["name"] == "sec_edgar__filings"
 
 
 @respx.mock
@@ -383,7 +509,8 @@ def test_chat_with_agent_sends_spec_and_records_agent(monkeypatch):
                     json={"messages": [{"role": "user", "content": "AAPL filings?"}], "agent_id": "tpl_desk"})
     assert r.status_code == 200
     spec = captured["body"]["spec"]
-    assert spec["backend"] == "gemini" and "sec_edgar" in spec["allowed_tools"]  # default = Gemini
+    # default desk = Gemini + unrestricted tools (data_sources [] → allowed_tools None = every tool)
+    assert spec["backend"] == "gemini" and spec["allowed_tools"] is None
     # the conversation remembers which agent drove it
     conv = client.get("/conversations", headers=_hdr(email)).json()["conversations"][0]
     assert conv["agent_id"] == "tpl_desk"

@@ -396,6 +396,124 @@ async def test_kr_universe_falls_back_to_opendart(monkeypatch):
     assert "kr_listed" in {u["id"] for u in U.list_presets()}  # the OpenDART-only KR source exists
 
 
+async def test_commodities_snapshot_grouped_drops_failures(monkeypatch):
+    # commodity panel: grouped metals/energy/agri via Yahoo; failures dropped, never faked.
+    import app.store.commodities as C
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.2, 0.8, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in ("GC=F", "CL=F"):
+                return _Snap(2000.0)
+            raise RuntimeError("upstream blocked")  # others dropped
+    monkeypatch.setattr(C, "get_prices_provider", lambda m: _Prov())
+    data = await C.commodities_snapshot()
+    members = [m for g in data["groups"] for m in g["members"]]
+    assert {m["ticker"] for m in members} == {"GC=F", "CL=F"}  # only reachable kept
+    assert data["source"] == "Yahoo Finance" and {g["name"] for g in data["groups"]} == {"귀금속", "에너지"}
+
+
+async def test_themes_panel_broad_grouped(monkeypatch):
+    # broad thematic coverage via ETF proxies, grouped; failures dropped, never faked.
+    import app.store.themes as T
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.0, 1.5, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in ("SOXX", "ICLN", "EWY", "BTC-USD", "091160.KS"):
+                return _Snap(100.0)
+            raise RuntimeError("blocked")  # everything else dropped
+    monkeypatch.setattr(T, "get_prices_provider", lambda m: _Prov())
+    data = await T.themes_snapshot()
+    members = {m["ticker"] for g in data["groups"] for m in g["members"]}
+    assert members == {"SOXX", "ICLN", "EWY", "BTC-USD", "091160.KS"}  # incl. a KR theme ETF
+    names = {g["name"] for g in data["groups"]}
+    assert {"테크·AI", "지역·국가", "디지털자산", "KR 반도체·테크"} <= names and data["source"] == "Yahoo Finance"
+
+
+async def test_semiconductor_proxy_panel(monkeypatch):
+    # DRAM-spot proxy: SOX index + ETFs + memory makers via Yahoo; labelled NOT a spot price.
+    import app.store.semiconductor as S
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.0, 2.04, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in ("^SOX", "MU"):
+                return _Snap(14634.7)
+            raise RuntimeError("blocked")  # others dropped
+    monkeypatch.setattr(S, "get_prices_provider", lambda m: _Prov())
+    data = await S.semiconductor_proxy()
+    members = [m for g in data["groups"] for m in g["members"]]
+    assert {m["ticker"] for m in members} == {"^SOX", "MU"}
+    assert "DRAM 현물가" in data["note"] and "현물가가 아닙" in data["note"]
+
+
+async def test_cross_asset_snapshot_drops_failures(monkeypatch):
+    # CE-1: cross-asset snapshot keeps reachable proxies, DROPS failures (never fabricates).
+    import app.store.cross_asset as CA
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 12.3, 0.45, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker == "^GSPC":
+                return _Snap(5000.0)
+            raise RuntimeError("upstream blocked")  # all others fail → dropped
+
+    monkeypatch.setattr(CA, "get_prices_provider", lambda m: _Prov())
+    data = await CA.cross_asset_snapshot()
+    members = [m for g in data["groups"] for m in g["members"]]
+    assert data["source"] == "Yahoo Finance"
+    assert any(m["ticker"] == "^GSPC" and m["price"] == 5000.0 for m in members)
+    assert members and all(m["price"] is not None for m in members)  # failures omitted, not faked
+
+
+async def test_ce2_sector_heatmap_ranks_and_drops_failures(monkeypatch):
+    # CE-2: sector heatmap keeps reachable ETFs, ranks by day change, DROPS failures.
+    import app.store.sectors as SE
+
+    class _Snap:
+        def __init__(self, price, pct):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.0, pct, "2024-01-02 16:00"
+
+    pcts = {"XLK": 2.5, "XLF": -1.0, "XLE": 0.5}
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in pcts:
+                return _Snap(100.0, pcts[ref.ticker])
+            raise RuntimeError("upstream blocked")  # all others fail → dropped
+
+    monkeypatch.setattr(SE, "get_prices_provider", lambda m: _Prov())
+    data = await SE.sector_heatmap()
+    tickers = [s["ticker"] for s in data["sectors"]]
+    assert tickers == ["XLK", "XLE", "XLF"]  # ranked by change_percent desc, failures omitted
+    assert data["source"] == "Yahoo Finance" and all(s["price"] is not None for s in data["sectors"])
+
+
+def test_ce2_sector_heatmap_route(monkeypatch):
+    import app.routers.market as M
+
+    async def _fake():
+        return {"sectors": [{"sector": "기술", "ticker": "XLK", "price": 100.0,
+                             "change": 2.0, "change_percent": 2.5, "as_of": "2024-01-02"}],
+                "source": "Yahoo Finance", "as_of": "2024-01-02"}
+    monkeypatch.setattr(M, "sector_heatmap", _fake)
+    b = client.get("/market/sectors").json()
+    assert b["source"] == "Yahoo Finance" and b["sectors"][0]["sector"] == "기술"
+
+
 def test_universe_sources_listed_and_endpoint():
     from app.store.universes import SOURCES, list_presets
     ids = {u["id"] for u in list_presets()}
@@ -852,6 +970,387 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
+    # CE-12: KIS rankings + investor flows — mapped from the (verified) KIS output shapes.
+    import asyncio
+
+    import app.providers.kr.kis as K
+
+    async def fake_get(path, tr_id, params):
+        if "volume-rank" in path:
+            return [{"data_rank": "1", "mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자",
+                     "stck_prpr": "337250", "prdy_ctrt": "-4.6", "acml_vol": "12345678", "acml_tr_pbmn": "4160000000000"}]
+        if "ranking/fluctuation" in path:
+            assert params["FID_RANK_SORT_CLS_CODE"] == "1"  # down → losers
+            return [{"data_rank": "1", "stck_shrn_iscd": "000660", "hts_kor_isnm": "SK하이닉스",
+                     "stck_prpr": "100000", "prdy_ctrt": "-9.9", "acml_vol": "555"}]
+        if "ranking/market-cap" in path:
+            return [{"data_rank": "1", "mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자",
+                     "stck_prpr": "334000", "prdy_ctrt": "-5.52", "stck_avls": "19526571", "mrkt_whol_avls_rlim": "24.03"}]
+        if "etfetn" in path:
+            return [{"hts_kor_isnm": "KODEX 200", "stck_prpr": "141675", "nav": "141792.70",
+                     "dprt": "-0.06", "prdy_ctrt": "-4.50", "nav_prdy_ctrt": "-4.40"}]
+        if "inquire-investor" in path:
+            return [{"stck_bsop_date": "20260622", "stck_clpr": "353500",
+                     "prsn_ntby_qty": "-100", "frgn_ntby_qty": "5000", "orgn_ntby_qty": "-2000"}]
+        return []
+    monkeypatch.setattr(K, "_get", fake_get)
+
+    vr = asyncio.run(K.volume_rank(30))
+    assert vr["ranking"] == "volume" and vr["results"][0]["ticker"] == "005930"
+    assert vr["results"][0]["change_percent"] == -4.6 and vr["results"][0]["value"] == 4160000000000
+    fl = asyncio.run(K.investor_flow("005930", 10))
+    assert fl["flows"][0]["foreign_net"] == 5000 and fl["flows"][0]["institution_net"] == -2000
+    # CE-12 extension: fluctuation ranking (losers) + ETF NAV/괴리율
+    fr = asyncio.run(K.fluctuation_rank("down", 30))
+    assert fr["direction"] == "down" and fr["results"][0]["ticker"] == "000660" and fr["results"][0]["change_percent"] == -9.9
+    etf = asyncio.run(K.etf_nav("069500"))
+    assert etf["nav"] == 141792.70 and etf["premium_discount_pct"] == -0.06 and etf["name"] == "KODEX 200"
+    mc = asyncio.run(K.market_cap_rank(30))
+    assert mc["ranking"] == "market_cap" and mc["results"][0]["ticker"] == "005930"
+    assert mc["results"][0]["market_cap_eok"] == 19526571 and mc["results"][0]["market_weight_pct"] == 24.03
+
+    # missing creds → clear error
+    monkeypatch.setattr(K.settings, "kis_app_key", "", raising=False)
+    import pytest
+    with pytest.raises(Exception):
+        K._creds()
+
+
+def test_ce12_kis_prices_provider(monkeypatch):
+    # KIS-PRICES: realtime snapshot + paginated daily OHLCV, as a drop-in PricesProvider.
+    import asyncio
+    from datetime import date as _date
+
+    import app.providers.kr.kis as K
+    from app.symbols import Market, build_ref
+
+    async def fake_get(path, tr_id, params, output_key="output"):
+        if "inquire-price" in path:
+            return [{"stck_prpr": "338500", "prdy_vrss": "-15000", "prdy_ctrt": "-4.24"}]
+        if "inquire-daily-itemchartprice" in path:
+            end = params["FID_INPUT_DATE_2"]
+            if end >= "20260610":  # first window → recent bars
+                return [{"stck_bsop_date": "20260612", "stck_oprc": "100", "stck_hgpr": "110",
+                         "stck_lwpr": "95", "stck_clpr": "105", "acml_vol": "1000"},
+                        {"stck_bsop_date": "20260610", "stck_oprc": "98", "stck_hgpr": "102",
+                         "stck_lwpr": "97", "stck_clpr": "100", "acml_vol": "900"}]
+            return [{"stck_bsop_date": "20260602", "stck_oprc": "90", "stck_hgpr": "92",
+                     "stck_lwpr": "88", "stck_clpr": "91", "acml_vol": "800"}]  # older window
+        return []
+    monkeypatch.setattr(K, "_get", fake_get)
+
+    p = K.KisPricesProvider()
+    ref = build_ref(Market.KR, "005930")
+    snap = asyncio.run(p.snapshot(ref))
+    assert snap.price == 338500.0 and snap.day_change_percent == -4.24 and snap.ticker == "005930"
+    bars = asyncio.run(p.prices(ref, "day", _date(2026, 6, 1), _date(2026, 6, 23)))
+    # paginated across two windows, deduped + sorted ascending by date
+    assert [b.time for b in bars] == ["2026-06-02", "2026-06-10", "2026-06-12"]
+    assert bars[0].close == 91.0 and bars[-1].high == 110.0 and bars[-1].volume == 1000
+
+
+def test_ce11_fmp_estimates_and_earnings_calendar(monkeypatch):
+    # CE-11: consensus estimates (mapped) + earnings calendar (client-side filtered by symbol).
+    import asyncio
+
+    import app.providers.us.fmp as F
+
+    async def fake_get(path, params):
+        if path == "analyst-estimates":
+            return [{"date": "2026-09-27", "revenueAvg": 4.5e11, "epsAvg": 7.2, "netIncomeAvg": 1.1e11,
+                     "numAnalystsRevenue": 30}]
+        if path == "earnings-calendar":  # market-wide; provider filters to the symbol
+            return [{"symbol": "MSFT", "date": "2026-04-29", "epsActual": 4.27, "epsEstimated": 4.06,
+                     "revenueActual": 8.3e10, "revenueEstimated": 8.1e10},
+                    {"symbol": "AAPL", "date": "2026-04-30", "epsActual": 2.01, "epsEstimated": 1.95,
+                     "revenueActual": 1.11e11, "revenueEstimated": 1.09e11}]
+        return []
+    monkeypatch.setattr(F, "_get", fake_get)
+
+    est = asyncio.run(F.consensus_estimates("AAPL", "annual", 5))
+    assert est["estimates"][0]["revenue_avg"] == 4.5e11 and est["estimates"][0]["eps_avg"] == 7.2
+    assert "컨센서스" in est["source"]
+    cal = asyncio.run(F.earnings_calendar("AAPL", 8))
+    assert [e["date"] for e in cal["events"]] == ["2026-04-30"]  # only AAPL kept
+    assert abs(cal["events"][0]["eps_surprise"] - (2.01 - 1.95)) < 1e-9
+
+    # missing key → clear error (not a crash)
+    monkeypatch.setattr(F.settings, "fmp_api_key", "", raising=False)
+    import pytest
+    with pytest.raises(Exception):
+        F._key()
+
+
+def test_ce_health_upstream_probe(monkeypatch):
+    # CE-HEALTH: classify each upstream — ok / degraded / down / key-missing.
+    import asyncio
+
+    import app.store.upstream_health as UH
+    from app.config import settings
+
+    class _Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    class _Client:
+        def __init__(self, mode):
+            self.mode = mode
+
+        async def get(self, url, **kw):
+            if self.mode == "degraded":
+                return _Resp(503)
+            if self.mode == "down":
+                raise RuntimeError("unreachable")
+            return _Resp(200)
+
+    keyless = {"id": "x", "name": "X", "url": "u", "key": None}
+    assert asyncio.run(UH._probe(_Client("ok"), keyless))["status"] == "ok"
+    assert asyncio.run(UH._probe(_Client("degraded"), keyless))["status"] == "degraded"
+    down = asyncio.run(UH._probe(_Client("down"), keyless))
+    assert down["status"] == "down" and down["reachable"] is False
+    # required key absent → key-missing even if reachable; present → ok
+    keyed = {"id": "od", "name": "OD", "url": "u", "key": "opendart_api_key"}
+    monkeypatch.setattr(settings, "opendart_api_key", "", raising=False)
+    r = asyncio.run(UH._probe(_Client("ok"), keyed))
+    assert r["status"] == "key-missing" and r["key_present"] is False
+    monkeypatch.setattr(settings, "opendart_api_key", "k", raising=False)
+    assert asyncio.run(UH._probe(_Client("ok"), keyed))["status"] == "ok"
+
+
+def test_ce9_macro_catalog_grouping_and_panel(monkeypatch):
+    # CE-9: catalog browses by group/region; the panel snapshots a region's latest + change.
+    import asyncio
+
+    import app.providers.macro_indicators as MI
+
+    cat = MI.list_indicators()
+    assert all("group" in c for c in cat) and {"물가", "고용", "성장", "금리"} <= {c["group"] for c in cat}
+    assert {c["slug"] for c in MI.list_indicators(group="물가")} >= {"cpi", "core_cpi"}
+    assert all(c["region"] == "US" for c in MI.list_indicators(region="US"))
+    assert "US" in MI.list_regions()
+
+    async def fake_fetch(slug, limit=2):
+        return {"name": f"N-{slug}", "unit": "%", "source_url": "u",
+                "observations": [{"date": "2025-08", "value": 3.0}, {"date": "2025-09", "value": 3.2}]}
+    monkeypatch.setattr(MI, "fetch_indicator", fake_fetch)
+    panel = asyncio.run(MI.region_panel("US"))
+    assert panel["region"] == "US" and panel["indicators"]
+    one = panel["indicators"][0]
+    assert one["latest"] == 3.2 and abs(one["change"] - 0.2) < 1e-9 and one["as_of"] == "2025-09"
+
+
+def test_ce7_backtest_over_store():
+    # CE-7: buy-and-hold backtest over ingested PriceBar — descriptive past performance.
+    from datetime import date as _date
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import PriceBar
+    from app.store.backtest import run_backtest
+
+    init_db()
+    bars = {  # ticker → [(date, close)]
+        "ZBA": [(_date(2024, 1, 2), 100.0), (_date(2024, 6, 3), 110.0), (_date(2025, 1, 2), 121.0)],
+        "ZBB": [(_date(2024, 1, 2), 50.0), (_date(2024, 6, 3), 55.0), (_date(2025, 1, 2), 60.5)],
+    }
+    with SessionLocal() as db:
+        db.execute(delete(PriceBar).where(PriceBar.market == "ZB"))
+        for tk, rows in bars.items():
+            for bd, close in rows:
+                db.add(PriceBar(market="ZB", ticker=tk, interval="day", bar_date=bd, close=close, source="t"))
+        db.commit()
+    try:
+        res = run_backtest("ZB", [{"ticker": "ZBA", "weight": 0.5}, {"ticker": "ZBB", "weight": 0.5}], initial=10000.0)
+        assert abs(res["final"] - 12100.0) < 1e-6                  # both +21%
+        assert abs(res["metrics"]["total_return"] - 0.21) < 1e-6
+        assert res["metrics"]["max_drawdown"] <= 0 and res["curve"][0]["value"] == 10000.0
+        # missing coverage → honest note, never fabricated
+        no = run_backtest("ZB", [{"ticker": "NOPE", "weight": 1.0}])
+        assert no["results"] is None and no["note"]
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(PriceBar).where(PriceBar.market == "ZB"))
+            db.commit()
+
+
+def test_ce6_quant_factor_screen_over_store():
+    # CE-6: compute factors from FinancialFact + PriceBar, then filter/rank.
+    from datetime import date as _date, timedelta
+
+    from sqlalchemy import delete
+
+    from app.store.db import SessionLocal, init_db
+    from app.store.models import FinancialFact, PriceBar
+    from app.store.quant import compute_factors, run_quant_screen
+
+    init_db()
+    facts = {  # ticker → {line_item: value}
+        "ZQA": {"revenue": 1000.0, "net_income": 200.0, "shareholders_equity": 800.0,
+                "earnings_per_share": 4.0, "outstanding_shares": 50.0, "gross_profit": 600.0},
+        "ZQB": {"revenue": 500.0, "net_income": 10.0, "shareholders_equity": 1000.0,
+                "earnings_per_share": 0.2, "outstanding_shares": 50.0, "gross_profit": 100.0},
+    }
+    with SessionLocal() as db:
+        db.execute(delete(FinancialFact).where(FinancialFact.market == "ZQ"))
+        db.execute(delete(PriceBar).where(PriceBar.market == "ZQ"))
+        for tk, items in facts.items():
+            for li, val in items.items():
+                db.add(FinancialFact(market="ZQ", ticker=tk, statement="x", line_item=li, value=val,
+                                     currency="USD", period="annual", report_period=_date(2025, 1, 1),
+                                     accession_number="t", source="test"))
+        # price window: ZQA rose 100→120, ZQB fell 50→40
+        for tk, (p0, p1) in {"ZQA": (100.0, 120.0), "ZQB": (50.0, 40.0)}.items():
+            db.add(PriceBar(market="ZQ", ticker=tk, interval="day", bar_date=_date.today() - timedelta(days=200), close=p0, source="t"))
+            db.add(PriceBar(market="ZQ", ticker=tk, interval="day", bar_date=_date.today(), close=p1, source="t"))
+        db.commit()
+    try:
+        f = compute_factors("ZQ")["ZQA"]
+        assert abs(f["pe"] - 120.0 / 4.0) < 1e-6           # price/eps = 30
+        assert abs(f["market_cap"] - 120.0 * 50.0) < 1e-6  # 6000
+        assert abs(f["roe"] - 200.0 / 800.0) < 1e-6        # 0.25
+        assert abs(f["return_window"] - (120.0 / 100.0 - 1)) < 1e-6  # +20%
+        # screen: ROE > 20% → only ZQA; rank by roe desc
+        res = run_quant_screen([{"field": "roe", "operator": "gt", "value": 0.2}],
+                               sort="roe", order="desc", limit=10, market="ZQ")
+        assert [r["ticker"] for r in res["results"]] == ["ZQA"] and res["count"] == 1
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(FinancialFact).where(FinancialFact.market == "ZQ"))
+            db.execute(delete(PriceBar).where(PriceBar.market == "ZQ"))
+            db.commit()
+
+
+def test_ce5_valuation_models_math():
+    # CE-5: transparent user-input calculators. Verify the arithmetic, not a forecast.
+    from app.store import valuation as V
+
+    # DCF: base FCF 100, g=10%, r=12%, 5y, terminal 2% — value must be positive + net-debt aware
+    d = V.dcf(100.0, 10.0, 50.0, growth=0.10, discount=0.12, years=5, terminal_growth=0.02)
+    assert d and len(d["rows"]) == 5 and abs(d["rows"][0]["fcf"] - 110.0) < 1e-6  # 100*1.1
+    assert d["enterprise_value"] > d["pv_explicit"] > 0  # EV includes the terminal value
+    assert abs(d["equity_value"] - (d["enterprise_value"] - 50.0)) < 1e-6
+    assert abs(d["value_per_share"] - d["equity_value"] / 10.0) < 1e-6
+    # guardrail of the math: discount must exceed terminal growth
+    import pytest
+    with pytest.raises(ValueError):
+        V.dcf(100.0, 10.0, 0.0, growth=0.10, discount=0.02, years=5, terminal_growth=0.03)
+    # DDM Gordon: D0=2, g=3%, r=8% → 2*1.03/(0.08-0.03)
+    dd = V.ddm(2.0, growth=0.03, discount=0.08)
+    assert abs(dd["value_per_share"] - (2.0 * 1.03 / 0.05)) < 1e-6
+    # RIM: BVPS 50, ROE 15%, r 10% → value > book (positive residual income)
+    r = V.rim(50.0, 0.15, discount=0.10, years=5, growth=0.04)
+    assert r and r["value_per_share"] > 50.0 and len(r["rows"]) == 5
+    # insufficient data → None (never fabricated)
+    assert V.dcf(None, 10.0, 0.0, growth=0.1, discount=0.1, years=5, terminal_growth=0.02) is None
+    assert V.ddm(None, growth=0.03, discount=0.08) is None
+
+
+def test_ce5_valuation_endpoint(monkeypatch):
+    import app.routers.valuation as VR
+
+    async def fake_base(market, ticker):
+        return {"base_fcf": 1000.0, "shares": 100.0, "net_debt": 200.0, "fcf_history": [1000.0],
+                "equity": 5000.0, "net_income": 750.0, "bvps": 50.0, "roe": 0.15,
+                "as_of": "2025-09-27", "accession": "acc1"}
+    monkeypatch.setattr(VR.V, "base_inputs", fake_base)
+
+    b = client.get("/valuation?ticker=AAPL&model=dcf&growth_rate=0.08&discount_rate=0.10&years=5").json()
+    assert b["model"] == "dcf" and b["value_per_share"] and b["breakdown"]["rows"]
+    assert "예측" in b["disclaimer"] and b["as_of"] == "2025-09-27"  # always labelled, sourced
+    # DDM needs the user's dividend; without it → honest note, no fabrication
+    nod = client.get("/valuation?ticker=AAPL&model=ddm&growth_rate=0.03&discount_rate=0.08").json()
+    assert nod["value_per_share"] is None and nod["note"]
+    yesd = client.get("/valuation?ticker=AAPL&model=ddm&dividend_per_share=2&growth_rate=0.03&discount_rate=0.08").json()
+    assert yesd["value_per_share"]
+    # bad math (discount <= terminal) → 400
+    assert client.get("/valuation?ticker=AAPL&model=dcf&discount_rate=0.01&terminal_growth=0.03").status_code == 400
+
+
+def test_kr_filings_rank_prioritizes_substantive_reports(monkeypatch):
+    # the bug: DART date-order floods the list with 지분/소유 reports → 사업보고서 buried.
+    # fix: rank so 정기보고서 surfaces first; filing_type post-filters by report name.
+    import asyncio
+    from app.providers.kr import opendart
+    from app.symbols import Market, build_ref
+
+    rows = [
+        {"rcept_no": "1", "rcept_dt": "20260616", "report_nm": "임원ㆍ주요주주특정증권등소유상황보고서"},
+        {"rcept_no": "2", "rcept_dt": "20260615", "report_nm": "임원ㆍ주요주주특정증권등소유상황보고서"},
+        {"rcept_no": "3", "rcept_dt": "20260514", "report_nm": "분기보고서 (2026.03)"},
+        {"rcept_no": "4", "rcept_dt": "20260331", "report_nm": "사업보고서 (2025.12)"},
+        {"rcept_no": "5", "rcept_dt": "20260520", "report_nm": "주요사항보고서(유상증자결정)"},
+    ]
+
+    async def fake_dart_json(path, params):
+        return {"status": "000", "list": rows}
+
+    monkeypatch.setattr(opendart, "_dart_json", fake_dart_json)
+
+    async def fake_corp_code(ref):
+        return "00164779"
+    monkeypatch.setattr(opendart, "_corp_code", fake_corp_code)
+
+    ref = build_ref(Market.KR, "000660")
+    out = asyncio.run(opendart.OpenDartProvider().filings(ref, None, 3))
+    # 정기보고서(분기/사업) first, then 주요사항 — ownership reports pushed out of the top 3
+    assert [f.filing_type for f in out][:2] == ["분기보고서 (2026.03)", "사업보고서 (2025.12)"]
+    assert all("소유상황" not in (f.filing_type or "") for f in out)
+    # filing_type filter → only the matching report names
+    only = asyncio.run(opendart.OpenDartProvider().filings(ref, ["사업보고서"], 10))
+    assert [f.filing_type for f in only] == ["사업보고서 (2025.12)"]
+
+
+def test_ce14_ir_materials_filters_by_market(monkeypatch):
+    # CE-14 IR 자료실: US → 8-K, KR → 주요사항보고서 (the IR vehicle per market).
+    from app.models.generated import Filing
+    import app.routers.filings as F
+
+    captured = {}
+
+    class _Fake:
+        async def filings(self, ref, filing_types, limit):
+            captured["types"] = filing_types
+            return [Filing(cik=1, accession_number="a", filing_type=(filing_types or ["?"])[0],
+                           filing_date="2026-06-01", ticker=ref.ticker, url="https://x")]
+    monkeypatch.setattr(F, "get_filings_provider", lambda m: _Fake())
+
+    us = client.get("/filings/ir?ticker=AAPL&market=US").json()
+    assert captured["types"] == ["8-K"] and us["filings"][0]["filing_type"] == "8-K"
+    client.get("/filings/ir?ticker=005930&market=KR").json()
+    assert captured["types"] == ["주요사항보고서"]
+
+
+def test_filing_search_ingests_on_demand_then_returns_passages(monkeypatch):
+    # on-demand RAG ingest: corpus empty for a ticker → ingest its filings, then search again.
+    import app.routers.filings as F
+    calls = {"search": 0, "ingest": 0}
+    hit = {"text": "공급망 다변화로 ... AI 데이터센터 수요 ...", "source": "OpenDART (FSS)",
+           "doc_type": "filing", "ticker": "000660", "market": "KR",
+           "accession": "20260331000123", "section": "p.42", "url": "https://dart.fss.or.kr/x"}
+
+    async def fake_search(rag_url, query, ticker, market, top_k):
+        calls["search"] += 1
+        return [hit] if calls["ingest"] > 0 else []  # corpus empty until the ticker is ingested
+
+    async def fake_ingest(market, ticker, limit=2, rag_url=None):
+        calls["ingest"] += 1
+        return 12
+    monkeypatch.setattr("app.store.news_ingest._search_rag", fake_search)
+    monkeypatch.setattr("app.store.filing_ingest.ingest_filing_text_for_ticker", fake_ingest)
+
+    body = client.get("/filings/search?ticker=000660&query=공급망&market=KR").json()
+    assert calls["ingest"] == 1 and calls["search"] == 2  # search → empty → ingest → search
+    assert body["ingested"] is True and body["ticker"] == "000660"
+    assert body["hits"] and body["hits"][0]["accession"] == "20260331000123"  # RAG `{hits}` shape → cited
+
+    # already-ingested ticker: first search returns hits → no second search, no ingest (fast path)
+    calls["search"] = 0
+    again = client.get("/filings/search?ticker=000660&query=공급망&market=KR").json()
+    assert calls["ingest"] == 1 and calls["search"] == 1 and again["ingested"] is False and again["hits"]
+
+
 def test_filing_url_and_fiscal_label():
     from app.providers.us.sec_edgar import _filing_url, _fiscal_label
 
@@ -1146,6 +1645,24 @@ async def test_scheduler_run_once_runs_pipelines(monkeypatch):
     assert s.last_universe == [{"market": "US", "count": 1}]
 
 
+async def test_prices_pipeline_uses_configured_backfill_years(monkeypatch):
+    # CE-0: the prices pipeline stores a deep history (settings.prices_backfill_years), not the 2y default.
+    import app.pipelines as P
+    import app.store.prices_ingest as PI
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "prices_backfill_years", 7)
+    seen = {}
+
+    async def fake_run(market, tickers, years=2, retries=1):
+        seen["years"] = years
+        return {"status": "success"}
+
+    monkeypatch.setattr(PI, "run_prices_ingest", fake_run)
+    await P._run_prices("US", ["AAPL"])
+    assert seen["years"] == 7
+
+
 async def test_run_pipelines_dispatches_and_isolates_failures(monkeypatch):
     import app.pipelines as P
 
@@ -1366,6 +1883,31 @@ def test_catalog_manifests_valid():
         for r in c.resources:
             assert r.name and r.path.startswith("/")
             assert r.provenance and r.provenance.source  # trust envelope present
+
+
+def test_every_resource_has_a_valid_category():
+    # The builder groups tools by user-facing category (not by API) — so EVERY tool, present or
+    # future, must carry a known category. _apply_categories() raises on a gap; assert it held.
+    from app.connectors.catalog import get_catalog, get_categories
+    from app.connectors.manifest import Category
+
+    valid = {c["id"] for c in get_categories()}
+    assert valid == {c.value for c in Category}  # metadata + enum stay in lockstep
+    for c in get_catalog():
+        for r in c.resources:
+            assert r.category is not None, f"{c.id}__{r.name} has no category"
+            assert r.category.value in valid
+
+
+def test_catalog_endpoint_exposes_categories_and_resource_category():
+    body = client.get("/catalog").json()
+    cat_ids = {c["id"] for c in body["categories"]}
+    assert {"market", "macro", "gurus", "fundamentals"} <= cat_ids
+    # the new guru tools are categorized under 'gurus'
+    sec = next(c for c in body["connectors"] if c["id"] == "sec_edgar")
+    cats = {r["name"]: r["category"] for r in sec["resources"]}
+    assert cats["guru_trades"] == "gurus" and cats["guru_common"] == "gurus"
+    assert cats["company_facts"] == "fundamentals"
 
 
 def test_ticker_is_required_where_a_company_is_mandatory():
@@ -1677,6 +2219,84 @@ def test_phdata1_gurus_list_and_holdings(monkeypatch):
 
     # unknown slug → 404
     assert client.get("/gurus?slug=nobody").status_code == 404
+
+
+# --- CE-3: 거장 매매 (quarter deltas) + 공통 보유종목 (intersection) ---------
+def test_ce3_guru_trades_compute():
+    from app.models.generated import InstitutionalHolding
+    from app.providers.us.gurus import compute_trades
+
+    def H(cusip, shares, value, accn):
+        return InstitutionalHolding(name_of_issuer=cusip, cusip=cusip, ticker=cusip,
+                                    shares=shares, value_usd=value, accession_number=accn)
+
+    quarters = [
+        {"report_period": "2026-03-31", "filing_date": "2026-05-15", "accession": "Q2",
+         "holdings": [H("AAA", 200, 2000, "Q2"), H("BBB", 100, 1000, "Q2"), H("DDD", 50, 500, "Q2")]},
+        {"report_period": "2025-12-31", "filing_date": "2026-02-14", "accession": "Q1",
+         "holdings": [H("AAA", 100, 1000, "Q1"), H("BBB", 150, 1500, "Q1"), H("CCC", 80, 800, "Q1")]},
+    ]
+    res = compute_trades(quarters, limit=40)
+    assert res["comparable"] is True and res["report_period"] == "2026-03-31"
+    by = {t["cusip"]: t for t in res["trades"]}
+    assert by["AAA"]["action"] == "added" and by["AAA"]["shares_change"] == 100
+    assert by["BBB"]["action"] == "trimmed" and by["BBB"]["shares_change"] == -50
+    assert by["CCC"]["action"] == "exited"
+    assert by["DDD"]["action"] == "new"
+    # single quarter (no prior) → everything is 'new', not comparable
+    one = compute_trades(quarters[:1])
+    assert one["comparable"] is False and all(t["action"] == "new" for t in one["trades"])
+
+
+def test_ce3_guru_common_holdings():
+    from app.models.generated import InstitutionalHolding
+    from app.providers.us.gurus import common_holdings
+
+    def H(cusip, value):
+        return InstitutionalHolding(name_of_issuer=cusip, cusip=cusip, ticker=cusip,
+                                    shares=10, value_usd=value, accession_number=cusip + "-a")
+
+    per_guru = [
+        {"guru": {"slug": "buffett", "investor": "Warren Buffett", "name": "Berkshire"},
+         "holdings": [H("AAPL", 5000), H("KO", 2000)]},
+        {"guru": {"slug": "ackman", "investor": "Bill Ackman", "name": "Pershing"},
+         "holdings": [H("AAPL", 3000), H("CMG", 1500)]},
+        {"guru": {"slug": "burry", "investor": "Michael Burry", "name": "Scion"},
+         "holdings": [H("AAPL", 1000)]},
+    ]
+    rows = common_holdings(per_guru, min_holders=2, limit=40)
+    assert len(rows) == 1  # only AAPL is held by ≥2 gurus
+    aapl = rows[0]
+    assert aapl["cusip"] == "AAPL" and aapl["holder_count"] == 3
+    assert aapl["total_value_usd"] == 9000
+    assert aapl["holders"][0]["value_usd"] == 5000  # sorted desc by value
+
+
+def test_ce3_guru_trades_route(monkeypatch):
+    from app.models.generated import InstitutionalHolding
+    import app.routers.gurus as G
+
+    class _Fake:
+        async def by_filer_quarters(self, cik, quarters):
+            assert cik == "0001067983" and quarters == 2
+            return [
+                {"report_period": "2026-03-31", "filing_date": "2026-05-15", "accession": "Q2",
+                 "holdings": [InstitutionalHolding(cusip="AAA", ticker="AAA", shares=200,
+                                                   value_usd=2000, accession_number="Q2")]},
+                {"report_period": "2025-12-31", "filing_date": "2026-02-14", "accession": "Q1",
+                 "holdings": [InstitutionalHolding(cusip="AAA", ticker="AAA", shares=100,
+                                                   value_usd=1000, accession_number="Q1")]},
+            ]
+        async def by_filer(self, cik, limit):
+            return [InstitutionalHolding(cusip="AAA", ticker="AAA", shares=10, value_usd=100,
+                                         accession_number="X")]
+    monkeypatch.setattr(G, "get_institutional_provider", lambda m: _Fake())
+    b = client.get("/gurus/trades?slug=buffett").json()
+    assert b["comparable"] is True and b["trades"][0]["action"] == "added"
+    assert client.get("/gurus/trades?slug=nobody").status_code == 404
+
+    c = client.get("/gurus/common?slugs=buffett,ackman&min_holders=2").json()
+    assert c["resource"] == "gurus_common" and "buffett" in c["gurus_resolved"]
 
 
 # --- PH-DATA-2: peer valuation comparables --------------------------------

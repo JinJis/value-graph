@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # --- KR upstream credentials -------------------------------------------
     opendart_api_key: str = ""
     ecos_api_key: str = ""
+    # CE-12: Korea Investment & Securities (KIS) — KR realtime rankings + investor flows.
+    kis_app_key: str = ""
+    kis_app_secret: str = ""
+    kis_domain: str = "https://openapi.koreainvestment.com:9443"  # 실전; 모의 = openapivts:29443
     krx_api_key: str = ""
     kis_app_key: str = ""
     kis_app_secret: str = ""
@@ -63,6 +67,12 @@ class Settings(BaseSettings):
     # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
     # registry's default set (financials, prices, corp_actions, news).
     scheduler_pipelines: str = "financials,prices,corp_actions,news"
+    # CE-0: how many years of daily OHLCV the prices pipeline stores. Deep enough for the
+    # store-backed screener / quant / backtest (the chart fetches its own history live).
+    prices_backfill_years: int = 5
+    # how many recent filings filing_search fetches+indexes when a never-seen ticker is queried
+    # on-demand (bounded so the first call stays responsive).
+    filing_search_ingest_limit: int = 2
 
     # --- RAG news-ingestion pipeline (PH-2b) ------------------------------
     # The RAG service the news pipeline indexes into.

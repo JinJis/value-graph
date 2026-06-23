@@ -26,6 +26,38 @@ class CostTier(str, Enum):
     high = "high"
 
 
+class Category(str, Enum):
+    """User-facing tool category — the INTUITIVE grouping the agent builder shows, orthogonal
+    to which upstream API a tool comes from. Connectors stay the data-plane routing unit; users
+    pick individual tools grouped by these categories (never by API). Every Resource carries one.
+    """
+
+    market = "market"  # 금융시장 현황 — 지수·자산군·섹터·시세·기술지표
+    fundamentals = "fundamentals"  # 종목 재무분석 — 재무제표·회사정보·기업검색
+    valuation = "valuation"  # 밸류에이션·비교 — 지표·동종업계 비교
+    filings = "filings"  # 공시·문서 — 공시·실적·문서 의미검색
+    gurus = "gurus"  # 투자거장·수급 — 13F·기관/내부자/ETF 보유
+    macro = "macro"  # 거시경제 분석 — 금리·물가·고용
+    news = "news"  # 뉴스룸 — 최신 헤드라인
+    screener = "screener"  # 스크리너·퀀트 — 재무 기준 스크리닝
+    portfolio = "portfolio"  # 포트폴리오 — 백테스트·포트폴리오 분석
+
+
+# Ordered, user-facing metadata for the builder (label + one-line description). The ONLY place
+# category names live; the agent builder + catalog endpoint derive everything from this.
+CATEGORIES: list[dict] = [
+    {"id": "market", "label": "금융시장 현황", "description": "지수·자산군·섹터·시세·기술적 지표"},
+    {"id": "fundamentals", "label": "종목 재무분석", "description": "재무제표·회사정보·기업 검색"},
+    {"id": "valuation", "label": "밸류에이션·비교", "description": "밸류에이션 지표·동종업계 비교"},
+    {"id": "filings", "label": "공시·문서", "description": "공시·실적·문서 의미검색(RAG)"},
+    {"id": "gurus", "label": "투자거장·수급", "description": "거장 13F·기관/내부자/ETF 보유"},
+    {"id": "macro", "label": "거시경제 분석", "description": "금리·물가·고용 등 거시지표 (미국·한국)"},
+    {"id": "news", "label": "뉴스룸", "description": "최신 뉴스 헤드라인"},
+    {"id": "screener", "label": "스크리너·퀀트", "description": "재무·팩터 기준 종목 스크리닝"},
+    {"id": "portfolio", "label": "포트폴리오 관리", "description": "포트폴리오 백테스트·성과 분석"},
+]
+
+
 class Freshness(str, Enum):
     realtime = "realtime"
     eod = "eod"  # end-of-day / delayed price
@@ -70,6 +102,9 @@ class Resource(BaseModel):
     output_model: str | None = Field(None, description="Generated response-model class name, when applicable.")
     markets: list[str] = ["US", "KR"]
     cost_tier: CostTier = CostTier.low
+    # User-facing category (set centrally in catalog.py via _CATEGORY map; enforced at load —
+    # a resource with no mapping fails catalog construction, so every tool stays categorized).
+    category: Category | None = None
     provenance: Provenance
 
 

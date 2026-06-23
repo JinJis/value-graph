@@ -95,7 +95,7 @@ export function TradeChart(
     let lastTime: string | null = null;
     let hasVol = false;
     // PH-VIZ-5: the reference series for pixel→price conversion + drawing user annotations.
-    let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null = null;
+    let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | null = null;
 
     if (isCandle) {
       const rows = candleData
@@ -202,18 +202,27 @@ export function TradeChart(
         });
       }
     } else {
+      // money amounts (revenue/income) render as BARS; ratios/other series stay lines. The
+      // builder flags this via chart_style="bar" (rebase/index-to-100 only applies to lines).
+      const asBars = a.chart_style === "bar" && !rebase;
       lineData.forEach((s, i) => {
         const pts = s.points
           .map((p) => ({ t: toTime(p.x), y: p.y }))
           .filter((p): p is { t: string; y: number } => p.t != null && p.y != null);
         if (!pts.length) return;
         const base = pts[0].y;
-        const line = chart.addLineSeries({ color: LINE_COLORS[i % LINE_COLORS.length], lineWidth: 2, title: s.label });
-        if (!mainSeries) mainSeries = line;
-        line.setData(pts.map((p) => ({
-          time: p.t as Time,
-          value: rebase && base ? ((p.y / base) - 1) * 100 : (s.unit === "ratio" ? p.y * 100 : p.y),
-        })));
+        if (asBars) {
+          const bar = chart.addHistogramSeries({ color: LINE_COLORS[i % LINE_COLORS.length], title: s.label, priceScaleId: "right" });
+          if (!mainSeries) mainSeries = bar;
+          bar.setData(pts.map((p) => ({ time: p.t as Time, value: p.y })));
+        } else {
+          const line = chart.addLineSeries({ color: LINE_COLORS[i % LINE_COLORS.length], lineWidth: 2, title: s.label });
+          if (!mainSeries) mainSeries = line;
+          line.setData(pts.map((p) => ({
+            time: p.t as Time,
+            value: rebase && base ? ((p.y / base) - 1) * 100 : (s.unit === "ratio" ? p.y * 100 : p.y),
+          })));
+        }
         const lt = pts[pts.length - 1].t;
         if (!lastTime || lt > lastTime) lastTime = lt;
       });

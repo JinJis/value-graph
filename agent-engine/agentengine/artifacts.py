@@ -28,7 +28,8 @@ def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
-def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker, url=None) -> Artifact | None:
+def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker, url=None,
+                chart_style: str | None = None) -> Artifact | None:
     series = [s for s in series if s.points]
     if not series:
         return None
@@ -36,6 +37,8 @@ def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, tic
     lengths = {len(s.points) for s in series}
     return Artifact(
         kind="timeseries", title=title.strip() or "추이", series=series, source=source,
+        # money amounts (revenue/income) read better as bars; ratios/prices stay lines.
+        chart_style=chart_style,
         as_of=as_of, freshness=compute_freshness(as_of), ticker=ticker,
         has_gap=len(lengths) > 1,  # series of differing coverage → a gap to draw
         url=url, tool=tool_name,
@@ -95,9 +98,304 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                    for r in rows if r.get("report_period") and r.get(key) is not None]
             if pts:
                 series.append(ArtifactSeries(label=label, points=sorted(pts, key=lambda p: p.x)))
-        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker, url)
+        a = _timeseries(f"{ticker or ''} 매출·순이익", series, src, name, ticker, url, chart_style="bar")
         if a:
             out.append(a)
+
+    if name.endswith(("__asset_classes", "__commodities", "__semiconductor", "__themes")) and isinstance(data.get("groups"), list):
+        # CE-1 cross-asset / commodities / semiconductor / themes snapshot → a sourced grouped table.
+        _GTITLE = {"__commodities": "원자재 시세", "__semiconductor": "반도체 사이클 프록시 (DRAM 현물가 아님)",
+                   "__themes": "테마·섹터 시세"}
+        gtitle = next((t for suf, t in _GTITLE.items() if name.endswith(suf)), "자산군 현황")
+        col0 = "분류" if name.endswith(("__commodities", "__semiconductor", "__themes")) else "자산군"
+
+        def _px(v):
+            return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
+
+        def _pct(v):
+            return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+        rows = [[col0, "종목", "현재가", "등락%"]]
+        for g in data["groups"]:
+            for m in (g.get("members") or []):
+                rows.append([g.get("name", ""), m.get("label") or m.get("ticker", ""),
+                             _px(m.get("price")), _pct(m.get("change_percent"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=gtitle, table=rows,
+                                source=src or "Yahoo Finance", as_of=data.get("as_of"),
+                                freshness=compute_freshness(data.get("as_of")), tool=name))
+
+    if name.endswith("__volume_rank") and isinstance(data.get("results"), list) and data["results"]:
+        # CE-12: KR 거래량 순위 (movers) → a sourced table.
+        def _kn(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e12:,.2f}조" if abs(v) >= 1e12 else (f"{v/1e8:,.0f}억" if abs(v) >= 1e8 else f"{v:,}")
+
+        rows = [["순위", "종목", "현재가", "등락%", "거래대금"]]
+        for r in data["results"][:20]:
+            cp = r.get("change_percent")
+            rows.append([str(r.get("rank") or ""), r.get("name") or r.get("ticker") or "",
+                         f"{r.get('price'):,}" if isinstance(r.get("price"), (int, float)) else "—",
+                         f"{cp:+.2f}%" if isinstance(cp, (int, float)) else "—", _kn(r.get("value"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="거래량 순위 (KR)", table=rows,
+                                source=data.get("source") or "한국투자증권 (KIS)", tool=name))
+
+    if name.endswith("__fluctuation_rank") and isinstance(data.get("results"), list) and data["results"]:
+        # CE-12: 등락률 순위 (gainers/losers) → a sourced table.
+        rows = [["순위", "종목", "현재가", "등락%", "거래량"]]
+        for r in data["results"][:20]:
+            cp = r.get("change_percent")
+            rows.append([str(r.get("rank") or ""), r.get("name") or r.get("ticker") or "",
+                         f"{r.get('price'):,}" if isinstance(r.get("price"), (int, float)) else "—",
+                         f"{cp:+.2f}%" if isinstance(cp, (int, float)) else "—",
+                         f"{r.get('volume'):,}" if isinstance(r.get("volume"), (int, float)) else "—"])
+        if len(rows) > 1:
+            dlabel = "하락률" if data.get("direction") == "down" else "상승률"
+            out.append(Artifact(kind="table", title=f"{dlabel} 순위 (KR)", table=rows,
+                                source=data.get("source") or "한국투자증권 (KIS)", tool=name))
+
+    if name.endswith("__market_cap_rank") and isinstance(data.get("results"), list) and data["results"]:
+        # CE-12: 시가총액 순위 → a sourced table (시총 억원→조원, 시장 비중).
+        rows = [["순위", "종목", "시총", "비중", "등락%"]]
+        for r in data["results"][:20]:
+            mc = r.get("market_cap_eok")  # 억원
+            cp = r.get("change_percent")
+            rows.append([str(r.get("rank") or ""), r.get("name") or r.get("ticker") or "",
+                         f"{mc/10000:,.1f}조" if isinstance(mc, (int, float)) else "—",
+                         f"{r.get('market_weight_pct'):.2f}%" if isinstance(r.get("market_weight_pct"), (int, float)) else "—",
+                         f"{cp:+.2f}%" if isinstance(cp, (int, float)) else "—"])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="시가총액 순위 (KR)", table=rows,
+                                source=data.get("source") or "한국투자증권 (KIS)", tool=name))
+
+    if name.endswith("__etf_nav") and isinstance(data, dict) and data.get("nav") is not None:
+        # CE-12: ETF 현재가 vs NAV + 괴리율 → a compact sourced table.
+        def _pc(v):
+            return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+        price, nav, dprt = data.get("price"), data.get("nav"), data.get("premium_discount_pct")
+        table = [["구분", "값"],
+                 ["현재가", f"{price:,}" if isinstance(price, (int, float)) else "—"],
+                 ["NAV", f"{nav:,.2f}" if isinstance(nav, (int, float)) else "—"],
+                 ["괴리율", _pc(dprt)],
+                 ["가격 등락", _pc(data.get("price_change_percent"))],
+                 ["NAV 등락", _pc(data.get("nav_change_percent"))]]
+        out.append(Artifact(kind="table", title=f"{data.get('name') or data.get('ticker') or ''} ETF NAV".strip(),
+                            table=table, source=data.get("source") or "한국투자증권 (KIS)", tool=name,
+                            ticker=data.get("ticker")))
+
+    if name.endswith("__investor_flow") and isinstance(data.get("flows"), list) and data["flows"]:
+        # CE-12: 투자자별 순매수 (수급) → a sourced table (개인/외국인/기관, 순매수 주식수).
+        def _q(v):
+            return f"{v:+,}" if isinstance(v, (int, float)) else "—"
+
+        rows = [["일자", "종가", "개인", "외국인", "기관"]]
+        for f in data["flows"][:15]:
+            rows.append([str(f.get("date") or ""),
+                         f"{f.get('close'):,}" if isinstance(f.get("close"), (int, float)) else "—",
+                         _q(f.get("individual_net")), _q(f.get("foreign_net")), _q(f.get("institution_net"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('ticker', '')} 투자자별 순매수 (수급)".strip(),
+                                table=rows, source=data.get("source") or "한국투자증권 (KIS)", tool=name,
+                                ticker=data.get("ticker")))
+
+    if name.endswith("__consensus_estimates") and isinstance(data.get("estimates"), list) and data["estimates"]:
+        # CE-11: analyst consensus estimates → a sourced table (third-party, labelled).
+        def _b(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e9:,.1f}B" if abs(v) >= 1e9 else (f"{v/1e6:,.0f}M" if abs(v) >= 1e6 else f"{v:,.2f}")
+
+        rows = [["기간", "매출(컨센서스)", "EPS(컨센서스)", "순이익(컨센서스)"]]
+        for e in data["estimates"][:8]:
+            rows.append([str(e.get("date") or "")[:10], _b(e.get("revenue_avg")),
+                         _b(e.get("eps_avg")), _b(e.get("net_income_avg"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('symbol', '')} 애널리스트 컨센서스 추정치".strip(),
+                                table=rows, source=data.get("source") or "FMP (컨센서스)", tool=name,
+                                ticker=data.get("symbol")))
+
+    if name.endswith("__earnings_calendar") and isinstance(data.get("events"), list) and data["events"]:
+        # CE-11: earnings calendar → consensus vs actual (surprise) table.
+        def _b2(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e9:,.1f}B" if abs(v) >= 1e9 else f"{v:,.2f}"
+
+        rows = [["발표일", "EPS 추정", "EPS 실제", "서프라이즈", "매출 실제"]]
+        for ev in data["events"][:12]:
+            su = ev.get("eps_surprise")
+            rows.append([str(ev.get("date") or "")[:10], _b2(ev.get("eps_estimated")), _b2(ev.get("eps_actual")),
+                         (f"{su:+,.2f}" if isinstance(su, (int, float)) else "—"), _b2(ev.get("revenue_actual"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('symbol', '')} 실적 캘린더".strip(),
+                                table=rows, source="FMP", tool=name, ticker=data.get("symbol")))
+
+    if name.endswith("__news") and isinstance(data.get("news"), list) and data["news"]:
+        # CE-10: recent news → a sourced, pinnable digest table (headline · publisher · date).
+        rows = [["헤드라인", "발행사", "날짜"]]
+        for a in data["news"][:12]:
+            if not isinstance(a, dict) or not a.get("title"):
+                continue
+            rows.append([str(a.get("title"))[:120], str(a.get("source") or "")[:40], str(a.get("date") or "")[:10]])
+        if len(rows) > 1:
+            tk = (data["news"][0] or {}).get("ticker")
+            out.append(Artifact(kind="table", title=f"{tk + ' ' if tk else ''}뉴스 다이제스트".strip(),
+                                table=rows, source="Google News", as_of=(data["news"][0] or {}).get("date"),
+                                tool=name, ticker=tk))
+
+    if name.endswith("__macro_panel") and isinstance(data.get("indicators"), list):
+        # CE-9: 국가경제 패널 → a sourced table (지표·최신값·변화·그룹).
+        def _v(v, unit):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v:,.2f}{'%' if unit == '%' else ''}"
+
+        rows = [["그룹", "지표", "최신값", "변화", "기준"]]
+        for ind in data["indicators"]:
+            ch = ind.get("change")
+            ch_s = f"{ch:+,.2f}" if isinstance(ch, (int, float)) else "—"
+            rows.append([ind.get("group") or "", ind.get("name", ""), _v(ind.get("latest"), ind.get("unit")),
+                         ch_s, ind.get("as_of") or ""])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('region', '')} 거시경제 패널".strip(),
+                                table=rows, source=data.get("source") or "DBnomics", tool=name))
+
+    if name.endswith("__backtest") and isinstance(data.get("curve"), list) and data["curve"]:
+        # CE-7: portfolio equity curve → a timeseries (portfolio + benchmark, rebased to initial).
+        series = [ArtifactSeries(label="포트폴리오", points=[
+            ArtifactPoint(x=p["date"], y=_num(p.get("value"))) for p in data["curve"]])]
+        bench = data.get("benchmark") or {}
+        if isinstance(bench.get("curve"), list) and bench["curve"]:
+            series.append(ArtifactSeries(label=bench.get("ticker") or "벤치마크", points=[
+                ArtifactPoint(x=p["date"], y=_num(p.get("value"))) for p in bench["curve"]]))
+        m = data.get("metrics") or {}
+        tr = m.get("total_return")
+        title = "포트폴리오 백테스트" + (f" (누적 {tr*100:+.1f}%)" if isinstance(tr, (int, float)) else "")
+        a = _timeseries(title, series, "ingestion store (Yahoo prices)", name, None)
+        if a:
+            out.append(a)
+
+    if name.endswith("__quant_screen") and isinstance(data.get("results"), list):
+        # CE-6: factor screener → a sourced ranked table (key factors per ticker).
+        def _r2(v):
+            return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
+
+        def _pct(v):
+            return f"{v*100:+.1f}%" if isinstance(v, (int, float)) else "—"
+
+        def _mc(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e12:,.2f}T" if abs(v) >= 1e12 else (f"{v/1e9:,.1f}B" if abs(v) >= 1e9 else f"{v/1e6:,.0f}M")
+
+        rows = [["종목", "시총", "PER", "PBR", "ROE", "기간수익"]]
+        for r in data["results"]:
+            rows.append([r.get("ticker", ""), _mc(r.get("market_cap")), _r2(r.get("pe")),
+                         _r2(r.get("pb")), _pct(r.get("roe")), _pct(r.get("return_window"))])
+        if len(rows) > 1:
+            srt = data.get("sort")
+            title = f"퀀트 스크리너 ({data.get('market', '')}{' · ' + srt + ' 순' if srt else ''}) — {data.get('count', 0)}종목"
+            out.append(Artifact(kind="table", title=title.strip(), table=rows,
+                                source="ingestion store (SEC/DART + Yahoo)", tool=name))
+
+    if name.endswith("__valuation") and data.get("model"):
+        # CE-5: a transparent valuation calc → a sourced table (projection + intrinsic value).
+        model = str(data.get("model")).upper()
+        vps = data.get("value_per_share")
+        bd = data.get("breakdown") or {}
+        rows_in = bd.get("rows") or []
+
+        def _m(v):  # money, abbreviated
+            if not isinstance(v, (int, float)):
+                return "—"
+            a = abs(v)
+            if a >= 1e9:
+                return f"{v/1e9:,.2f}B"
+            if a >= 1e6:
+                return f"{v/1e6:,.1f}M"
+            return f"{v:,.2f}"
+
+        if data.get("model") == "rim":
+            table = [["연차", "BVPS", "잔여이익", "현재가치"]] + [
+                [str(r.get("year")), _m(r.get("bvps")), _m(r.get("residual_income")), _m(r.get("pv"))] for r in rows_in]
+        elif data.get("model") == "dcf":
+            table = [["연차", "예상 FCF", "현재가치(PV)"]] + [
+                [str(r.get("year")), _m(r.get("fcf")), _m(r.get("pv"))] for r in rows_in]
+        else:  # ddm — no projection rows; show the components
+            table = [["구분", "값"], ["D0 (현재 배당)", _m(bd.get("d0"))], ["D1", _m(bd.get("d1"))]]
+        if isinstance(vps, (int, float)):  # summary row, padded to the table's column count
+            cols = len(table[0])
+            table.append((["내재가치 / 주", f"{vps:,.2f}"] + [""] * cols)[:cols])
+        title = f"{data.get('ticker') or ''} {model} 내재가치"
+        if isinstance(vps, (int, float)):
+            title += f" — {vps:,.2f}/주 (가정 기반)"
+        if len(table) > 1:
+            out.append(Artifact(kind="table", title=title.strip(), table=table,
+                                source=data.get("source") or "재무제표 기반 모델", as_of=data.get("as_of"),
+                                freshness=compute_freshness(data.get("as_of")), tool=name,
+                                ticker=data.get("ticker")))
+
+    if name.endswith("__sector_heatmap") and isinstance(data.get("sectors"), list):
+        # CE-2: US sector heatmap → a sourced, ranked table card (섹터 히트맵).
+        def _pct(v):
+            return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+        rows = [["섹터", "ETF", "등락%"]]
+        for s in data["sectors"]:
+            rows.append([s.get("sector", ""), s.get("ticker", ""), _pct(s.get("change_percent"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="섹터 히트맵 (S&P 500)", table=rows,
+                                source=src or "Yahoo Finance", as_of=data.get("as_of"),
+                                freshness=compute_freshness(data.get("as_of")), tool=name))
+
+    if name.endswith("__guru_trades") and isinstance(data.get("trades"), list):
+        # CE-3: 거장 매매 — quarter-over-quarter 13F moves → a sourced table card.
+        def _usd(v):
+            if not isinstance(v, (int, float)) or v == 0:
+                return "—"
+            sign = "-" if v < 0 else ""
+            a = abs(v)
+            if a >= 1e9:
+                return f"{sign}${a/1e9:,.2f}B"
+            if a >= 1e6:
+                return f"{sign}${a/1e6:,.1f}M"
+            return f"{sign}${a:,.0f}"
+
+        _ACTION = {"new": "신규", "added": "추가", "trimmed": "축소", "exited": "전량매도"}
+        rows = [["종목", "매매", "보유가치", "가치변동", "주식수 변동"]]
+        for t in data["trades"]:
+            sc = t.get("shares_change")
+            sc_s = f"{sc:+,}" if isinstance(sc, (int, float)) else "—"
+            rows.append([
+                t.get("ticker") or t.get("name_of_issuer") or t.get("cusip", ""),
+                _ACTION.get(t.get("action"), t.get("action", "")),
+                _usd(t.get("value_usd")), _usd(t.get("value_change_usd")), sc_s,
+            ])
+        if len(rows) > 1:
+            guru = (data.get("guru") or {}).get("investor") or "거장"
+            rp = data.get("report_period") or ""
+            out.append(Artifact(kind="table", title=f"{guru} 매매내역 ({rp})".strip(),
+                                table=rows, source=src or "SEC EDGAR 13F", as_of=data.get("filing_date"),
+                                freshness=compute_freshness(data.get("filing_date")), url=url, tool=name))
+
+    if name.endswith("__guru_common") and isinstance(data.get("common"), list):
+        # CE-3: 공통 보유종목 — securities held by the most superinvestors → sourced table.
+        rows = [["종목", "보유 거장 수", "보유 거장"]]
+        for c in data["common"]:
+            holders = ", ".join(h.get("investor", "") for h in (c.get("holders") or [])[:6])
+            if len(c.get("holders") or []) > 6:
+                holders += " 외"
+            rows.append([
+                c.get("ticker") or c.get("name_of_issuer") or c.get("cusip", ""),
+                str(c.get("holder_count", len(c.get("holders") or []))), holders,
+            ])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="거장 공통 보유종목", table=rows,
+                                source=src or "SEC EDGAR 13F", as_of=None,
+                                freshness=None, tool=name))
 
     if name.endswith("__technical_indicators") and isinstance(data.get("indicators"), list):
         # PH-VIZ-4: a descriptive indicator artifact. `enrich_chart_overlays` later folds

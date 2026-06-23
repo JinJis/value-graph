@@ -42,14 +42,17 @@ def _news_to_doc(market: str, article: News) -> dict | None:
     title = (article.title or "").strip()
     if not title:
         return None
+    url = str(article.url) if article.url else None
     return {
         "text": title,
+        # stable per article (url, else ticker+title) → re-ingest UPSERTs instead of duplicating
+        "doc_id": url or f"{article.ticker or ''}:{title}",
         "source": article.source or "Google News",  # publisher (Reuters/연합뉴스/…) when present
         "doc_type": "news",
         "ticker": article.ticker,
         "market": market,
         "as_of": str(article.date) if article.date else None,
-        "url": str(article.url) if article.url else None,
+        "url": url,
     }
 
 
@@ -61,6 +64,20 @@ async def _ingest_to_rag(rag_url: str, docs: list[dict]) -> int:
         resp = await client.post(f"{rag_url.rstrip('/')}/rag/ingest", json={"documents": docs})
         resp.raise_for_status()
         return int((resp.json() or {}).get("chunks", 0))
+
+
+async def _search_rag(rag_url: str, query: str, ticker: str | None, market: str | None,
+                      top_k: int) -> list[dict]:
+    """Query the RAG service and return its passage hits (each carries its own provenance)."""
+    body = {"query": query, "top_k": top_k}
+    if ticker:
+        body["ticker"] = ticker
+    if market:
+        body["market"] = market
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
+        resp = await client.post(f"{rag_url.rstrip('/')}/rag/search", json=body)
+        resp.raise_for_status()
+        return (resp.json() or {}).get("hits") or []
 
 
 async def run_news_ingest(

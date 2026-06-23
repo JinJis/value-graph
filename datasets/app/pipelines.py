@@ -21,8 +21,9 @@ async def _run_financials(market: str, tickers: list[str]) -> None:
 
 
 async def _run_prices(market: str, tickers: list[str]) -> None:
+    from app.config import settings
     from app.store.prices_ingest import run_prices_ingest
-    await run_prices_ingest(market, tickers)
+    await run_prices_ingest(market, tickers, years=settings.prices_backfill_years)
 
 
 async def _run_corp_actions(market: str, tickers: list[str]) -> None:

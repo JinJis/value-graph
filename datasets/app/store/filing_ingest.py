@@ -41,6 +41,8 @@ def _pdf_to_docs(pdf_path: str, market: str, ticker: str, accession: str, source
             if len(text) < _MIN_PAGE_CHARS:
                 continue
             out.append({"text": text, "source": source, "doc_type": "filing",
+                        # stable per (filing, page) → re-ingest UPSERTs instead of duplicating
+                        "doc_id": f"{accession}:p.{i + 1}",
                         "ticker": ticker, "market": market, "accession": accession,
                         "section": f"p.{i + 1}", "url": url})
     finally:
@@ -48,28 +50,37 @@ def _pdf_to_docs(pdf_path: str, market: str, ticker: str, accession: str, source
     return out
 
 
+async def ingest_filing_text_for_ticker(market: str, ticker: str, limit: int = 4,
+                                        rag_url: str | None = None) -> int:
+    """Cache one ticker's recent filing PDFs and index their text into RAG; return the chunk
+    count. The unit of both the batch pipeline AND on-demand ingest (filing_search) — so a
+    ticker the corpus has never seen becomes searchable live. Best-effort (0 on failure)."""
+    market = (market or "").upper()
+    source = "SEC EDGAR" if market == "US" else "OpenDART (FSS)"
+    await build_evidence_docs_for_ticker(market, ticker, limit=limit)  # ensure PDFs are cached
+    docs: list[dict] = []
+    for ed in await asyncio.to_thread(evidence_docs_for_ticker, market, ticker):
+        docs += await asyncio.to_thread(
+            _pdf_to_docs, ed["pdf_path"], market, ticker.upper(), ed["accession"],
+            source, ed["source_url"])
+    if not docs:
+        return 0
+    chunks = await _ingest_to_rag(rag_url or settings.rag_url, docs)
+    log.info("filing-text: %s %s → %d pages, %d chunks indexed", market, ticker.upper(), len(docs), chunks)
+    return chunks
+
+
 async def run_filing_text_ingest(market: str, tickers: list[str]) -> None:
     """Index each ticker's cached filing PDFs' text into RAG, tracked as an IngestionJob
     (kind `filing_text`). Ensures the PDFs exist first; best-effort per ticker."""
     market = (market or "").upper()
     tickers = tickers or []
-    source = "SEC EDGAR" if market == "US" else "OpenDART (FSS)"
     job = start_job("filing_text", market, ",".join(tickers), len(tickers))
     total = 0
     try:
         for i, tk in enumerate(tickers, 1):
             try:
-                await build_evidence_docs_for_ticker(market, tk)  # ensure PDFs are cached
-                docs: list[dict] = []
-                for ed in await asyncio.to_thread(evidence_docs_for_ticker, market, tk):
-                    docs += await asyncio.to_thread(
-                        _pdf_to_docs, ed["pdf_path"], market, tk.upper(), ed["accession"],
-                        source, ed["source_url"])
-                if docs:
-                    chunks = await _ingest_to_rag(settings.rag_url, docs)
-                    total += chunks
-                    log.info("filing-text: %s %s → %d pages, %d chunks indexed",
-                             market, tk.upper(), len(docs), chunks)
+                total += await ingest_filing_text_for_ticker(market, tk)
             except Exception as exc:  # noqa: BLE001 — one ticker never aborts the run
                 log.warning("filing-text: %s %s failed: %s", market, tk, exc)
             update_progress(job, i)

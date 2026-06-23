@@ -67,7 +67,9 @@ TEMPLATES: list[dict] = [
         "id": "tpl_desk", "name": "ValueGraph 리서치 데스크", "is_template": True, "model": "gemini",
         "description": "모든 데이터 소스·증거·차트·멀티에이전트 추론을 한 번에 — Gemini 기반 기본 분석가.",
         "system_prompt": _DEFAULT_SYSTEM,
-        "data_sources": ["sec_edgar", "opendart", "yahoo", "fred", "ecos", "google_news", "datasets_store", "rag"],
+        # Empty = unrestricted (every tool). User-built agents narrow this to a chosen set of
+        # individual tools (fully-qualified ids), grouped by category in the builder.
+        "data_sources": [],
     },
 ]
 DEFAULT_AGENT_ID = "tpl_desk"
@@ -123,10 +125,12 @@ def _out(a: Agent) -> dict:
 
 
 def agent_to_spec(a: Agent) -> dict:
-    """Map a stored agent to the agent-engine ``AgentSpec`` payload."""
+    """Map a stored agent to the agent-engine ``AgentSpec`` payload. An empty tool list means
+    UNRESTRICTED (every tool) — collapse it to None so the engine applies no filter."""
+    tools = json.loads(a.data_sources) if a.data_sources else []
     return {
         "system": a.system_prompt,
-        "allowed_tools": json.loads(a.data_sources) if a.data_sources else None,
+        "allowed_tools": tools or None,
         "backend": a.model or None,
     }
 
@@ -210,25 +214,38 @@ async def delete_agent(agent_id: str, user: User = Depends(current_user)) -> dic
 connectors_router = APIRouter(tags=["Agents"], dependencies=[Depends(require_service)])
 
 
-@connectors_router.get("/connectors", summary="Data sources available to build agents")
+@connectors_router.get("/connectors", summary="Tools available to build agents, grouped by category")
 async def list_connectors() -> dict:
-    """Proxy the control-plane catalog so the builder can show selectable sources."""
+    """Proxy the catalog and present it as **user-facing categories → individual tools** (not by
+    upstream API). Each tool's `name` is the fully-qualified id (`{connector}__{resource}`) the
+    agent stores in `data_sources` — so users pick tools, grouped intuitively, never by API."""
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
             resp = await client.get(f"{settings.control_plane_url}/catalog")
             resp.raise_for_status()
-            connectors = resp.json().get("connectors", [])
+            body = resp.json()
     except httpx.HTTPError:
-        return {"connectors": []}
-    return {"connectors": [
-        {
-            "id": c["id"], "name": c.get("name", c["id"]), "description": c.get("description"),
-            # surface the tools inside each connector so the builder can show what an
-            # analyst can actually touch (U-BUILDER-01 — transparency, not selection).
-            "tools": [
-                {"name": r.get("name"), "description": r.get("description")}
-                for r in (c.get("resources") or [])
-            ],
-        }
-        for c in connectors
+        return {"categories": []}
+
+    cats = body.get("categories") or []
+    connectors = body.get("connectors") or []
+    # bucket every catalog resource under its category id
+    by_cat: dict[str, list[dict]] = {c["id"]: [] for c in cats}
+    for con in connectors:
+        for r in con.get("resources") or []:
+            cat = r.get("category")
+            if cat is None:
+                continue  # uncategorized tools are never exposed to the builder
+            by_cat.setdefault(cat, []).append({
+                "name": f"{con['id']}__{r['name']}",  # fully-qualified id stored in data_sources
+                "label": r.get("description") or r["name"],
+                "description": r.get("description"),
+                "source": (r.get("provenance") or {}).get("source"),
+                "markets": r.get("markets") or con.get("markets"),
+                "connector_name": con.get("name", con["id"]),
+            })
+    return {"categories": [
+        {"id": c["id"], "label": c["label"], "description": c.get("description"),
+         "tools": by_cat.get(c["id"], [])}
+        for c in cats if by_cat.get(c["id"])
     ]}

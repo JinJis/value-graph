@@ -108,6 +108,20 @@ async def _dart_json(path: str, params: dict) -> dict:
     return data  # type: ignore[return-value]
 
 
+# Report-name → rank (lower = more substantive, surfaced first). DART lists newest-first;
+# a STABLE sort by rank keeps date order within each tier. 지분/소유 reports are the noise the
+# date sort otherwise floods the list with, so they rank last.
+def _filing_rank(report_nm: str | None) -> int:
+    nm = report_nm or ""
+    if any(k in nm for k in ("사업보고서", "반기보고서", "분기보고서")):
+        return 0  # 정기보고서 — the narrative-bearing reports (위험요소·사업의 내용)
+    if any(k in nm for k in ("주요사항보고", "감사보고서", "검토보고서")):
+        return 1
+    if any(k in nm for k in ("소유상황보고", "소유주식", "지분", "특정증권등")):
+        return 3  # 지분/소유 disclosures — high-frequency noise → last
+    return 2
+
+
 class OpenDartProvider:
     async def company_facts(self, ref: SecurityRef) -> CompanyFacts:
         corp = await _corp_code(ref)
@@ -197,17 +211,25 @@ class OpenDartProvider:
     async def filings(self, ref: SecurityRef, filing_types: list[str] | None, limit: int) -> list[Filing]:
         corp = await _corp_code(ref)
         this_year = date.today().year
+        # Pull a WIDE window (DART returns newest-first), then rank so substantive reports
+        # (정기보고서·주요사항·감사) surface ahead of the high-frequency 지분/소유 noise that
+        # otherwise dominates by date. `filing_type` (if given) post-filters by report name.
         data = await _dart_json(
             "list.json",
             {
                 "corp_code": corp,
                 "bgn_de": f"{this_year - 2}0101",
                 "end_de": f"{this_year}1231",
-                "page_count": str(min(limit, 100)),
+                "page_count": "100",
             },
         )
+        rows = list(data.get("list") or [])
+        if filing_types:
+            wanted = [t for t in filing_types if t]
+            rows = [r for r in rows if any(w in (r.get("report_nm") or "") for w in wanted)]
+        rows.sort(key=lambda r: _filing_rank(r.get("report_nm")))  # stable → keeps date order within a rank
         out: list[Filing] = []
-        for row in data.get("list") or []:
+        for row in rows:
             rcp = row.get("rcept_no")
             rcept_dt = row.get("rcept_dt")  # YYYYMMDD
             fdate = f"{rcept_dt[:4]}-{rcept_dt[4:6]}-{rcept_dt[6:8]}" if rcept_dt else None

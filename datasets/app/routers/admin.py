@@ -62,6 +62,14 @@ async def store_statistics() -> dict:
     return await asyncio.to_thread(store_stats)
 
 
+@router.get("/upstream-health", dependencies=[ApiKeyDep], summary="Upstream API health (reachability/latency/key)")
+async def upstream_health() -> dict:
+    """CE-HEALTH: probe every connector's upstream (SEC/DART/Yahoo/DBnomics/ECOS/news) so the
+    admin console shows which data source is healthy/degraded/down at a glance."""
+    from app.store.upstream_health import probe_upstreams
+    return await probe_upstreams()
+
+
 @router.get("/universes", dependencies=[ApiKeyDep], summary="Curated backfill universes (presets)")
 async def universes() -> dict:
     return {"universes": list_presets()}

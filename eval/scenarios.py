@@ -169,6 +169,26 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # CE-1: cross-asset / 자산군 — descriptive market snapshot across asset classes.
+        "name": "Cross-asset snapshot (자산군)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["yahoo"]},
+        "question": "주요 자산군(지수·금리·원자재·환율·가상자산)의 현재 수준과 등락을 알려줘.",
+        "criteria": ("지수·금리·원자재·환율 등 자산군의 최근 수준/등락을 Yahoo 출처 기반 사실로 제시; "
+                     "전망·매수의견 없이 현황만."),
+        "checks": {"expect_connector": "yahoo__", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-2: US sector heatmap — per-sector day change via SPDR sector ETFs.
+        "name": "Sector heatmap (섹터 히트맵)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["yahoo"]},
+        "question": "오늘 미국 증시에서 어떤 섹터가 강하고 어떤 섹터가 약해?",
+        "criteria": ("11개 GICS 섹터의 최근 등락을 SPDR 섹터 ETF 기반 Yahoo 출처 사실로 제시(강세/약세 순); "
+                     "전망·매수의견 없이 현황만."),
+        "checks": {"expect_connector": "yahoo__sector_heatmap", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # A2A: a complex, multi-facet request → decomposed into parallel sub-agents, then combined.
         "name": "A2A: comprehensive multi-facet analysis (combined)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
@@ -178,6 +198,108 @@ SCENARIOS = [
                      "일관된 답변으로 종합. 구체적 수치는 [n]으로 인용. 전망/목표가/매수의견은 없음. "
                      "거절하지 않음."),
         "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-4: holistic company narrative (관전 포인트) — structured, sourced, descriptive only.
+        "name": "Stock narrative (종목 내러티브 / 관전 포인트)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플(AAPL) 관전 포인트를 정리해줘. 전망·매수의견은 빼고.",
+        "criteria": ("사업 개요·최근 실적/재무·밸류에이션·최근 이슈·관전 포인트를 출처(Yahoo/SEC EDGAR/뉴스) "
+                     "기반 사실로 섹션화해 제시하고 구체적 수치는 [n]으로 인용. '관전 포인트'는 모니터링 항목만 "
+                     "서술하고 가격 예측·목표가·매수/매도 의견은 없음. 거절하지 않음."),
+        "checks": {"expect_status": 200, "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-14: value-chain / supply-chain map — derived from filings + news, labelled.
+        "name": "Value chain (밸류체인/공급망 구조)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "엔비디아(NVDA)의 밸류체인(공급사·고객·경쟁사) 구조를 정리해줘.",
+        "criteria": ("핵심 사업·주요 공급사(상류)·주요 고객(하류)·경쟁사를 공시/뉴스 근거로 [n] 인용해 정리하고, "
+                     "이것이 공시·뉴스 기반 추출(derived)이며 확정 거래관계가 아님을 밝힘. 전망/매수의견 없음."),
+        "checks": {"expect_status": 200, "answer_regex": r"\w", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-10: news briefing / real-time narrative over the news ingestion.
+        "name": "News brief (실시간 내러티브)",
+        "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
+        "question": "엔비디아 관련 최근 뉴스 흐름을 브리핑해줘.",
+        "criteria": ("핵심 흐름·주요 헤드라인(발행사·날짜)·맥락을 최근 뉴스 기반 사실로 정리하고 각 항목을 [n]으로 "
+                     "인용. 전망/목표가/매수의견 없이 현황·맥락만."),
+        "checks": {"expect_connector": "google_news__news", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-12: KR investor flows (수급) via KIS — descriptive realtime market data.
+        "name": "KR investor flows (수급, KIS)",
+        "agent": {"name": "Eval KR", "model": "gemini", "data_sources": ["kis", "yahoo", "opendart"]},
+        "question": "삼성전자(005930)의 최근 외국인·기관 순매수 흐름을 알려줘.",
+        "criteria": ("최근 일자별 외국인·기관(·개인) 순매수를 한국투자증권(KIS) 출처의 사실로 제시; "
+                     "전망·매수의견 없이 수급 현황만."),
+        "checks": {"expect_connector": "kis__investor_flow", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-11: analyst consensus estimates via FMP — third-party sourced data, not our forecast.
+        "name": "Consensus estimates (컨센서스 추정치)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fmp", "sec_edgar"]},
+        "question": "애플(AAPL)의 향후 매출·EPS 애널리스트 컨센서스 추정치를 알려줘.",
+        "criteria": ("연도별 매출·EPS 컨센서스 추정치를 FMP(애널리스트 컨센서스, 제3자) 출처로 제시하고, "
+                     "이것이 우리(서비스)의 예측/목표가가 아니라 제3자 컨센서스 데이터임을 명확히 함."),
+        "checks": {"expect_connector": "fmp__consensus_estimates", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-9: macro country panel — latest key indicators + change, sourced to DBnomics.
+        "name": "Macro country panel (거시 패널)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 거시경제 핵심 지표(물가·고용·성장·금리)의 최신 수준과 변화를 정리해줘.",
+        "criteria": ("물가/고용/성장/금리 지표의 최신값과 직전 대비 변화를 DBnomics 출처로 사실만 제시; "
+                     "전망/투자의견 없이 현황만."),
+        "checks": {"expect_connector": "fred__macro_panel", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-7: portfolio backtest — descriptive past performance over ingested prices.
+        "name": "Portfolio backtest (백테스트)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플 50%, 마이크로소프트 50% 포트폴리오의 과거 성과를 백테스트해줘.",
+        "criteria": ("매수후보유 과거 누적수익·연환산수익(CAGR)·최대낙폭 등을 저장된 가격 기반 사실로 제시하거나, "
+                     "데이터가 없으면 정직하게 밝힘. '과거 성과이며 미래 보장·조언이 아님'을 명확히 함."),
+        "checks": {"expect_connector": "datasets_store__backtest", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-6: quant factor screener — cross-sectional, descriptive (depends on ingested store).
+        "name": "Quant factor screener (퀀트 스크리너)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "ROE가 높고 PER이 낮은 미국 종목을 스크리닝해줘.",
+        "criteria": ("저장된 데이터에서 ROE·PER 등 팩터로 종목을 필터·랭킹해 제시하거나, 데이터가 없으면 "
+                     "정직하게 밝힘. 횡단면 사실 위주이며 매수/매도 의견·전망은 없음."),
+        "checks": {"expect_connector": "datasets_store__quant_screen", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # CE-5: transparent valuation model (DCF) — user-input calculator, NOT a price target.
+        "name": "Valuation model (DCF 내재가치)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플(AAPL)을 성장률 8%, 할인율 10% 가정으로 DCF 내재가치를 계산해줘.",
+        "criteria": ("실제 재무(FCF 등)를 base로 한 DCF 주당 내재가치를 제시하되, 사용한 가정(성장률·할인율)을 "
+                     "명시하고 '예측·목표가가 아닌 가정 기반 계산'임을 분명히 함. 출처(SEC EDGAR) 표기. "
+                     "매수/매도 의견·목표주가 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # filing-text semantic search (on-demand RAG ingest) — quote real filing passages.
+        "name": "Filing passage search (공시 본문 인용)",
+        "agent": {"name": "Eval Filings", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": ("SK하이닉스 공시에서 '공급망 리스크' 또는 '데이터센터/AI 수요'를 언급한 문단을 찾아 "
+                     "원문 문구를 인용하고, 어떤 공시·섹션에서 나왔는지 출처를 함께 보여줘."),
+        "criteria": ("공시 본문(사업보고서/분기보고서의 위험요소·사업의 내용 등)에서 해당 주제를 언급한 실제 "
+                     "문단을 인용하고, 공시(접수번호/섹션)와 출처를 함께 제시. 주주 소유보고 같은 무관한 공시가 "
+                     "아니라 서사 본문을 근거로 함. 전망/매수의견 없음."),
+        "checks": {"expect_connector": "datasets_store__filing_search", "expect_status": 200,
+                   "expect_cite": "DART", "expect_refused": False, "judge": True},
     },
     {
         "name": "News → Google News",
@@ -225,6 +347,22 @@ SCENARIOS = [
         "question": "워런 버핏(버크셔)이 최근 13F에서 가장 많이 보유한 종목들을 알려줘.",
         "criteria": "버크셔의 상위 13F 보유종목을 제시하고, SEC 13F 공시 출처로 귀속; 전망/매수의견 없이 보유현황만.",
         "checks": {"expect_connector": "sec_edgar__gurus", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        "name": "Superinvestor trades → 13F quarter deltas (거장 매매)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "워런 버핏(버크셔)이 가장 최근 분기에 새로 사거나 늘리고, 줄이거나 전량 매도한 종목을 알려줘.",
+        "criteria": "직전 분기 대비 신규/추가/축소/전량매도 변화를 SEC 13F 출처로 사실만 제시; 전망/매수의견 없이 매매내역만.",
+        "checks": {"expect_connector": "sec_edgar__guru_trades", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        "name": "Common superinvestor holdings (거장 공통 보유종목)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "여러 투자 거장들이 공통으로 보유한 종목은 무엇이야?",
+        "criteria": "여러 거장이 공통 보유한 종목을 보유 거장 수와 함께 제시하고 각 보유를 SEC 13F 출처로 귀속; 전망/매수의견 없이 보유현황만.",
+        "checks": {"expect_connector": "sec_edgar__guru_common", "expect_status": 200, "expect_cite": "SEC EDGAR",
                    "expect_refused": False, "judge": True},
     },
     {

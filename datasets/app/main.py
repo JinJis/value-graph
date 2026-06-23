@@ -12,7 +12,10 @@ from fastapi import FastAPI
 
 from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
 from app.logging_config import setup_logging
-from app.routers import (
+from app.routers import (  # noqa: I001
+    backtest,
+    fmp,
+    kis,
     admin,
     catalog,
     company,
@@ -26,12 +29,14 @@ from app.routers import (
     insider,
     institutional,
     macro,
+    market,
     metrics,
     news,
     prices,
     scaffold,
     search,
     technical,
+    valuation,
 )
 from app.scheduler import scheduler
 from app.store.db import init_db
@@ -79,7 +84,7 @@ register_error_handlers(app)
 for module in (
     company, prices, financials, filings, macro, metrics,
     news, earnings, insider, institutional, funds, gurus, corporate_actions, technical,
-    search, evidence, catalog, admin, scaffold,
+    market, search, evidence, catalog, admin, scaffold, valuation, backtest, fmp, kis,
 ):
     app.include_router(module.router)
 

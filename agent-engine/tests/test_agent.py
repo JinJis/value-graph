@@ -382,7 +382,7 @@ async def test_chat_stream_conceptual_skips_tools(monkeypatch):
 
     _gw(monkeypatch)
 
-    async def _conceptual(_task, _backend=None):
+    async def _conceptual(_task, _backend=None, conversation=None):
         return TaskIntake(steps=3, restricted=False, needs_data=False, plan=None)
 
     monkeypatch.setattr(C, "analyze_task", _conceptual)
@@ -426,7 +426,7 @@ async def test_chat_stream_clarify_offers_options(monkeypatch):
 
     _gw(monkeypatch)
 
-    async def _clarify(_task, _backend=None):
+    async def _clarify(_task, _backend=None, conversation=None):
         return TaskIntake(steps=6, restricted=False, clarify=True, multi=True,
                           clarify_prompt="무엇을 볼까요?",
                           options=[{"label": "주가 흐름"}, {"label": "최근 뉴스"}])
@@ -465,6 +465,20 @@ def test_freshness_buckets_from_as_of():
     assert compute_freshness("2025-01-01", today) == "stale"     # >1y
     assert compute_freshness(None, today) is None                # unknown, not a claim
     assert compute_freshness("not-a-date", today) is None
+
+
+def test_universal_evidence_text_fragment_links():
+    # news + web RAG passages get a #:~:text= deep link so the source opens highlighted;
+    # filing passages keep their clean url (they get a PDF screenshot instead).
+    assert A.text_fragment_url("https://x/y", "Apple beats on iPhone revenue").startswith(
+        "https://x/y#:~:text=Apple%20beats")
+    assert A.text_fragment_url("https://x#frag", "phrase") == "https://x#frag"  # don't double-fragment
+    assert A.text_fragment_url(None, "p") is None
+    # a news citation carries the fragment on its url
+    tool = {"name": "google_news__news", "source": "Google News"}
+    c = A._citations(tool, {"data": {"news": [
+        {"title": "엔비디아 AI 수요 급증", "source": "Reuters", "url": "https://r/a", "date": "2026-06-20"}]}})[0]
+    assert c.url.startswith("https://r/a#:~:text=") and c.snippet == "엔비디아 AI 수요 급증"
 
 
 def test_rag_citation_is_enriched_for_preview_card():
@@ -506,6 +520,77 @@ def test_artifacts_from_metrics_history_multi_series():
     a = A._artifacts(tool, result)[0]
     labels = {s.label for s in a.series}
     assert a.kind == "timeseries" and {"매출총이익률", "순이익률"} <= labels
+    assert a.chart_style is None  # ratios → line, not bar
+
+
+def test_artifacts_income_statements_render_as_bars():
+    # money amounts (매출·순이익) → bar chart; ratios stay line (chart_style differs).
+    tool = {"name": "sec_edgar__income_statements", "source": "SEC EDGAR"}
+    result = {"data": {"income_statements": [
+        {"ticker": "AAPL", "report_period": "2024-09-28", "revenue": 391_000_000_000, "net_income": 93_000_000_000},
+        {"ticker": "AAPL", "report_period": "2025-09-27", "revenue": 410_000_000_000, "net_income": 99_000_000_000}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "timeseries" and a.chart_style == "bar"
+    assert {s.label for s in a.series} == {"매출", "순이익"}
+
+
+def test_artifacts_from_guru_trades_table():
+    tool = {"name": "datasets_store__guru_trades", "source": "SEC EDGAR 13F"}
+    result = {"data": {"guru": {"investor": "Warren Buffett"}, "report_period": "2026-03-31",
+                       "filing_date": "2026-05-15", "comparable": True, "trades": [
+        {"ticker": "AAPL", "action": "added", "value_usd": 2_000_000_000, "value_change_usd": 500_000_000, "shares_change": 1000},
+        {"ticker": "OXY", "action": "exited", "value_usd": 0, "value_change_usd": -300_000_000, "shares_change": -2000}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "Warren Buffett" in a.title
+    assert a.table[0] == ["종목", "매매", "보유가치", "가치변동", "주식수 변동"]
+    assert a.table[1][1] == "추가" and a.table[1][2] == "$2.00B"
+    assert a.table[2][1] == "전량매도" and a.table[2][3] == "-$300.0M"
+
+
+def test_artifacts_from_guru_common_table():
+    tool = {"name": "datasets_store__guru_common", "source": "SEC EDGAR 13F"}
+    result = {"data": {"common": [
+        {"ticker": "AAPL", "holder_count": 3, "holders": [
+            {"investor": "Warren Buffett"}, {"investor": "Bill Ackman"}, {"investor": "Michael Burry"}]}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.title == "거장 공통 보유종목"
+    assert a.table[1][0] == "AAPL" and a.table[1][1] == "3"
+    assert "Warren Buffett" in a.table[1][2]
+
+
+def test_intake_context_builds_recent_transcript():
+    # the intake sees prior turns so a follow-up ('배당률은?') resolves the earlier company.
+    convo = [
+        {"role": "user", "content": "삼성전자 배당 알려줘"},
+        {"role": "assistant", "content": "삼성전자의 최근 배당은 ... 입니다 [1]."},
+        {"role": "user", "content": "배당률은 얼마야?"},  # the latest turn → excluded from context
+    ]
+    ctx = A._intake_context(convo)
+    assert "삼성전자 배당 알려줘" in ctx and "사용자:" in ctx and "분석가:" in ctx
+    assert "배당률은 얼마야?" not in ctx  # the question itself isn't part of the context block
+    # zero or single prior turn → explicit sentinel
+    assert A._intake_context([{"role": "user", "content": "hi"}]) == "(no prior turns)"
+    assert A._intake_context(None) == "(no prior turns)"
+
+
+def test_build_narrative_artifact_splits_sections():
+    # CE-4: a structured markdown answer → a narrative artifact with one section per ## heading.
+    text = (
+        "## 사업 개요\nApple은 아이폰 중심의 하드웨어 기업이다 [1].\n\n"
+        "## 최근 실적·재무\n매출 391B달러 [2].\n\n"
+        "## 관전 포인트\n서비스 매출 비중과 중국 수요를 지켜볼 만하다."
+    )
+    a = A.build_narrative_artifact(text, "AAPL")
+    assert a is not None and a.kind == "narrative" and a.ticker == "AAPL"
+    assert a.title == "AAPL 종목 내러티브" and a.tool == "narrative"
+    assert [s.heading for s in a.sections] == ["사업 개요", "최근 실적·재무", "관전 포인트"]
+    assert "391B" in a.sections[1].body and "[1]" in a.sections[0].body
+
+
+def test_build_narrative_artifact_none_when_unstructured():
+    # plain prose (e.g. the stub backend, no headings) → no narrative card, never fabricated.
+    assert A.build_narrative_artifact("그냥 평범한 한 문단짜리 답변입니다. 섹션이 없어요.") is None
+    assert A.build_narrative_artifact("## 사업 개요\n한 섹션뿐.") is None  # needs ≥2 sections
 
 
 def test_artifacts_none_for_unchartable_result():
@@ -764,7 +849,7 @@ async def test_run_refuses_forecast(monkeypatch):
     # boundary (no tool steps), without touching the data plane.
     _gw(monkeypatch)
 
-    async def _restricted(_task, _backend=None):
+    async def _restricted(_task, _backend=None, conversation=None):
         return A.TaskIntake(steps=3, restricted=True, score=0.95, reason="forecast")
 
     monkeypatch.setattr(A, "analyze_task", _restricted)
@@ -843,7 +928,7 @@ async def test_chat_stream_a2a_decomposes_and_combines(monkeypatch):
     respx.route(method="POST", url__regex=r"http://gw\.test/rag/search").mock(
         return_value=httpx.Response(200, json={"hits": [{"text": "...", "provenance": {"source": "SEC EDGAR", "url": "https://sec.gov/x"}}]}, headers={"x-connector": "rag"}))
 
-    async def _intake(_task, _backend=None):
+    async def _intake(_task, _backend=None, conversation=None):
         return TaskIntake(steps=10, needs_data=True, subtasks=[
             {"title": "주가", "question": "NVDA 최근 주가"},
             {"title": "리스크", "question": "NVDA 공시 리스크"}])
@@ -902,7 +987,7 @@ async def test_chat_stream_real_token_streaming(monkeypatch):
     respx.route(method="GET", url__regex=r"http://gw\.test/prices").mock(
         return_value=httpx.Response(200, json={"ticker": "AAPL", "prices": [{"close": 1}]}, headers={"x-connector": "yahoo"}))
 
-    async def _intake(_t, _b=None):
+    async def _intake(_t, _b=None, conversation=None):
         return TaskIntake(steps=2, needs_data=True)
 
     async def _no_refine(*a, **k):
@@ -1056,7 +1141,7 @@ async def test_chat_stream_guardrail_refuses(monkeypatch):
 
     _gw(monkeypatch)
 
-    async def _restricted(_task, _backend=None):
+    async def _restricted(_task, _backend=None, conversation=None):
         return TaskIntake(steps=3, restricted=True, score=0.95, reason="advice")
 
     monkeypatch.setattr(C, "analyze_task", _restricted)
@@ -1217,11 +1302,21 @@ def test_chat_chunks_reconstruct_text():
 
 # --- F1: agent spec (connector filter / backend / system) -----------------
 def test_filter_tools_by_connector_or_tool_name():
-    tools = {"yahoo__prices": {}, "sec_edgar__company_facts": {}, "sec_edgar__filings": {}, "rag__search": {}}
-    # connector id selects all of its tools
+    tools = {
+        "yahoo__prices": {"category": "market"},
+        "sec_edgar__company_facts": {"category": "fundamentals"},
+        "sec_edgar__filings": {"category": "filings"},
+        "rag__search": {"category": "filings"},
+    }
+    # full tool name selects exactly one (the new per-tool model)
+    assert set(A.filter_tools(tools, ["yahoo__prices"])) == {"yahoo__prices"}
+    # category id selects every tool in that category, across connectors
+    assert set(A.filter_tools(tools, ["filings"])) == {"sec_edgar__filings", "rag__search"}
+    # connector id still selects all of its tools (legacy/back-compat)
     assert set(A.filter_tools(tools, ["sec_edgar"])) == {"sec_edgar__company_facts", "sec_edgar__filings"}
-    # full tool name selects exactly one; entries can mix granularity
-    assert set(A.filter_tools(tools, ["yahoo__prices", "rag"])) == {"yahoo__prices", "rag__search"}
+    # entries can mix granularity (tool name + category)
+    assert set(A.filter_tools(tools, ["yahoo__prices", "filings"])) == {
+        "yahoo__prices", "sec_edgar__filings", "rag__search"}
     # empty/None = no restriction
     assert A.filter_tools(tools, None) == tools
     assert A.filter_tools(tools, []) == tools
@@ -1511,6 +1606,164 @@ def _tech_result(ticker="AAPL"):
                      ]}}
 
 
+def test_artifacts_asset_classes_table():
+    # CE-1: cross-asset snapshot → a sourced table card.
+    tool = {"name": "yahoo__asset_classes", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "주가지수", "members": [
+        {"label": "S&P 500", "ticker": "^GSPC", "price": 5000.0, "change_percent": 0.5}]}],
+        "source": "Yahoo Finance", "as_of": "2024-01-02"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.table[0] == ["자산군", "종목", "현재가", "등락%"]
+    assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
+
+
+def test_artifacts_commodities_table():
+    # commodity panel → a sourced grouped table (분류·종목·현재가·등락%).
+    tool = {"name": "yahoo__commodities", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "귀금속", "members": [
+        {"label": "금", "ticker": "GC=F", "price": 2000.0, "change_percent": 0.8}]}],
+        "source": "Yahoo Finance", "as_of": "2024-01-02"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.title == "원자재 시세" and a.table[0][0] == "분류"
+    assert a.table[1][1] == "금" and a.table[1][3] == "+0.80%"
+
+
+def test_artifacts_themes_table():
+    # thematic panel → grouped sourced table (분류·종목·현재가·등락%).
+    tool = {"name": "yahoo__themes", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "테크·AI", "members": [
+        {"label": "반도체", "ticker": "SOXX", "price": 655.0, "change_percent": 2.4}]}],
+        "source": "Yahoo Finance"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.title == "테마·섹터 시세" and a.table[1][1] == "반도체"
+
+
+def test_artifacts_semiconductor_proxy_table():
+    # DRAM-spot proxy panel → grouped table, labelled NOT a spot price (in the title).
+    tool = {"name": "yahoo__semiconductor", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "지수", "members": [
+        {"label": "필라델피아 반도체지수(SOX)", "ticker": "^SOX", "price": 14634.7, "change_percent": 2.04}]}],
+        "source": "Yahoo Finance"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "DRAM 현물가 아님" in a.title and a.table[1][3] == "+2.04%"
+
+
+def test_artifacts_kis_volume_rank_and_flow_tables():
+    # CE-12: KR volume ranking + investor flow → sourced tables.
+    vr = A._artifacts({"name": "kis__volume_rank", "source": "KIS"},
+                      {"data": {"source": "한국투자증권 (KIS)", "results": [
+                          {"rank": 1, "ticker": "005930", "name": "삼성전자", "price": 337250,
+                           "change_percent": -4.6, "value": 4_160_000_000_000}]}})[0]
+    assert vr.kind == "table" and "거래량 순위" in vr.title
+    assert vr.table[1][3] == "-4.60%" and "조" in vr.table[1][4]
+    fl = A._artifacts({"name": "kis__investor_flow", "source": "KIS"},
+                      {"data": {"ticker": "005930", "flows": [
+                          {"date": "20260622", "close": 353500, "individual_net": -100,
+                           "foreign_net": 5000, "institution_net": -2000}]}})[0]
+    assert fl.kind == "table" and "수급" in fl.title and fl.table[1][3] == "+5,000"
+    # fluctuation ranking (losers) + ETF NAV
+    fr = A._artifacts({"name": "kis__fluctuation_rank", "source": "KIS"},
+                      {"data": {"direction": "down", "results": [
+                          {"rank": 1, "ticker": "000660", "name": "SK하이닉스", "price": 100000,
+                           "change_percent": -9.9, "volume": 555}]}})[0]
+    assert fr.kind == "table" and "하락률 순위" in fr.title and fr.table[1][3] == "-9.90%"
+    etf = A._artifacts({"name": "kis__etf_nav", "source": "KIS"},
+                       {"data": {"ticker": "069500", "name": "KODEX 200", "price": 141675,
+                                 "nav": 141792.70, "premium_discount_pct": -0.06,
+                                 "price_change_percent": -4.5, "nav_change_percent": -4.4}})[0]
+    assert etf.kind == "table" and "ETF NAV" in etf.title and etf.table[3] == ["괴리율", "-0.06%"]
+    mc = A._artifacts({"name": "kis__market_cap_rank", "source": "KIS"},
+                      {"data": {"results": [{"rank": 1, "ticker": "005930", "name": "삼성전자",
+                                             "market_cap_eok": 19526571, "market_weight_pct": 24.03,
+                                             "change_percent": -5.52}]}})[0]
+    assert mc.kind == "table" and "시가총액 순위" in mc.title and mc.table[1][2] == "1,952.7조"
+
+
+def test_artifacts_fmp_estimates_and_calendar_tables():
+    # CE-11: consensus estimates + earnings calendar → sourced tables (third-party labelled).
+    est = A._artifacts({"name": "fmp__consensus_estimates", "source": "FMP"},
+                       {"data": {"symbol": "AAPL", "source": "FMP (애널리스트 컨센서스 · 제3자)", "estimates": [
+                           {"date": "2026-09-27", "revenue_avg": 4.5e11, "eps_avg": 7.2, "net_income_avg": 1.1e11}]}})[0]
+    assert est.kind == "table" and "컨센서스" in est.title and est.table[1][1] == "450.0B"
+    cal = A._artifacts({"name": "fmp__earnings_calendar", "source": "FMP"},
+                       {"data": {"symbol": "AAPL", "events": [
+                           {"date": "2026-04-30", "eps_estimated": 1.95, "eps_actual": 2.01,
+                            "eps_surprise": 0.06, "revenue_actual": 1.11e11}]}})[0]
+    assert cal.kind == "table" and "실적 캘린더" in cal.title and cal.table[1][3] == "+0.06"
+
+
+def test_artifacts_news_digest_table():
+    # CE-10: recent news → a sourced, pinnable digest table.
+    tool = {"name": "google_news__news", "source": "Google News"}
+    result = {"data": {"news": [
+        {"title": "엔비디아, AI 데이터센터 수요 급증", "source": "Reuters", "date": "2026-06-20", "ticker": "NVDA"},
+        {"title": "반도체 업황 회복 신호", "source": "연합뉴스", "date": "2026-06-19", "ticker": "NVDA"}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "뉴스 다이제스트" in a.title and a.ticker == "NVDA"
+    assert a.table[0] == ["헤드라인", "발행사", "날짜"]
+    assert a.table[1][1] == "Reuters" and a.table[1][2] == "2026-06-20"
+
+
+def test_artifacts_macro_panel_table():
+    # CE-9: 국가경제 패널 → a sourced table (지표·최신·변화·그룹).
+    tool = {"name": "fred__macro_panel", "source": "DBnomics"}
+    result = {"data": {"region": "US", "source": "DBnomics", "indicators": [
+        {"slug": "cpi", "name": "US CPI", "unit": "index", "group": "물가", "latest": 314.5, "change": 0.8, "as_of": "2025-09"},
+        {"slug": "unemployment", "name": "US Unemployment", "unit": "%", "group": "고용", "latest": 4.1, "change": -0.1, "as_of": "2025-09"}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "거시경제 패널" in a.title
+    assert a.table[0] == ["그룹", "지표", "최신값", "변화", "기준"]
+    assert a.table[2][2] == "4.10%" and a.table[2][3] == "-0.10"
+
+
+def test_artifacts_backtest_equity_curve():
+    # CE-7: backtest → an equity-curve timeseries (portfolio + benchmark).
+    tool = {"name": "datasets_store__backtest", "source": "ingestion store"}
+    result = {"data": {"metrics": {"total_return": 0.21}, "curve": [
+        {"date": "2024-01-02", "value": 10000.0}, {"date": "2025-01-02", "value": 12100.0}],
+        "benchmark": {"ticker": "SPY", "curve": [
+            {"date": "2024-01-02", "value": 10000.0}, {"date": "2025-01-02", "value": 11500.0}]}}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "timeseries" and "백테스트" in a.title and "+21.0%" in a.title
+    labels = {s.label for s in a.series}
+    assert "포트폴리오" in labels and "SPY" in labels
+
+
+def test_artifacts_quant_screen_table():
+    # CE-6: factor screener → a sourced ranked table.
+    tool = {"name": "datasets_store__quant_screen", "source": "ingestion store"}
+    result = {"data": {"market": "US", "sort": "roe", "count": 1, "results": [
+        {"ticker": "AAPL", "market_cap": 3_000_000_000_000, "pe": 30.0, "pb": 45.0, "roe": 1.5, "return_window": 0.18}]}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "퀀트 스크리너" in a.title
+    assert a.table[0] == ["종목", "시총", "PER", "PBR", "ROE", "기간수익"]
+    assert a.table[1][0] == "AAPL" and "T" in a.table[1][1] and a.table[1][5] == "+18.0%"
+
+
+def test_artifacts_valuation_table():
+    # CE-5: a valuation calc → a sourced table with the projection + intrinsic value summary.
+    tool = {"name": "datasets_store__valuation", "source": "재무제표 기반 모델"}
+    result = {"data": {"model": "dcf", "ticker": "AAPL", "value_per_share": 182.5, "as_of": "2025-09-27",
+                       "source": "SEC EDGAR", "breakdown": {"rows": [
+                           {"year": 1, "fcf": 1100.0, "pv": 1000.0}, {"year": 2, "fcf": 1210.0, "pv": 980.0}]}}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "DCF" in a.title and "182.5" in a.title
+    assert a.table[0] == ["연차", "예상 FCF", "현재가치(PV)"]
+    assert a.table[-1][0] == "내재가치 / 주" and a.table[-1][1] == "182.50"
+
+
+def test_artifacts_sector_heatmap_table():
+    # CE-2: sector heatmap → a sourced ranked table card.
+    tool = {"name": "yahoo__sector_heatmap", "source": "Yahoo Finance"}
+    result = {"data": {"sectors": [
+        {"sector": "기술", "ticker": "XLK", "change_percent": 2.5},
+        {"sector": "금융", "ticker": "XLF", "change_percent": -1.0}],
+        "source": "Yahoo Finance", "as_of": "2024-01-02"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and a.table[0] == ["섹터", "ETF", "등락%"]
+    assert a.table[1] == ["기술", "XLK", "+2.50%"] and a.table[2][2] == "-1.00%"
+
+
 def test_artifacts_from_technical_indicators_become_overlay_artifact():
     # PH-VIZ-4: /technical-indicators → a standalone overlay artifact (price-pane + sub-pane).
     tool = {"name": "yahoo__technical_indicators", "source": "Yahoo Finance"}
@@ -1621,7 +1874,18 @@ async def test_suggest_followups_parses_and_caps(monkeypatch):
     mc.models.generate_content.return_value = mr
     monkeypatch.setattr(google.genai, "Client", lambda *a, **k: mc)
     out = await suggest_followups("엔비디아 실적", "매출 X, 순이익 Y …", "gemini-x", "gemini")
-    assert len(out) == 4 and out[0].startswith("NVDA")   # capped at 4
+    # parallel personas → merged + deduped + capped (both personas mock-identical → 3 unique)
+    assert 1 <= len(out) <= 4 and out[0].startswith("NVDA") and len(out) == len(set(out))
+
+
+def test_merge_followups_interleaves_and_dedups():
+    from agentengine.agent import _merge_followups
+    a = ["엔비디아 매출 비중은?", "마진 추이는?", "공급 리스크는?"]
+    b = ["엔비디아 매출 비중은?!", "외국인·기관 수급은?", "DCF 내재가치는?"]  # [0] is a near-dup of a[0]
+    out = _merge_followups([a, b], limit=4)
+    assert len(out) == 4 and len(out) == len(set(out))
+    assert out[0] == "엔비디아 매출 비중은?" and "외국인·기관 수급은?" in out  # interleaved across personas
+    assert "엔비디아 매출 비중은?!" not in out  # near-duplicate dropped (normalized)
 
 
 async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):

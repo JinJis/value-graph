@@ -10,12 +10,20 @@
 > - **Engineering rules + invariants:** [`../CLAUDE.md`](../CLAUDE.md)
 > - **Exploratory ideas (not commitments; promote only with approval):** [`IDEA.md`](./IDEA.md)
 >
-> **Status:** ✅ done · 🚧 partial · ⬜ todo. **One task per PR;** tag the id in branch/commits/PR
+> **Status:** ✅ done · 🚧 partial · ⬜ todo · 🗑 dropped. **One task per PR;** tag the id in branch/commits/PR
 > (e.g. `[PH-2]`, `[U3-ARTIFACT-01]`). Not done until acceptance criteria + the Definition of Done
 > (`../CLAUDE.md` §7) pass, with docs/test-totals updated in the same PR.
 >
-> **Test totals (current): 305 unit** — datasets 121 · control-plane 13 · mcp 9 · rag 17 (+2 oss-cpu
-> semantic) · agent-engine 103 · studio-api 39 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **🗑 Scope decision (2026-06-23, per user):** CE **Wave 2** (CE-11..14 — FMP / KIS / premium news,
+> built when keys land) **will proceed**. **All other unstarted backlog is DROPPED** (not building):
+> PH-10/11/12 productionization (Postgres/Redis/governance/metering), PH-2d, PH-6b 13F ticker-mode,
+> PH-7b XBRL segments, PH-SOURCES, PH-DEFER paid adapters, and the U4/U5/U6/U0 product epics
+> (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
+> is the scope.
+>
+> **Test totals (current): 352 unit** — datasets 146 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 124 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses.
+> **Full suite re-verified green (2026-06-23):** datasets 146 · agent-engine 124 · studio 42 · control-plane 13 · mcp 9 · rag 20 · admin 18.
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -38,19 +46,49 @@ before being asked**. Three pillars carry the whole plan:
 **Sequencing logic.** The plumbing works, but it's hollow and reads robotic, and it isn't operable. So
 the order is:
 
-1. **Phase 1 — Platform Hardening & Quality (PH).** Make the data *real*, the answers *human*, the system
-   *operable*. Everything visual is hollow until this is done. **← current top priority.**
-2. **Phase 2 — Research-desk UX (U2–U5, U0).** Convert "a chatbot with a data-source picker" into the
-   research desk of `UX_SPEC.md`. Each milestone depends on PH trust/data being solid.
+1. **Phase 0 — Content & Data Expansion (CE).** ✅ foundation is real/human/operable, so now **keep adding
+   investment/finance/economics content** (the 8 feature categories) on top — every feature cited, with
+   live provenance/evidence. **← current top priority.** See `DATA_EXPANSION.md`.
+2. **Phase 1 — Platform Hardening & Quality (PH).** ✅ shipped — data made real, answers human, system
+   operable (multi-agent reasoning, charts, provenance, pipelines, ops console).
+3. **Phase 2 — Research-desk UX (U2–U5, U0).** Convert "a chatbot with a data-source picker" into the
+   research desk of `UX_SPEC.md`. (Much delivered; standing analysts/push/community remain.)
 
 Within a phase, follow the tier/dependency order given. The foundation milestones (**U1 watchlists**,
 **U-SHELL desk shell**) are already done — Phase 2 builds on them.
 
 ---
 
-## 1. What's built ✅
+## 1. What's built ✅ — shipped summary
 
-### Data plane (`datasets/`, pkg `app`)
+> The platform foundation is **done and operable**. Condensed below; the detailed per-task archive
+> follows (kept for reference). **Active work is now §2 → the CE phase (top of the plan).**
+
+**Shipped phases (all ✅):**
+- **Data plane** — US+KR fundamentals/filings/prices/macro/news/earnings/insider/13F/ETF-holdings;
+  point-in-time store + screener; company search; **PH-PIPE** pipeline registry + multi-pipeline
+  scheduler + `PriceBar`/`CorporateAction` stores + dynamic universes (S&P500/KOSPI/KOSDAQ via SEC/
+  pykrx→OpenDART fallback); WAL concurrency fix.
+- **Platform core** — connector manifest/`/catalog` (single source) · control-plane gateway (tenancy/
+  keys/entitlement/meter) · MCP · RAG (provenance-first) · agent-engine · unified docker compose.
+- **Provenance/evidence (PH-PROV)** — every structured figure → highlighted filing screenshot +
+  "원문 열기" real PDF; filing/news text → RAG with passage evidence; data-card evidence for non-docs.
+- **Answer quality (PH-3/4/13/14/15/THINK)** — inline `[n]` citations + source-preview cards; LLM
+  guardrail folded into the intake (no regex); multi-step planner; **multi-agent orchestration**
+  (intake → clarify-with-options → conceptual route → A2A decompose → **parallel** gather → verify +
+  per-source confidence → **rich responder that mixes evidence + analysis**); **real token streaming**;
+  deep follow-up suggestions; model tiering (flash-lite intake · flash routing · **pro synthesis**).
+- **Charts (PH-VIZ 1–6)** — TradingView Lightweight engine; sourced event markers; Gemini annotations;
+  technical overlays; user drawing tools + pinnable; PNG export; full-history load + OHLCV/financials
+  tables with 더보기; KR names + abbreviated big numbers.
+- **Product/UX** — chat UI (Claude-like centered column, our gray+indigo palette) with **session
+  history/resume**, inline sources, pinning, watchlists/@groups, prompt library (27 prompts), the
+  fully-loaded **Gemini default agent**; admin ops console (catalog/pipelines/data/users/DB + operator-
+  controlled refresh); KPI desk; macro DBnomics.
+
+---
+
+### (archive) Data plane (`datasets/`, pkg `app`)
 - ✅ US+KR financial API: company facts, prices + snapshot, 3 financial statements (+combined), filings,
   macro (FRED/ECOS), metrics snapshot, news, earnings, insider, 13F (filer-mode), ETF/fund holdings (US N-PORT).
 - ✅ Point-in-time / restatement-aware ingestion store (SQLite/Postgres); screener + line-item search.
@@ -208,8 +246,10 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
         the bind (`type 'AnyUrl' is not supported`) so the KR `_upsert` failed and **no KR pointer ever
         persisted** → `/evidence` always 204 (US matched because its path uses plain-str dict values).
         Coerced to `str`; verified live (Samsung revenue → matched, scale=6). +1 regression test → 106.
-    - ⬜ **PH-PROV2e** — RAG-chunk evidence (highlight a text span in MD&A/transcripts). ↳ PH-RAG.
-      *(folded into PH-PROV3 below — same PDF + on-demand-locate mechanism.)*
+    - ✅ **PH-PROV2e** — **universal web evidence**: news/web citations now carry a W3C **text-fragment
+      deep link** (`url#:~:text=…`) so "원문 ↗" opens the live article scrolled to + highlighting the
+      cited phrase (browser-native, best-effort, no screenshot). Filings keep the PDF screenshot path.
+      `text_fragment_url` in citations.py; applied to Google News + news RAG passages. +1 agent test.
     - ⬜ **infra fold-in** — `FactLocation`→Postgres, image cache + first-render dedup→Redis. ↳ PH-11.
   - ✅ **PH-PROV3 · Evidence at scale — PDF document store + on-demand locate** *(supersedes the
     concept-precompute model; approved 2026-06-20; a–f all shipped)*. The pointer-precompute (PH-PROV2a–d) only covered a
@@ -301,7 +341,225 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 
 ## 2. The plan
 
-### Phase 1 · Platform Hardening & Quality (PH) — 🔴 CURRENT TOP PRIORITY
+### Phase 0 · Content & Data Expansion (CE) — 🔴 CURRENT TOP PRIORITY *(new, 2026-06-22)*
+
+> Keep adding investment/finance/economics **content** on the working platform — every feature
+> answerable from licensed, point-in-time, **cited** data, combined by the multi-agent layer, with
+> **live provenance + evidence**. Full research + feature→data→API map + the policy on estimates/
+> guardrail is in **[`DATA_EXPANSION.md`](./DATA_EXPANSION.md)** — read it before any CE task.
+>
+> **Strategy:** maximize EXISTING free upstreams first (Wave 1 — no new API, fully sourced), then the
+> **confirmed** new upstreams (Wave 2 — see Open Questions in DATA_EXPANSION §E; do NOT integrate a new
+> upstream until the user confirms its spec/coverage). Each CE task = new connector + manifest entry (or
+> store + compute) · unit tests · an eval scenario · agent tool-use · provenance/evidence wired · docs +
+> roadmap updated (DoD §7). One task per PR; verify each end-to-end before the next.
+
+- ✅ **CAT · 카테고리화 + 개별 툴 선택 (builder UX).** The agent builder now groups tools by **user-facing
+  category** (금융시장 현황·종목 재무분석·밸류에이션·공시·문서·투자거장·수급·거시경제·뉴스룸·스크리너) and lets
+  the user pick **individual tools** — never by upstream API. Connectors stay the data-plane routing unit;
+  a single `Category` enum + `CATEGORIES` metadata + a `_CATEGORY` map in `catalog.py` stamp every resource
+  (load **fails** if a tool is uncategorized → all future tools auto-follow the rule). `/catalog` exposes
+  `categories` + a `category` per resource; studio-api `/connectors` returns `categories → tools`
+  (fully-qualified ids); `filter_tools` matches tool-name / category / connector; `data_sources` stores
+  individual tool ids ([] = unrestricted). +4 tests (datasets +2, agent +1 ext, studio +1). 🔴
+- ✅ **BOARD-EDIT · 핀 에셋 title/description 인라인 편집.** Every pinned asset (chart/source/text) on the
+  canvas now has a **click-to-edit title** (card header) + an editable **description** row ("＋ 설명 추가") —
+  inline (no modal): click → input, Enter/blur saves, Esc cancels. Persisted via the existing
+  `PATCH /board/{id}` spec merge (description lives in the spec JSON; title also updates the card). web
+  `BoardCanvas` `InlineEdit`. **+ rich-text memo:** text blocks are now **markdown** — render formatted
+  (react-markdown: 제목·굵게·목록·링크·표), click to edit the source, blur to save (TextBlock).
+- ✅ **BOARD · 다중 보드 + 무엇이든 pin + 노션형 캔버스.** The pinboard became the differentiator surface:
+  (1) **multiple named boards** (`Board` table; `/boards` CRUD; tab switcher + new/rename/delete); (2) **pin
+  anything** — charts/tables **and source/evidence/provenance cards** (SourceCard 📌 → `kind:"source"` pin)
+  **and writable text blocks** (`kind:"text"`); (3) a **board picker** on pin (multi-select boards or create
+  one inline); (4) a **Notion-like free canvas** — `react-rnd` drag + resize, per-item layout (x/y/w/h)
+  persisted, editable memo blocks. `PinnedArtifact` gained `board_id`+layout (idempotent ALTER-COLUMN
+  migration keeps existing data). studio +2 tests (multi-pin/layout/source/text + scoped). web `BoardCanvas`
+  + `PinPicker`. *(canvas rich-text is a textarea for now; block-level rich editing can follow.)*
+- ✅ **FIX · 차트 타입 (돈=막대) + 출처 2섹션.** (1) Money-amount series (매출·순이익) now render as a
+  **bar/histogram** chart, not a line — the artifact builder flags `chart_style="bar"` (ratios/prices stay
+  line/candle); web TradeChart honors it. (2) Chat sources no longer "shrink" when the answer finishes —
+  split into **답변에 사용된 출처** (cited) + a collapsible **참고한 모든 출처** (every consulted source),
+  so the full sweep stays visible. +1 agent test. *(pin-everything + multi-board canvas = next phase)*
+- ✅ **FIX · 백그라운드 생성 + 이어보기 (background runs).** Generation was tied to the browser's SSE
+  connection — leaving a chat mid-answer cancelled it and lost the turn. Now a chat turn runs as a
+  server-side **Run** (`studio-api/runs.py`): the agent-engine stream is driven by a detached background
+  task that buffers every event and persists the assistant message on completion, independent of the
+  client. `/chat/stream` just *tails* the run; `/conversations/{id}/active-run` + `/runs/{id}/stream`
+  let a re-entry **resume live** (replay buffer → continue). Web tracks the displayed vs streaming
+  conversation so leaving stops rendering (server keeps going) and returning re-tails. In-memory per
+  process (survives client disconnect within a session). +1 studio test (run survives leave + resumes).
+- ✅ **FIX · RAG 중복 제거 (corpus dedup).** The default in-memory vector store appended on every
+  ingest, so a re-run pipeline duplicated news/filing chunks each sweep (retrieval then returns repeated
+  passages). Fix: `MemoryStore.upsert` now dedups by chunk id (replace-in-place, matching pgvector's
+  `ON CONFLICT DO UPDATE`), and news/filing docs carry a **stable `doc_id`** (news=url, filing=accession:page)
+  so re-ingest upserts deterministically instead of relying on a text hash. +1 rag test.
+- ✅ **FIX · 홈 프롬프트 폭포수 (waterfall hints).** Chat empty-state now shows the prompt-library
+  examples rising in a seamless infinite loop (CSS transform marquee, two copies → translateY -50%),
+  with a top/bottom fade mask. **Hover/focus pauses** it (key UX). Each chip shows the prompt's short
+  summary (description); clicking drops the FULL prompt into the composer (not sent) → the {TICKER}
+  fill bar appears to scope + send. Pulls live from `/prompts/community`; falls back to static chips if
+  unloaded; respects prefers-reduced-motion. (web `PromptWaterfall`.)
+- ✅ **FIX · 대화 기억 (follow-up context).** A follow-up ('배당률은?', '그 회사 주가는?') lost the
+  subject because `analyze_task` (the intake) only saw the latest message — so it clarified or routed
+  with no company even though the web sends full history and the planner already resolves references.
+  Fix: pass the conversation into `analyze_task`; the intake prompt now carries a recent transcript and
+  resolves follow-up references (inherits the earlier company/topic) instead of clarifying. +1 agent test.
+- ✅ **FIX · 공시 본문 검색 (DART narrative).** Two real bugs surfaced by "find the filing passage that
+  mentions 공급망/AI 수요": (1) KR `filings` ignored `filing_type` and returned date-ordered 지분/소유
+  noise — now ranks 정기보고서·주요사항·감사 ahead of ownership reports + honors `filing_type`. (2) Filing
+  narrative was only searchable if the opt-in `filing_text` pipeline had pre-run for that ticker → empty
+  corpus for ad-hoc questions. New `datasets_store__filing_search` (`GET /filings/search`) does
+  **on-demand RAG ingest**: search the corpus ticker-scoped → if empty, fetch+index that company's recent
+  filings (the statement-bearing 사업/분기보고서, which carry 위험요소·사업의 내용) → search again; returns
+  the RAG `{hits}` shape so each passage is cited + evidence-highlighted. +2 datasets tests, +1 eval. 🔴
+- 🚧 **CE-0 · Broad backfill foundation.** Make the store deep + easy to fill (prerequisite for
+  screener/quant/backtest/heatmap). **Code done:** prices pipeline depth is configurable
+  (`PRICES_BACKFILL_YEARS`, default **5y**) so `PriceBar` holds enough history; admin backfill gains a
+  one-click **★ 전체 유니버스** option (runs the scheduler's multi-preset spec — S&P500+KOSPI200+KOSDAQ150
+  — through the storage pipelines); coverage shown in admin Data. +1 datasets test. **Operator step:**
+  trigger the full-universe backfill (admin → Pipelines) or enable the scheduler; ~850 tickers × deep
+  prices/financials is long on SQLite (WAL helps; Postgres for prod). *(no new upstream)*
+
+**Wave 1 — existing/free data, new compute (fully cited, fastest):**
+- ✅ **CE-1 · 자산군 (cross-asset).** New `yahoo__asset_classes` resource (`GET /market/asset-classes`):
+  curated index/rates/commodity/FX/crypto proxy tickers → snapshot (level + day change) via the existing
+  Yahoo provider, grouped, best-effort per member (failures dropped, never faked). Catalog/MCP/agent
+  wired; agent-engine renders it as a sourced **table artifact** (자산군 현황). +2 tests (datasets +
+  agent), +1 eval scenario. *(no new upstream)*
+- ✅ **THEMES · 테마/섹터 광역 커버리지.** New `yahoo__themes` (`GET /market/themes`): broad thematic
+  coverage via ~35 representative ETF/asset proxies grouped — 테크·AI(반도체/AI/클라우드/사이버보안/핀테크)
+  · 에너지·자원(청정에너지/태양광/원자력/금광/리튬/농업) · 헬스·바이오 · 산업·방산·우주·로봇·인프라·항공 ·
+  소비·리츠 · 지역·국가(한국/중국/일본/인도/신흥국/유럽) · 디지털자산(BTC/ETH) **+ 한국 테마 ETF**
+  (KODEX/TIGER/KINDEX/KBSTAR/ARIRANG: 반도체·2차전지·자동차·바이오·헬스·방산·조선·금융(은행/증권/보험)·
+  산업소재(건설/철강/운송/화학)·소비/화장품·리츠/인프라·로봇/메타버스·인터넷/게임/엔터·고배당/배당성장·원자력,
+  .KS) — **19 groups · ~71 members** (글로벌 35 + KR 36). 모든 값은 요청 시 Yahoo API로 라이브 스냅샷
+  (하드코딩 아님; 실패 티커 드롭). KR 실시간은 `PRICES_PROVIDER_KR=kis`로 전환 가능.
+  level + day change, best-effort (drop on fail). agent renders the shared grouped table (테마·섹터 시세).
+  +2 tests, live-verified (global 35 + KR 14). *(no new upstream; more themes can be appended.)*
+- ✅ **SMART-FOLLOWUPS · 고도화 후속 질문 엔진.** Below every answer, 3-4 capability-aware follow-up chips
+  that scratch the user's curiosity AND naturally lead them into our differentiators. `suggest_followups`
+  now runs **two personas in PARALLEL on the deep model** (gemini-pro): "가려운 곳"(curiosity, beginner→
+  expert skill-span) + "차별화 쇼케이스"(maps each suggestion to a real capability via a maintained
+  `_CAPABILITY_MENU` — 수급/13F/백테스트/밸류에이션/증거/거시/반도체프록시/컨센서스/내러티브), then
+  `_merge_followups` interleaves + dedups → 3-4 DIVERSE chips. chat passes context (tickers + data kinds
+  used) for concreteness. e.g. 하이닉스 폭락 "왜?" → 마이크론 실적/컨센서스 · 외국인·기관 수급 · 과거 급락
+  후 N일 통계 · 반도체 PPI/SOX 사이클. +1 agent test (merge); best-effort, degrades gracefully.
+  **Reliability:** each persona call does **exponential backoff retry** (rides out transient 429/503
+  from two parallel pro calls hitting per-minute RPM); model chain is **deep (pro) FIRST** → fast model
+  fallback only if pro is truly down. Logs which model failed. New `yahoo__commodities` (`GET /market/commodities`): curated
+  commodity futures grouped 귀금속(금·은·백금·팔라듐)·산업금속(구리)·에너지(WTI·브렌트·천연가스·가솔린)·
+  농산물(옥수수·밀·대두·설탕·커피·면화) → level + day change via the Yahoo provider, best-effort (drop on
+  fail). agent renders a sourced grouped table. +2 tests, live-verified.
+  - **DRAM 차선책 (free proxies, labelled NOT spot):** DRAM/NAND 현물가는 무료 소스가 없어(TrendForce/
+    DRAMeXchange 유료) **프록시**로 보강 — (a) `semiconductor_ppi` 매크로 지표(BLS 반도체 생산자물가, 월간);
+    (b) `yahoo__semiconductor` (`/market/semiconductor`) 반도체 사이클 프록시 패널(필라델피아 SOX 지수·
+    반도체 ETF SOXX/SMH·메모리 제조사 MU/삼성전자/SK하이닉스 주가). 둘 다 "DRAM 현물가 아님" 명시.
+    +2 tests, live-verified. 유료 TrendForce 연동은 향후 과제.
+- ✅ **CE-2 · 섹터 히트맵 (US).** New `yahoo__sector_heatmap` resource (`GET /market/sectors`): the 11
+  SPDR Select Sector ETFs (XLK/XLF/XLV/…) → per-sector day change via the existing Yahoo prices provider,
+  ranked leaders→laggards, best-effort (failed ETFs dropped, never faked). Catalog/MCP/agent wired;
+  agent-engine renders a sourced **table artifact** (섹터 히트맵). +3 tests (datasets +2, agent +1),
+  +1 eval scenario. *(no new upstream; KR sector indices = Wave 2, needs KRX/KIS.)*
+- ✅ **CE-3 · 거장 매매 + 공통 보유종목.** Extended the SEC 13F provider with `by_filer_quarters`
+  (reads the two most recent distinct reporting periods from the submissions block, skipping amendment
+  dupes) → two new resources: `sec_edgar__guru_trades` (`GET /gurus/trades?slug=`) diffs the latest vs
+  prior quarter into discrete moves **신규/추가/축소/전량매도** with share+value deltas, each cited to its
+  13F accession; `sec_edgar__guru_common` (`GET /gurus/common`) intersects latest holdings across the
+  curated gurus (best-effort, failed filers dropped) ranked by holder count. Catalog/MCP/agent wired;
+  agent-engine renders both as sourced **table artifacts** (거장 매매내역 / 거장 공통 보유종목, $B/$M
+  abbreviation). +5 tests (datasets +3, agent +2), +2 eval scenarios. *(no new upstream — SEC keyless)*
+- ✅ **CE-4 · 종목 내러티브 / 관전 포인트.** Agent-engine capability (no new datasets endpoint — respects
+  per-connector entitlement; synthesis stays in Gemini). Intake (LLM) gains a `narrative` flag → for a
+  holistic company-story request it skips clarify, gathers across the company's facts/financials/
+  valuation/filings/news via the normal entitled tool flow, and synthesizes a **structured, sourced**
+  내러티브 in five sections (사업 개요·최근 실적·재무·밸류에이션·최근 이슈·관전 포인트), each claim cited [n];
+  '관전 포인트' is descriptive monitoring only (guardrail: no forecast/target). `build_narrative_artifact`
+  deterministically splits the answer into a pinnable **narrative artifact** (web `NarrativeArtifact`
+  card). +2 agent tests, +1 eval scenario. *(no new upstream)*
+- ✅ **CE-5 · 밸류에이션 모델 (DCF/DDM/RIM).** New `datasets_store__valuation` (`GET /valuation?model=`):
+  a **transparent, user-input calculator** — base figures (FCF / dividend / book value+ROE) pulled from the
+  company's real financials (sourced + as-of), the projection is the arithmetic of the caller's assumptions
+  (growth/discount/years/terminal). DCF (two-stage + Gordon terminal), DDM (Gordon, user D0), RIM (residual
+  income). Returns the **full breakdown + a disclaimer** ("가정 기반 계산 — 예측·목표가 아님"); insufficient
+  data → honest note, never fabricated; bad math (discount ≤ terminal) → 400. agent-engine renders a sourced
+  table; the guardrail still refuses the agent *volunteering* a target. +3 tests (datasets 2, agent 1),
+  +1 eval. *(no new upstream)*
+- ✅ **CE-6 · 퀀트 탐색 + 스크리너 확장.** New `datasets_store__quant_screen` (`POST /quant/screen`):
+  computes a descriptive **factor set** per ticker from the ingested store (FinancialFact ⨝ PriceBar) —
+  valuation (PE/PB/PS), quality (ROE/net·gross margin), growth (revenue_growth), size (market_cap),
+  fcf_yield, and price momentum (return_window / pct_from_high / 52w high·low) — then **filters by any
+  factor + ranks**. Cross-sectional description over ingested data (no forecasts; missing inputs → null,
+  never faked). agent-engine renders a sourced ranked table. +2 tests (datasets 1, agent 1), +1 eval.
+  *(no new upstream; quality scales with backfill coverage.)*
+- ✅ **CE-7 · 백테스터.** New `datasets_store__backtest` (`POST /backtest`): buy-and-hold backtest of a
+  weighted portfolio over ingested daily closes → **equity curve + total return / CAGR / volatility /
+  max drawdown**, optionally vs a benchmark (rebased). Strictly descriptive past performance — no
+  forecast/advice; missing price coverage → honest note (never fabricated). agent-engine renders the
+  equity curve (portfolio + benchmark) as a timeseries; new **포트폴리오** category. +2 tests (datasets 1,
+  agent 1), +1 eval. *(no new upstream; depends on PriceBar backfill.)*
+- ✅ **CE-8 · 포트폴리오 (대시보드/분석).** New `Portfolio`/`Holding` product model in studio-api (per-user,
+  new tables → create_all) + CRUD (`/portfolios` …) + a live **analytics** endpoint: values the book via
+  the gateway (`/prices/snapshot` per holding, concurrent), computes **allocation + 평가손익**, and
+  **backtests the current allocation** via the gateway `/backtest` (equity curve + metrics). Web
+  `PortfolioPanel` (new **포트폴리오** rail view): manage holdings, live value/weight/gain table, backtest
+  curve. Descriptive only; all data gateway-entitled. +1 studio test (CRUD + analytics + scoping). 🔵→✅
+- ✅ **CE-9 · 거시 확장.** Broadened the DBnomics indicator catalog (+ industrial production, labor
+  participation, 3M rate) and tagged every indicator with a **group/하위요인** (물가/고용/성장/금리) + region;
+  `economic_indicators` now browses by `region`/`group` (열람). New **`fred__macro_panel`** (`GET
+  /macro/panel?region=`): a 국가경제 snapshot — latest value + prior + change per indicator (concurrent,
+  best-effort; failed series dropped, never faked), grouped. agent-engine renders a sourced panel table.
+  +2 tests (datasets 1, agent 1), +1 eval. *(no new upstream; cycle/regime composites deferred — they
+  verge on interpretation, kept to descriptive change.)*
+- ✅ **CE-10 · 실시간 내러티브.** Two parts over the existing news ingestion: (1) a deterministic **news
+  digest artifact** — `google_news__news` results → a sourced, pinnable table (헤드라인·발행사·날짜);
+  (2) an intake **`news_brief`** flag + `_NEWS_BRIEF_GUIDE` → for a 시황/뉴스 브리핑 request the agent
+  gathers recent news and synthesizes a **structured, sourced news narrative** (핵심 흐름·주요 헤드라인·
+  맥락·지켜볼 점, each cited; descriptive — no forecast/advice), parsed into a pinnable narrative card.
+  +1 agent test (digest table), +1 eval. *(no new upstream; reuses CE-4 narrative wiring.)*
+
+**Wave 2 — new upstreams** *(build start ON HOLD per user; CE-11 upstream + estimates policy CONFIRMED — DATA_EXPANSION §E)*:
+- 🚧 **CE-11 · 컨센서스 추정치 · 실적 캘린더** via **FMP** *(key provided; live-verified)*. New `fmp` connector:
+  `fmp__consensus_estimates` (`/estimates`) = analyst consensus revenue/EPS/net-income (annual/quarter)
+  and `fmp__earnings_calendar` (`/earnings-calendar`) = consensus-vs-actual EPS/revenue (surprise),
+  both shown as **third-party sourced data, never our forecast** (CLAUDE §5 / DATA_EXPANSION §E); agent
+  renders sourced tables. **Deliberately NOT exposed:** price targets + buy/sell ratings (guardrail brand).
+  **Tier-gated on this key (not built):** market movers (gainers/losers/actives) + economic calendar —
+  FMP premium endpoints. +2 tests (datasets 1, agent 1), +1 eval. `FMP_API_KEY` in `.env.example`.
+  - ⬜ **CE-11b · FMP 유료 확장** *(when the key upgrades to a paid plan, per user)*: market movers
+    (gainers/losers/most-actives), economic calendar, and — if the trust policy permits — price-target /
+    grades consensus shown strictly as third-party data. Same `fmp` connector; add resources + categories.
+- 🚧 **CE-12 · KR 실시간 — 거래량 순위 + 투자자 수급** via **KIS** *(keys provided; live-verified)*. New `kis`
+  connector w/ OAuth token (24h cached, rate-limit-aware): `kis__volume_rank` (`/kr/rankings/volume` =
+  KR movers/활발 종목 — the movers FMP gated) and `kis__investor_flow` (`/kr/investor-flow` = 개인/외국인/
+  기관 순매수 = 수급, KR differentiator). Descriptive realtime; agent renders sourced tables; categories
+  market + gurus(수급). +2 tests (datasets 1, agent 1), +1 eval. `KIS_APP_KEY/SECRET` in `.env.example`.
+  **Extended (live-verified):** `kis__fluctuation_rank` (`/kr/rankings/fluctuation` — 상승/하락률 순위
+  = gainers/losers) + `kis__etf_nav` (`/kr/etf-nav` — ETF 현재가 vs NAV + 괴리율). Both render sourced
+  tables. **KIS-PRICES (live-verified):** `KisPricesProvider` — a drop-in PricesProvider (realtime
+  snapshot + paginated daily OHLCV) selected by `PRICES_PROVIDER_KR=kis`, so charts/snapshots/backtest/
+  portfolio all use KIS realtime KR prices. +1 datasets test. **시총 순위 (live-verified):**
+  `kis__market_cap_rank` (`/kr/rankings/market-cap` — KR 대형주 시총·시장 비중·등락). CE-12 KIS suite
+  complete: 실시간 시세 · 거래량/등락률/시총 순위 · 투자자 수급 · ETF NAV.
+- 🗑 **CE-13 · 실시간/프리미엄 뉴스** — **SKIPPED (per user)**. Would need a paid news provider
+  (Finnhub/Benzinga/Polygon) + key/provider decision; existing Google News covers free headlines.
+  Revisit if a provider is chosen.
+- ✅ **CE-14 · IR자료실 + 밸류체인.** (1) **IR 자료실** — `datasets_store__ir_materials` (`/filings/ir`):
+  IR/실적 공시 목록 (US 8-K · KR 주요사항보고서) via the filings provider's type filter. (2) **밸류체인** —
+  intake `value_chain` flag + `_VALUE_CHAIN_GUIDE`: for a 밸류체인/공급망 구조 request the agent gathers
+  filings+news and synthesizes a structured map (핵심 사업·주요 공급사(상류)·주요 고객(하류)·경쟁사·밸류체인
+  내 위치), each cited, **labelled 공시·뉴스 기반 LLM 추출(derived) — 확정 거래관계 아님**; parsed into a
+  pinnable narrative card (reuses CE-4 wiring). No node-graph render (structured sections, per CLAUDE).
+  +1 datasets test (IR market filter), +1 eval. *(no new upstream.)*
+- ✅ **CE-HEALTH · Upstream API health in admin.** datasets `GET /admin/upstream-health` probes every
+  connector's upstream (SEC/DART/Yahoo/DBnomics/ECOS/news) **lightly** (cheap GET, short timeout, no quota
+  burn) → reachability, HTTP status, latency, and required-key presence (key value never exposed),
+  classified **정상/불안정/키 없음/다운**. New admin **📡 Upstream** page renders the health table (refresh
+  = re-probe). +1 datasets test. *(admin + datasets; FMP/KIS rows appear once those Wave-2 connectors land.)*
+
+---
+
+### Phase 1 · Platform Hardening & Quality (PH) — ✅ shipped *(see §1 summary; detail archived below)*
 
 > Pulled ahead of UX (2026-06-14, after a full audit). Three things undermine the working plumbing:
 > **(1) answers read like a machine** (raw tool ids, canned disclaimer, ugly citations); **(2) the data

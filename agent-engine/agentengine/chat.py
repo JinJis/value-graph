@@ -22,8 +22,9 @@ from typing import AsyncIterator
 
 from agentengine import guardrails
 from agentengine.agent import (
-    _artifacts, _citations, analyze_task, anchor_markers, call_sig, fallback_answer,
-    filter_tools, has_anchors, number_sources, refine_evidence,
+    _artifacts, _citations, _NARRATIVE_GUIDE, _NEWS_BRIEF_GUIDE, _VALUE_CHAIN_GUIDE, analyze_task,
+    anchor_markers, build_narrative_artifact, call_sig, fallback_answer, filter_tools, has_anchors,
+    number_sources, refine_evidence,
 )
 from agentengine.client import PlatformClient
 from agentengine.config import settings
@@ -62,7 +63,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # a short plan shown as live thinking). If it's a forecast/advice/target request, refuse
     # here at the boundary — before we ever touch the data plane.
     yield {"type": "thinking", "phase": "analyze", "text": "요청을 분석하고 있어요…"}
-    intake = await analyze_task(task, bk)
+    # pass the conversation so the intake resolves follow-up references (e.g. '배당률은?' inherits
+    # the company named in an earlier turn) instead of clarifying or losing the subject.
+    intake = await analyze_task(task, bk, conversation=messages)
     if intake.restricted:
         for ch in _chunks(guardrails.REFUSAL):
             yield {"type": "token", "text": ch}
@@ -86,6 +89,20 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "thinking", "phase": "plan", "text": f"계획: {plan}"}
         # the plan guides tool selection + synthesis (quality), without hardcoding logic.
         system = ((system or "") + f"\n\n[연구 계획] {plan}").strip()
+
+    # CE-4: a holistic company-story request → steer the synthesis into a structured, sourced
+    # 종목 내러티브 (the gather stays the normal multi-tool flow; we parse a narrative card after).
+    if intake.narrative:
+        yield {"type": "thinking", "phase": "plan", "text": "종목 내러티브(관전 포인트)로 정리할게요…"}
+        system = ((system or "") + _NARRATIVE_GUIDE).strip()
+    # CE-10: a news-briefing request → steer synthesis into a structured, sourced news narrative.
+    if intake.news_brief:
+        yield {"type": "thinking", "phase": "plan", "text": "최신 뉴스 브리핑으로 정리할게요…"}
+        system = ((system or "") + _NEWS_BRIEF_GUIDE).strip()
+    # CE-14: a value-chain request → structured supply-chain map (derived from filings/news).
+    if intake.value_chain:
+        yield {"type": "thinking", "phase": "plan", "text": "밸류체인(공급망 구조)으로 정리할게요…"}
+        system = ((system or "") + _VALUE_CHAIN_GUIDE).strip()
 
     planner = get_planner(bk)
     from agentengine.planner import resolve_ticker
@@ -332,6 +349,18 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # validated to historical points only (no projection). Gemini-only; best-effort.
     from agentengine.annotations import annotate_charts
     await annotate_charts(art_objs, task, settings.model, spec.backend if spec else settings.llm_backend)
+
+    # CE-4: parse the structured answer into a pinnable 종목 내러티브 card (deterministic split;
+    # None when the answer wasn't sectioned, e.g. stub backend → no narrative card).
+    if (intake.narrative or intake.news_brief or intake.value_chain) and final_text:
+        tk = next((c.get("ticker") for c in citations if c.get("ticker")),
+                  next((o.ticker for o in art_objs if getattr(o, "ticker", None)), None))
+        na = build_narrative_artifact(final_text, tk)
+        if na and na.title not in seen_artifacts:
+            seen_artifacts.add(na.title)
+            art_objs.append(na)
+            yield {"type": "artifact", "artifact": na.model_dump()}
+
     if art_objs:
         artifacts = [o.model_dump() for o in art_objs]
 
@@ -366,10 +395,19 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "token", "text": " " + anchor_markers(used_idx)}
     used = [c.get("index") for c in citations if c.get("used")]
 
-    # PH-THINK: 3-4 deep follow-up questions to keep deepening the research (clickable chips).
+    # PH-THINK: capability-aware deep follow-up chips. Pass which tickers + data kinds were used
+    # so the parallel suggester proposes concrete questions that showcase our differentiators.
     if final_text and (bk or settings.llm_backend) == "gemini":
         from agentengine.agent import suggest_followups
-        sugg = await suggest_followups(task, final_text, settings.model, bk)
+        tickers = sorted({c.get("ticker") for c in citations if c.get("ticker")})
+        kinds = sorted({c.get("kind") for c in citations if c.get("kind")})
+        ctx_bits = []
+        if tickers:
+            ctx_bits.append("다룬 종목: " + ", ".join(tickers[:5]))
+        if kinds:
+            ctx_bits.append("사용한 데이터: " + ", ".join(kinds))
+        sugg = await suggest_followups(task, final_text, settings.model, bk,
+                                       context=" · ".join(ctx_bits) or None)
         if sugg:
             yield {"type": "suggestions", "items": sugg}
 

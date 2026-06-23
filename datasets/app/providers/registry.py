@@ -64,6 +64,10 @@ def get_prices_provider(market: Market) -> PricesProvider:
         _unbuilt(f"prices(provider={choice})", market)
     if market is Market.KR:
         choice = settings.prices_provider_kr
+        if choice == "kis":  # CE-12 KIS-PRICES: realtime KR prices via the broker API
+            from app.providers.kr.kis import KisPricesProvider
+
+            return KisPricesProvider()
         if choice == "pykrx":
             from app.providers.kr.krx import PyKrxProvider
 

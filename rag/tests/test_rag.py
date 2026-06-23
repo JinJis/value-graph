@@ -62,6 +62,22 @@ async def test_ingest_search_with_provenance():
     assert prov["url"] == "https://sec.gov/aapl-10k" and prov["as_of"] == "2025-11-01"
 
 
+async def test_reingest_same_doc_upserts_no_duplicates():
+    # a re-run pipeline ingesting the SAME doc (stable doc_id) must REPLACE, not duplicate —
+    # otherwise the memory corpus grows every sweep and retrieval returns repeated passages.
+    _reset()
+    doc = IngestDoc(text="Apple supply chain risk and TSMC concentration.", doc_id="aapl-10k:p.42",
+                    source="SEC EDGAR", doc_type="filing", ticker="AAPL", market="US", accession="acc1")
+    await ingest_docs([doc])
+    st = store.get_store()
+    n1 = len(st._chunks)
+    await ingest_docs([doc])  # same doc_id again (idempotent re-run)
+    await ingest_docs([doc])
+    assert len(st._chunks) == n1  # upserted in place — corpus did NOT grow
+    hits = await search("Apple supply chain TSMC", top_k=5)
+    assert sum(1 for h in hits if "TSMC" in h.text) == 1  # the passage appears exactly once
+
+
 async def test_search_filter_by_market():
     _reset()
     await ingest_docs([

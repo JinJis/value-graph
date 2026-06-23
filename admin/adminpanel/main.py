@@ -352,7 +352,12 @@ async def pipelines(request: Request, msg: str = ""):
     cards = "".join(_pipeline_card(p, scheduled, interval) for p in registry) or "<div class=empty>파이프라인 레지스트리를 불러오지 못했어요.</div>"
 
     # --- unified backfill: pick universe + pipelines, run together ---
-    preset_opts = "".join(
+    # CE-0: a one-click "full universe" option = the scheduler's configured spec (multi-preset,
+    # resolved dynamically server-side), so the operator can deep-backfill everything at once.
+    full_spec = sched.get("universe_spec") or ""
+    full_opt = (f"<option value='{_esc(full_spec)}'>★ 전체 유니버스 (스케줄러: {_esc(full_spec)})</option>"
+                if full_spec else "")
+    preset_opts = full_opt + "".join(
         f"<option value='{_esc(u['id'])}'>{_esc(u['label'])} · {_esc(u['market'])} ({_esc(u['count'])})</option>"
         for u in (universes.get("universes") or [])
     ) or "<option value=''>(presets unavailable)</option>"
@@ -425,6 +430,35 @@ S&amp;P·코스피·코스닥 전체는 직접 입력란에 티커를 붙여넣�
 
 
 # --- Data -----------------------------------------------------------------
+@app.get("/upstream", response_class=HTMLResponse)
+async def upstream_view(request: Request):
+    """CE-HEALTH: per-connector upstream health — reachable? latency? key present?"""
+    async with httpx.AsyncClient() as c:
+        data = await _safe_get(c, f"{settings.datasets_url}/admin/upstream-health")
+    ups = data.get("upstreams") or []
+    _DOT = {"ok": "ok", "degraded": "warn", "key-missing": "warn", "down": "err"}
+    _LABEL = {"ok": "정상", "degraded": "불안정", "key-missing": "키 없음", "down": "다운"}
+    if ups:
+        rows = "".join(
+            f"<tr><td>{sdot(_DOT.get(u['status'], 'err'))} {_esc(u['name'])}</td>"
+            f"<td>{badge(_LABEL.get(u['status'], u['status']), _DOT.get(u['status'], ''))}</td>"
+            f"<td class=mono>{_esc(u.get('http_status') or '—')}</td>"
+            f"<td class=mono>{_esc(u.get('latency_ms'))} ms</td>"
+            f"<td>{'필요' if u.get('requires_key') else '불필요'}"
+            f"{' · ' + ('✅ 설정됨' if u.get('key_present') else '❌ 미설정') if u.get('requires_key') else ''}</td></tr>"
+            for u in ups)
+        table = ("<div class=tablewrap><table><thead><tr><th>업스트림</th><th>상태</th><th>HTTP</th>"
+                 f"<th>지연</th><th>API 키</th></tr></thead><tbody>{rows}</tbody></table></div>")
+        summary = f"<div class=flow><span class=pill>정상 <b>{_esc(data.get('healthy'))}</b> / {_esc(data.get('total'))}</span></div>"
+    else:
+        table = "<div class=warn>업스트림 헬스를 불러오지 못했습니다 (datasets 연결 확인).</div>"
+        summary = ""
+    body = ("<h2>업스트림 API 헬스</h2>"
+            "<p class=muted>각 커넥터의 외부 데이터 소스 도달성·지연·키 설정을 가볍게 프로브합니다 "
+            "(쿼터 소모 없음). 새로고침하면 다시 측정합니다.</p>" + summary + table)
+    return HTMLResponse(page("/upstream", "Upstream", body))
+
+
 @app.get("/data", response_class=HTMLResponse)
 async def data_view(request: Request):
     async with httpx.AsyncClient() as c:

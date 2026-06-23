@@ -123,16 +123,62 @@ class WatchlistItem(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class Portfolio(Base):
+    """A user's named portfolio (CE-8). Holdings carry real share counts + optional cost basis;
+    analytics value them live (current price) and backtest the allocation over PriceBar."""
+
+    __tablename__ = "portfolios"
+    __table_args__ = (UniqueConstraint("user_email", "name", name="uq_portfolio_user_name"),)
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("pf"))
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Holding(Base):
+    """One position in a portfolio — shares of a ticker, with an optional average cost basis."""
+
+    __tablename__ = "holdings"
+    __table_args__ = (UniqueConstraint("portfolio_id", "market", "ticker", name="uq_holding_pf_market_ticker"),)
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("hld"))
+    portfolio_id: Mapped[str] = mapped_column(ForeignKey("portfolios.id"), index=True)
+    market: Mapped[str] = mapped_column(String(8))  # US | KR
+    ticker: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    shares: Mapped[float] = mapped_column(default=0.0)
+    cost_basis: Mapped[float | None] = mapped_column(nullable=True)  # avg cost / share
+    added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Board(Base):
+    """A named canvas the user pins assets onto (charts, sources, text). Users can keep
+    several; pinning offers a board picker. Notion-like free layout per item."""
+
+    __tablename__ = "boards"
+    id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("brd"))
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class PinnedArtifact(Base):
-    """A live artifact (U3) the user pinned to their Board. ``spec`` is the JSON
-    artifact spec (kind/title/series/source/as_of/tool/args) — re-renderable, and
-    re-fetchable via its tool+args (U3-03b refresh)."""
+    """An asset the user pinned to a Board — a live artifact (chart/table), a source/evidence
+    card (``spec.kind == 'source'``), or a text block (``spec.kind == 'text'``). ``spec`` is the
+    JSON; chart pins are re-fetchable via tool+args (refresh). ``x/y/w/h`` are the Notion-like
+    canvas layout (null until placed)."""
 
     __tablename__ = "pinned_artifacts"
     id: Mapped[str] = mapped_column(String(48), primary_key=True, default=lambda: _uid("pin"))
     user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
+    # which board this asset lives on (nullable for legacy rows → treated as the default board)
+    board_id: Mapped[str | None] = mapped_column(ForeignKey("boards.id"), index=True, nullable=True)
     title: Mapped[str] = mapped_column(String(200))
-    spec: Mapped[str] = mapped_column(Text)  # JSON artifact spec
+    spec: Mapped[str] = mapped_column(Text)  # JSON asset spec
+    # free-canvas layout (px); null = not yet placed (web auto-flows it)
+    x: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    y: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    w: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

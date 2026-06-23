@@ -49,6 +49,7 @@ from agentengine.citations import (  # noqa: E402,F401
     _rag_citations,
     _rag_type,
     _shape_table,
+    text_fragment_url,
 )
 from agentengine.evidence import (  # noqa: E402,F401
     _FIELD_CONCEPTS,
@@ -96,6 +97,15 @@ class TaskIntake:
     # A2A DECOMPOSITION: for a complex, multi-facet request, the orchestrator splits it into
     # 2-4 focused sub-tasks researched by parallel sub-agents, then combined. Empty = single agent.
     subtasks: list = field(default_factory=list)  # [{"title": str, "question": str}]
+    # CE-4 NARRATIVE: the user wants a holistic STORY / 관전 포인트 for a specific company →
+    # gather across facets and synthesize a structured, sourced narrative (+ a narrative card).
+    narrative: bool = False
+    # CE-10 NEWS BRIEF: the user wants a news briefing / market pulse (시황·무슨 일·뉴스 정리) →
+    # gather recent news and synthesize a structured, sourced news narrative.
+    news_brief: bool = False
+    # CE-14 VALUE CHAIN: the user asks about a company's 밸류체인/공급망 구조 (공급사·고객·경쟁사) →
+    # extract upstream/downstream/competitors from filings+news, labelled derived.
+    value_chain: bool = False
 
 
 _INTAKE_PROMPT = (
@@ -126,7 +136,18 @@ _INTAKE_PROMPT = (
     "'엔비디아 매출').\n"
     "DECOMPOSE — set subtasks ONLY when the user EXPLICITLY asks for a comprehensive / all-in-one analysis "
     "(e.g. '종합적으로 분석', '전반적으로', 'comprehensive', '다 분석해줘') → 2-4 focused "
-    "{{\"title\", \"question\"}} sub-tasks researched in PARALLEL. Otherwise leave subtasks empty.\n\n"
+    "{{\"title\", \"question\"}} sub-tasks researched in PARALLEL. Otherwise leave subtasks empty.\n"
+    "NARRATIVE — set narrative=true when the user wants a holistic STORY / 관전 포인트 / 내러티브 / 투자 "
+    "포인트 / overview of a SPECIFIC company (e.g. '엔비디아 관전 포인트', '테슬라 스토리 알려줘', "
+    "'tell me the story of Apple', '이 종목 정리해줘'). Then do NOT clarify — gather across the company's "
+    "business, recent financials, valuation, recent filings and news, and set steps ≈ 8-12. For a single "
+    "narrow fact (e.g. '엔비디아 매출') leave narrative=false.\n"
+    "NEWS BRIEF — set news_brief=true when the user wants a NEWS briefing / market pulse / 시황 / 뉴스 "
+    "정리 / '무슨 일이야' / what's happening (a company's news flow, or the market's). Then gather RECENT "
+    "NEWS (and related context) and do NOT clarify.\n"
+    "VALUE CHAIN — set value_chain=true when the user asks about a company's 밸류체인 / 공급망 구조 / "
+    "공급사·고객사 / value chain / supply chain (who it buys from, sells to, competes with). Then gather "
+    "its filings + news and do NOT clarify.\n\n"
     "Reply JSON ONLY:\n"
     '{{"restricted": <bool — true ONLY if the user truly wants restricted output>, '
     '"category": "forecast|advice|price_target|none", '
@@ -137,12 +158,20 @@ _INTAKE_PROMPT = (
     '"multi": <bool — may several options be combined>, '
     '"options": [{{"label": "<short choice>", "description": "<one line>"}}],  '
     '"subtasks": [{{"title": "<short facet name, SAME LANGUAGE>", "question": "<self-contained sub-question>"}}],  '
+    '"narrative": <bool — true for a holistic company story / 관전 포인트 request>, '
+    '"news_brief": <bool — true for a news briefing / 시황 / 뉴스 정리 request>, '
+    '"value_chain": <bool — true for a 밸류체인 / 공급망 구조 request>, '
     '"reason": "<one short line, SAME LANGUAGE as the question>", '
     '"steps": <int tool-call budget: one fact about one company ≈ 2-3, a comparison or multi-source '
     'ask ≈ 8-12>, '
     '"plan": "<one short sentence, SAME LANGUAGE as the question, of what data you will look up and '
     'from which kind of source — NOT the answer, no numbers; empty if restricted/conceptual/clarify>"}}\n\n'
-    "Question: {task}"
+    "CONVERSATION SO FAR (for CONTEXT only — the latest question may refer back to it). A follow-up "
+    "like '배당률은?', '그 회사 주가는?', 'what about its margins?' INHERITS the company/subject named "
+    "earlier. RESOLVE such references and treat the question as if it named that subject explicitly; "
+    "do NOT set clarify for something the context already determines. Plan/reason should name the "
+    "resolved subject.\n{context}\n\n"
+    "Latest question: {task}"
 )
 
 _INTAKE_SCHEMA = {
@@ -160,6 +189,9 @@ _INTAKE_SCHEMA = {
             "label": {"type": "string"}, "description": {"type": "string"}}, "required": ["label"]}},
         "subtasks": {"type": "array", "items": {"type": "object", "properties": {
             "title": {"type": "string"}, "question": {"type": "string"}}, "required": ["title", "question"]}},
+        "narrative": {"type": "boolean"},
+        "news_brief": {"type": "boolean"},
+        "value_chain": {"type": "boolean"},
         "steps": {"type": "integer"},
         "plan": {"type": "string"},
     },
@@ -167,11 +199,25 @@ _INTAKE_SCHEMA = {
 }
 
 
-async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
+def _intake_context(conversation: list | None, limit: int = 6) -> str:
+    """A short transcript of the recent turns so the intake can resolve follow-up references
+    (a company/topic named earlier). Excludes the latest user turn (that's the question)."""
+    msgs = [m for m in (conversation or []) if (m.get("content") or "").strip()]
+    if len(msgs) <= 1:
+        return "(no prior turns)"
+    lines = []
+    for m in msgs[:-1][-limit:]:
+        role = "사용자" if m.get("role") == "user" else "분석가"
+        lines.append(f"{role}: {(m.get('content') or '').strip()[:300]}")
+    return "\n".join(lines) or "(no prior turns)"
+
+
+async def analyze_task(task: str, backend: str | None = None, conversation: list | None = None) -> TaskIntake:
     """PH-THINK: ONE first-pass LLM call that BOTH guardrails the request (judging intent in
     context — never keyword matching) AND plans it (step budget + a short plan to show the user).
-    The guardrail lives here, inside the analysis layer. Stub / no-key / error → allow with the
-    default budget and no plan (the LLM is the only judge; there is no keyword fallback)."""
+    The guardrail lives here, inside the analysis layer. `conversation` (prior turns) lets the
+    intake RESOLVE follow-up references (e.g. '배당률은?' inherits the earlier company) instead of
+    clarifying. Stub / no-key / error → allow with the default budget and no plan."""
     cap, default, floor = settings.max_steps_cap, settings.max_steps, 3
     if (backend or settings.llm_backend) != "gemini":
         return TaskIntake(steps=default)
@@ -183,7 +229,7 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
         client = genai.Client()
         resp = await asyncio.to_thread(
             client.models.generate_content, model=settings.budget_model,
-            contents=_INTAKE_PROMPT.format(task=(task or "")[:800]),
+            contents=_INTAKE_PROMPT.format(task=(task or "")[:800], context=_intake_context(conversation)),
             config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json",
                                                response_schema=_INTAKE_SCHEMA, max_output_tokens=400))
         d = json.loads(getattr(resp, "text", "") or "{}")
@@ -207,7 +253,13 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
             if isinstance(o, dict) and o.get("label"):
                 opts.append({"label": str(o["label"])[:80],
                              "description": (str(o.get("description") or "").strip()[:160] or None)})
-        clarify = bool(d.get("clarify")) and not restricted and len(opts) >= 2
+        # CE-4: a holistic company-story request → narrative synthesis (and never a clarify prompt;
+        # we already know the intent). Requires data + not restricted.
+        narrative = bool(d.get("narrative")) and needs_data and not restricted
+        news_brief = bool(d.get("news_brief")) and needs_data and not restricted
+        value_chain = bool(d.get("value_chain")) and needs_data and not restricted
+        clarify = (bool(d.get("clarify")) and not restricted and not narrative
+                   and not news_brief and not value_chain and len(opts) >= 2)
         # decompose only for a clear, complex request (not restricted/clarify/conceptual) with ≥2 facets.
         subs = []
         for s in (d.get("subtasks") or []):
@@ -225,25 +277,75 @@ async def analyze_task(task: str, backend: str | None = None) -> TaskIntake:
             options=(opts if clarify else []),
             multi=bool(d.get("multi")),
             subtasks=subtasks,
+            narrative=narrative,
+            news_brief=news_brief,
+            value_chain=value_chain,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to allow + default budget, never block
         logger.warning("task intake failed (%s); allowing with default budget", exc)
         return TaskIntake(steps=default)
 
 
-_FOLLOWUP_PROMPT = (
-    "You are a senior buy-side research lead. Given the user's question and the answer just given, "
-    "propose 3-4 follow-up questions that DEEPEN the research — each should be the next genuinely "
-    "insightful analytical step, not a restatement. Good follow-ups: probe a key DRIVER behind a "
-    "figure, COMPARE against a peer/benchmark/prior period, drill into a RISK or segment, connect a "
-    "macro factor, or pull the supporting filing passage. Each must be:\n"
-    "- a concrete, specific question in the SAME LANGUAGE as the user's question;\n"
-    "- answerable by a SOURCED financial-data service (filings, financials, prices, macro, news, "
-    "evidence) — NOT asking for forecasts, price targets, or buy/sell advice;\n"
-    "- self-contained (name the company/metric explicitly).\n"
-    "Return JSON: {{\"followups\": [\"…\", \"…\", \"…\"]}}.\n\n"
-    "User question: {task}\n\nAnswer given:\n{answer}"
+# What our platform can uniquely show — the suggester maps follow-ups to these so each click
+# experiences a real differentiator (sourced data + the capability), not a generic question.
+_CAPABILITY_MENU = (
+    "우리 서비스가 특히 잘 보여줄 수 있는 것 (후속 질문이 이걸 자연스럽게 경험시키게):\n"
+    "- 출처·증거: 모든 수치에 [n] 출처 + 공시 원문 하이라이트·뉴스 원문 구절 딥링크.\n"
+    "- 차트: 가격/캔들·재무 막대·기술지표(SMA/RSI/MACD) 시각화.\n"
+    "- 공시 본문 검색: 위험요소·공급망·수요 등 실제 문단 인용.\n"
+    "- 밸류에이션 모델: DCF/DDM/RIM (사용자 가정 기반, 예측 아님).\n"
+    "- 퀀트 스크리너: 밸류/퀄리티/모멘텀 팩터로 종목 필터·랭킹.\n"
+    "- 백테스트: 포트폴리오 과거 성과·CAGR·최대낙폭, '이런 국면 이후 N일 통계'.\n"
+    "- 투자거장 13F: 거장 매매·공통 보유.\n"
+    "- 한국 수급(KIS 실시간): 외국인/기관 순매수·거래량/등락률/시총 순위·ETF NAV.\n"
+    "- 거시: 국가 경제 패널·금리/물가·반도체 생산자물가.\n"
+    "- 자산군/원자재/반도체 사이클 프록시.\n"
+    "- 컨센서스 추정치·실적 캘린더(FMP, 제3자 데이터).\n"
+    "- 종목 내러티브·밸류체인·뉴스 브리핑(구조화 합성).\n"
 )
+
+# Two complementary personas, run in PARALLEL (deep model), then merged → diverse, itch-scratching,
+# capability-showcasing follow-ups that span beginner→expert.
+_FOLLOWUP_PERSONAS = {
+    "itch": (
+        "당신은 통찰 있는 리서치 멘토입니다. 방금 답변을 본 사용자가 '진짜 다음에 궁금해할' 후속 질문 3개를 제안하세요. "
+        "사용자의 가려운 곳을 긁어주는 질문 — 수치 뒤의 '왜?'/드라이버, 비교, 리스크, 거시 연결, 과거 통계/시나리오. "
+        "초보~전문가를 아우르게 섞으세요(쉬운 설명형 1개 + 깊은 분석형). "
+    ),
+    "showcase": (
+        "당신은 우리 데이터 플랫폼의 제품 전문가입니다. 답변 맥락에서, 우리 서비스의 차별화 기능/데이터를 "
+        "자연스럽게 경험시킬 후속 질문 3개를 제안하세요(거부감 없이). 각 질문은 아래 능력 중 서로 다른 것을 자극해야 합니다.\n"
+        + _CAPABILITY_MENU
+    ),
+}
+
+_FOLLOWUP_PROMPT = (
+    "{persona}\n"
+    "규칙: 각 질문은 (1) 사용자 질문과 같은 언어, (2) 출처 기반 데이터로 답 가능(예측·목표가·매수/매도 의견 요청 "
+    "금지), (3) 자기완결적(종목·지표를 명시), (4) 서로 다른 각도. 답변을 반복하지 말 것.\n"
+    'JSON만: {{"followups": ["…", "…", "…"]}}\n\n'
+    "사용자 질문: {task}\n{context}\n답변:\n{answer}"
+)
+
+
+def _merge_followups(lists: list[list[str]], limit: int = 4) -> list[str]:
+    """Interleave persona candidate lists, dedup near-duplicates (normalized), cap to `limit` —
+    so the final chips are DIVERSE across personas, not three variants of one idea."""
+    def norm(s: str) -> str:
+        return re.sub(r"[\s\W]+", "", (s or "").lower())[:60]
+
+    out, seen = [], set()
+    for i in range(max((len(c) for c in lists), default=0)):
+        for cand in lists:
+            if i < len(cand):
+                s = cand[i].strip()
+                k = norm(s)
+                if s and k and k not in seen:
+                    seen.add(k)
+                    out.append(s)
+                    if len(out) >= limit:
+                        return out
+    return out
 _FOLLOWUP_SCHEMA = {
     "type": "object",
     "properties": {"followups": {"type": "array", "items": {"type": "string"}}},
@@ -251,29 +353,74 @@ _FOLLOWUP_SCHEMA = {
 }
 
 
-async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None) -> list[str]:
-    """PH-THINK: 3-4 DEEP follow-up questions to continue the research (shown as clickable chips).
-    Gemini-only, best-effort; [] on stub / no answer / error."""
+async def _followups_one(client, model: str, persona: str, task: str, answer: str, context: str,
+                         retries: int = 3) -> list[str]:
+    """One persona's follow-ups with exponential backoff — rides out transient 429/503/timeouts
+    (the two personas fire in parallel, so a paid pro key can momentarily hit per-minute RPM)."""
+    import asyncio
+    import random
+
+    from google.genai import types
+
+    cfg = types.GenerateContentConfig(temperature=0.6, max_output_tokens=400,
+                                      response_mime_type="application/json",
+                                      response_schema=_FOLLOWUP_SCHEMA)
+    contents = _FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
+                                       context=context, answer=(answer or "")[:2500])
+    last: Exception | None = None
+    for i in range(retries):
+        try:
+            resp = await asyncio.to_thread(client.models.generate_content, model=model,
+                                           contents=contents, config=cfg)
+            d = json.loads(getattr(resp, "text", "") or "{}")
+            return [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+        except Exception as exc:  # noqa: BLE001 — retry transient errors with backoff
+            last = exc
+            if i < retries - 1:
+                await asyncio.sleep(0.7 * (2 ** i) + random.uniform(0, 0.5))
+    raise last if last else RuntimeError("followups: no result")
+
+
+async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None,
+                            context: str | None = None) -> list[str]:
+    """PH-THINK / 고도화: capability-aware DEEP follow-up chips. Runs two personas in PARALLEL on
+    the deep model — one scratches the user's curiosity (skill-spanning), one showcases our
+    differentiated data/features — then merges to 3-4 DIVERSE suggestions. Each click naturally
+    leads the user into a real capability (수급·13F·백테스트·밸류에이션·증거·거시 등). Best-effort;
+    [] on stub/no-answer; degrades to a single persona if the other call fails."""
+    import asyncio
+
     if (backend or settings.llm_backend) != "gemini" or not (answer or "").strip():
         return []
+    ctx = f"맥락: {context}" if context else ""
+    # model chain — DEEP model first (pro, paid key → best suggestions), each call already does
+    # backoff retry; fall back to the fast model only if the deep one is truly down.
+    chain: list[str] = []
+    for m in (settings.synthesis_model, model, settings.model):
+        if m and m not in chain:
+            chain.append(m)
     try:
-        import asyncio
         from google import genai
-        from google.genai import types
 
         client = genai.Client()
-        resp = await asyncio.to_thread(
-            client.models.generate_content, model=model,
-            contents=_FOLLOWUP_PROMPT.format(task=(task or "")[:400], answer=(answer or "")[:2500]),
-            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=400,
-                                               response_mime_type="application/json",
-                                               response_schema=_FOLLOWUP_SCHEMA))
-        d = json.loads(getattr(resp, "text", "") or "{}")
-        out = [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()]
-        return out[:4]
-    except Exception as exc:  # noqa: BLE001 — suggestions are a nicety, never block
-        logger.warning("followup suggestions failed (%s); skipping", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("followups: genai client init failed (%s)", exc)
         return []
+    for m in chain:
+        try:
+            results = await asyncio.gather(
+                *[_followups_one(client, m, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
+                return_exceptions=True)
+            lists = [r for r in results if isinstance(r, list) and r]
+            merged = _merge_followups(lists, limit=4)
+            if merged:
+                return merged
+            errs = [r for r in results if isinstance(r, Exception)]
+            if errs:
+                logger.warning("followups: model %s failed (%s); trying next", m, errs[0])
+        except Exception as exc:  # noqa: BLE001 — never block on suggestions
+            logger.warning("followups: model %s errored (%s); trying next", m, exc)
+    return []
 
 
 _REFINE_PROMPT = (
@@ -389,13 +536,74 @@ def number_sources(cites) -> str:
     return "\n".join(lines)
 
 
+# CE-4: appended to the system prompt for a holistic company-story request, so the synthesis
+# produces a structured, sourced 종목 내러티브 (parsed into a narrative artifact afterwards).
+_NARRATIVE_GUIDE = (
+    "\n\n[종목 내러티브 형식] 이 답변은 한 종목의 '관전 포인트' 내러티브입니다. 아래 다섯 섹션을 정확히 이 "
+    "마크다운 제목으로, 순서대로 작성하세요 (각 섹션 2-4문장):\n"
+    "## 사업 개요\n## 최근 실적·재무\n## 밸류에이션\n## 최근 이슈 (뉴스·공시)\n## 관전 포인트\n"
+    "모든 구체적 수치·사실은 수집한 출처에서 가져와 문장 끝에 [n]으로 인용하세요. '관전 포인트'는 앞으로 "
+    "지켜볼 모니터링 항목을 서술형으로만 적고, 가격 예측·목표가·매수/매도 의견은 절대 넣지 마세요."
+)
+
+# section headings the guide asks for (used to title the parsed narrative artifact)
+_NARRATIVE_HEADINGS = ("사업 개요", "최근 실적·재무", "밸류에이션", "최근 이슈", "관전 포인트")
+
+# CE-14: appended for a value-chain request → a structured, sourced (derived) supply-chain map.
+_VALUE_CHAIN_GUIDE = (
+    "\n\n[밸류체인 형식] 이 답변은 한 기업의 밸류체인/공급망 구조 정리입니다. 아래 제목으로, 순서대로 "
+    "작성하세요:\n## 핵심 사업\n## 주요 공급사 (상류)\n## 주요 고객 (하류)\n## 경쟁사\n## 밸류체인 내 위치\n"
+    "공시(사업의 내용·위험요소)와 뉴스에서 언급된 관계만 근거로 삼고 각 항목 끝에 [n]으로 인용하세요. "
+    "추측으로 관계를 만들지 말고, 근거가 없으면 '공시상 명시 없음'이라고 적으세요. 이 분석은 '공시·뉴스 "
+    "기반 LLM 추출(derived) — 확정된 거래관계가 아님'임을 마지막에 한 줄로 밝히세요. 가격 예측·매수의견 금지."
+)
+
+# CE-10: appended for a news-briefing request → a structured, sourced news narrative.
+_NEWS_BRIEF_GUIDE = (
+    "\n\n[뉴스 브리핑 형식] 이 답변은 최신 뉴스 브리핑입니다. 아래 제목으로, 순서대로 작성하세요:\n"
+    "## 핵심 흐름\n## 주요 헤드라인\n## 맥락·배경\n## 지켜볼 점\n"
+    "수집한 뉴스에서 사실만 가져와 각 항목 끝에 [n]으로 발행사·날짜와 함께 인용하세요. '주요 헤드라인'은 "
+    "최근 3-6개를 발행사와 함께 bullet로. '지켜볼 점'은 앞으로 모니터링할 사안을 서술형으로만 적고, 가격 "
+    "예측·목표가·매수/매도 의견은 절대 넣지 마세요."
+)
+
+
+def build_narrative_artifact(text: str, ticker: str | None = None) -> Artifact | None:
+    """CE-4: split the synthesized markdown answer into the 종목 내러티브 sections (## heading →
+    body) → a pinnable narrative card. Deterministic (presentation, not reasoning); returns None
+    when the answer isn't structured into ≥2 sections (e.g. the stub backend)."""
+    from agentengine.models import NarrativeSection
+
+    sections: list[NarrativeSection] = []
+    heading, body = None, []
+    for line in (text or "").splitlines():
+        m = re.match(r"^\s{0,3}#{1,3}\s+(.*\S)\s*$", line)
+        if m:
+            if heading and body and "".join(body).strip():
+                sections.append(NarrativeSection(heading=heading, body="\n".join(body).strip()))
+            heading, body = m.group(1).strip().lstrip("#").strip(), []
+        elif heading is not None:
+            body.append(line)
+    if heading and body and "".join(body).strip():
+        sections.append(NarrativeSection(heading=heading, body="\n".join(body).strip()))
+    if len(sections) < 2:
+        return None
+    title = f"{ticker} 종목 내러티브" if ticker else "종목 내러티브 (관전 포인트)"
+    return Artifact(kind="narrative", title=title, sections=sections, ticker=ticker, tool="narrative")
+
+
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
-    """Restrict ``tools`` to ``allowed`` — entries match a full tool name
-    (``yahoo__prices``) or a connector id (``yahoo`` → all of its tools)."""
+    """Restrict ``tools`` to ``allowed``. Entries match, in order of precedence, a full tool
+    name (``sec_edgar__guru_trades`` — the new per-tool selection), a user-facing category id
+    (``gurus`` → every tool in that category), or a connector id (``sec_edgar`` → all of its
+    tools — legacy/back-compat). Empty/None means no restriction."""
     if not allowed:
         return tools
     sel = set(allowed)
-    return {name: t for name, t in tools.items() if name in sel or name.split("__")[0] in sel}
+    return {
+        name: t for name, t in tools.items()
+        if name in sel or t.get("category") in sel or name.split("__")[0] in sel
+    }
 
 
 async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = None) -> RunResult:

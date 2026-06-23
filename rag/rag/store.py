@@ -27,10 +27,20 @@ class MemoryStore:
     def __init__(self) -> None:
         self._chunks: list[Chunk] = []
         self._matrix: list[list[float]] = []
+        self._pos: dict[str, int] = {}  # chunk.id → row index, for dedup (like pgvector's PK)
 
     async def upsert(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
-        self._chunks.extend(chunks)
-        self._matrix.extend(vectors)
+        # UPSERT by chunk id — re-ingesting the same doc REPLACES its rows instead of piling up
+        # duplicates (a re-run pipeline would otherwise flood the corpus, degrading retrieval).
+        for c, v in zip(chunks, vectors):
+            idx = self._pos.get(c.id)
+            if idx is None:
+                self._pos[c.id] = len(self._chunks)
+                self._chunks.append(c)
+                self._matrix.append(v)
+            else:
+                self._chunks[idx] = c
+                self._matrix[idx] = v
 
     async def search(self, vector, top_k, filters=None):
         if not self._matrix:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button, GuardrailLabel, Modal } from "./ui";
 
 export type Agent = {
@@ -13,31 +13,52 @@ export type Agent = {
   is_template: boolean;
   editable: boolean;
 };
-export type Tool = { name: string; description?: string | null };
-export type Connector = { id: string; name: string; description?: string | null; tools?: Tool[] };
+// A tool is an individually selectable capability; `name` is the fully-qualified id
+// (`sec_edgar__guru_trades`) stored in the agent's data_sources.
+export type Tool = {
+  name: string;
+  label?: string;
+  description?: string | null;
+  source?: string | null;
+  connector_name?: string;
+};
+// Categories are the intuitive, user-facing groups (금융시장 현황 / 거시경제 분석 …) —
+// NOT the upstream API. Users pick individual tools within a category.
+export type Category = { id: string; label: string; description?: string | null; tools: Tool[] };
 
 // Builder modal: create a new agent, or edit/clone an existing one. Templates
 // are read-only, so editing one starts a clone (new agent seeded from it).
 export default function AgentBuilder({
   base,
-  connectors,
+  categories,
   onClose,
   onSaved,
 }: {
   base: Agent | null; // agent to edit/clone, or null for a blank new agent
-  connectors: Connector[];
+  categories: Category[];
   onClose: () => void;
   onSaved: (a: Agent, deletedId?: string) => void;
 }) {
   const cloning = !!base && !base.editable; // a template -> save as a new agent
+  const allToolNames = useMemo(
+    () => categories.flatMap((c) => c.tools.map((t) => t.name)),
+    [categories],
+  );
   const [name, setName] = useState(base ? (cloning ? `${base.name} (복사본)` : base.name) : "");
   const [description, setDescription] = useState(base?.description ?? "");
-  const [model, setModel] = useState(base?.model ?? "stub");
+  const [model, setModel] = useState(base?.model ?? "gemini");
   const [systemPrompt, setSystemPrompt] = useState(base?.system_prompt ?? "");
-  const [sources, setSources] = useState<string[]>(base?.data_sources ?? connectors.map((c) => c.id));
+  // Empty stored data_sources means "every tool" — reflect that as all-selected so the user
+  // can then narrow it. A non-empty list is shown exactly as saved.
+  const [sources, setSources] = useState<string[]>(
+    base?.data_sources?.length ? base.data_sources : allToolNames,
+  );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  const sel = useMemo(() => new Set(sources), [sources]);
+  const editing = !!base && base.editable; // existing own agent -> PATCH
 
   function toggleExpand(id: string) {
     setExpanded((prev) => {
@@ -47,11 +68,19 @@ export default function AgentBuilder({
     });
   }
 
-  const editing = !!base && base.editable; // existing own agent -> PATCH
-
-  function toggle(id: string) {
-    setSources((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  function toggleTool(toolName: string) {
+    setSources((s) => (s.includes(toolName) ? s.filter((x) => x !== toolName) : [...s, toolName]));
   }
+
+  function toggleCategory(cat: Category) {
+    const names = cat.tools.map((t) => t.name);
+    const allOn = names.every((n) => sel.has(n));
+    setSources((s) =>
+      allOn ? s.filter((x) => !names.includes(x)) : Array.from(new Set([...s, ...names])),
+    );
+  }
+
+  const totalSelected = sources.filter((s) => allToolNames.includes(s)).length;
 
   async function save() {
     if (!name.trim()) {
@@ -60,7 +89,9 @@ export default function AgentBuilder({
     }
     setBusy(true);
     setErr("");
-    const body = { name, description, model, system_prompt: systemPrompt, data_sources: sources };
+    // Only persist known tool ids (drop any legacy connector/category ids the user didn't touch).
+    const data_sources = sources.filter((s) => allToolNames.includes(s));
+    const body = { name, description, model, system_prompt: systemPrompt, data_sources };
     try {
       const res = editing
         ? await fetch(`/api/agents/${base!.id}`, { method: "PATCH", body: JSON.stringify(body) })
@@ -110,8 +141,8 @@ export default function AgentBuilder({
         <label className="fld">
           <span>모델</span>
           <select className="input" value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="stub">기본 (stub · 키 불필요)</option>
             <option value="gemini">Gemini (GOOGLE_API_KEY 필요)</option>
+            <option value="stub">기본 (stub · 키 불필요)</option>
           </select>
         </label>
 
@@ -122,31 +153,41 @@ export default function AgentBuilder({
         </label>
 
         <div className="fld">
-          <span>데이터 소스 <span className="hint-inline">— 펼치면 안에 어떤 툴이 있는지 보여줘요</span></span>
+          <span>
+            툴 선택 <span className="hint-inline">— 카테고리 안에서 이 분석가가 쓸 툴을 골라요 ({totalSelected}/{allToolNames.length})</span>
+          </span>
           <div className="sources-list">
-            {connectors.map((c) => {
-              const tools = c.tools ?? [];
-              const open = expanded.has(c.id);
+            {categories.map((cat) => {
+              const names = cat.tools.map((t) => t.name);
+              const on = names.filter((n) => sel.has(n)).length;
+              const open = expanded.has(cat.id);
+              const state = on === 0 ? "off" : on === names.length ? "on" : "partial";
               return (
-                <div key={c.id} className={`src-row ${sources.includes(c.id) ? "on" : ""}`}>
+                <div key={cat.id} className={`src-row ${state}`}>
                   <div className="src-head">
-                    <label className="src-pick" title={c.description ?? ""}>
-                      <input type="checkbox" checked={sources.includes(c.id)} onChange={() => toggle(c.id)} />
-                      {c.name}
+                    <label className="src-pick" title={cat.description ?? ""}>
+                      <input
+                        type="checkbox"
+                        checked={state === "on"}
+                        ref={(el) => { if (el) el.indeterminate = state === "partial"; }}
+                        onChange={() => toggleCategory(cat)}
+                      />
+                      {cat.label}
                     </label>
-                    {tools.length > 0 && (
-                      <button type="button" className="src-expand" aria-expanded={open}
-                        onClick={() => toggleExpand(c.id)}>
-                        {open ? "▾" : "▸"} 툴 {tools.length}
-                      </button>
-                    )}
+                    <button type="button" className="src-expand" aria-expanded={open}
+                      onClick={() => toggleExpand(cat.id)}>
+                      {open ? "▾" : "▸"} {on}/{names.length}
+                    </button>
                   </div>
-                  {open && tools.length > 0 && (
+                  {open && (
                     <ul className="tool-list">
-                      {tools.map((t) => (
+                      {cat.tools.map((t) => (
                         <li key={t.name}>
-                          <code className="tool-name">{t.name}</code>
-                          {t.description ? <span className="tool-desc">{t.description}</span> : null}
+                          <label className="tool-pick" title={t.description ?? ""}>
+                            <input type="checkbox" checked={sel.has(t.name)} onChange={() => toggleTool(t.name)} />
+                            <span className="tool-label">{t.label || t.name}</span>
+                            {t.source ? <span className="tool-src">{t.source}</span> : null}
+                          </label>
                         </li>
                       ))}
                     </ul>
@@ -154,7 +195,7 @@ export default function AgentBuilder({
                 </div>
               );
             })}
-            {connectors.length === 0 && <div className="muted-note">데이터 소스를 불러오지 못했습니다.</div>}
+            {categories.length === 0 && <div className="muted-note">툴 목록을 불러오지 못했습니다.</div>}
           </div>
         </div>
 
