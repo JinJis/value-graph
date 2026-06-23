@@ -909,6 +909,38 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce11_fmp_estimates_and_earnings_calendar(monkeypatch):
+    # CE-11: consensus estimates (mapped) + earnings calendar (client-side filtered by symbol).
+    import asyncio
+
+    import app.providers.us.fmp as F
+
+    async def fake_get(path, params):
+        if path == "analyst-estimates":
+            return [{"date": "2026-09-27", "revenueAvg": 4.5e11, "epsAvg": 7.2, "netIncomeAvg": 1.1e11,
+                     "numAnalystsRevenue": 30}]
+        if path == "earnings-calendar":  # market-wide; provider filters to the symbol
+            return [{"symbol": "MSFT", "date": "2026-04-29", "epsActual": 4.27, "epsEstimated": 4.06,
+                     "revenueActual": 8.3e10, "revenueEstimated": 8.1e10},
+                    {"symbol": "AAPL", "date": "2026-04-30", "epsActual": 2.01, "epsEstimated": 1.95,
+                     "revenueActual": 1.11e11, "revenueEstimated": 1.09e11}]
+        return []
+    monkeypatch.setattr(F, "_get", fake_get)
+
+    est = asyncio.run(F.consensus_estimates("AAPL", "annual", 5))
+    assert est["estimates"][0]["revenue_avg"] == 4.5e11 and est["estimates"][0]["eps_avg"] == 7.2
+    assert "컨센서스" in est["source"]
+    cal = asyncio.run(F.earnings_calendar("AAPL", 8))
+    assert [e["date"] for e in cal["events"]] == ["2026-04-30"]  # only AAPL kept
+    assert abs(cal["events"][0]["eps_surprise"] - (2.01 - 1.95)) < 1e-9
+
+    # missing key → clear error (not a crash)
+    monkeypatch.setattr(F.settings, "fmp_api_key", "", raising=False)
+    import pytest
+    with pytest.raises(Exception):
+        F._key()
+
+
 def test_ce_health_upstream_probe(monkeypatch):
     # CE-HEALTH: classify each upstream — ok / degraded / down / key-missing.
     import asyncio

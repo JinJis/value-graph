@@ -306,6 +306,28 @@ CONNECTORS: list[ConnectorManifest] = [
             ),
         ],
     ),
+    ConnectorManifest(
+        id="fmp", name="FMP (estimates / calendar)", domain="estimates",
+        description="Analyst consensus estimates + earnings calendar — third-party DATA shown as-sourced "
+                    "(NOT our forecast/target). No price targets or buy/sell ratings (guardrail).",
+        markets=["US"],
+        upstream=UpstreamCredential(requires_key=True, key_env="FMP_API_KEY",
+                                    signup_url="https://site.financialmodelingprep.com/developer/docs"),
+        license=License(id="fmp-commercial", redistribution=False, attribution_required=True,
+                        note="Commercial license — analyst consensus shown as third-party sourced data."),
+        resources=[
+            Resource(name="consensus_estimates",
+                     description="애널리스트 컨센서스 추정치(매출·EPS·순이익, 연/분기) — 제3자 데이터, 우리 예측 아님.",
+                     path="/estimates", output_model="ConsensusEstimatesResponse", markets=["US"], cost_tier=CostTier.medium,
+                     params=[P_TICKER_REQ, ResourceParam(name="period", enum=["annual", "quarter"]), P_LIMIT],
+                     provenance=Provenance(source="FMP (애널리스트 컨센서스)", as_of_field="date", freshness=Freshness.periodic)),
+            Resource(name="earnings_calendar",
+                     description="실적 캘린더 — 컨센서스 vs 실제 EPS/매출(서프라이즈), FMP 출처.",
+                     path="/earnings-calendar", output_model="EarningsCalendarResponse", markets=["US"], cost_tier=CostTier.medium,
+                     params=[P_TICKER_REQ, P_LIMIT],
+                     provenance=Provenance(source="FMP", as_of_field="date", freshness=Freshness.periodic)),
+        ],
+    ),
 ]
 
 
@@ -361,6 +383,9 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     ("ecos", "interest_rates_snapshot"): Category.macro,
     # Google News
     ("google_news", "news"): Category.news,
+    # FMP (CE-11) — consensus estimates + earnings calendar
+    ("fmp", "consensus_estimates"): Category.valuation,
+    ("fmp", "earnings_calendar"): Category.fundamentals,
     # Ingestion store (screener)
     ("datasets_store", "screener"): Category.screener,
     ("datasets_store", "line_items"): Category.screener,

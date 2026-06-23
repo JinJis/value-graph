@@ -1617,6 +1617,19 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_fmp_estimates_and_calendar_tables():
+    # CE-11: consensus estimates + earnings calendar → sourced tables (third-party labelled).
+    est = A._artifacts({"name": "fmp__consensus_estimates", "source": "FMP"},
+                       {"data": {"symbol": "AAPL", "source": "FMP (애널리스트 컨센서스 · 제3자)", "estimates": [
+                           {"date": "2026-09-27", "revenue_avg": 4.5e11, "eps_avg": 7.2, "net_income_avg": 1.1e11}]}})[0]
+    assert est.kind == "table" and "컨센서스" in est.title and est.table[1][1] == "450.0B"
+    cal = A._artifacts({"name": "fmp__earnings_calendar", "source": "FMP"},
+                       {"data": {"symbol": "AAPL", "events": [
+                           {"date": "2026-04-30", "eps_estimated": 1.95, "eps_actual": 2.01,
+                            "eps_surprise": 0.06, "revenue_actual": 1.11e11}]}})[0]
+    assert cal.kind == "table" and "실적 캘린더" in cal.title and cal.table[1][3] == "+0.06"
+
+
 def test_artifacts_news_digest_table():
     # CE-10: recent news → a sourced, pinnable digest table.
     tool = {"name": "google_news__news", "source": "Google News"}

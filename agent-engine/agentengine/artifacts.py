@@ -120,6 +120,38 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__consensus_estimates") and isinstance(data.get("estimates"), list) and data["estimates"]:
+        # CE-11: analyst consensus estimates → a sourced table (third-party, labelled).
+        def _b(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e9:,.1f}B" if abs(v) >= 1e9 else (f"{v/1e6:,.0f}M" if abs(v) >= 1e6 else f"{v:,.2f}")
+
+        rows = [["기간", "매출(컨센서스)", "EPS(컨센서스)", "순이익(컨센서스)"]]
+        for e in data["estimates"][:8]:
+            rows.append([str(e.get("date") or "")[:10], _b(e.get("revenue_avg")),
+                         _b(e.get("eps_avg")), _b(e.get("net_income_avg"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('symbol', '')} 애널리스트 컨센서스 추정치".strip(),
+                                table=rows, source=data.get("source") or "FMP (컨센서스)", tool=name,
+                                ticker=data.get("symbol")))
+
+    if name.endswith("__earnings_calendar") and isinstance(data.get("events"), list) and data["events"]:
+        # CE-11: earnings calendar → consensus vs actual (surprise) table.
+        def _b2(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e9:,.1f}B" if abs(v) >= 1e9 else f"{v:,.2f}"
+
+        rows = [["발표일", "EPS 추정", "EPS 실제", "서프라이즈", "매출 실제"]]
+        for ev in data["events"][:12]:
+            su = ev.get("eps_surprise")
+            rows.append([str(ev.get("date") or "")[:10], _b2(ev.get("eps_estimated")), _b2(ev.get("eps_actual")),
+                         (f"{su:+,.2f}" if isinstance(su, (int, float)) else "—"), _b2(ev.get("revenue_actual"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('symbol', '')} 실적 캘린더".strip(),
+                                table=rows, source="FMP", tool=name, ticker=data.get("symbol")))
+
     if name.endswith("__news") and isinstance(data.get("news"), list) and data["news"]:
         # CE-10: recent news → a sourced, pinnable digest table (headline · publisher · date).
         rows = [["헤드라인", "발행사", "날짜"]]

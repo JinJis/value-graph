@@ -14,6 +14,7 @@ from app.errors import NOT_IMPLEMENTED_TAG, register_error_handlers
 from app.logging_config import setup_logging
 from app.routers import (  # noqa: I001
     backtest,
+    fmp,
     admin,
     catalog,
     company,
@@ -82,7 +83,7 @@ register_error_handlers(app)
 for module in (
     company, prices, financials, filings, macro, metrics,
     news, earnings, insider, institutional, funds, gurus, corporate_actions, technical,
-    market, search, evidence, catalog, admin, scaffold, valuation, backtest,
+    market, search, evidence, catalog, admin, scaffold, valuation, backtest, fmp,
 ):
     app.include_router(module.router)
 

@@ -21,8 +21,8 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 339 unit** — datasets 139 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 118 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 341 unit** — datasets 140 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 119 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -489,9 +489,13 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   +1 agent test (digest table), +1 eval. *(no new upstream; reuses CE-4 narrative wiring.)*
 
 **Wave 2 — new upstreams** *(build start ON HOLD per user; CE-11 upstream + estimates policy CONFIRMED — DATA_EXPANSION §E)*:
-- ⬜ **CE-11 · 시장 movers · 실적/경제 캘린더 · 컨센서스 추정치** via **FMP** (confirmed; platform key).
-  Covers 금융시장 동향(movers), 실적 및 전망, 실적 발표 일정, 경제지표 일정 — shown as **sourced data**
-  (attributed, never our forecast). 🟢 ready
+- 🚧 **CE-11 · 컨센서스 추정치 · 실적 캘린더** via **FMP** *(key provided; live-verified)*. New `fmp` connector:
+  `fmp__consensus_estimates` (`/estimates`) = analyst consensus revenue/EPS/net-income (annual/quarter)
+  and `fmp__earnings_calendar` (`/earnings-calendar`) = consensus-vs-actual EPS/revenue (surprise),
+  both shown as **third-party sourced data, never our forecast** (CLAUDE §5 / DATA_EXPANSION §E); agent
+  renders sourced tables. **Deliberately NOT exposed:** price targets + buy/sell ratings (guardrail brand).
+  **Tier-gated on this key (not built):** market movers (gainers/losers/actives) + economic calendar —
+  FMP premium endpoints. +2 tests (datasets 1, agent 1), +1 eval. `FMP_API_KEY` in `.env.example`.
 - ⬜ **CE-12 · KR 실시간·플로우·랭킹·ETF NAV** via KIS (= KIS-* tasks). KR movers/flows/realtime/sector. 🔴
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from

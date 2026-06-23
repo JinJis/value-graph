@@ -220,6 +220,16 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        # CE-11: analyst consensus estimates via FMP — third-party sourced data, not our forecast.
+        "name": "Consensus estimates (컨센서스 추정치)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fmp", "sec_edgar"]},
+        "question": "애플(AAPL)의 향후 매출·EPS 애널리스트 컨센서스 추정치를 알려줘.",
+        "criteria": ("연도별 매출·EPS 컨센서스 추정치를 FMP(애널리스트 컨센서스, 제3자) 출처로 제시하고, "
+                     "이것이 우리(서비스)의 예측/목표가가 아니라 제3자 컨센서스 데이터임을 명확히 함."),
+        "checks": {"expect_connector": "fmp__consensus_estimates", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # CE-9: macro country panel — latest key indicators + change, sourced to DBnomics.
         "name": "Macro country panel (거시 패널)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fred"]},
