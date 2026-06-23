@@ -9,6 +9,7 @@ from app.deps import ApiKeyDep
 from app.store.commodities import commodities_snapshot
 from app.store.cross_asset import cross_asset_snapshot
 from app.store.sectors import sector_heatmap
+from app.store.semiconductor import semiconductor_proxy
 
 router = APIRouter(tags=["Market"])
 
@@ -28,6 +29,13 @@ class SectorHeatmapResponse(BaseModel):
 class CommoditiesResponse(BaseModel):
     groups: list[dict]
     source: str
+    as_of: str | None = None
+
+
+class SemiconductorProxyResponse(BaseModel):
+    groups: list[dict]
+    source: str
+    note: str | None = None
     as_of: str | None = None
 
 
@@ -66,3 +74,15 @@ async def get_sectors() -> SectorHeatmapResponse:
 )
 async def get_commodities() -> CommoditiesResponse:
     return CommoditiesResponse(**(await commodities_snapshot()))
+
+
+@router.get(
+    "/market/semiconductor",
+    response_model=SemiconductorProxyResponse,
+    dependencies=[ApiKeyDep],
+    summary="반도체 사이클 프록시 (지수·ETF·메모리 제조사) — DRAM 현물가 아님",
+    description="A free proxy for the memory/semiconductor cycle (PHLX SOX index, semiconductor ETFs, "
+                "memory makers' shares) — Yahoo-sourced levels + day change. NOT a DRAM spot price.",
+)
+async def get_semiconductor() -> SemiconductorProxyResponse:
+    return SemiconductorProxyResponse(**(await semiconductor_proxy()))

@@ -416,6 +416,26 @@ async def test_commodities_snapshot_grouped_drops_failures(monkeypatch):
     assert data["source"] == "Yahoo Finance" and {g["name"] for g in data["groups"]} == {"귀금속", "에너지"}
 
 
+async def test_semiconductor_proxy_panel(monkeypatch):
+    # DRAM-spot proxy: SOX index + ETFs + memory makers via Yahoo; labelled NOT a spot price.
+    import app.store.semiconductor as S
+
+    class _Snap:
+        def __init__(self, price):
+            self.price, self.day_change, self.day_change_percent, self.time = price, 1.0, 2.04, "2024-01-02 16:00"
+
+    class _Prov:
+        async def snapshot(self, ref):
+            if ref.ticker in ("^SOX", "MU"):
+                return _Snap(14634.7)
+            raise RuntimeError("blocked")  # others dropped
+    monkeypatch.setattr(S, "get_prices_provider", lambda m: _Prov())
+    data = await S.semiconductor_proxy()
+    members = [m for g in data["groups"] for m in g["members"]]
+    assert {m["ticker"] for m in members} == {"^SOX", "MU"}
+    assert "DRAM 현물가" in data["note"] and "현물가가 아닙" in data["note"]
+
+
 async def test_cross_asset_snapshot_drops_failures(monkeypatch):
     # CE-1: cross-asset snapshot keeps reachable proxies, DROPS failures (never fabricates).
     import app.store.cross_asset as CA

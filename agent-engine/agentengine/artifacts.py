@@ -102,9 +102,11 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         if a:
             out.append(a)
 
-    if name.endswith(("__asset_classes", "__commodities")) and isinstance(data.get("groups"), list):
-        # CE-1 cross-asset / commodities snapshot → a sourced grouped table card.
-        is_comm = name.endswith("__commodities")
+    if name.endswith(("__asset_classes", "__commodities", "__semiconductor")) and isinstance(data.get("groups"), list):
+        # CE-1 cross-asset / commodities / semiconductor-proxy snapshot → a sourced grouped table.
+        _GTITLE = {"__commodities": "원자재 시세", "__semiconductor": "반도체 사이클 프록시 (DRAM 현물가 아님)"}
+        gtitle = next((t for suf, t in _GTITLE.items() if name.endswith(suf)), "자산군 현황")
+        col0 = "분류" if name.endswith(("__commodities", "__semiconductor")) else "자산군"
 
         def _px(v):
             return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
@@ -112,13 +114,13 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
         def _pct(v):
             return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
 
-        rows = [["분류" if is_comm else "자산군", "종목", "현재가", "등락%"]]
+        rows = [[col0, "종목", "현재가", "등락%"]]
         for g in data["groups"]:
             for m in (g.get("members") or []):
                 rows.append([g.get("name", ""), m.get("label") or m.get("ticker", ""),
                              _px(m.get("price")), _pct(m.get("change_percent"))])
         if len(rows) > 1:
-            out.append(Artifact(kind="table", title="원자재 시세" if is_comm else "자산군 현황", table=rows,
+            out.append(Artifact(kind="table", title=gtitle, table=rows,
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 

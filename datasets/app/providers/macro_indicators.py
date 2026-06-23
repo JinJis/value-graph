@@ -24,6 +24,9 @@ INDICATORS: dict[str, dict] = {
     "core_cpi": {"name": "US Core CPI (ex food & energy, SA)", "series": "BLS/cu/CUSR0000SA0L1E",
                  "unit": "index", "region": "US", "group": "물가"},
     "pce_price": {"name": "US PCE Price Index", "series": "BEA/NIPA-T20804/DPCERG-M", "unit": "index", "region": "US", "group": "물가"},
+    # 반도체 생산자물가 (PPI) — DRAM 현물가의 무료 대용(프록시). 월간 생산자물가, 현물 스팟 아님.
+    "semiconductor_ppi": {"name": "US 반도체 생산자물가(PPI) — DRAM 현물가 아님(월간 프록시)",
+                          "series": "BLS/pc/PCU334413334413", "unit": "index", "region": "US", "group": "물가"},
     "euro_cpi": {"name": "Euro Area HICP (YoY)", "series": "Eurostat/prc_hicp_manr/M.RCH_A.CP00.EA",
                  "unit": "%", "region": "EA", "group": "물가"},
     # 고용 (labor)

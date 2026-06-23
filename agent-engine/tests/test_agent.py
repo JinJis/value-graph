@@ -1628,6 +1628,16 @@ def test_artifacts_commodities_table():
     assert a.table[1][1] == "금" and a.table[1][3] == "+0.80%"
 
 
+def test_artifacts_semiconductor_proxy_table():
+    # DRAM-spot proxy panel → grouped table, labelled NOT a spot price (in the title).
+    tool = {"name": "yahoo__semiconductor", "source": "Yahoo Finance"}
+    result = {"data": {"groups": [{"name": "지수", "members": [
+        {"label": "필라델피아 반도체지수(SOX)", "ticker": "^SOX", "price": 14634.7, "change_percent": 2.04}]}],
+        "source": "Yahoo Finance"}}
+    a = A._artifacts(tool, result)[0]
+    assert a.kind == "table" and "DRAM 현물가 아님" in a.title and a.table[1][3] == "+2.04%"
+
+
 def test_artifacts_kis_volume_rank_and_flow_tables():
     # CE-12: KR volume ranking + investor flow → sourced tables.
     vr = A._artifacts({"name": "kis__volume_rank", "source": "KIS"},

@@ -21,8 +21,8 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 347 unit** — datasets 144 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 121 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 349 unit** — datasets 145 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 122 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -429,9 +429,12 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
 - ✅ **CE-COMMODITY · 원자재 시세 패널.** New `yahoo__commodities` (`GET /market/commodities`): curated
   commodity futures grouped 귀금속(금·은·백금·팔라듐)·산업금속(구리)·에너지(WTI·브렌트·천연가스·가솔린)·
   농산물(옥수수·밀·대두·설탕·커피·면화) → level + day change via the Yahoo provider, best-effort (drop on
-  fail). agent renders a sourced grouped table. **DRAM/메모리 현물가는 무료 소스가 없어 미포함**(TrendForce/
-  DRAMeXchange 유료) — 날조하지 않음; 필요 시 유료 소스 연동이 별도 과제. +2 tests (datasets+agent),
-  live-verified. *(no new upstream.)*
+  fail). agent renders a sourced grouped table. +2 tests, live-verified.
+  - **DRAM 차선책 (free proxies, labelled NOT spot):** DRAM/NAND 현물가는 무료 소스가 없어(TrendForce/
+    DRAMeXchange 유료) **프록시**로 보강 — (a) `semiconductor_ppi` 매크로 지표(BLS 반도체 생산자물가, 월간);
+    (b) `yahoo__semiconductor` (`/market/semiconductor`) 반도체 사이클 프록시 패널(필라델피아 SOX 지수·
+    반도체 ETF SOXX/SMH·메모리 제조사 MU/삼성전자/SK하이닉스 주가). 둘 다 "DRAM 현물가 아님" 명시.
+    +2 tests, live-verified. 유료 TrendForce 연동은 향후 과제.
 - ✅ **CE-2 · 섹터 히트맵 (US).** New `yahoo__sector_heatmap` resource (`GET /market/sectors`): the 11
   SPDR Select Sector ETFs (XLK/XLF/XLV/…) → per-sector day change via the existing Yahoo prices provider,
   ranked leaders→laggards, best-effort (failed ETFs dropped, never faked). Catalog/MCP/agent wired;

@@ -156,6 +156,10 @@ CONNECTORS: list[ConnectorManifest] = [
                      description="원자재 시세 (귀금속·산업금속·에너지·농산물) — Yahoo 선물 기준 현재 수준 + 등락. (DRAM 현물가는 무료 소스 없음.)",
                      path="/market/commodities", output_model="CommoditiesResponse", cost_tier=CostTier.free,
                      params=[], provenance=PROV_YAHOO),
+            Resource(name="semiconductor",
+                     description="반도체 사이클 프록시 (필라델피아 반도체지수·반도체 ETF·메모리 제조사 주가) — DRAM 현물가의 무료 대용(현물가 아님).",
+                     path="/market/semiconductor", output_model="SemiconductorProxyResponse", cost_tier=CostTier.free,
+                     params=[], provenance=PROV_YAHOO),
         ],
     ),
     ConnectorManifest(
@@ -407,6 +411,7 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     ("yahoo", "asset_classes"): Category.market,
     ("yahoo", "sector_heatmap"): Category.market,
     ("yahoo", "commodities"): Category.market,
+    ("yahoo", "semiconductor"): Category.market,
     # FRED / DBnomics (US macro)
     ("fred", "interest_rates"): Category.macro,
     ("fred", "interest_rates_snapshot"): Category.macro,
