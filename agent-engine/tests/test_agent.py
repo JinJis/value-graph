@@ -1641,6 +1641,11 @@ def test_artifacts_kis_volume_rank_and_flow_tables():
                                  "nav": 141792.70, "premium_discount_pct": -0.06,
                                  "price_change_percent": -4.5, "nav_change_percent": -4.4}})[0]
     assert etf.kind == "table" and "ETF NAV" in etf.title and etf.table[3] == ["괴리율", "-0.06%"]
+    mc = A._artifacts({"name": "kis__market_cap_rank", "source": "KIS"},
+                      {"data": {"results": [{"rank": 1, "ticker": "005930", "name": "삼성전자",
+                                             "market_cap_eok": 19526571, "market_weight_pct": 24.03,
+                                             "change_percent": -5.52}]}})[0]
+    assert mc.kind == "table" and "시가총액 순위" in mc.title and mc.table[1][2] == "1,952.7조"
 
 
 def test_artifacts_fmp_estimates_and_calendar_tables():

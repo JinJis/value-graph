@@ -113,6 +113,23 @@ async def fluctuation_rank(direction: str = "up", limit: int = 30) -> dict:
             "direction": "down" if sort == "1" else "up", "results": out}
 
 
+async def market_cap_rank(limit: int = 30) -> dict:
+    """시가총액 순위 — largest KR companies by market cap (억원) + 시장 비중."""
+    rows = await _get(
+        "/uapi/domestic-stock/v1/ranking/market-cap", "FHPST01740000",
+        {"FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20174", "FID_INPUT_ISCD": "0000",
+         "FID_DIV_CLS_CODE": "0", "FID_TRGT_CLS_CODE": "0", "FID_TRGT_EXLS_CLS_CODE": "0",
+         "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "", "FID_VOL_CNT": ""})
+    out = []
+    for r in rows[:limit]:
+        out.append({"rank": _i(r.get("data_rank")), "ticker": r.get("mksc_shrn_iscd"),
+                    "name": r.get("hts_kor_isnm"), "price": _i(r.get("stck_prpr")),
+                    "change_percent": _f(r.get("prdy_ctrt")),
+                    "market_cap_eok": _i(r.get("stck_avls")),  # 시가총액 (억원)
+                    "market_weight_pct": _f(r.get("mrkt_whol_avls_rlim"))})
+    return {"market": "KR", "source": "한국투자증권 (KIS)", "ranking": "market_cap", "results": out}
+
+
 async def etf_nav(ticker: str) -> dict:
     """ETF 현재가 vs NAV + 괴리율(premium/discount) — is the ETF trading rich/cheap to its NAV?"""
     rows = await _get("/uapi/etfetn/v1/quotations/inquire-price", "FHPST02400000",

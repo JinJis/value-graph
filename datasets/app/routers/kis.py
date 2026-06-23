@@ -38,6 +38,12 @@ async def kr_fluctuation_rank(
     return await kis.fluctuation_rank(direction, limit)
 
 
+@router.get("/kr/rankings/market-cap", dependencies=[ApiKeyDep],
+            summary="시가총액 순위 (KR 대형주) — 한국투자증권")
+async def kr_market_cap_rank(limit: int = Query(30, ge=1, le=100)) -> dict:
+    return await kis.market_cap_rank(limit)
+
+
 @router.get("/kr/etf-nav", dependencies=[ApiKeyDep],
             summary="ETF 현재가 vs NAV + 괴리율 — 한국투자증권")
 async def kr_etf_nav(

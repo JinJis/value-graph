@@ -508,7 +508,9 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   = gainers/losers) + `kis__etf_nav` (`/kr/etf-nav` — ETF 현재가 vs NAV + 괴리율). Both render sourced
   tables. **KIS-PRICES (live-verified):** `KisPricesProvider` — a drop-in PricesProvider (realtime
   snapshot + paginated daily OHLCV) selected by `PRICES_PROVIDER_KR=kis`, so charts/snapshots/backtest/
-  portfolio all use KIS realtime KR prices. +1 datasets test. **Remaining follow-on:** 시총 순위.
+  portfolio all use KIS realtime KR prices. +1 datasets test. **시총 순위 (live-verified):**
+  `kis__market_cap_rank` (`/kr/rankings/market-cap` — KR 대형주 시총·시장 비중·등락). CE-12 KIS suite
+  complete: 실시간 시세 · 거래량/등락률/시총 순위 · 투자자 수급 · ETF NAV.
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
   filings, labeled "derived"). 🔴❓

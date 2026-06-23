@@ -923,6 +923,9 @@ def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
             assert params["FID_RANK_SORT_CLS_CODE"] == "1"  # down → losers
             return [{"data_rank": "1", "stck_shrn_iscd": "000660", "hts_kor_isnm": "SK하이닉스",
                      "stck_prpr": "100000", "prdy_ctrt": "-9.9", "acml_vol": "555"}]
+        if "ranking/market-cap" in path:
+            return [{"data_rank": "1", "mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자",
+                     "stck_prpr": "334000", "prdy_ctrt": "-5.52", "stck_avls": "19526571", "mrkt_whol_avls_rlim": "24.03"}]
         if "etfetn" in path:
             return [{"hts_kor_isnm": "KODEX 200", "stck_prpr": "141675", "nav": "141792.70",
                      "dprt": "-0.06", "prdy_ctrt": "-4.50", "nav_prdy_ctrt": "-4.40"}]
@@ -942,6 +945,9 @@ def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
     assert fr["direction"] == "down" and fr["results"][0]["ticker"] == "000660" and fr["results"][0]["change_percent"] == -9.9
     etf = asyncio.run(K.etf_nav("069500"))
     assert etf["nav"] == 141792.70 and etf["premium_discount_pct"] == -0.06 and etf["name"] == "KODEX 200"
+    mc = asyncio.run(K.market_cap_rank(30))
+    assert mc["ranking"] == "market_cap" and mc["results"][0]["ticker"] == "005930"
+    assert mc["results"][0]["market_cap_eok"] == 19526571 and mc["results"][0]["market_weight_pct"] == 24.03
 
     # missing creds → clear error
     monkeypatch.setattr(K.settings, "kis_app_key", "", raising=False)

@@ -151,6 +151,20 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
             out.append(Artifact(kind="table", title=f"{dlabel} 순위 (KR)", table=rows,
                                 source=data.get("source") or "한국투자증권 (KIS)", tool=name))
 
+    if name.endswith("__market_cap_rank") and isinstance(data.get("results"), list) and data["results"]:
+        # CE-12: 시가총액 순위 → a sourced table (시총 억원→조원, 시장 비중).
+        rows = [["순위", "종목", "시총", "비중", "등락%"]]
+        for r in data["results"][:20]:
+            mc = r.get("market_cap_eok")  # 억원
+            cp = r.get("change_percent")
+            rows.append([str(r.get("rank") or ""), r.get("name") or r.get("ticker") or "",
+                         f"{mc/10000:,.1f}조" if isinstance(mc, (int, float)) else "—",
+                         f"{r.get('market_weight_pct'):.2f}%" if isinstance(r.get("market_weight_pct"), (int, float)) else "—",
+                         f"{cp:+.2f}%" if isinstance(cp, (int, float)) else "—"])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="시가총액 순위 (KR)", table=rows,
+                                source=data.get("source") or "한국투자증권 (KIS)", tool=name))
+
     if name.endswith("__etf_nav") and isinstance(data, dict) and data.get("nav") is not None:
         # CE-12: ETF 현재가 vs NAV + 괴리율 → a compact sourced table.
         def _pc(v):
