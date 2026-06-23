@@ -21,8 +21,8 @@
 > (standing analysts · gallery · community · onboarding). The shipped platform (PH + CE Wave 1) + Wave 2
 > is the scope.
 >
-> **Test totals (current): 341 unit** — datasets 140 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
-> semantic) · agent-engine 119 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
+> **Test totals (current): 343 unit** — datasets 141 · control-plane 13 · mcp 9 · rag 18 (+2 oss-cpu
+> semantic) · agent-engine 120 · studio-api 42 (+ admin 18, renderer 4) — plus the web build, four docker harnesses
 > (`coverage.sh` every catalog tool · `e2e.sh` stub · `e2e_functional.sh` real data+MCP+semantic RAG ·
 > `e2e_live.sh` real Gemini), and the **quality eval** `eval/run_eval.py` (32 scenarios incl. multi-turn,
 > graded by a **deep-model rubric** — 5 dimensions, see `eval/RUBRIC.md`; run before every push).
@@ -496,7 +496,15 @@ Within a phase, follow the tier/dependency order given. The foundation milestone
   renders sourced tables. **Deliberately NOT exposed:** price targets + buy/sell ratings (guardrail brand).
   **Tier-gated on this key (not built):** market movers (gainers/losers/actives) + economic calendar —
   FMP premium endpoints. +2 tests (datasets 1, agent 1), +1 eval. `FMP_API_KEY` in `.env.example`.
-- ⬜ **CE-12 · KR 실시간·플로우·랭킹·ETF NAV** via KIS (= KIS-* tasks). KR movers/flows/realtime/sector. 🔴
+  - ⬜ **CE-11b · FMP 유료 확장** *(when the key upgrades to a paid plan, per user)*: market movers
+    (gainers/losers/most-actives), economic calendar, and — if the trust policy permits — price-target /
+    grades consensus shown strictly as third-party data. Same `fmp` connector; add resources + categories.
+- 🚧 **CE-12 · KR 실시간 — 거래량 순위 + 투자자 수급** via **KIS** *(keys provided; live-verified)*. New `kis`
+  connector w/ OAuth token (24h cached, rate-limit-aware): `kis__volume_rank` (`/kr/rankings/volume` =
+  KR movers/활발 종목 — the movers FMP gated) and `kis__investor_flow` (`/kr/investor-flow` = 개인/외국인/
+  기관 순매수 = 수급, KR differentiator). Descriptive realtime; agent renders sourced tables; categories
+  market + gurus(수급). +2 tests (datasets 1, agent 1), +1 eval. `KIS_APP_KEY/SECRET` in `.env.example`.
+  **Follow-on (same connector):** KR rankings 등락률/시총, ETF NAV, realtime/intraday prices (KIS-ETF/PRICES).
 - ⬜ **CE-13 · 실시간/프리미엄 뉴스** via the confirmed news provider (Finnhub/Benzinga/Polygon). 🔴❓
 - ⬜ **CE-14 · IR자료실 + 밸류체인.** IR decks (8-K exhibits/DART) + value-chain graph (LLM-extracted from
   filings, labeled "derived"). 🔴❓

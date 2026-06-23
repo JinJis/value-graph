@@ -120,6 +120,38 @@ def _artifacts(tool: dict, result: dict) -> list[Artifact]:
                                 source=src or "Yahoo Finance", as_of=data.get("as_of"),
                                 freshness=compute_freshness(data.get("as_of")), tool=name))
 
+    if name.endswith("__volume_rank") and isinstance(data.get("results"), list) and data["results"]:
+        # CE-12: KR 거래량 순위 (movers) → a sourced table.
+        def _kn(v):
+            if not isinstance(v, (int, float)):
+                return "—"
+            return f"{v/1e12:,.2f}조" if abs(v) >= 1e12 else (f"{v/1e8:,.0f}억" if abs(v) >= 1e8 else f"{v:,}")
+
+        rows = [["순위", "종목", "현재가", "등락%", "거래대금"]]
+        for r in data["results"][:20]:
+            cp = r.get("change_percent")
+            rows.append([str(r.get("rank") or ""), r.get("name") or r.get("ticker") or "",
+                         f"{r.get('price'):,}" if isinstance(r.get("price"), (int, float)) else "—",
+                         f"{cp:+.2f}%" if isinstance(cp, (int, float)) else "—", _kn(r.get("value"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title="거래량 순위 (KR)", table=rows,
+                                source=data.get("source") or "한국투자증권 (KIS)", tool=name))
+
+    if name.endswith("__investor_flow") and isinstance(data.get("flows"), list) and data["flows"]:
+        # CE-12: 투자자별 순매수 (수급) → a sourced table (개인/외국인/기관, 순매수 주식수).
+        def _q(v):
+            return f"{v:+,}" if isinstance(v, (int, float)) else "—"
+
+        rows = [["일자", "종가", "개인", "외국인", "기관"]]
+        for f in data["flows"][:15]:
+            rows.append([str(f.get("date") or ""),
+                         f"{f.get('close'):,}" if isinstance(f.get("close"), (int, float)) else "—",
+                         _q(f.get("individual_net")), _q(f.get("foreign_net")), _q(f.get("institution_net"))])
+        if len(rows) > 1:
+            out.append(Artifact(kind="table", title=f"{data.get('ticker', '')} 투자자별 순매수 (수급)".strip(),
+                                table=rows, source=data.get("source") or "한국투자증권 (KIS)", tool=name,
+                                ticker=data.get("ticker")))
+
     if name.endswith("__consensus_estimates") and isinstance(data.get("estimates"), list) and data["estimates"]:
         # CE-11: analyst consensus estimates → a sourced table (third-party, labelled).
         def _b(v):

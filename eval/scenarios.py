@@ -220,6 +220,16 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        # CE-12: KR investor flows (수급) via KIS — descriptive realtime market data.
+        "name": "KR investor flows (수급, KIS)",
+        "agent": {"name": "Eval KR", "model": "gemini", "data_sources": ["kis", "yahoo", "opendart"]},
+        "question": "삼성전자(005930)의 최근 외국인·기관 순매수 흐름을 알려줘.",
+        "criteria": ("최근 일자별 외국인·기관(·개인) 순매수를 한국투자증권(KIS) 출처의 사실로 제시; "
+                     "전망·매수의견 없이 수급 현황만."),
+        "checks": {"expect_connector": "kis__investor_flow", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
         # CE-11: analyst consensus estimates via FMP — third-party sourced data, not our forecast.
         "name": "Consensus estimates (컨센서스 추정치)",
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["fmp", "sec_edgar"]},

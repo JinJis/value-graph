@@ -1617,6 +1617,21 @@ def test_artifacts_asset_classes_table():
     assert a.table[1][1] == "S&P 500" and "5,000.00" in a.table[1][2] and "+0.50%" in a.table[1][3]
 
 
+def test_artifacts_kis_volume_rank_and_flow_tables():
+    # CE-12: KR volume ranking + investor flow → sourced tables.
+    vr = A._artifacts({"name": "kis__volume_rank", "source": "KIS"},
+                      {"data": {"source": "한국투자증권 (KIS)", "results": [
+                          {"rank": 1, "ticker": "005930", "name": "삼성전자", "price": 337250,
+                           "change_percent": -4.6, "value": 4_160_000_000_000}]}})[0]
+    assert vr.kind == "table" and "거래량 순위" in vr.title
+    assert vr.table[1][3] == "-4.60%" and "조" in vr.table[1][4]
+    fl = A._artifacts({"name": "kis__investor_flow", "source": "KIS"},
+                      {"data": {"ticker": "005930", "flows": [
+                          {"date": "20260622", "close": 353500, "individual_net": -100,
+                           "foreign_net": 5000, "institution_net": -2000}]}})[0]
+    assert fl.kind == "table" and "수급" in fl.title and fl.table[1][3] == "+5,000"
+
+
 def test_artifacts_fmp_estimates_and_calendar_tables():
     # CE-11: consensus estimates + earnings calendar → sourced tables (third-party labelled).
     est = A._artifacts({"name": "fmp__consensus_estimates", "source": "FMP"},

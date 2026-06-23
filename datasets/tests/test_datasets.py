@@ -909,6 +909,35 @@ def test_build_ref_with_cik_only():
 
 
 # --- US XBRL helpers ------------------------------------------------------
+def test_ce12_kis_volume_rank_and_investor_flow(monkeypatch):
+    # CE-12: KIS rankings + investor flows — mapped from the (verified) KIS output shapes.
+    import asyncio
+
+    import app.providers.kr.kis as K
+
+    async def fake_get(path, tr_id, params):
+        if "volume-rank" in path:
+            return [{"data_rank": "1", "mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자",
+                     "stck_prpr": "337250", "prdy_ctrt": "-4.6", "acml_vol": "12345678", "acml_tr_pbmn": "4160000000000"}]
+        if "inquire-investor" in path:
+            return [{"stck_bsop_date": "20260622", "stck_clpr": "353500",
+                     "prsn_ntby_qty": "-100", "frgn_ntby_qty": "5000", "orgn_ntby_qty": "-2000"}]
+        return []
+    monkeypatch.setattr(K, "_get", fake_get)
+
+    vr = asyncio.run(K.volume_rank(30))
+    assert vr["ranking"] == "volume" and vr["results"][0]["ticker"] == "005930"
+    assert vr["results"][0]["change_percent"] == -4.6 and vr["results"][0]["value"] == 4160000000000
+    fl = asyncio.run(K.investor_flow("005930", 10))
+    assert fl["flows"][0]["foreign_net"] == 5000 and fl["flows"][0]["institution_net"] == -2000
+
+    # missing creds → clear error
+    monkeypatch.setattr(K.settings, "kis_app_key", "", raising=False)
+    import pytest
+    with pytest.raises(Exception):
+        K._creds()
+
+
 def test_ce11_fmp_estimates_and_earnings_calendar(monkeypatch):
     # CE-11: consensus estimates (mapped) + earnings calendar (client-side filtered by symbol).
     import asyncio

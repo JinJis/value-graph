@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # --- KR upstream credentials -------------------------------------------
     opendart_api_key: str = ""
     ecos_api_key: str = ""
+    # CE-12: Korea Investment & Securities (KIS) — KR realtime rankings + investor flows.
+    kis_app_key: str = ""
+    kis_app_secret: str = ""
+    kis_domain: str = "https://openapi.koreainvestment.com:9443"  # 실전; 모의 = openapivts:29443
     krx_api_key: str = ""
     kis_app_key: str = ""
     kis_app_secret: str = ""

@@ -307,6 +307,27 @@ CONNECTORS: list[ConnectorManifest] = [
         ],
     ),
     ConnectorManifest(
+        id="kis", name="KIS (KR realtime)", domain="kr-realtime",
+        description="한국투자증권 실시간 — 거래량 순위(KR movers) + 투자자별 수급(개인/외국인/기관). 서술적 시세, 조언 아님.",
+        markets=["KR"],
+        upstream=UpstreamCredential(requires_key=True, key_env="KIS_APP_KEY",
+                                    signup_url="https://apiportal.koreainvestment.com/"),
+        license=License(id="kis-commercial", redistribution=False, attribution_required=True,
+                        note="브로커 실시간 데이터 — 출처 표기, 재배포 제한."),
+        resources=[
+            Resource(name="volume_rank",
+                     description="거래량 순위 (KR 활발 종목 / movers) — 종목·현재가·등락%·거래량·거래대금.",
+                     path="/kr/rankings/volume", output_model="KisVolumeRankResponse", markets=["KR"], cost_tier=CostTier.medium,
+                     params=[P_LIMIT],
+                     provenance=Provenance(source="한국투자증권 (KIS)", freshness=Freshness.realtime)),
+            Resource(name="investor_flow",
+                     description="투자자별 순매수 (개인·외국인·기관 수급) — 최근 일자별.",
+                     path="/kr/investor-flow", output_model="KisInvestorFlowResponse", markets=["KR"], cost_tier=CostTier.medium,
+                     params=[P_TICKER_REQ, P_LIMIT],
+                     provenance=Provenance(source="한국투자증권 (KIS)", as_of_field="date", freshness=Freshness.realtime)),
+        ],
+    ),
+    ConnectorManifest(
         id="fmp", name="FMP (estimates / calendar)", domain="estimates",
         description="Analyst consensus estimates + earnings calendar — third-party DATA shown as-sourced "
                     "(NOT our forecast/target). No price targets or buy/sell ratings (guardrail).",
@@ -386,6 +407,9 @@ _CATEGORY: dict[tuple[str, str], Category] = {
     # FMP (CE-11) — consensus estimates + earnings calendar
     ("fmp", "consensus_estimates"): Category.valuation,
     ("fmp", "earnings_calendar"): Category.fundamentals,
+    # KIS (CE-12) — KR realtime rankings + investor flows
+    ("kis", "volume_rank"): Category.market,
+    ("kis", "investor_flow"): Category.gurus,  # 수급 (투자거장·수급)
     # Ingestion store (screener)
     ("datasets_store", "screener"): Category.screener,
     ("datasets_store", "line_items"): Category.screener,
