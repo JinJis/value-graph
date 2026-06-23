@@ -5,6 +5,12 @@ pydantic ``env_prefix``) drives verbosity for the app logger, uvicorn, and the r
 middleware. Set ``LOG_LEVEL=DEBUG`` for full traces (file:line + funcName, raw model
 payloads, per-retry backoff). Without this, ``agentengine.*`` loggers have no level/handler
 so INFO/DEBUG never reach ``docker logs`` and best-effort except-blocks go silent.
+
+Noise control so DEBUG stays readable:
+  * a SafeFormatter never lets a bad ``logging`` call crash-spam ("--- Logging error ---");
+  * chatty third-party libraries (httpcore/urllib3/matplotlib/asyncio/…) are floored;
+  * records originating inside pykrx are dropped — it mis-calls ``logging.info(tuple, dict)``
+    on the root logger, which would otherwise raise a TypeError on every KRX miss.
 """
 
 from __future__ import annotations
@@ -21,7 +27,43 @@ _PKG = "agentengine"
 _BASE_FMT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 _DEBUG_FMT = "%(asctime)s %(levelname)-7s %(name)s [%(filename)s:%(lineno)d %(funcName)s]: %(message)s"
 
+# Libraries whose DEBUG/INFO output is pure noise for app debugging → floor them here even
+# when the app runs at DEBUG. (name → minimum level.)
+_LIB_FLOORS = {
+    "httpcore": logging.WARNING,   # per-byte connect/send/receive trace spam
+    "urllib3": logging.WARNING,
+    "httpx": logging.INFO,         # keep the one-line "HTTP Request:" log, drop its DEBUG
+    "matplotlib": logging.WARNING,
+    "fontTools": logging.WARNING,
+    "PIL": logging.WARNING,
+    "asyncio": logging.INFO,       # selector spam at DEBUG
+    "pykrx": logging.WARNING,
+}
+
 logger = logging.getLogger(_PKG)
+
+
+class _SafeFormatter(logging.Formatter):
+    """A formatter that can never crash the program: if a record's ``msg % args`` is malformed
+    (some libraries mis-call logging), fall back to a repr instead of raising a logging error."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        try:
+            return super().format(record)
+        except Exception:  # noqa: BLE001 — logging must not raise
+            try:
+                return f"{record.levelname} {record.name}: {record.msg!r} args={record.args!r}"
+            except Exception:  # noqa: BLE001
+                return "<unformattable log record>"
+
+
+class _DropNoise(logging.Filter):
+    """Drop records that come from inside pykrx — its util wrapper calls ``logging.info(args,
+    kwargs)`` on the ROOT logger (a tuple as the message), which crashes formatting on every
+    KRX request miss. Filtering by source path kills it before emit, without touching pykrx."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        return "/pykrx/" not in (record.pathname or "")
 
 
 def _resolve_level() -> int:
@@ -33,7 +75,9 @@ def setup_logging() -> None:
     """Install one stdout handler on the root logger at LOG_LEVEL; app + uvicorn follow it."""
     level = _resolve_level()
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(_DEBUG_FMT if level <= logging.DEBUG else _BASE_FMT, "%H:%M:%S"))
+    handler.setFormatter(_SafeFormatter(_DEBUG_FMT if level <= logging.DEBUG else _BASE_FMT, "%H:%M:%S"))
+    handler.addFilter(_DropNoise())
+    handler.setLevel(level)
     handler._vg = True  # type: ignore[attr-defined]  # mark so we install exactly once
 
     root = logging.getLogger()
@@ -52,8 +96,9 @@ def setup_logging() -> None:
     acc.handlers = []
     acc.setLevel(logging.WARNING)
     acc.propagate = True
-    # asyncio DEBUG is selector spam — floor it at INFO even under a global DEBUG.
-    logging.getLogger("asyncio").setLevel(max(level, logging.INFO))
+    # floor noisy libraries so a global DEBUG stays readable.
+    for name, floor in _LIB_FLOORS.items():
+        logging.getLogger(name).setLevel(max(level, floor))
     logger.info("logging configured: level=%s service=%s", logging.getLevelName(level), _PKG)
 
 
