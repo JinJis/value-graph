@@ -105,6 +105,11 @@ services:
       # Embeddings + dim come from .env (RAG_EMBEDDING_MODEL=gemini-embedding-2). The vector store
       # is pgvector (RAG_VECTOR_STORE=pgvector in .env) backed by the postgres service below.
       RAG_DATABASE_URL: "postgresql://rag:rag@postgres:5432/rag"
+      # gcp Vertex Ranking reranker (optional): drop a service-account JSON at ./secrets/gcp-sa.json,
+      # then in .env set RAG_RERANKER_BACKEND=gcp + RAG_GCP_PROJECT. Unused while reranker=none.
+      GOOGLE_APPLICATION_CREDENTIALS: "/secrets/gcp-sa.json"
+    volumes:
+      - ./secrets:/secrets:ro   # holds the gcp service-account JSON (gitignored)
     depends_on:
       postgres:
         condition: service_healthy

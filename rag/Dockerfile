@@ -12,10 +12,10 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-install-project --no-dev --extra pg
+RUN uv sync --frozen --no-install-project --no-dev --extra pg --extra gcp
 
 COPY rag ./rag
-RUN uv sync --frozen --no-dev --extra pg
+RUN uv sync --frozen --no-dev --extra pg --extra gcp
 
 EXPOSE 8002
 
