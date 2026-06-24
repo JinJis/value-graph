@@ -314,6 +314,17 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 /* tiny trust line at the foot of a widget */
 .bc-foot { flex: none; padding: 5px 10px; border-top: 1px solid var(--line-3); font-size: 9.5px; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* per-widget data-pipeline debug panel — source · tool · args that ↻ re-runs */
+.bc-debug { flex: none; border-top: 1px solid var(--line-3); font-size: 9.5px; color: var(--muted); }
+.bc-debug > summary { padding: 5px 10px; cursor: pointer; list-style: none; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.bc-debug > summary::-webkit-details-marker { display: none; }
+.bc-debug[open] > summary { color: var(--text-2); border-bottom: 1px solid var(--line-3); }
+.bc-debug-body { padding: 7px 10px; display: flex; flex-direction: column; gap: 4px; background: var(--panel-2); }
+.bc-debug-body > div { display: flex; gap: 6px; overflow-wrap: anywhere; line-height: 1.4; }
+.bc-debug-body .k { color: var(--muted); flex: none; min-width: 64px; text-transform: uppercase; letter-spacing: .03em; font-size: 8.5px; padding-top: 1px; }
+.bc-debug-note { color: var(--accent-fg); }
+.bc-debug-warn { color: var(--warn-fg, #b4690e); background: var(--warn-bg, #fff4e0); border-radius: 5px; padding: 4px 6px; }
 /* bare widget content fills the body */
 .bc-chartfill { flex: 1; min-height: 0; }
 .bc-tablewrap, .bc-narrwrap { flex: 1; min-height: 0; overflow: auto; }

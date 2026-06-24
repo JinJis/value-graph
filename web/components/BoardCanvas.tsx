@@ -346,9 +346,32 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                       {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} hideTitle />}
                       {kind === "text" && <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveSpec(it.id, { text: v })} />}
                     </div>
-                    {kind !== "text" && src && (
-                      <div className="bc-foot mono">{src}{asOf ? ` · as_of ${asOf}` : ""}</div>
-                    )}
+                    {kind !== "text" && (() => {
+                      // DEBUG: the widget's data pipeline — where the data came from, which tool,
+                      // and the exact args/query that ↻ re-runs to fetch the latest. Periodic
+                      // widgets MUST have a refreshable tool; flag it loudly if they don't.
+                      const tool = it.spec?.tool as string | undefined;
+                      const args = it.spec?.args as Record<string, unknown> | undefined;
+                      const argStr = args && Object.keys(args).length ? JSON.stringify(args) : null;
+                      return (
+                        <details className="bc-debug mono">
+                          <summary>🔧 {src || "출처?"}{tool ? ` · ${tool}` : " · 툴 없음"}{asOf ? ` · ${asOf}` : ""}</summary>
+                          <div className="bc-debug-body">
+                            <div><span className="k">출처</span>{src || "—"}</div>
+                            <div><span className="k">툴</span>{tool || "(refresh 불가 — 연결된 툴 없음)"}</div>
+                            <div><span className="k">검색·파라미터</span>{argStr || "—"}</div>
+                            <div><span className="k">주기성</span>{cad ? `${cadenceLabel(cad)} (${cad})` : "—"}{periodic ? " · 알림 가능" : " · 단발성"}</div>
+                            {asOf && <div><span className="k">as_of</span>{asOf}</div>}
+                            {periodic && !tool && (
+                              <div className="bc-debug-warn">⚠ 주기성으로 표시되지만 refresh할 툴이 없습니다 — 갱신/알림이 데이터를 못 가져옵니다.</div>
+                            )}
+                            <div className="bc-debug-note">
+                              {tool ? "↻ 새로고침은 위 툴·파라미터를 그대로 다시 실행해 최신 데이터를 가져옵니다." : ""}
+                            </div>
+                          </div>
+                        </details>
+                      );
+                    })()}
                   </div>
                 </div>
               );
