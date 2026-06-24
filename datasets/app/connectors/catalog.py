@@ -8,6 +8,7 @@ Each resource's ``path`` must map to a real registered route (enforced by a test
 from __future__ import annotations
 
 from app.connectors.manifest import (
+    Cadence,
     CATEGORIES,
     Category,
     ConnectorManifest,
@@ -462,6 +463,87 @@ _CATEGORY: dict[tuple[str, str], Category] = {
 }
 
 
+# --- periodicity (cadence) -------------------------------------------------
+# Central (connector_id, resource_name) → Cadence map. Like _CATEGORY, this is the SINGLE place
+# datasources are classified periodic vs one-shot, and it is enforced at load (a resource missing
+# here fails the import). The product gates the pin→alert flow on this: only `cadence.periodic`
+# tools can carry a notification bot. Rule of thumb — is there a discrete future event worth
+# pushing? Filing/earnings/13F/corp-action → event; price/technicals/daily-flow → daily/intraday;
+# rate/macro release → scheduled; news → streaming; a derived/computed snapshot or profile → one_shot.
+_CADENCE: dict[tuple[str, str], Cadence] = {
+    # SEC EDGAR (US)
+    ("sec_edgar", "company_facts"): Cadence.one_shot,
+    ("sec_edgar", "company_search"): Cadence.one_shot,
+    ("sec_edgar", "income_statements"): Cadence.event,
+    ("sec_edgar", "balance_sheets"): Cadence.event,
+    ("sec_edgar", "cash_flow_statements"): Cadence.event,
+    ("sec_edgar", "all_financials"): Cadence.event,
+    ("sec_edgar", "as_reported"): Cadence.event,
+    ("sec_edgar", "filings"): Cadence.event,
+    ("sec_edgar", "earnings"): Cadence.event,
+    ("sec_edgar", "insider_trades"): Cadence.event,
+    ("sec_edgar", "institutional_holdings"): Cadence.event,
+    ("sec_edgar", "index_funds"): Cadence.event,
+    ("sec_edgar", "gurus"): Cadence.event,
+    ("sec_edgar", "guru_trades"): Cadence.event,
+    ("sec_edgar", "guru_common"): Cadence.event,
+    ("sec_edgar", "metrics_snapshot"): Cadence.one_shot,
+    ("sec_edgar", "comparables"): Cadence.one_shot,
+    # Yahoo Finance
+    ("yahoo", "prices"): Cadence.daily,
+    ("yahoo", "price_snapshot"): Cadence.daily,
+    ("yahoo", "corporate_actions"): Cadence.event,
+    ("yahoo", "technical_indicators"): Cadence.daily,
+    ("yahoo", "asset_classes"): Cadence.one_shot,
+    ("yahoo", "sector_heatmap"): Cadence.one_shot,
+    ("yahoo", "commodities"): Cadence.one_shot,
+    ("yahoo", "semiconductor"): Cadence.one_shot,
+    ("yahoo", "themes"): Cadence.one_shot,
+    # FRED / DBnomics (US macro) — released on a calendar
+    ("fred", "interest_rates"): Cadence.scheduled,
+    ("fred", "interest_rates_snapshot"): Cadence.scheduled,
+    ("fred", "economic_indicators"): Cadence.scheduled,
+    ("fred", "macro_panel"): Cadence.scheduled,
+    # OpenDART (KR) — mirrors SEC
+    ("opendart", "company_facts"): Cadence.one_shot,
+    ("opendart", "company_search"): Cadence.one_shot,
+    ("opendart", "income_statements"): Cadence.event,
+    ("opendart", "balance_sheets"): Cadence.event,
+    ("opendart", "cash_flow_statements"): Cadence.event,
+    ("opendart", "all_financials"): Cadence.event,
+    ("opendart", "filings"): Cadence.event,
+    ("opendart", "earnings"): Cadence.event,
+    ("opendart", "insider_trades"): Cadence.event,
+    ("opendart", "metrics_snapshot"): Cadence.one_shot,
+    ("opendart", "comparables"): Cadence.one_shot,
+    # Bank of Korea ECOS (KR macro)
+    ("ecos", "interest_rates"): Cadence.scheduled,
+    ("ecos", "interest_rates_snapshot"): Cadence.scheduled,
+    # Google News — rolling feed
+    ("google_news", "news"): Cadence.streaming,
+    # FMP — analyst/earnings events
+    ("fmp", "consensus_estimates"): Cadence.event,
+    ("fmp", "earnings_calendar"): Cadence.event,
+    # KIS (KR realtime)
+    ("kis", "volume_rank"): Cadence.intraday,
+    ("kis", "investor_flow"): Cadence.daily,
+    ("kis", "fluctuation_rank"): Cadence.intraday,
+    ("kis", "market_cap_rank"): Cadence.intraday,
+    ("kis", "etf_nav"): Cadence.intraday,
+    # Ingestion store — derived snapshots are one-shot; period-indexed history is event-driven
+    ("datasets_store", "screener"): Cadence.one_shot,
+    ("datasets_store", "line_items"): Cadence.one_shot,
+    ("datasets_store", "quant_screen"): Cadence.one_shot,
+    ("datasets_store", "metrics_history"): Cadence.event,
+    ("datasets_store", "ir_materials"): Cadence.event,
+    ("datasets_store", "filing_search"): Cadence.one_shot,
+    ("datasets_store", "valuation"): Cadence.one_shot,
+    ("datasets_store", "backtest"): Cadence.one_shot,
+    # Document RAG — on-demand retrieval result (a snapshot of passages)
+    ("rag", "search"): Cadence.one_shot,
+}
+
+
 def _apply_categories() -> None:
     """Stamp each resource with its user-facing category. Raises if a resource has no mapping
     (forces every new tool to be categorized) or the map has a stale entry."""
@@ -478,7 +560,24 @@ def _apply_categories() -> None:
             r.category = _CATEGORY[(c.id, r.name)]
 
 
+def _apply_cadence() -> None:
+    """Stamp each resource with its periodicity class. Raises if a resource has no mapping (forces
+    every new tool to be classified) or the map has a stale entry — same contract as categories."""
+    actual = {(c.id, r.name) for c in CONNECTORS for r in c.resources}
+    missing = actual - set(_CADENCE)
+    stale = set(_CADENCE) - actual
+    if missing or stale:
+        raise RuntimeError(
+            f"Catalog cadence map out of sync — missing {sorted(missing)}, stale {sorted(stale)}. "
+            "Every catalog resource must have a _CADENCE entry (datasets/app/connectors/catalog.py)."
+        )
+    for c in CONNECTORS:
+        for r in c.resources:
+            r.cadence = _CADENCE[(c.id, r.name)]
+
+
 _apply_categories()
+_apply_cadence()
 
 
 def get_categories() -> list[dict]:

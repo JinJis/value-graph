@@ -90,3 +90,36 @@ export function freshnessFromAsOf(as_of?: string): string {
   if (isNaN(days)) return "gap";
   return days < 30 ? "fresh" : days < 90 ? "aging" : "stale";
 }
+
+// --- periodicity (cadence) -------------------------------------------------
+// Mirrors datasets Cadence: intraday|daily|event|scheduled|streaming = periodic; one_shot = not.
+// `cadence` rides on every pin spec (stamped from the catalog), so the dashboard can gate the
+// notification bot — only a periodic datasource can carry one. Source of truth is the catalog.
+export const CADENCE_LABEL: Record<string, string> = {
+  intraday: "실시간", daily: "일간", event: "공시·이벤트", scheduled: "정기 발표",
+  streaming: "뉴스 피드", one_shot: "단발성",
+};
+export const cadenceLabel = (c?: string | null): string => (c ? CADENCE_LABEL[c] ?? c : "");
+
+// A datasource (and so a pinned widget) is alertable iff it recurs. Unknown cadence (e.g. a pin
+// made before this concept existed) is treated as one-shot → no bell, until it refreshes.
+export function isPeriodic(spec: any): boolean {
+  const c = spec?.cadence as string | undefined;
+  return !!c && c !== "one_shot";
+}
+
+// Pick the natural alert trigger from DECLARED metadata (category + cadence) — not name-guessing.
+// Replaces the old triggerForSpec regex (keeps invariant #9: classification is data, not logic).
+export function triggerFromMeta(spec: any): TriggerType {
+  const cadence = spec?.cadence as string | undefined;
+  const category = spec?.category as string | undefined;
+  if (!cadence || cadence === "one_shot") return "digest";  // not alertable; harmless default
+  if (category === "market") return "price_threshold";
+  if (category === "news" || cadence === "streaming") return "filing_news";
+  if (category === "macro" || cadence === "scheduled") return "macro_indicator";
+  if (category === "fundamentals" || category === "valuation") return "earnings";
+  if (category === "filings" || category === "gurus") return "filing_news";
+  if (cadence === "daily" || cadence === "intraday") return "price_threshold";
+  if (cadence === "event") return "earnings";
+  return "digest";
+}

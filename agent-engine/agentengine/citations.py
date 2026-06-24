@@ -130,6 +130,19 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
 
 
 def _citations(tool: dict, result: dict) -> list[Citation]:
+    """Build the tool's citations and stamp each with the source's periodicity + category (from
+    the catalog tool dict) so the pin→alert flow can gate on it downstream."""
+    cites = _build_citations(tool, result)
+    cad, cat = tool.get("cadence"), tool.get("category")
+    for c in cites:
+        if c.cadence is None:
+            c.cadence = cad
+        if c.category is None:
+            c.category = cat
+    return cites
+
+
+def _build_citations(tool: dict, result: dict) -> list[Citation]:
     data = result.get("data")
     if "search" in tool["name"] or tool.get("connector") == "rag":
         rag = _rag_citations(tool, data)

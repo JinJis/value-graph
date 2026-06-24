@@ -24,7 +24,13 @@ from sqlalchemy import select
 from studioapi import channels as channels_mod
 from studioapi.db import SessionLocal
 from studioapi.deps import current_user, require_service
-from studioapi.models import ChannelConnection, NotificationAlert, NotificationDelivery, User
+from studioapi.models import (
+    ChannelConnection,
+    NotificationAlert,
+    NotificationDelivery,
+    PinnedArtifact,
+    User,
+)
 
 log = logging.getLogger("studioapi.alerts")
 
@@ -149,11 +155,35 @@ def compute_next_fire(schedule: dict | None, *, now: datetime | None = None) -> 
     return nxt
 
 
-def render_message(alert: NotificationAlert, *, now: datetime | None = None) -> dict:
+def _board_periodic_widgets(alert: NotificationAlert, db) -> list[tuple[str, str | None, str | None]]:
+    """The board's PERIODIC pinned widgets (cadence != one_shot) — one-shot values carry no
+    recurring update, so the root digest excludes them. Returns (title, source, as_of) tuples."""
+    if not alert.board_id:
+        return []
+    pins = db.execute(
+        select(PinnedArtifact).where(
+            PinnedArtifact.user_email == alert.user_email,
+            PinnedArtifact.board_id == alert.board_id,
+        )
+    ).scalars().all()
+    out: list[tuple[str, str | None, str | None]] = []
+    for p in pins:
+        try:
+            spec = json.loads(p.spec) if p.spec else {}
+        except (ValueError, TypeError):
+            spec = {}
+        cad = spec.get("cadence")
+        if cad and cad != "one_shot":
+            out.append((p.title or spec.get("title") or "위젯", spec.get("source"), spec.get("as_of")))
+    return out
+
+
+def render_message(alert: NotificationAlert, *, now: datetime | None = None, db=None) -> dict:
     """Build the sourced message for one fire: title/body/source/as_of/deeplink.
 
     Deterministic + facts-shaped. ``source_spec.deeplink`` (the dashboard board/widget the alert
-    came from) is preserved so the message links back to its evidence.
+    came from) is preserved so the message links back to its evidence. A board-scope ``digest``
+    summarizes the board's PERIODIC widgets (needs ``db``; one-shot widgets are excluded).
     """
     now = now or datetime.utcnow()
     params = json.loads(alert.params) if alert.params else {}
@@ -174,6 +204,25 @@ def render_message(alert: NotificationAlert, *, now: datetime | None = None) -> 
         title = f"🔔 {target} — 가격·밸류 임계치"
         body = f"설정한 임계치({thr}) 도달 여부를 감시합니다." if thr else "설정한 임계치 도달 여부를 감시합니다."
     else:  # digest
+        widgets = _board_periodic_widgets(alert, db) if (db is not None and alert.scope == "board") else []
+        if widgets:
+            lines = []
+            for w_title, w_src, w_asof in widgets[:12]:
+                bits = [f"• {w_title}"]
+                if w_src:
+                    bits.append(w_src)
+                if w_asof:
+                    bits.append(f"as_of {w_asof}")
+                lines.append(" · ".join(bits))
+            title = f"🔔 {alert.name} — 주기성 위젯 {len(widgets)}개 요약"
+            body = "이 보드의 주기성 위젯 요약입니다 (사실과 출처만 담았습니다):\n" + "\n".join(lines)
+            return {
+                "title": title,
+                "body": _factual_guard(body),
+                "source": "ValueGraph 대시보드",
+                "as_of": now.date().isoformat(),
+                "deeplink": spec.get("deeplink") or (f"/?board={alert.board_id}" if alert.board_id else f"/?alert={alert.id}"),
+            }
         title, body = f"🔔 {alert.name} — 정기 요약", f"{target} 관련 사실을 주기적으로 정리해 보냅니다."
 
     return {
@@ -190,7 +239,7 @@ def fire_alert(alert: NotificationAlert, db, *, now: datetime | None = None) -> 
     channel's server-side :class:`ChannelConnection` for credentials (missing → ``simulated``).
     Updates last/next_fire_at. Caller commits."""
     now = now or datetime.utcnow()
-    payload = render_message(alert, now=now)
+    payload = render_message(alert, now=now, db=db)
     kinds = json.loads(alert.channels or "[]") or []
     creds = {
         c.channel: json.loads(c.config or "{}")

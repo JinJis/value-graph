@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FreshnessDot } from "./ui";
+import { CadenceTag, FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
 import type { Citation } from "./SourceCard";
 
@@ -52,6 +52,8 @@ export type Artifact = {
   source?: string | null;
   as_of?: string | null;
   freshness?: string | null;
+  cadence?: string | null;   // intraday|daily|event|scheduled|streaming|one_shot — periodic ⇒ alertable
+  category?: string | null;  // market|fundamentals|valuation|filings|gurus|macro|news|…
   ticker?: string | null;
   has_gap?: boolean;
   tool?: string | null;
@@ -107,6 +109,7 @@ function TableArtifact(
       <div className="artifact-head">
         {!hideTitle && <span className="artifact-title">{a.title}</span>}
         <FreshnessDot f={a.freshness ?? undefined} />
+        {!hideTitle && <CadenceTag c={a.cadence} />}
         <span className="grow" />
         {onPin && (
           <button type="button" className="artifact-toggle" disabled={pinned}
@@ -151,6 +154,7 @@ function NarrativeArtifact(
       <div className="artifact-head">
         {!hideTitle && <span className="artifact-title">{a.title}</span>}
         <FreshnessDot f={a.freshness ?? undefined} />
+        {!hideTitle && <CadenceTag c={a.cadence} />}
         <span className="grow" />
         {onPin && (
           <button type="button" className="artifact-toggle" disabled={pinned}
@@ -355,6 +359,7 @@ export function ArtifactCard(
       <div className="artifact-head">
         {!hideTitle && <span className="artifact-title">{displayTitle}</span>}
         <FreshnessDot f={a.freshness ?? undefined} />
+        {!hideTitle && <CadenceTag c={a.cadence} />}
         {series.length > 0 && (
           <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>
             {table ? "📈 차트" : "⇄ 표로"}

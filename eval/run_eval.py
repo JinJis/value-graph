@@ -96,7 +96,7 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
     headers = {"X-Service-Token": SVC, "X-User-Email": USER, "Content-Type": "application/json"}
     code, raw = _request("POST", f"{STUDIO}/chat/stream",
                          {"messages": messages, "agent_id": agent_id}, headers)
-    tools, statuses, cites, ans, arts = [], [], [], [], []
+    tools, statuses, cites, ans, arts, cads = [], [], [], [], [], []
     refused = None
     for line in raw.decode("utf-8", "replace").splitlines():
         line = line.strip()
@@ -114,15 +114,19 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
         elif t == "citation":
             if ev.get("source"):
                 cites.append(ev["source"])
+            if ev.get("cadence"):
+                cads.append(ev["cadence"])
         elif t == "artifact":
             if ev.get("artifact"):
                 arts.append(ev["artifact"])
+                if ev["artifact"].get("cadence"):
+                    cads.append(ev["artifact"]["cadence"])
         elif t == "token":
             ans.append(ev.get("text", ""))
         elif t == "done":
             refused = ev.get("refused")
     return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
-            "artifacts": arts, "answer": "".join(ans).strip(), "refused": bool(refused)}
+            "artifacts": arts, "cadences": cads, "answer": "".join(ans).strip(), "refused": bool(refused)}
 
 
 def chat(question: str, agent_id: str) -> dict:
@@ -217,6 +221,13 @@ def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
         kinds = [a.get("kind") for a in arts]
         ok = bool(arts) if kind is True else (kind in kinds)
         out.append((f"emits artifact {kind if kind is not True else ''}".strip(), ok, f"artifacts={kinds}"))
+    if "expect_cadence" in checks:
+        # periodicity rides on provenance (citations/artifacts) → the pin→alert gate. `True` =
+        # any periodic (alertable) source present; a string = that exact cadence present.
+        want = checks["expect_cadence"]
+        cads = r.get("cadences") or []
+        ok = any(c and c != "one_shot" for c in cads) if want is True else (want in cads)
+        out.append((f"carries cadence {want if want is not True else 'periodic'}", ok, f"cadences={cads}"))
     if "answer_regex" in checks:
         rx = checks["answer_regex"]
         out.append((f"answer matches /{rx}/", bool(re.search(rx, r["answer"])), r["answer"][:80]))

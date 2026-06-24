@@ -55,6 +55,11 @@ class Citation(BaseModel):
     doc_type: str | None = None        # e.g. '10-K', 'news' (from RAG provenance)
     as_of: str | None = None           # ISO date the cited fact is as of
     freshness: str | None = None       # fresh | aging | stale (computed from as_of)
+    # periodicity of the source datasource (from the catalog) + its user-facing category.
+    # `cadence` gates the pin→alert flow: only a periodic source (cadence != one_shot) can carry
+    # a notification bot once pinned. Both ride along so they survive into the pinned widget spec.
+    cadence: str | None = None         # intraday|daily|event|scheduled|streaming|one_shot
+    category: str | None = None        # market|fundamentals|valuation|filings|gurus|macro|news|…
     snippet: str | None = None         # cited span / headline / computation — the preview body
     ticker: str | None = None
     page: str | None = None            # filing section / accession ref
@@ -236,6 +241,10 @@ class Artifact(BaseModel):
     url: str | None = None       # canonical link to the filing/source the figures came from
     tool: str | None = None      # the tool that produced it (lets a pinned card ↻ refresh)
     args: dict | None = None     # the tool args, so a pinned card can re-fetch (U3-03)
+    # periodicity + category of the producing datasource (from the catalog). `cadence` gates the
+    # pin→alert flow: a pinned chart/table can carry a notification bot iff cadence != one_shot.
+    cadence: str | None = None   # intraday|daily|event|scheduled|streaming|one_shot
+    category: str | None = None  # market|fundamentals|valuation|filings|gurus|macro|news|…
 
 
 class Step(BaseModel):

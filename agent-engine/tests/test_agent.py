@@ -1854,3 +1854,24 @@ async def test_refine_evidence_parses_brief_and_confidence(monkeypatch):
     assert "핵심" in brief
     assert scores[1] == {"confidence": "high", "why": "직접 공시"}
     assert 2 not in scores   # an invalid confidence value is dropped, never guessed
+
+
+def test_citations_and_artifacts_carry_cadence_and_category():
+    """The catalog tool dict carries periodicity (cadence) + category; both must ride onto every
+    citation/artifact so the pin→alert flow can gate on cadence (periodic ⇒ alertable)."""
+    tool = {"name": "yahoo__prices", "source": "Yahoo Finance", "connector": "yahoo",
+            "cadence": "daily", "category": "market"}
+    data = {"ticker": "AAPL", "prices": [
+        {"time": "2024-01-02", "open": 1, "high": 2, "low": 1, "close": 2, "volume": 10},
+        {"time": "2024-01-03", "open": 2, "high": 3, "low": 2, "close": 3, "volume": 12}]}
+    result = {"data": data}
+    cites = A._citations(tool, result)
+    assert cites and all(c.cadence == "daily" and c.category == "market" for c in cites)
+    arts = A._artifacts(tool, result)
+    assert arts and all(a.cadence == "daily" and a.category == "market" for a in arts)
+
+    # a one-shot source is stamped one_shot → no notification bot once pinned
+    tool2 = {"name": "sec_edgar__company_facts", "source": "SEC EDGAR", "connector": "sec_edgar",
+             "cadence": "one_shot", "category": "fundamentals"}
+    c2 = A._citations(tool2, {"data": {"ticker": "AAPL", "name": "Apple"}})
+    assert c2 and all(x.cadence == "one_shot" for x in c2)

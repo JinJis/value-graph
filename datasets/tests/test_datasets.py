@@ -2472,3 +2472,50 @@ async def test_phdata6_endpoint(monkeypatch):
 
 def test_phdata6_bad_interval_400():
     assert client.get("/technical-indicators?ticker=AAPL&interval=minute").status_code == 400
+
+
+# --- periodicity (cadence) classification ---------------------------------
+# Every datasource is classified periodic vs one-shot in the catalog. The product gates the
+# pin→alert flow on it: only a periodic source can carry a notification bot. The map is enforced
+# at import (a missing/stale entry raises), so importing the catalog already proves completeness —
+# these assertions pin down the contract + a few representative classifications.
+
+def test_every_resource_has_a_cadence():
+    from app.connectors.catalog import CONNECTORS
+
+    for c in CONNECTORS:
+        for r in c.resources:
+            assert r.cadence is not None, f"{c.id}.{r.name} has no cadence"
+
+
+def test_cadence_exposed_in_catalog_endpoint():
+    body = client.get("/catalog").json()
+    cadences = {
+        (con["id"], res["name"]): res.get("cadence")
+        for con in body["connectors"] for res in con["resources"]
+    }
+    assert cadences[("yahoo", "prices")] == "daily"
+    assert cadences[("sec_edgar", "filings")] == "event"
+    assert cadences[("fred", "interest_rates")] == "scheduled"
+    assert cadences[("google_news", "news")] == "streaming"
+    assert cadences[("sec_edgar", "company_facts")] == "one_shot"
+
+
+def test_periodic_vs_one_shot_partition():
+    from app.connectors.catalog import CONNECTORS
+    from app.connectors.manifest import Cadence
+
+    periodic, one_shot = set(), set()
+    for c in CONNECTORS:
+        for r in c.resources:
+            (periodic if r.cadence.periodic else one_shot).add((c.id, r.name))
+
+    # representative periodic (alertable) sources
+    assert ("yahoo", "prices") in periodic            # daily price series → price threshold
+    assert ("opendart", "filings") in periodic        # KR disclosures → new-filing alert
+    assert ("kis", "volume_rank") in periodic         # realtime ranking
+    # representative one-shot (a value you pin and glance at — no bell)
+    assert ("datasets_store", "valuation") in one_shot
+    assert ("datasets_store", "backtest") in one_shot
+    assert ("sec_edgar", "comparables") in one_shot
+    assert Cadence.one_shot.periodic is False and Cadence.daily.periodic is True

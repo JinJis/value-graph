@@ -56,6 +56,16 @@ SCENARIOS = [
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
     {
+        # Periodicity: a price series is a PERIODIC (daily) datasource, so its provenance carries
+        # cadence=daily — the gate the dashboard uses to allow a notification bot on the pinned widget.
+        "name": "Periodicity rides on provenance (prices = daily)",
+        "agent": {"name": "Eval Market", "model": "gemini", "data_sources": ["yahoo", "google_news"]},
+        "question": "AAPL 최근 주가 흐름을 차트로 보여줘.",
+        "criteria": "AAPL 최근 종가 추이를 Yahoo Finance 출처로 제시하고, 가격 시계열(주기성 데이터)을 근거로 삼을 것.",
+        "checks": {"expect_connector": "yahoo__", "expect_cite": "Yahoo Finance",
+                   "expect_cadence": "daily", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Corporate actions → dividends & splits",
         "agent": {"name": "Eval Market", "model": "gemini", "data_sources": ["yahoo", "google_news"]},
         "question": "애플의 최근 배당 내역과 주식분할 이력을 알려줘.",

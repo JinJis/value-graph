@@ -213,3 +213,31 @@ def test_templates_and_from_template(monkeypatch):
     assert r2.status_code == 200 and r2.json()["created"] == 0
     assert len(client.get(f"/board?board_id={board}", headers=_hdr(email)).json()["pinned"]) == 6
     assert client.post("/board/from-template", headers=_hdr(email), json={"template_id": "nope"}).status_code == 404
+
+
+@respx.mock
+def test_board_digest_summarizes_periodic_widgets_only(monkeypatch):
+    """The root dashboard alert (scope=board, digest) summarizes the board's PERIODIC widgets and
+    excludes one-shot values — the periodicity gate carried on each pin's spec.cadence."""
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    email = "digest@u.com"
+    bid = client.post("/boards", headers=_hdr(email), json={"name": "거시 보드"}).json()["id"]
+    # a periodic widget (scheduled macro release) + a one-shot value (DCF valuation)
+    client.post("/board", headers=_hdr(email), json={
+        "spec": {"kind": "timeseries", "title": "미 기준금리", "source": "FRED",
+                 "as_of": "2024-03-01", "cadence": "scheduled", "category": "macro"},
+        "board_ids": [bid]})
+    client.post("/board", headers=_hdr(email), json={
+        "spec": {"kind": "kpi", "title": "밸류에이션 DCF", "source": "재무제표 기반 모델",
+                 "as_of": "2024-02-01", "cadence": "one_shot", "category": "valuation"},
+        "board_ids": [bid]})
+    aid = client.post("/alerts", headers=_hdr(email), json={
+        "name": "보드 요약", "scope": "board", "board_id": bid, "trigger_type": "digest",
+        "schedule": {"freq": "weekly", "time": "08:00"}, "channels": ["telegram"]}).json()["id"]
+    fired = client.post(f"/alerts/{aid}/fire", headers=_hdr(email))
+    assert fired.status_code == 200, fired.text
+    body = fired.json()["deliveries"][0]["payload"]["body"]
+    assert "미 기준금리" in body          # periodic widget IS summarized
+    assert "FRED" in body                  # with its source
+    assert "밸류에이션 DCF" not in body    # one-shot value is excluded from the digest

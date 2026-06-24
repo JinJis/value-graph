@@ -48,6 +48,19 @@ def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, tic
 # Chartable tool results → a typed artifact. Pure data-shaping of a known API shape
 # (like _citations) — NOT reasoning; which tools to call is still the model's job.
 def _artifacts(tool: dict, result: dict) -> list[Artifact]:
+    """Build the tool's artifacts and stamp each with the source's periodicity + category (from
+    the catalog tool dict) so a pinned chart/table can gate its notification-bot affordance."""
+    arts = _build_artifacts(tool, result)
+    cad, cat = tool.get("cadence"), tool.get("category")
+    for a in arts:
+        if a.cadence is None:
+            a.cadence = cad
+        if a.category is None:
+            a.category = cat
+    return arts
+
+
+def _build_artifacts(tool: dict, result: dict) -> list[Artifact]:
     data = result.get("data")
     if not isinstance(data, dict):
         return []

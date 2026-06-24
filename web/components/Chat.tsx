@@ -105,6 +105,86 @@ function SubAgentCards({ subs }: { subs: SubAgent[] }) {
   );
 }
 
+// Evidence for one message = the sources its answer actually used (else all consulted).
+function evidenceOf(m: Msg): Citation[] {
+  const cites = m.citations ?? [];
+  if (m.used && m.used.length) return cites.filter((c) => c.index != null && m.used!.includes(c.index));
+  return cites;
+}
+
+// RIGHT CONTEXT PANEL: the live "근거 패널" — as an answer streams, its charts/tables and
+// sourced evidence land here in real time (not stacked below the prose). Clicking any past
+// answer re-focuses the panel on that turn's context (`msg` = the focused message).
+function ContextPanel(
+  { msg, streaming, onEvidence, onPinArtifact, onPinCitation }:
+  {
+    msg: Msg | null; streaming: boolean;
+    onEvidence: (c: Citation) => void;
+    onPinArtifact: (a: Artifact) => void;
+    onPinCitation: (c: Citation) => void;
+  },
+) {
+  const arts = msg?.artifacts ?? [];
+  const cites = msg?.citations ?? [];
+  const used = msg ? evidenceOf(msg) : [];
+  const usedKeys = new Set(used.map((c) => `${c.source}|${c.url}`));
+  // every consulted source the answer DIDN'T directly cite — kept in its own fold so nothing
+  // "disappears" once the answer settles.
+  const others = cites.filter((c) => !usedKeys.has(`${c.source}|${c.url}`));
+  const tools = uniqueTools(msg?.tools);
+  const hasAny = arts.length || cites.length || tools.length;
+  return (
+    <aside className="ctxpane">
+      <div className="ctxpane-head">
+        <span className="ctx-title">근거 패널</span>
+        {streaming && <span className="ctx-live"><span className="tl-spin" />수집 중</span>}
+      </div>
+      {/* trust brand, always pinned: raw data + sources only, never predictions/advice */}
+      <span className="live-label">원자료와 출처만 보여줘요 — 예측·매매 의견은 제공하지 않습니다.</span>
+      {!hasAny ? (
+        <div className="ctx-empty">
+          {streaming
+            ? "답변을 작성하며 차트·표·출처를 모으고 있어요…"
+            : "답변을 누르면 그 답에 쓰인 차트·표·출처가 여기에 모여요."}
+        </div>
+      ) : (
+        <>
+          {arts.length > 0 && (
+            <div className="ctx-section">
+              <div className="ctx-label">차트·표 {arts.length}</div>
+              <div className="artifacts">
+                {arts.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={onPinArtifact} onEvidence={onEvidence} />)}
+              </div>
+            </div>
+          )}
+          {used.length > 0 && (
+            <div className="ctx-section">
+              <div className="ctx-label">답변에 사용된 출처 {used.length}</div>
+              <div className="ctx-cards">
+                {used.map((c, j) => <SourceCard key={`u${j}`} c={c} onExpand={onEvidence} onPin={onPinCitation} />)}
+              </div>
+            </div>
+          )}
+          {others.length > 0 && (
+            <details className="ctx-section ctx-more">
+              <summary className="ctx-label">참고한 모든 출처 {cites.length} · 답변 외 {others.length}</summary>
+              <div className="ctx-cards">
+                {others.map((c, j) => <SourceCard key={`o${j}`} c={c} onExpand={onEvidence} onPin={onPinCitation} />)}
+              </div>
+            </details>
+          )}
+          {tools.length > 0 && (
+            <details className="ctx-section ctx-more">
+              <summary className="ctx-label">훑어본 도구 {tools.length}개</summary>
+              {tools.map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
+            </details>
+          )}
+        </>
+      )}
+    </aside>
+  );
+}
+
 const EXAMPLES = [
   "삼성전자 최근 실적 알려줘",
   "AAPL 최근 주가 흐름",
@@ -139,6 +219,9 @@ export default function Chat({ name }: { name: string }) {
   const [pinTarget, setPinTarget] = useState<any | null>(null);  // asset awaiting a board-picker pin
   const [onboarded, setOnboarded] = useState<boolean | null>(null);  // null = checking; false = show onboarding
   const [viewer, setViewer] = useState<Citation | null>(null);  // expanded source viewer
+  // RIGHT CONTEXT PANEL: which assistant turn's context is pinned in the panel. null = follow
+  // the latest answer live (so a streaming turn's assets fill the panel as they arrive).
+  const [focusIdx, setFocusIdx] = useState<number | null>(null);
   // chat session/history — persisted in studio-api; resume a past conversation.
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [convs, setConvs] = useState<{ id: string; title: string }[]>([]);
@@ -152,6 +235,7 @@ export default function Chat({ name }: { name: string }) {
   async function openConversation(id: string) {
     viewConvRef.current = id;   // claim the view first so any other stream stops rendering
     setConversationId(id);
+    setFocusIdx(null);          // panel follows the latest answer of the opened conversation
     setView("explore");
     setBusy(false);
     try {
@@ -175,6 +259,7 @@ export default function Chat({ name }: { name: string }) {
     setMessages([]); setConversationId(null); setInput("");
     setView("explore");
     setBusy(false);
+    setFocusIdx(null);
   }
 
   // Pin anything (chart/table artifact, source card) → open the board picker (choose board[s]).
@@ -293,6 +378,9 @@ export default function Chat({ name }: { name: string }) {
         const cite: Citation = {
           tool: ev.tool, source: ev.source, url: ev.url, index: ev.index, kind: ev.kind,
           doc_type: ev.doc_type, as_of: ev.as_of, freshness: ev.freshness,
+          // periodicity + category of the source datasource — rides along so the pinned widget
+          // knows whether it can carry a notification bot (cadence != one_shot).
+          cadence: ev.cadence, category: ev.category,
           snippet: ev.snippet, ticker: ev.ticker, page: ev.page,
           // PH-PROV2: carry the extracted table + the highlighted-filing screenshot URL,
           // else the Live Context / source card can never show the visual evidence.
@@ -311,6 +399,7 @@ export default function Chat({ name }: { name: string }) {
           a.citations = ev.citations.map((c: any) => ({
             tool: c.tool, source: c.source, url: c.url, index: c.index, kind: c.kind,
             doc_type: c.doc_type, as_of: c.as_of, freshness: c.freshness,
+            cadence: c.cadence, category: c.category,
             snippet: c.snippet, ticker: c.ticker, page: c.page,
             table: c.table, evidence_image_url: c.evidence_image_url, used: c.used,
           }));
@@ -374,6 +463,7 @@ export default function Chat({ name }: { name: string }) {
     setMessages([...history, { role: "assistant", content: "", tools: [], citations: [] }]);
     setInput("");
     setBusy(true);
+    setFocusIdx(null);  // panel follows the new answer as its assets stream in
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -419,19 +509,23 @@ export default function Chat({ name }: { name: string }) {
     else if (!deletedId) setAgentId(saved.id);
   }
 
-  // Evidence for one message = the sources its answer actually used (else all consulted).
-  const evidenceOf = (m: Msg): Citation[] => {
-    const cites = m.citations ?? [];
-    if (m.used && m.used.length) return cites.filter((c) => c.index != null && m.used!.includes(c.index));
-    return cites;
-  };
+  // RIGHT CONTEXT PANEL focus: a pinned turn (focusIdx) wins; otherwise the panel tracks the
+  // latest assistant answer so a live stream's assets fill it. `panelStreaming` is true only
+  // while that latest answer is still generating.
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") { lastAssistantIdx = i; break; }
+  }
+  const panelIdx = focusIdx != null && messages[focusIdx]?.role === "assistant" ? focusIdx : lastAssistantIdx;
+  const panelMsg = panelIdx >= 0 ? messages[panelIdx] : null;
+  const panelStreaming = busy && panelIdx === messages.length - 1;
 
   return (
     <>
     {onboarded === false && (
       <Onboarding onDone={() => { setOnboarded(true); setView("dashboard"); loadHandles(); }} />
     )}
-    <div className="shell no-right">
+    <div className={`shell ${view === "explore" ? "with-ctx" : "no-right"}`}>
       <nav className="rail">
         <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">ValueGraph</span></div>
         <button className="rail-new" onClick={newChat}>
@@ -512,7 +606,7 @@ export default function Chat({ name }: { name: string }) {
               )}
 
               {messages.map((m, i) => (
-                <div key={i} className={`msg ${m.role}`}>
+                <div key={i} className={`msg ${m.role} ${m.role === "assistant" && panelIdx === i ? "focused" : ""}`}>
                   {m.role === "assistant" && (m.thinking?.length || 0) > 0 && (
                     busy && i === messages.length - 1
                       ? <ThinkingLive steps={m.thinking!} />
@@ -524,13 +618,39 @@ export default function Chat({ name }: { name: string }) {
                   {m.role === "assistant" && (m.subagents?.length || 0) > 0 && (
                     <SubAgentCards subs={m.subagents!} />
                   )}
-                  <div className="bubble">
-                    {m.content
-                      ? (m.role === "assistant"
+                  {m.role === "assistant" ? (
+                    // Click the answer to pin its evidence in the right context panel.
+                    <div
+                      className="answer-focusable"
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={panelIdx === i}
+                      onClick={() => setFocusIdx(i)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setFocusIdx(i); } }}
+                    >
+                      <div className="bubble">
+                        {m.content
                           ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown></div>
-                          : m.content)
-                      : (m.role === "assistant" && busy && !(m.thinking?.length) ? "…" : "")}
-                  </div>
+                          : (busy && !(m.thinking?.length) ? "…" : "")}
+                      </div>
+                      {(() => {
+                        const nArt = m.artifacts?.length || 0;
+                        const nUsed = evidenceOf(m).length;
+                        const nTool = uniqueTools(m.tools).length;
+                        if (!(nArt || nUsed || nTool)) return null;
+                        return (
+                          <div className="ctx-hint">
+                            {nArt > 0 && <span className="ch-stat">📊 차트·표 {nArt}</span>}
+                            {nUsed > 0 && <span className="ch-stat">🔗 근거 {nUsed}</span>}
+                            {nTool > 0 && <span className="ch-stat">🔧 도구 {nTool}</span>}
+                            <span className="ch-go">{panelIdx === i ? "근거 패널에 표시 중" : "근거 패널에서 보기 →"}</span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="bubble">{m.content}</div>
+                  )}
                   {m.role === "assistant" && m.clarify && (
                     <ClarifyChips clarify={m.clarify} disabled={busy}
                       onSubmit={(labels) => send(`${m.clarify!.origin} — ${labels.join(", ")}`)} />
@@ -538,45 +658,6 @@ export default function Chat({ name }: { name: string }) {
                   {m.role === "assistant" && m.refused && (
                     <GuardrailLabel>매수/매도·목표가·전망·점수는 제공하지 않아요 — 가드레일에서 자동 거절됩니다.</GuardrailLabel>
                   )}
-                  {m.role === "assistant" && (m.artifacts?.length || 0) > 0 && (
-                    <div className="artifacts">
-                      {m.artifacts?.map((a, j) => <ArtifactCard key={`a${j}`} a={a} onPin={pinArtifact} onEvidence={setViewer} />)}
-                    </div>
-                  )}
-                  {m.role === "assistant" && (() => {
-                    const cites = m.citations ?? [];
-                    const used = evidenceOf(m);
-                    const usedKeys = new Set(used.map((c) => `${c.source}|${c.url}`));
-                    // every consulted source the answer DIDN'T directly cite (so nothing "disappears"
-                    // when the answer finishes — the full sweep stays in its own section).
-                    const others = cites.filter((c) => !usedKeys.has(`${c.source}|${c.url}`));
-                    return (
-                      <>
-                        {used.length > 0 && (
-                          <div className="answer-sources">
-                            <div className="as-label">답변에 사용된 출처 {used.length}</div>
-                            <div className="as-cards">
-                              {used.map((c, j) => <SourceCard key={`u${j}`} c={c} onExpand={setViewer} onPin={pinCitation} />)}
-                            </div>
-                          </div>
-                        )}
-                        {others.length > 0 && (
-                          <details className="answer-sources all-sources">
-                            <summary className="as-label">참고한 모든 출처 {cites.length} · 답변 외 {others.length}</summary>
-                            <div className="as-cards">
-                              {others.map((c, j) => <SourceCard key={`o${j}`} c={c} onExpand={setViewer} onPin={pinCitation} />)}
-                            </div>
-                          </details>
-                        )}
-                        {(m.tools?.length || 0) > 0 && (
-                          <details className="sources">
-                            <summary>훑어본 도구 {uniqueTools(m.tools).length}개</summary>
-                            {uniqueTools(m.tools).map((t, j) => <div key={`t${j}`} className="tool">🔧 {t.label || t.name}</div>)}
-                          </details>
-                        )}
-                      </>
-                    );
-                  })()}
                   {m.role === "assistant" && (m.suggestions?.length || 0) > 0 && (
                     <div className="followups">
                       <div className="fu-label">이어서 더 파고들기</div>
@@ -637,6 +718,16 @@ export default function Chat({ name }: { name: string }) {
           </>
         )}
       </div>
+
+      {view === "explore" && (
+        <ContextPanel
+          msg={panelMsg}
+          streaming={panelStreaming}
+          onEvidence={setViewer}
+          onPinArtifact={pinArtifact}
+          onPinCitation={pinCitation}
+        />
+      )}
 
       {builder.open && (
         <AgentBuilder

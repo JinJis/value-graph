@@ -10,7 +10,7 @@
 // redistribution), and surrounding text is drawn as skeleton lines.
 
 import { useState } from "react";
-import { FreshnessDot, FRESH_LABEL, TrustLegend } from "./ui";
+import { CadenceTag, FreshnessDot, FRESH_LABEL, TrustLegend } from "./ui";
 
 export { FreshnessDot, TrustLegend };
 
@@ -23,6 +23,8 @@ export type Citation = {
   doc_type?: string;
   as_of?: string;
   freshness?: string; // fresh | aging | stale | gap
+  cadence?: string;   // intraday|daily|event|scheduled|streaming|one_shot — periodic ⇒ alertable
+  category?: string;  // market|fundamentals|valuation|filings|gurus|macro|news|…
   snippet?: string;
   ticker?: string;
   page?: string;
@@ -126,6 +128,7 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
     <div className="sp-foot mono">
       <FreshnessDot f={c.freshness} />
       <span>{shape === "web" ? "맥락정보" : c.as_of ? `as_of ${c.as_of}` : (fresh ?? "출처")}</span>
+      <CadenceTag c={c.cadence} />
       <ConfBadge c={c} />
       {open}
     </div>

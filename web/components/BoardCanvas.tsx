@@ -11,7 +11,7 @@ import { SourceCard, type Citation } from "./SourceCard";
 import AlertSheet, { type AlertDraft } from "./AlertSheet";
 import WidgetGallery, { type AddedWidget } from "./WidgetGallery";
 import { Button, FreshnessDot } from "./ui";
-import { ChannelStatus, TriggerType } from "@/lib/alerts";
+import { ChannelStatus, cadenceLabel, isPeriodic, triggerFromMeta } from "@/lib/alerts";
 
 // react-grid-layout drives the placement: a true column grid with collision resolution,
 // auto-packing (no gaps), a magnetic drop placeholder, smooth snap animation, and resize reflow.
@@ -50,15 +50,6 @@ function toLayout(items: Item[]): Layout[] {
     cx += d.w; rowH = Math.max(rowH, d.h);
     return node;
   });
-}
-
-function triggerForSpec(spec: any): TriggerType {
-  const s = `${spec?.tool || ""} ${spec?.source || ""}`.toLowerCase();
-  if (/fred|ecos|bls|cpi|macro/.test(s)) return "macro_indicator";
-  if (/news/.test(s) || spec?.kind === "feed") return "filing_news";
-  if (/dart|sec|edgar|financ|income/.test(s)) return "earnings";
-  if (/price|yahoo|kis/.test(s)) return "price_threshold";
-  return "digest";
 }
 
 function TextBlock({ value, onSave }: { value: string; onSave: (v: string) => void }) {
@@ -237,14 +228,20 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
       if (r.ok) { const d = await r.json(); setActive(d.board_id); await loadItems(d.board_id); await refreshAll(); }
     } finally { setApplying(false); }
   }
+  // Root alert (step 5): a single board DIGEST that periodically summarizes the board's periodic
+  // widgets (one-shot widgets are excluded server-side when the digest renders).
   function openBoardAlert() {
-    setAlertDraft({ scope: "board", board_id: active, source_spec: { deeplink: `/?board=${active}` } });
+    setAlertDraft({
+      scope: "board", board_id: active, trigger_type: "digest",
+      name: `${activeBoard?.name ?? "대시보드"} · 주기성 위젯 요약`,
+      source_spec: { deeplink: `/?board=${active}` },
+    });
   }
   function openWidgetAlert(it: Item) {
     const target = it.spec?.args?.ticker || it.spec?.ticker || it.spec?.title;
     setAlertDraft({
       scope: "widget", board_id: active, pin_id: it.id, name: it.spec?.title,
-      trigger_type: triggerForSpec(it.spec), params: { target },
+      trigger_type: triggerFromMeta(it.spec), params: { target },
       source_spec: { tool: it.spec?.tool, args: it.spec?.args, source: it.spec?.source, deeplink: `/?board=${active}&widget=${it.id}` },
     });
   }
@@ -254,7 +251,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     if (w.withAlert && w.pinId) {
       setAlertDraft({
         scope: "widget", board_id: active, pin_id: w.pinId, name: w.spec?.title,
-        trigger_type: triggerForSpec(w.spec), params: { target: w.spec?.args?.ticker || w.spec?.title },
+        trigger_type: triggerFromMeta(w.spec), params: { target: w.spec?.args?.ticker || w.spec?.title },
         source_spec: { tool: w.spec?.tool, args: w.spec?.args, source: w.spec?.source, deeplink: `/?board=${active}&widget=${w.pinId}` },
       });
     }
@@ -285,7 +282,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
         <span className="grow" />
         {active && (
           <>
-            <button className="dash-bell" onClick={openBoardAlert} title="이 보드 전체 알림">🔔 보드 알림</button>
+            <button className="dash-bell" onClick={openBoardAlert} title="이 보드의 주기성 위젯을 한 번에 요약 — 정기 알림">🔔 주기성 위젯 요약</button>
             <Button variant="ghost" size="sm" onClick={() => alert("공유 링크는 곧 제공됩니다.")}>↗ 공유</Button>
             <Button size="sm" onClick={() => setGallery(true)}>＋ 위젯</Button>
           </>
@@ -335,6 +332,10 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
               const kind = kindOf(it.spec);
               const src = it.spec?.source as string | undefined;
               const asOf = it.spec?.as_of as string | undefined;
+              // a widget is alertable iff its datasource recurs (cadence != one_shot). Text memos
+              // are never datasource-backed → no periodicity, no bell.
+              const periodic = kind !== "text" && isPeriodic(it.spec);
+              const cad = it.spec?.cadence as string | undefined;
               return (
                 <div key={it.id} className="bc-item">
                   <div className="bc-card">
@@ -343,9 +344,15 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                       <InlineEdit className="bc-title" value={it.spec?.title || ""}
                         placeholder={kind === "text" ? "메모 제목" : "제목"} onSave={(v) => saveSpec(it.id, { title: v })} />
                       {kind === "artifact" && <FreshnessDot f={it.spec?.freshness ?? undefined} />}
+                      {kind !== "text" && cad && (
+                        <span className={`bc-cadence ${periodic ? "periodic" : "oneshot"}`}
+                          title={periodic ? "주기성 데이터 — 알림봇 설정 가능" : "단발성 데이터 — 값으로 표시 (알림 없음)"}>
+                          {periodic ? `↻ ${cadenceLabel(cad)}` : "단발성"}
+                        </span>
+                      )}
                       <span className="grow" />
-                      {kind !== "text" && (
-                        <button className="bc-btn" title="이 위젯에 알림" onClick={() => openWidgetAlert(it)}>🔔</button>
+                      {periodic && (
+                        <button className="bc-btn" title="이 위젯에 알림 — 주기성 데이터" onClick={() => openWidgetAlert(it)}>🔔</button>
                       )}
                       {kind === "artifact" && it.spec?.tool && (
                         <button className="bc-btn" title="새로고침" onClick={() => refreshItem(it.id)}>↻</button>

@@ -129,7 +129,13 @@ and what the agent engine resolves tools from — so REST, MCP, and the agent al
    with Gemini (and, going forward, multi-agent flows) — never hand-rolled keyword/heuristic rules.** The
    `stub` planner's keyword routing is a dev/CI fallback only, not the product's intelligence.
 2. **Provenance / trust envelope everywhere** — every datum, chunk, and (eventually) agent output
-   carries `source` + `as_of` + `freshness` (+ `confidence` where derivable). No number without a source.
+   carries `source` + `as_of` + `freshness` + **`cadence`** (+ `confidence` where derivable). No number
+   without a source. **Cadence** is the datasource's periodicity, declared centrally in the catalog
+   (`_CADENCE` map, enforced at load like `_CATEGORY`): `intraday`/`daily`/`event`/`scheduled`/`streaming`
+   are **periodic**, `one_shot` is not. It rides the whole chain (catalog → agent-engine stamps it on
+   citations/artifacts → the pinned widget `spec`) and **gates the pin→alert flow: only a periodic
+   datasource can carry a notification bot once pinned.** One-shot data is a value you pin and glance at.
+   The dashboard's root alert (`scope=board`, `digest`) summarizes a board's *periodic* widgets only.
 3. **Platform-managed keys + metering/billing** → a **per-connector license / redistribution policy is
    mandatory** (SEC/DART/FRED redistribution-safe; Yahoo/news restricted → BYO-key).
 4. **One router, one tenancy model** — don't fork the LLM router or auth across services.
