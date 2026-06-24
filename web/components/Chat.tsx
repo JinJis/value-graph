@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import AgentBuilder, { Agent, Category } from "./AgentBuilder";
 import BoardCanvas from "./BoardCanvas";
 import BotHome from "./BotHome";
@@ -116,12 +116,13 @@ function evidenceOf(m: Msg): Citation[] {
 // sourced evidence land here in real time (not stacked below the prose). Clicking any past
 // answer re-focuses the panel on that turn's context (`msg` = the focused message).
 function ContextPanel(
-  { msg, streaming, onEvidence, onPinArtifact, onPinCitation }:
+  { msg, streaming, onEvidence, onPinArtifact, onPinCitation, onResizeStart }:
   {
     msg: Msg | null; streaming: boolean;
     onEvidence: (c: Citation) => void;
     onPinArtifact: (a: Artifact) => void;
     onPinCitation: (c: Citation) => void;
+    onResizeStart: (e: ReactMouseEvent) => void;
   },
 ) {
   const arts = msg?.artifacts ?? [];
@@ -135,6 +136,8 @@ function ContextPanel(
   const hasAny = arts.length || cites.length || tools.length;
   return (
     <aside className="ctxpane">
+      {/* drag the left edge to resize the panel */}
+      <div className="ctx-resize" onMouseDown={onResizeStart} title="드래그해서 패널 너비 조절" aria-hidden />
       <div className="ctxpane-head">
         <span className="ctx-title">근거 패널</span>
         {streaming && <span className="ctx-live"><span className="tl-spin" />수집 중</span>}
@@ -222,6 +225,25 @@ export default function Chat({ name }: { name: string }) {
   // RIGHT CONTEXT PANEL: which assistant turn's context is pinned in the panel. null = follow
   // the latest answer live (so a streaming turn's assets fill the panel as they arrive).
   const [focusIdx, setFocusIdx] = useState<number | null>(null);
+  // RIGHT CONTEXT PANEL width (px) — drag the panel's left edge to resize; clamped to a sane range.
+  const [ctxWidth, setCtxWidth] = useState(420);
+  function startCtxResize(e: ReactMouseEvent) {
+    e.preventDefault();
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const onMove = (ev: globalThis.MouseEvent) => {
+      // panel hugs the right edge, so its width = viewport width − cursor X
+      setCtxWidth(Math.max(320, Math.min(820, window.innerWidth - ev.clientX)));
+    };
+    const onUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
   // chat session/history — persisted in studio-api; resume a past conversation.
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [convs, setConvs] = useState<{ id: string; title: string }[]>([]);
@@ -525,7 +547,8 @@ export default function Chat({ name }: { name: string }) {
     {onboarded === false && (
       <Onboarding onDone={() => { setOnboarded(true); setView("dashboard"); loadHandles(); }} />
     )}
-    <div className={`shell ${view === "explore" ? "with-ctx" : "no-right"}`}>
+    <div className={`shell ${view === "explore" ? "with-ctx" : "no-right"}`}
+      style={view === "explore" ? { gridTemplateColumns: `210px minmax(0,1fr) ${ctxWidth}px` } : undefined}>
       <nav className="rail">
         <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">ValueGraph</span></div>
         <button className="rail-new" onClick={newChat}>
@@ -726,6 +749,7 @@ export default function Chat({ name }: { name: string }) {
           onEvidence={setViewer}
           onPinArtifact={pinArtifact}
           onPinCitation={pinCitation}
+          onResizeStart={startCtxResize}
         />
       )}
 
