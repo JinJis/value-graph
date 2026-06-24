@@ -13,15 +13,18 @@ the message is enriched live).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from studioapi import channels as channels_mod
+from studioapi.config import settings
 from studioapi.db import SessionLocal
 from studioapi.deps import current_user, require_service
 from studioapi.models import (
@@ -155,9 +158,9 @@ def compute_next_fire(schedule: dict | None, *, now: datetime | None = None) -> 
     return nxt
 
 
-def _board_periodic_widgets(alert: NotificationAlert, db) -> list[tuple[str, str | None, str | None]]:
-    """The board's PERIODIC pinned widgets (cadence != one_shot) — one-shot values carry no
-    recurring update, so the root digest excludes them. Returns (title, source, as_of) tuples."""
+def _board_periodic_specs(alert: NotificationAlert, db) -> list[dict]:
+    """The board's PERIODIC pinned-widget specs (cadence != one_shot) — one-shot values carry no
+    recurring update, so the root digest excludes them. Returns the JSON specs (tool/args/source…)."""
     if not alert.board_id:
         return []
     pins = db.execute(
@@ -166,24 +169,104 @@ def _board_periodic_widgets(alert: NotificationAlert, db) -> list[tuple[str, str
             PinnedArtifact.board_id == alert.board_id,
         )
     ).scalars().all()
-    out: list[tuple[str, str | None, str | None]] = []
+    out: list[dict] = []
     for p in pins:
         try:
             spec = json.loads(p.spec) if p.spec else {}
         except (ValueError, TypeError):
-            spec = {}
+            continue
         cad = spec.get("cadence")
         if cad and cad != "one_shot":
-            out.append((p.title or spec.get("title") or "위젯", spec.get("source"), spec.get("as_of")))
+            spec.setdefault("title", p.title)
+            out.append(spec)
     return out
 
 
-def render_message(alert: NotificationAlert, *, now: datetime | None = None, db=None) -> dict:
+def _fetch_artifact(tool: str | None, args: dict | None, api_key: str | None,
+                    title: str | None = None) -> dict | None:
+    """Re-run a widget's tool through the agent-engine refresh endpoint → a FRESH artifact dict —
+    the exact path the dashboard '↻' uses — authenticated with the user's tenant key (so entitlement
+    + metering apply). This is how the bot fetches up-to-date data on schedule. Sync (the fire path
+    is sync, offloaded to a thread); returns None on any failure → caller degrades to a template."""
+    if not (tool and api_key):
+        return None
+    try:
+        with httpx.Client(timeout=settings.http_timeout_seconds) as client:
+            resp = client.post(
+                f"{settings.agent_engine_url}/agent/artifact/refresh",
+                json={"tool": tool, "args": args or {}, "title": title},
+                headers={"X-API-KEY": api_key},
+            )
+        if resp.status_code == 200:
+            return (resp.json() or {}).get("artifact")
+        log.warning("alert fetch %s → HTTP %s", tool, resp.status_code)
+    except Exception:  # noqa: BLE001 — never let a fetch failure stop the alert
+        log.warning("alert fetch failed (tool=%s)", tool, exc_info=True)
+    return None
+
+
+def _latest_figure(art: dict | None) -> str:
+    """A one-line 'latest value' pulled from a freshly-fetched artifact (presentation only, not
+    reasoning): newest candle close, else newest series point, else the first table data row."""
+    if not isinstance(art, dict):
+        return ""
+    candles = art.get("candles") or []
+    if candles and isinstance(candles[-1], dict) and candles[-1].get("close") is not None:
+        c = candles[-1]
+        return f"{c.get('x', '')} 종가 {c.get('close')}".strip()
+    for s in (art.get("series") or []):
+        pts = (s or {}).get("points") or []
+        if pts:
+            p = pts[-1]
+            nm = s.get("name") or art.get("title") or ""
+            return f"{p.get('x', '')} {nm} {p.get('y')}".strip()
+    tbl = art.get("table") or []
+    if len(tbl) >= 2 and tbl[1]:
+        return " · ".join(str(x) for x in tbl[1][:4])
+    return ""
+
+
+def _widget_fresh_payload(alert: NotificationAlert, spec: dict, api_key: str | None,
+                          now: datetime) -> dict | None:
+    """Fetch the widget's latest data via its tool+args and render a sourced message from the FRESH
+    value, noting the change vs the previously-delivered value (tracked in source_spec). None when
+    there's no fetchable tool / the fetch failed → caller uses the trigger template."""
+    art = _fetch_artifact(spec.get("tool"), spec.get("args"), api_key, spec.get("title"))
+    if not art:
+        return None
+    title = art.get("title") or spec.get("title") or alert.name
+    fig = _latest_figure(art)
+    prev = spec.get("_last_fig")
+    if fig and prev and fig != prev:
+        change = f"\n변동: 이전 «{prev}» → 현재 «{fig}»"
+    elif fig and prev and fig == prev:
+        change = "\n(직전 알림 대비 변동 없음)"
+    else:
+        change = ""
+    spec["_last_fig"] = fig  # remember for the next fire's change detection
+    alert.source_spec = json.dumps(spec, ensure_ascii=False)
+    body = f"{fig}{change}" if fig else "데이터를 최신으로 갱신했어요 — 자세한 값은 대시보드에서 확인하세요."
+    deeplink = spec.get("deeplink") or (
+        f"/?board={alert.board_id}&widget={alert.pin_id}" if alert.pin_id else f"/?alert={alert.id}")
+    return {
+        "title": f"🔔 {title} — 최신값",
+        "body": _factual_guard(body),
+        "source": art.get("source") or spec.get("source") or "ValueGraph",
+        "as_of": str(art.get("as_of") or now.date().isoformat())[:10],
+        "deeplink": deeplink,
+    }
+
+
+def render_message(alert: NotificationAlert, *, now: datetime | None = None, db=None,
+                   api_key: str | None = None) -> dict:
     """Build the sourced message for one fire: title/body/source/as_of/deeplink.
 
-    Deterministic + facts-shaped. ``source_spec.deeplink`` (the dashboard board/widget the alert
-    came from) is preserved so the message links back to its evidence. A board-scope ``digest``
-    summarizes the board's PERIODIC widgets (needs ``db``; one-shot widgets are excluded).
+    On schedule the bot RE-FETCHES live data via each widget's tool+args (``api_key`` = the user's
+    tenant key) so the message carries the LATEST value, not a template:
+      * a board-scope ``digest`` fetches every periodic widget and summarizes the fresh values;
+      * a widget alert fetches its one widget and reports the value + change since the last fire.
+    When there's no fetchable tool / the fetch fails, it degrades to the trigger-type template.
+    Facts-shaped only (never advice/forecast); the deeplink always points back to the evidence.
     """
     now = now or datetime.utcnow()
     params = json.loads(alert.params) if alert.params else {}
@@ -191,6 +274,38 @@ def render_message(alert: NotificationAlert, *, now: datetime | None = None, db=
     target = _target_label(params)
     spec = json.loads(alert.source_spec) if alert.source_spec else {}
 
+    # 1) board digest → fetch each periodic widget fresh and summarize the latest values
+    if alert.scope == "board" and alert.trigger_type == "digest" and db is not None:
+        specs = _board_periodic_specs(alert, db)
+        if specs:
+            lines = []
+            for s in specs[:8]:
+                art = _fetch_artifact(s.get("tool"), s.get("args"), api_key, s.get("title")) if s.get("tool") else None
+                src = art or s
+                bits = [f"• {src.get('title') or '위젯'}"]
+                fig = _latest_figure(art) if art else ""
+                if fig:
+                    bits.append(fig)
+                if src.get("source"):
+                    bits.append(src["source"])
+                if src.get("as_of"):
+                    bits.append(f"as_of {str(src['as_of'])[:10]}")
+                lines.append(" · ".join(bits))
+            return {
+                "title": f"🔔 {alert.name} — 주기성 위젯 {len(specs)}개 최신값",
+                "body": _factual_guard("이 보드의 주기성 위젯 최신값입니다 (사실·출처만):\n" + "\n".join(lines)),
+                "source": "ValueGraph 대시보드",
+                "as_of": now.date().isoformat(),
+                "deeplink": spec.get("deeplink") or (f"/?board={alert.board_id}" if alert.board_id else f"/?alert={alert.id}"),
+            }
+
+    # 2) a widget-backed alert → fetch its widget fresh and report the latest value (+ change)
+    if spec.get("tool"):
+        fresh = _widget_fresh_payload(alert, spec, api_key, now)
+        if fresh:
+            return fresh
+
+    # 3) fallback template (no fetchable tool, or the fetch failed)
     if alert.trigger_type == "rate":
         title, body = f"🔔 {target} — 금리 발표 모니터", "예정된 금리 결정과 직전/직후 사실을 추적합니다. 점도표·성명서 원문은 대시보드에서."
     elif alert.trigger_type == "earnings":
@@ -203,26 +318,7 @@ def render_message(alert: NotificationAlert, *, now: datetime | None = None, db=
         thr = params.get("threshold") or params.get("level")
         title = f"🔔 {target} — 가격·밸류 임계치"
         body = f"설정한 임계치({thr}) 도달 여부를 감시합니다." if thr else "설정한 임계치 도달 여부를 감시합니다."
-    else:  # digest
-        widgets = _board_periodic_widgets(alert, db) if (db is not None and alert.scope == "board") else []
-        if widgets:
-            lines = []
-            for w_title, w_src, w_asof in widgets[:12]:
-                bits = [f"• {w_title}"]
-                if w_src:
-                    bits.append(w_src)
-                if w_asof:
-                    bits.append(f"as_of {w_asof}")
-                lines.append(" · ".join(bits))
-            title = f"🔔 {alert.name} — 주기성 위젯 {len(widgets)}개 요약"
-            body = "이 보드의 주기성 위젯 요약입니다 (사실과 출처만 담았습니다):\n" + "\n".join(lines)
-            return {
-                "title": title,
-                "body": _factual_guard(body),
-                "source": "ValueGraph 대시보드",
-                "as_of": now.date().isoformat(),
-                "deeplink": spec.get("deeplink") or (f"/?board={alert.board_id}" if alert.board_id else f"/?alert={alert.id}"),
-            }
+    else:
         title, body = f"🔔 {alert.name} — 정기 요약", f"{target} 관련 사실을 주기적으로 정리해 보냅니다."
 
     return {
@@ -239,7 +335,9 @@ def fire_alert(alert: NotificationAlert, db, *, now: datetime | None = None) -> 
     channel's server-side :class:`ChannelConnection` for credentials (missing → ``simulated``).
     Updates last/next_fire_at. Caller commits."""
     now = now or datetime.utcnow()
-    payload = render_message(alert, now=now, db=db)
+    # the user's tenant key (server-side) authorizes the live data fetch through the gateway
+    user = db.get(User, alert.user_email)
+    payload = render_message(alert, now=now, db=db, api_key=user.api_key if user else None)
     kinds = json.loads(alert.channels or "[]") or []
     creds = {
         c.channel: json.loads(c.config or "{}")
@@ -369,11 +467,22 @@ async def resume_alert(alert_id: str, user: User = Depends(current_user)) -> dic
 
 @router.post("/{alert_id}/fire", summary="Fire an alert now (test send)")
 async def fire_alert_now(alert_id: str, user: User = Depends(current_user)) -> dict:
-    with SessionLocal() as db:
-        a = _owned(db, alert_id, user)
-        deliveries = fire_alert(a, db)
-        db.commit()
-        return {"alert": _out(a), "deliveries": [_delivery_out(d) for d in deliveries]}
+    # fire_alert now does a blocking, network-bound data fetch → run it off the event loop in its
+    # own session (self-contained so the thread never shares a session with the request).
+    def _run() -> dict | None:
+        with SessionLocal() as db:
+            a = db.get(NotificationAlert, alert_id)
+            if a is None or a.user_email != user.email:
+                return None
+            deliveries = fire_alert(a, db)
+            db.commit()
+            db.refresh(a)
+            return {"alert": _out(a), "deliveries": [_delivery_out(d) for d in deliveries]}
+
+    res = await asyncio.to_thread(_run)
+    if res is None:
+        raise HTTPException(404, "Alert not found.")
+    return res
 
 
 @router.get("/{alert_id}/deliveries", summary="An alert's recent deliveries")

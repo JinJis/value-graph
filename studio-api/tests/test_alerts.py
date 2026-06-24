@@ -241,3 +241,28 @@ def test_board_digest_summarizes_periodic_widgets_only(monkeypatch):
     assert "미 기준금리" in body          # periodic widget IS summarized
     assert "FRED" in body                  # with its source
     assert "밸류에이션 DCF" not in body    # one-shot value is excluded from the digest
+
+
+@respx.mock
+def test_widget_alert_fetches_fresh_data_on_fire(monkeypatch):
+    """A widget-backed alert RE-FETCHES its data via the widget's tool+args (the agent-engine
+    refresh path, with the user's tenant key) and delivers the FRESH value — not a template."""
+    _cfg(monkeypatch)
+    _mock_control_plane()
+    # the agent-engine artifact refresh returns a fresh price artifact (latest close 211.5)
+    respx.post("http://ae.test/agent/artifact/refresh").mock(return_value=httpx.Response(200, json={
+        "artifact": {
+            "kind": "candlestick", "title": "AAPL 종가", "source": "Yahoo Finance", "as_of": "2026-06-25",
+            "candles": [{"x": "2026-06-24", "close": 200.0}, {"x": "2026-06-25", "close": 211.5}],
+        }}))
+    email = "freshfetch@u.com"
+    aid = client.post("/alerts", headers=_hdr(email), json={
+        "name": "AAPL 가격", "scope": "widget", "pin_id": "pin_x", "trigger_type": "price_threshold",
+        "schedule": {"freq": "interval", "every_minutes": 60}, "channels": ["telegram"],
+        "source_spec": {"tool": "yahoo__prices", "args": {"ticker": "AAPL"}, "source": "Yahoo Finance"},
+    }).json()["id"]
+    fired = client.post(f"/alerts/{aid}/fire", headers=_hdr(email))
+    assert fired.status_code == 200, fired.text
+    payload = fired.json()["deliveries"][0]["payload"]
+    assert "211.5" in payload["body"]              # the FRESHLY fetched close, not a static template
+    assert payload["source"] == "Yahoo Finance" and payload["as_of"] == "2026-06-25"

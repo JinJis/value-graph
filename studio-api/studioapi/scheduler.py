@@ -68,7 +68,9 @@ def tick(now: datetime | None = None) -> int:
 async def _loop() -> None:
     while True:
         try:
-            n = tick()
+            # tick() now does blocking, network-bound work (it re-fetches each due alert's widget
+            # through the gateway), so run it off the event loop.
+            n = await asyncio.to_thread(tick)
             if n:
                 log.info("scheduler fired %d alert(s)", n)
         except Exception:
