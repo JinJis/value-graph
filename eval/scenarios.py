@@ -517,7 +517,9 @@ SCENARIOS = [
         "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
         "question": "엔비디아(NVDA)의 최근 실적, 공급망·리스크 공시 내용, 그리고 최근 주가 흐름을 종합해서 정리해줘.",
         "criteria": "실적·공시 리스크·주가 세 측면을 각각 출처와 함께 사실로 종합; 전망·매수의견 금지.",
-        "checks": {"expect_subagents": 2, "expect_status": 200, "expect_refused": False, "judge": True},
+        # NOTE: tools run INSIDE the sub-agents in A2A mode, so there is no top-level tool_result
+        # to assert `expect_status` on — gate on the decomposition + the synthesized answer instead.
+        "checks": {"expect_subagents": 2, "expect_refused": False, "judge": True},
     },
     {
         # CLARIFY-WITH-OPTIONS: a broad request with a clear subject but unscoped intent → the

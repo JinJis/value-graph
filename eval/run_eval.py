@@ -136,6 +136,11 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
             ans.append(ev.get("text", ""))
         elif t == "done":
             refused = ev.get("refused")
+            # the done list is authoritative — the verify pass enriches its citations with
+            # per-source confidence (not present on the earlier streamed `citation` events).
+            for c in ev.get("citations") or []:
+                if isinstance(c, dict) and c.get("confidence"):
+                    confs.append(c["confidence"])
     return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
             "artifacts": arts, "cadences": cads, "confidences": confs,
             "clarify": clarify, "subagents": list(subagents.values()), "suggestions": suggestions,
