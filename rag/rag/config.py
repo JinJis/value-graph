@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # --- google cloud (only for the optional gcp Vertex Ranking reranker) -----
     gcp_project: str = ""
-    gcp_location: str = "us-central1"
+    gcp_location: str = "global"  # the Vertex Ranking API (semantic ranker) is global-only
     gcp_ranking_config: str = "default_ranking_config"
 
     # --- retrieval ---------------------------------------------------------
