@@ -375,7 +375,14 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     # PH-VIZ-3: Gemini annotates the price chart from the question (lines/levels/zones),
     # validated to historical points only (no projection). Gemini-only; best-effort.
     from agentengine.annotations import annotate_charts
-    await annotate_charts(art_objs, task, settings.model, spec.backend if spec else settings.llm_backend)
+    try:  # best-effort + bounded — chart annotation must never delay `done`
+        await asyncio.wait_for(
+            annotate_charts(art_objs, task, settings.model, spec.backend if spec else settings.llm_backend),
+            timeout=settings.gemini_enrich_timeout_seconds)
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning("annotate_charts exceeded %.0fs cap → skipping annotations", settings.gemini_enrich_timeout_seconds)
+    except Exception:  # noqa: BLE001
+        logger.warning("annotate_charts failed → skipping annotations", exc_info=True)
 
     # CE-4: parse the structured answer into a pinnable 종목 내러티브 card (deterministic split;
     # None when the answer wasn't sectioned, e.g. stub backend → no narrative card).

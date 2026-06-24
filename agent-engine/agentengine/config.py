@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     reasoning_model: str = "gemini-flash-latest"
     # The control-plane gateway the agent's tools are called through.
     gateway_url: str = "http://127.0.0.1:8010"
+    # Per-request timeout (seconds) on EVERY Gemini call. Without it a stalled call hangs the SSE
+    # stream forever (no `done` → the UI stays "답변 작성 중" and input stays disabled). With it a
+    # stall raises → callers degrade gracefully → the turn always finishes.
+    gemini_timeout_seconds: float = 90.0
+    # Tighter overall cap for BEST-EFFORT post-synthesis enrichment (follow-ups, evidence verify,
+    # chart annotation). The answer has already streamed, so these must never delay `done` long —
+    # if they exceed this (e.g. retry/backoff under rate-limit), we degrade and finish the turn.
+    gemini_enrich_timeout_seconds: float = 25.0
     max_steps: int = 8         # base tool-step budget (raised for multi-source tasks, up to the cap)
     max_steps_cap: int = 14    # hard ceiling for the dynamic budget
     http_timeout_seconds: float = 60.0

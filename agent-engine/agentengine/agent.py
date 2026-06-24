@@ -226,7 +226,8 @@ async def analyze_task(task: str, backend: str | None = None, conversation: list
         from google import genai
         from google.genai import types
 
-        client = genai.Client()
+        from agentengine.gemini_io import genai_client
+        client = genai_client()  # bounded request timeout (no infinite SSE hang)
         resp = await asyncio.to_thread(
             client.models.generate_content, model=settings.budget_model,
             contents=_INTAKE_PROMPT.format(task=(task or "")[:800], context=_intake_context(conversation)),
@@ -362,7 +363,7 @@ async def _followups_one(client, model: str, persona: str, task: str, answer: st
 
     from google.genai import types
 
-    cfg = types.GenerateContentConfig(temperature=0.6, max_output_tokens=400,
+    cfg = types.GenerateContentConfig(temperature=0.3, max_output_tokens=400,
                                       response_mime_type="application/json",
                                       response_schema=_FOLLOWUP_SCHEMA)
     contents = _FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
@@ -445,42 +446,57 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
         logger.info("followups: backend=%s → deterministic fallback (%d chips)", eff_backend, len(fallback))
         return fallback
     ctx = f"맥락: {context}" if context else ""
-    # model chain — DEEP model first (pro, paid key → best suggestions), each call already does
-    # backoff retry; fall back to the fast model only if the deep one is truly down.
+    # model chain — FLASH only: follow-up chips are short + low-stakes, and using the deep (pro)
+    # model here competes with the answer's pro synthesis for the same low pro RPM, which causes
+    # rate-limit backoff that stalls the turn. Flash has ample headroom + is plenty for chips.
     chain: list[str] = []
-    for m in (settings.synthesis_model, model, settings.model):
+    for m in (model, settings.model, settings.reasoning_model):
         if m and m not in chain:
             chain.append(m)
     try:
         from google import genai
 
-        client = genai.Client()
+        from agentengine.gemini_io import genai_client
+        client = genai_client()  # bounded request timeout (no infinite SSE hang)
     except Exception as exc:  # noqa: BLE001
         logger.warning("followups: genai client init failed (%s: %s) → deterministic fallback",
                        type(exc).__name__, exc, exc_info=True)
         return fallback
     logger.info("followups: generating (chain=%s, personas=%s, answer_len=%d, ctx=%r)",
                 chain, list(_FOLLOWUP_PERSONAS), len(answer), context)
-    for m in chain:
-        try:
-            results = await asyncio.gather(
-                *[_followups_one(client, m, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
-                return_exceptions=True)
-            lists = [r for r in results if isinstance(r, list) and r]
-            errs = [r for r in results if isinstance(r, Exception)]
-            merged = _merge_followups(lists, limit=4)
-            logger.info("followups: model %s → %d/%d personas produced items, %d error(s), merged=%d",
-                        m, len(lists), len(results), len(errs), len(merged))
-            if merged:
-                logger.info("followups: returning %d chip(s): %s", len(merged), merged)
-                return merged
-            if errs:
-                logger.warning("followups: model %s yielded nothing usable; first error: %s: %s; trying next",
-                               m, type(errs[0]).__name__, errs[0])
-        except Exception as exc:  # noqa: BLE001 — never block on suggestions
-            logger.warning("followups: model %s errored (%s: %s); trying next",
-                           m, type(exc).__name__, exc, exc_info=True)
-    logger.warning("followups: all models in chain %s produced nothing → deterministic fallback (%d chips)",
+
+    async def _run_chain() -> list[str]:
+        for m in chain:
+            try:
+                results = await asyncio.gather(
+                    *[_followups_one(client, m, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
+                    return_exceptions=True)
+                lists = [r for r in results if isinstance(r, list) and r]
+                errs = [r for r in results if isinstance(r, Exception)]
+                merged = _merge_followups(lists, limit=4)
+                logger.info("followups: model %s → %d/%d personas produced items, %d error(s), merged=%d",
+                            m, len(lists), len(results), len(errs), len(merged))
+                if merged:
+                    logger.info("followups: returning %d chip(s): %s", len(merged), merged)
+                    return merged
+                if errs:
+                    logger.warning("followups: model %s yielded nothing usable; first error: %s: %s; trying next",
+                                   m, type(errs[0]).__name__, errs[0])
+            except Exception as exc:  # noqa: BLE001 — never block on suggestions
+                logger.warning("followups: model %s errored (%s: %s); trying next",
+                               m, type(exc).__name__, exc, exc_info=True)
+        return []
+
+    # Best-effort + tightly bounded: the answer already streamed, so cap the whole model-chain
+    # (incl. backoff/retries) — on timeout, degrade to deterministic chips so `done` fires fast.
+    try:
+        merged = await asyncio.wait_for(_run_chain(), timeout=settings.gemini_enrich_timeout_seconds)
+        if merged:
+            return merged
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning("followups: exceeded %.0fs cap → deterministic fallback (%d chips)",
+                       settings.gemini_enrich_timeout_seconds, len(fallback))
+    logger.warning("followups: chain %s produced nothing → deterministic fallback (%d chips)",
                    chain, len(fallback))
     return fallback
 
@@ -533,13 +549,16 @@ async def refine_evidence(task: str, citations: list[dict], model: str,
         from google import genai
         from google.genai import types
 
-        client = genai.Client()
-        resp = await asyncio.to_thread(
+        from agentengine.gemini_io import genai_client
+        client = genai_client()  # bounded request timeout (no infinite SSE hang)
+        # best-effort verify pass — cap it so it can't delay `done` (TimeoutError → except below)
+        resp = await asyncio.wait_for(asyncio.to_thread(
             client.models.generate_content, model=model,
             contents=_REFINE_PROMPT.format(task=(task or "")[:400], ev=ev[:4000]),
             config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=600,
                                                response_mime_type="application/json",
-                                               response_schema=_REFINE_SCHEMA))
+                                               response_schema=_REFINE_SCHEMA)),
+            timeout=settings.gemini_enrich_timeout_seconds)
         d = json.loads(getattr(resp, "text", "") or "{}")
         brief = (str(d.get("brief") or "")).strip() or None
         scores: dict[int, dict] = {}

@@ -70,8 +70,10 @@ class GeminiPlanner:
     def __init__(self, model: str) -> None:
         from google import genai
 
+        from agentengine.gemini_io import genai_client
+
         self._genai = genai
-        self._client = genai.Client()
+        self._client = genai_client()  # bounded request timeout (no infinite SSE hang)
         self.model = model
 
     async def plan(self, task: str, tools: dict, history: list, system: str | None = None,
@@ -134,7 +136,7 @@ class GeminiPlanner:
         system_instruction = self._build_system_instruction(system, sources)
         contents = _to_gemini_contents(conversation, history, task)
         contents.append(types.Content(role="user", parts=[types.Part.from_text(text=_SYNTHESIS_PROMPT)]))
-        config = types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.45)
+        config = types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.3)
         model = settings.synthesis_model or self.model
         it = await asyncio.to_thread(self._client.models.generate_content_stream,
                                      model=model, contents=contents, config=config)
@@ -169,7 +171,7 @@ class GeminiPlanner:
             contents.append(types.Content(role="user", parts=[types.Part.from_text(text=_SYNTHESIS_PROMPT)]))
             config = types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.45,   # warmer than routing → richer, more natural prose
+                temperature=0.3,   # finance: grounded + accurate over flowery (still natural prose)
             )
             # use the dedicated (light) response model, falling back to the planner model.
             model = settings.synthesis_model or self.model
