@@ -112,7 +112,7 @@ export function hostOf(url?: string): string {
 
 const OPEN_LABEL: Record<string, string> = { filing: "원문 ↗", web: "기사 ↗", data: "표 ↗" };
 
-export function SourceCard({ c, onExpand, onPin }: { c: Citation; onExpand?: (c: Citation) => void; onPin?: (c: Citation) => void }) {
+export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onExpand?: (c: Citation) => void; onPin?: (c: Citation) => void; hideTitle?: boolean }) {
   const shape = sourceShape(c);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
   const evSrc = evidenceSrc(c.evidence_image_url);  // PH-PROV2: highlighted screenshot, if any
@@ -143,7 +143,7 @@ export function SourceCard({ c, onExpand, onPin }: { c: Citation; onExpand?: (c:
           <div className="sp-head">
             {c.index ? <span className="sp-n mono">[{c.index}]</span> : null}
             <span className="sp-ic" aria-hidden>📄</span>
-            <span className="sp-title">{c.source || "공시 문서"}</span>
+            {!hideTitle && <span className="sp-title">{c.source || "공시 문서"}</span>}
             {c.page ? <span className="sp-page mono">{c.page}</span> : null}
             {evBadge}
           </div>
@@ -180,7 +180,7 @@ export function SourceCard({ c, onExpand, onPin }: { c: Citation; onExpand?: (c:
           <div className="sp-head">
             {c.index ? <span className="sp-n mono">[{c.index}]</span> : null}
             <span className="sp-ic" aria-hidden>▤</span>
-            <span className="sp-title">{c.source || "추출 데이터"}</span>
+            {!hideTitle && <span className="sp-title">{c.source || "추출 데이터"}</span>}
             {c.ticker ? <span className="sp-page mono">{c.ticker}</span> : null}
             {evBadge}
           </div>

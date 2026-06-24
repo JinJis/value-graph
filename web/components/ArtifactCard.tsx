@@ -63,7 +63,7 @@ const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // table-view lege
 // PH-DATA-5: a table/KPI artifact (no time series) — render the header-first matrix as a
 // card so a pinned KPI card shows on the Board too. Pin/remove reuse the chart-card chrome.
 function TableArtifact(
-  { a, onPin, onRemove }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void },
+  { a, onPin, onRemove, hideTitle }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; hideTitle?: boolean },
 ) {
   const [pinned, setPinned] = useState(false);
   const t = a.table ?? [];
@@ -72,7 +72,7 @@ function TableArtifact(
   return (
     <div className="artifact kpi-card">
       <div className="artifact-head">
-        <span className="artifact-title">{a.title}</span>
+        {!hideTitle && <span className="artifact-title">{a.title}</span>}
         <FreshnessDot f={a.freshness ?? undefined} />
         <span className="grow" />
         {onPin && (
@@ -103,7 +103,7 @@ function TableArtifact(
 
 // CE-4: a 종목 내러티브 (관전 포인트) card — structured, sourced sections. Pinnable like other cards.
 function NarrativeArtifact(
-  { a, onPin, onRemove }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void },
+  { a, onPin, onRemove, hideTitle }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; hideTitle?: boolean },
 ) {
   const [pinned, setPinned] = useState(false);
   const secs = a.sections ?? [];
@@ -111,7 +111,7 @@ function NarrativeArtifact(
   return (
     <div className="artifact narrative-card">
       <div className="artifact-head">
-        <span className="artifact-title">{a.title}</span>
+        {!hideTitle && <span className="artifact-title">{a.title}</span>}
         <FreshnessDot f={a.freshness ?? undefined} />
         <span className="grow" />
         {onPin && (
@@ -179,11 +179,13 @@ function fmt(y: number | null | undefined, unit?: string | null, currency: "KRW"
 }
 
 export function ArtifactCard(
-  { a, onPin, onRemove, onRefresh, onEvidence, onAnnotate }:
+  { a, onPin, onRemove, onRefresh, onEvidence, onAnnotate, hideTitle }:
   { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void;
     onEvidence?: (c: Citation) => void;
     // PH-VIZ-5: persist the user's drawings (provided for already-pinned Board cards).
-    onAnnotate?: (ann: ChartAnnotations | null) => void },
+    onAnnotate?: (ann: ChartAnnotations | null) => void;
+    // hideTitle: the board widget card header already shows the title — suppress the duplicate here.
+    hideTitle?: boolean },
 ) {
   const [table, setTable] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -262,11 +264,11 @@ export function ArtifactCard(
 
   // CE-4: a narrative artifact carries structured sections instead of a chart/table.
   if (a.kind === "narrative" && (a.sections?.length ?? 0) > 0) {
-    return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} />;
+    return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} />;
   }
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || (a.series?.length ?? 0) === 0) && a.table?.length) {
-    return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
+    return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} />;
   }
   const series = finSeries ?? a.series ?? [];  // prefer the fuller fetched financials history (default [])
   const xs = Array.from(new Set(series.flatMap((s) => (s.points ?? []).map((p) => p.x)))).sort();
@@ -278,7 +280,7 @@ export function ArtifactCard(
     return (
       <div className="artifact">
         <div className="artifact-head">
-          <span className="artifact-title">{displayTitle}</span>
+          {!hideTitle && <span className="artifact-title">{displayTitle}</span>}
           <FreshnessDot f={a.freshness ?? "gap"} />
           {onRefresh && (
             <button type="button" className="artifact-toggle" disabled={busy}
@@ -299,7 +301,7 @@ export function ArtifactCard(
   return (
     <div className="artifact">
       <div className="artifact-head">
-        <span className="artifact-title">{displayTitle}</span>
+        {!hideTitle && <span className="artifact-title">{displayTitle}</span>}
         <FreshnessDot f={a.freshness ?? undefined} />
         {series.length > 0 && (
           <button type="button" className="artifact-toggle" onClick={() => setTable((t) => !t)}>

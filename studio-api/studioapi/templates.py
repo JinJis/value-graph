@@ -158,15 +158,26 @@ async def board_from_template(body: FromTemplateIn, user: User = Depends(current
                 db.commit()
                 db.refresh(board)
         widgets = json.loads(tpl.widgets or "[]")
+        # Idempotent: don't re-add a widget already on this board (by title) — applying the same
+        # template twice (e.g. onboarding + manual, or a double trigger) must not duplicate widgets.
+        existing = {
+            p.title for p in db.execute(
+                select(PinnedArtifact).where(
+                    PinnedArtifact.user_email == user.email, PinnedArtifact.board_id == board.id)
+            ).scalars().all()
+        }
         created = []
         x = y = 0
         for w in widgets:
             spec = w.get("spec") or {}
+            title = str(spec.get("title") or "위젯")[:200]
+            if title in existing:
+                continue
+            existing.add(title)
             cols = int(w.get("cols", 1))
             ww = 380 if cols == 2 else 240
             p = PinnedArtifact(
-                user_email=user.email, board_id=board.id,
-                title=str(spec.get("title") or "위젯")[:200],
+                user_email=user.email, board_id=board.id, title=title,
                 spec=json.dumps(spec, ensure_ascii=False),
                 x=x, y=y, w=ww, h=240,
             )

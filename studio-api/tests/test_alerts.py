@@ -208,4 +208,8 @@ def test_templates_and_from_template(monkeypatch):
     pins = client.get(f"/board?board_id={board}", headers=_hdr(email)).json()["pinned"]
     assert len(pins) == 6
     assert any(p["spec"].get("tool") == "yahoo__prices" for p in pins)  # live-refreshable widget
+    # idempotent: re-applying the same template adds nothing (no duplicate widgets)
+    r2 = client.post("/board/from-template", headers=_hdr(email), json={"template_id": "dt_semi", "board_id": board})
+    assert r2.status_code == 200 and r2.json()["created"] == 0
+    assert len(client.get(f"/board?board_id={board}", headers=_hdr(email)).json()["pinned"]) == 6
     assert client.post("/board/from-template", headers=_hdr(email), json={"template_id": "nope"}).status_code == 404

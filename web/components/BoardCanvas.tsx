@@ -83,6 +83,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [gallery, setGallery] = useState(false);
+  const [applying, setApplying] = useState(false);  // guards template apply against double-click
   const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
@@ -98,7 +99,12 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   const loadItems = useCallback(async (bid: string) => {
     if (!bid) return;
     const r = await fetch(`/api/board?board_id=${encodeURIComponent(bid)}`);
-    if (r.ok) { setItems((await r.json()).pinned ?? []); setLastRefresh(new Date().toLocaleTimeString()); }
+    if (r.ok) {
+      const pinned = ((await r.json()).pinned ?? []) as Item[];
+      const seen = new Set<string>();
+      setItems(pinned.filter((p) => (seen.has(p.id) ? false : seen.add(p.id))));  // defensive de-dup by id
+      setLastRefresh(new Date().toLocaleTimeString());
+    }
   }, []);
   const loadChannels = useCallback(async () => {
     try { const r = await fetch("/api/channels"); if (r.ok) setChannels((await r.json()).channels ?? []); } catch {}
@@ -173,10 +179,14 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     setActive(""); await loadBoards();
   }
   async function applyTemplate(tid: string) {
-    let bid = active;
-    if (!bid) { await newBoard(); bid = active; }
-    const r = await fetch("/api/board/from-template", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template_id: tid, board_id: bid || undefined }) });
-    if (r.ok) { const d = await r.json(); setActive(d.board_id); await loadItems(d.board_id); await refreshAll(); }
+    if (applying) return;  // guard against double-click → duplicate widgets
+    setApplying(true);
+    try {
+      let bid = active;
+      if (!bid) { await newBoard(); bid = active; }
+      const r = await fetch("/api/board/from-template", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template_id: tid, board_id: bid || undefined }) });
+      if (r.ok) { const d = await r.json(); setActive(d.board_id); await loadItems(d.board_id); await refreshAll(); }
+    } finally { setApplying(false); }
   }
   function openBoardAlert() {
     setAlertDraft({ scope: "board", board_id: active, source_spec: { deeplink: `/?board=${active}` } });
@@ -253,11 +263,11 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
           </div>
           <div className="tpl-grid">
             {templates.map((t) => (
-              <button key={t.id} type="button" className="tpl-card" onClick={() => applyTemplate(t.id)}>
+              <button key={t.id} type="button" className="tpl-card" disabled={applying} onClick={() => applyTemplate(t.id)}>
                 <div className="tpl-prev"><span /><span /><span /><span /></div>
                 <div className="tpl-name">{t.name}</div>
                 <div className="tpl-desc">{t.description}</div>
-                <div className="tpl-cta">이 템플릿으로 시작 →</div>
+                <div className="tpl-cta">{applying ? "추가 중…" : "이 템플릿으로 시작 →"}</div>
               </button>
             ))}
             <button type="button" className="tpl-card blank" onClick={() => setGallery(true)}>
@@ -295,13 +305,10 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                     )}
                     <button className="bc-btn" title="삭제" onClick={() => removeItem(it.id)}>✕</button>
                   </div>
-                  <div className="bc-desc">
-                    <InlineEdit className="bc-desc-text" value={it.spec?.description || ""}
-                      placeholder="＋ 설명 추가" onSave={(v) => saveSpec(it.id, { description: v })} />
-                  </div>
                   <div className="bc-body">
-                    {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} />}
-                    {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} />}
+                    {/* hideTitle: the board card header already shows the title — avoid the duplicate */}
+                    {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} hideTitle />}
+                    {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} hideTitle />}
                     {kind === "text" && <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveSpec(it.id, { text: v })} />}
                   </div>
                 </div>
