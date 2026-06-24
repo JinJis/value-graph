@@ -918,14 +918,9 @@ select.input { appearance: none; }
 /* ── Dashboard (F3 top bar + F2 template empty state) ───────────────────── */
 .dash-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 14px 22px 0; }
 .dash-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 22px; border-bottom: 1px solid var(--line); }
-.dash-range { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; }
-.dash-range-btn { background: var(--panel); border: 0; padding: 6px 11px; font-size: 11.5px; font-family: var(--mono);
-  color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
-.dash-range-btn.on { background: var(--ink); color: var(--on-ink); }
-.dash-auto, .dash-chip, .dash-bell { background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px;
+.dash-chip, .dash-bell { background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px;
   padding: 6px 11px; font-size: 12px; font-family: var(--mono); color: var(--muted); cursor: pointer; }
-.dash-auto.on { color: var(--fresh); border-color: var(--fresh); }
-.dash-auto:hover, .dash-chip:hover, .dash-bell:hover { color: var(--text); border-color: var(--text); }
+.dash-chip:hover, .dash-bell:hover { color: var(--text); border-color: var(--text); }
 .dash-bell { font-family: var(--ui); color: var(--accent-fg); border-color: var(--line-2); }
 .dash-bell:hover { border-color: var(--accent); color: var(--accent-fg); background: var(--accent-bg); }
 .dash-meta { display: flex; align-items: center; gap: 8px; padding: 8px 22px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }

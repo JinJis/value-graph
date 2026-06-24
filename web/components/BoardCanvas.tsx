@@ -23,7 +23,6 @@ type Template = { id: string; name: string; description?: string; market?: strin
 
 const COLS = 12;
 const ROW_H = 36;        // px per grid row
-const RANGES = ["1D", "1W", "1M", "1Y", "LIVE"];
 // default + min sizes per widget kind, in GRID UNITS (cols × rows).
 const GDEF = {
   artifact: { w: 4, h: 7, minW: 3, minH: 4 },
@@ -101,8 +100,6 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   const [items, setItems] = useState<Item[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [channels, setChannels] = useState<ChannelStatus[]>([]);
-  const [range, setRange] = useState("1M");
-  const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [gallery, setGallery] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -176,12 +173,6 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     setLastRefresh(new Date().toLocaleTimeString());
     await Promise.allSettled(itemsRef.current.filter((i) => i.spec?.tool).map((i) => refreshItem(i.id)));
   }
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const t = setInterval(() => { void refreshAll(); }, 30_000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh]);
   useEffect(() => {
     const dataless = items.filter((it) => it.spec?.tool && !populatedRef.current.has(it.id)
       && !(it.spec?.series?.length || it.spec?.candles?.length || it.spec?.table?.length || it.spec?.sections?.length));
@@ -269,15 +260,6 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
       </div>
 
       <div className="dash-bar">
-        <div className="dash-range">
-          {RANGES.map((r) => (
-            <button key={r} className={`dash-range-btn ${range === r ? "on" : ""}`} onClick={() => setRange(r)}>
-              {r === "LIVE" ? <><span className="fdot fresh" /> LIVE</> : r}
-            </button>
-          ))}
-        </div>
-        <button className={`dash-auto ${autoRefresh ? "on" : ""}`} onClick={() => setAutoRefresh((v) => !v)}
-          title={autoRefresh ? "자동갱신 켜짐 (30s)" : "자동갱신 꺼짐 — 켜기"}>↻ 30s</button>
         <button className="dash-chip" onClick={() => void refreshAll()} title="지금 전체 갱신">↻ 갱신</button>
         <span className="grow" />
         {active && (
