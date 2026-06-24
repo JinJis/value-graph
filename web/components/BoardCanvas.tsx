@@ -115,6 +115,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [gallery, setGallery] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [dragging, setDragging] = useState(false);  // suppress text selection while drag/resizing
   const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
@@ -151,7 +152,14 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
 
   // Persist the grid after a drag/resize: RGL gives the full layout (incl. items it repacked);
   // write back every widget whose grid coords changed (grid units).
+  // Start of a drag/resize: flag it (CSS kills text selection) + clear any selection the
+  // mousedown already began, so other widgets' text doesn't get highlighted while dragging.
+  function startGesture() {
+    setDragging(true);
+    try { window.getSelection()?.removeAllRanges(); } catch {}
+  }
   function persistLayout(layout: Layout[]) {
+    setDragging(false);
     const cur = itemsRef.current;
     setItems(cur.map((it) => {
       const l = layout.find((n) => n.i === it.id);
@@ -318,9 +326,10 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
         </div>
       ) : (
         <div className="board-canvas">
-          <RGL className="dash-grid" layout={toLayout(items)} cols={COLS} rowHeight={ROW_H}
+          <RGL className={`dash-grid${dragging ? " dragging" : ""}`} layout={toLayout(items)} cols={COLS} rowHeight={ROW_H}
             margin={[12, 12]} containerPadding={[4, 4]} draggableHandle=".bc-drag"
             isBounded={false} compactType="vertical" resizeHandles={["se"]}
+            onDragStart={startGesture} onResizeStart={startGesture}
             onDragStop={persistLayout} onResizeStop={persistLayout}>
             {items.map((it) => {
               const kind = kindOf(it.spec);
