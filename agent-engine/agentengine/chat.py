@@ -23,7 +23,7 @@ from typing import AsyncIterator
 from agentengine import guardrails
 from agentengine.agent import (
     _artifacts, _citations, _NARRATIVE_GUIDE, _NEWS_BRIEF_GUIDE, _VALUE_CHAIN_GUIDE, analyze_task,
-    anchor_markers, build_narrative_artifact, call_sig, fallback_answer, filter_tools, has_anchors,
+    anchor_markers, call_sig, fallback_answer, filter_tools, has_anchors,
     number_sources, refine_evidence,
 )
 from agentengine.client import PlatformClient
@@ -384,16 +384,9 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
     except Exception:  # noqa: BLE001
         logger.warning("annotate_charts failed → skipping annotations", exc_info=True)
 
-    # CE-4: parse the structured answer into a pinnable 종목 내러티브 card (deterministic split;
-    # None when the answer wasn't sectioned, e.g. stub backend → no narrative card).
-    if (intake.narrative or intake.news_brief or intake.value_chain) and final_text:
-        tk = next((c.get("ticker") for c in citations if c.get("ticker")),
-                  next((o.ticker for o in art_objs if getattr(o, "ticker", None)), None))
-        na = build_narrative_artifact(final_text, tk)
-        if na and na.title not in seen_artifacts:
-            seen_artifacts.add(na.title)
-            art_objs.append(na)
-            yield {"type": "artifact", "artifact": na.model_dump()}
+    # (The 종목 내러티브 card was removed — it duplicated the answer + the context panel. The
+    # narrative/news-brief/value-chain intake flags still steer the synthesis into a structured,
+    # sourced answer; we just no longer emit a separate narrative artifact.)
 
     if art_objs:
         artifacts = [o.model_dump() for o in art_objs]

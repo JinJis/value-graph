@@ -115,6 +115,7 @@ export function hostOf(url?: string): string {
 const OPEN_LABEL: Record<string, string> = { filing: "원문 ↗", web: "기사 ↗", data: "표 ↗" };
 
 export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onExpand?: (c: Citation) => void; onPin?: (c: Citation) => void; hideTitle?: boolean }) {
+  const [pinned, setPinned] = useState(false);
   const shape = sourceShape(c);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
   const evSrc = evidenceSrc(c.evidence_image_url);  // PH-PROV2: highlighted screenshot, if any
@@ -138,8 +139,8 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
     <div className={`srcprev ${shape}`} role={onExpand ? "button" : undefined}
       onClick={onExpand ? () => onExpand(c) : undefined} title={onExpand ? "클릭하면 원문 전체로 펼쳐집니다" : undefined}>
       {onPin && (
-        <button type="button" className="sp-pin" title="보드에 핀"
-          onClick={(e) => { e.stopPropagation(); onPin(c); }}>📌</button>
+        <button type="button" className="sp-add" disabled={pinned} title="대시보드에 추가"
+          onClick={(e) => { e.stopPropagation(); onPin(c); setPinned(true); }}>{pinned ? "✓ 대시보드" : "＋ 대시보드"}</button>
       )}
       {shape === "filing" && (
         <>

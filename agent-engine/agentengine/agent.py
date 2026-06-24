@@ -649,30 +649,6 @@ _NEWS_BRIEF_GUIDE = (
 )
 
 
-def build_narrative_artifact(text: str, ticker: str | None = None) -> Artifact | None:
-    """CE-4: split the synthesized markdown answer into the 종목 내러티브 sections (## heading →
-    body) → a pinnable narrative card. Deterministic (presentation, not reasoning); returns None
-    when the answer isn't structured into ≥2 sections (e.g. the stub backend)."""
-    from agentengine.models import NarrativeSection
-
-    sections: list[NarrativeSection] = []
-    heading, body = None, []
-    for line in (text or "").splitlines():
-        m = re.match(r"^\s{0,3}#{1,3}\s+(.*\S)\s*$", line)
-        if m:
-            if heading and body and "".join(body).strip():
-                sections.append(NarrativeSection(heading=heading, body="\n".join(body).strip()))
-            heading, body = m.group(1).strip().lstrip("#").strip(), []
-        elif heading is not None:
-            body.append(line)
-    if heading and body and "".join(body).strip():
-        sections.append(NarrativeSection(heading=heading, body="\n".join(body).strip()))
-    if len(sections) < 2:
-        return None
-    title = f"{ticker} 종목 내러티브" if ticker else "종목 내러티브 (관전 포인트)"
-    return Artifact(kind="narrative", title=title, sections=sections, ticker=ticker, tool="narrative")
-
-
 def filter_tools(tools: dict, allowed: list[str] | None) -> dict:
     """Restrict ``tools`` to ``allowed``. Entries match, in order of precedence, a full tool
     name (``sec_edgar__guru_trades`` — the new per-tool selection), a user-facing category id

@@ -550,12 +550,4 @@ SCENARIOS = [
         "checks": {"expect_connector": "sec_edgar__", "expect_cite": "SEC EDGAR", "expect_confidence": True,
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
     },
-    {
-        # NARRATIVE ARTIFACT: a "내러티브/개요" request renders the structured, sourced 종목 내러티브.
-        "name": "LLM narrative: structured company overview artifact",
-        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
-        "question": "엔비디아(NVDA)를 사업·실적·리스크 관점에서 종목 내러티브(개요)로 정리해줘.",
-        "criteria": "사업/실적/리스크 등 구획된 개요를 출처 기반 사실로 작성; 전망·목표가·매수의견 금지.",
-        "checks": {"expect_artifact": "narrative", "expect_status": 200, "expect_refused": False, "judge": True},
-    },
 ]

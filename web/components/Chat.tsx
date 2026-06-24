@@ -39,20 +39,34 @@ function uniqueTools(tools?: ToolUse[]): ToolUse[] {
   return [...seen.values()];
 }
 
-// PH-THINK: the live reasoning stream — each step the agent narrates (analyze → look at a
-// source → found data → synthesize), the latest one spinning, earlier ones checked.
+// PH-THINK: the live reasoning stream — foldable so it doesn't stack up. COLLAPSED (default)
+// shows only the latest step (spinning); click to EXPAND the full analyze→fetch→found→synthesize
+// trace. The latest one spins, earlier ones are checked.
 function ThinkingLive({ steps }: { steps: Think[] }) {
+  const [open, setOpen] = useState(false);
   if (!steps.length) return null;
+  const latest = steps[steps.length - 1];
   return (
-    <div className="thinking-live" aria-live="polite">
-      {steps.map((s, j) => {
-        const last = j === steps.length - 1;
-        return (
-          <div key={j} className={`tl-step ${last ? "active" : "done"}`}>
-            <span className="tl-ic">{last ? <span className="tl-spin" /> : "✓"}</span>{s.text}
+    <div className={`thinking-live ${open ? "open" : ""}`} aria-live="polite">
+      <button type="button" className="tl-bar" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open} title={open ? "접기" : "분석 과정 전체 보기"}>
+        <span className="tl-chev">{open ? "▾" : "▸"}</span>
+        <span className="tl-bar-lbl">분석 과정 · {steps.length}단계</span>
+      </button>
+      {open
+        ? steps.map((s, j) => {
+            const last = j === steps.length - 1;
+            return (
+              <div key={j} className={`tl-step ${last ? "active" : "done"}`}>
+                <span className="tl-ic">{last ? <span className="tl-spin" /> : "✓"}</span>{s.text}
+              </div>
+            );
+          })
+        : (
+          <div className="tl-step active">
+            <span className="tl-ic"><span className="tl-spin" /></span>{latest.text}
           </div>
-        );
-      })}
+        )}
     </div>
   );
 }

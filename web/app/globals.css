@@ -320,10 +320,14 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 
 /* pin source button on a source card */
 .srcprev { position: relative; }
-.sp-pin { position: absolute; top: 6px; right: 6px; z-index: 2; background: var(--panel-2);
-  border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 12px; padding: 1px 5px; opacity: 0; transition: opacity .15s; }
-.srcprev:hover .sp-pin { opacity: 1; }
-.sp-pin:hover { border-color: var(--ink); }
+/* "＋ 대시보드" — unified add-to-dashboard action on every context-panel source card (matches
+   the artifact card's button; replaces the old 📌 pin icon). Shows on hover; stays once added. */
+.sp-add { position: absolute; top: 6px; right: 6px; z-index: 2; background: var(--panel-2);
+  border: 1px solid var(--line-2); border-radius: 999px; color: var(--muted); cursor: pointer;
+  font-size: 10.5px; font-family: var(--mono); padding: 2px 8px; opacity: 0; transition: opacity .15s, border-color .12s, color .12s; }
+.srcprev:hover .sp-add, .sp-add:disabled { opacity: 1; }
+.sp-add:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-fg); }
+.sp-add:disabled { color: var(--fresh); border-color: var(--fresh); cursor: default; }
 
 /* pin picker modal */
 .pinpick-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
@@ -998,8 +1002,14 @@ select.input { appearance: none; }
   color: var(--text-2); border-top: 1px solid var(--line-3); padding-top: 8px; margin-top: 2px; }
 
 /* ── live thinking stream (PH-THINK) ───────────────────────────────────── */
-.thinking-live { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 8px; padding: 10px 12px;
+.thinking-live { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 8px; padding: 8px 12px 10px;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; max-width: 680px; }
+/* foldable header — collapsed shows only the latest step; click to expand the full trace */
+.tl-bar { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; background: none;
+  border: none; cursor: pointer; padding: 2px 0 4px; font-family: inherit; }
+.tl-bar .tl-chev { font-size: 10px; color: var(--muted); width: 11px; flex: none; }
+.tl-bar .tl-bar-lbl { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.tl-bar:hover .tl-bar-lbl, .tl-bar:hover .tl-chev { color: var(--text); }
 .tl-step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); line-height: 1.4; }
 .tl-step.active { color: var(--text); font-weight: 500; }
 .tl-step .tl-ic { width: 14px; flex: none; text-align: center; color: var(--fresh); font-size: 11px; }
