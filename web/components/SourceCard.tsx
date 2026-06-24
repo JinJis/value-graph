@@ -132,16 +132,16 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
       <CadenceTag c={c.cadence} />
       <ConfBadge c={c} />
       {open}
+      {onPin && (
+        <button type="button" className="sp-add" disabled={pinned} title="대시보드에 추가"
+          onClick={(e) => { e.stopPropagation(); onPin(c); setPinned(true); }}>{pinned ? "✓ 대시보드" : "＋ 대시보드"}</button>
+      )}
     </div>
   );
 
   return (
     <div className={`srcprev ${shape}`} role={onExpand ? "button" : undefined}
       onClick={onExpand ? () => onExpand(c) : undefined} title={onExpand ? "클릭하면 원문 전체로 펼쳐집니다" : undefined}>
-      {onPin && (
-        <button type="button" className="sp-add" disabled={pinned} title="대시보드에 추가"
-          onClick={(e) => { e.stopPropagation(); onPin(c); setPinned(true); }}>{pinned ? "✓ 대시보드" : "＋ 대시보드"}</button>
-      )}
       {shape === "filing" && (
         <>
           <div className="sp-head">

@@ -129,6 +129,16 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .ctxpane .ctx-more > summary.ctx-label { margin-bottom: 0; }
 .ctxpane .ctx-more[open] > summary.ctx-label { margin-bottom: 8px; }
 .ctxpane .tool { font-size: 12px; }
+/* fit the cards to the (narrow, resizable) panel: every card fills the width + its content shrinks
+   rather than overflowing; heads/foots wrap; tables tighten so nothing breaks the column. */
+.ctxpane .srcprev, .ctxpane .artifact { width: 100%; min-width: 0; margin-bottom: 0; }
+.ctxpane .artifact-head { flex-wrap: wrap; row-gap: 6px; column-gap: 6px; }
+.ctxpane .artifact-foot { gap: 8px; row-gap: 5px; }
+.ctxpane .artifact-src { min-width: 0; overflow-wrap: anywhere; }
+.ctxpane .artifact-table { font-size: 11px; }
+.ctxpane .artifact-table th, .ctxpane .artifact-table td { padding: 4px 8px; }
+.ctxpane .sp-head, .ctxpane .sp-chrome { gap: 6px; }
+.ctxpane .sp-data, .ctxpane .sp-quote, .ctxpane .sp-headline { overflow-wrap: anywhere; }
 
 /* click an answer to pin its context in the panel */
 .answer-focusable { display: flex; flex-direction: column; gap: 6px; cursor: pointer; border-radius: 12px;
@@ -200,8 +210,8 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .sp-table tr.cited td:last-child { border-radius: 0 3px 3px 0; }
 .sp-data { padding: 9px 11px; font-size: 10px; line-height: 1.5; color: var(--text-2); white-space: pre-wrap; }
 /* shared footer */
-.sp-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line-3); font-size: 9px; color: var(--muted); }
-.sp-foot .sp-open { margin-left: auto; color: var(--accent-fg); text-decoration: none; }
+.sp-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; row-gap: 5px; padding: 8px 10px; border-top: 1px solid var(--line-3); font-size: 9px; color: var(--muted); }
+.sp-foot .sp-open { margin-left: auto; color: var(--accent-fg); text-decoration: none; white-space: nowrap; }
 .sp-foot .sp-open:hover { text-decoration: underline; }
 /* PH-THINK: per-source confidence chip (evidentiary support, not a forecast) */
 .sp-conf { font-size: 8px; padding: 1px 6px; border-radius: 999px; border: 1px solid transparent; cursor: help; }
@@ -320,12 +330,11 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 
 /* pin source button on a source card */
 .srcprev { position: relative; }
-/* "＋ 대시보드" — unified add-to-dashboard action on every context-panel source card (matches
-   the artifact card's button; replaces the old 📌 pin icon). Shows on hover; stays once added. */
-.sp-add { position: absolute; top: 6px; right: 6px; z-index: 2; background: var(--panel-2);
+/* "＋ 대시보드" — unified add-to-dashboard action in the source card's foot (matches the artifact
+   card's button; replaces the old 📌 pin icon). Sits at the right of the foot, wraps if narrow. */
+.sp-add { margin-left: auto; flex: none; white-space: nowrap; background: var(--panel-2);
   border: 1px solid var(--line-2); border-radius: 999px; color: var(--muted); cursor: pointer;
-  font-size: 10.5px; font-family: var(--mono); padding: 2px 8px; opacity: 0; transition: opacity .15s, border-color .12s, color .12s; }
-.srcprev:hover .sp-add, .sp-add:disabled { opacity: 1; }
+  font-size: 9px; font-family: var(--mono); padding: 2px 8px; transition: border-color .12s, color .12s; }
 .sp-add:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-fg); }
 .sp-add:disabled { color: var(--fresh); border-color: var(--fresh); cursor: default; }
 
@@ -341,7 +350,7 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .artifacts { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
 .artifact { border: 1px solid var(--line-2); border-radius: 11px; background: var(--panel); padding: 0; overflow: hidden; box-shadow: var(--shadow-card); }
 .artifact-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line-3); }
-.artifact-title { font-size: 13px; font-weight: 600; }
+.artifact-title { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-head .fdot { margin-left: 2px; }
 .artifact-toggle { background: none; border: 1px solid var(--line-2); border-radius: 999px;
   color: var(--muted); font-size: 11px; padding: 2px 9px; cursor: pointer; font-family: var(--mono); }
