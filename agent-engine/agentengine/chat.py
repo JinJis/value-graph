@@ -44,13 +44,14 @@ def _last_user(messages: list[dict]) -> str:
 
 
 async def _followups_event(task: str, final_text: str, citations: list[dict],
-                           bk: str | None) -> dict | None:
+                           bk: str | None, conversation: list | None = None) -> dict | None:
     """Build the 'suggestions' SSE event for a finished answer. Always non-empty when there's an
     answer — suggest_followups uses the deep LLM on gemini and a deterministic capability-aware
-    fallback otherwise — so the chip row renders on EVERY answer path (conceptual + data)."""
+    fallback otherwise — so the chip row renders on EVERY answer path (conceptual + data). The
+    recent transcript is passed so the chips DEEPEN the thread instead of restarting it."""
     if not (final_text or "").strip():
         return None
-    from agentengine.agent import suggest_followups
+    from agentengine.agent import _intake_context, suggest_followups
     tickers = sorted({c.get("ticker") for c in citations if c.get("ticker")})
     kinds = sorted({c.get("kind") for c in citations if c.get("kind")})
     ctx_bits = []
@@ -58,11 +59,15 @@ async def _followups_event(task: str, final_text: str, citations: list[dict],
         ctx_bits.append("다룬 종목: " + ", ".join(tickers[:5]))
     if kinds:
         ctx_bits.append("사용한 데이터: " + ", ".join(kinds))
+    # recent prior turns → the suggester builds on the conversation (심화), not generic chips
+    transcript = _intake_context(conversation) if conversation else ""
+    conv_block = f"최근 대화:\n{transcript}\n\n" if transcript and transcript != "(no prior turns)" else ""
     eff_backend = bk or settings.llm_backend
     logger.info("chat: requesting follow-up chips (backend=%s, answer_len=%d, tickers=%s, kinds=%s)",
                 eff_backend, len(final_text), tickers, kinds)
     sugg = await suggest_followups(task, final_text, settings.model, bk,
-                                   context=" · ".join(ctx_bits) or None, tickers=tickers, kinds=kinds)
+                                   context=" · ".join(ctx_bits) or None, tickers=tickers, kinds=kinds,
+                                   conversation=conv_block)
     logger.info("chat: follow-up chips → %d suggestion(s)", len(sugg))
     return {"type": "suggestions", "items": sugg} if sugg else None
 
@@ -187,7 +192,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         yield {"type": "thinking", "phase": "synthesize", "text": "답변을 작성하는 중…"}
         async for ev in _synthesize({}, [], system):
             yield ev
-        sev = await _followups_event(task, final_text, [], bk)
+        sev = await _followups_event(task, final_text, [], bk, conversation=messages)
         if sev:
             yield sev
         yield {"type": "done", "citations": [], "artifacts": [], "refused": False, "used": []}
@@ -424,7 +429,7 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
 
     # PH-THINK: capability-aware follow-up chips — ALWAYS shown after a real answer (deep LLM when
     # gemini, deterministic capability-aware fallback otherwise), so the chip row is never empty.
-    sev = await _followups_event(task, final_text, citations, bk)
+    sev = await _followups_event(task, final_text, citations, bk, conversation=messages)
     if sev:
         yield sev
 

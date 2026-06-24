@@ -308,24 +308,30 @@ _CAPABILITY_MENU = (
 # Two complementary personas, run in PARALLEL (deep model), then merged → diverse, itch-scratching,
 # capability-showcasing follow-ups that span beginner→expert.
 _FOLLOWUP_PERSONAS = {
-    "itch": (
-        "당신은 통찰 있는 리서치 멘토입니다. 방금 답변을 본 사용자가 '진짜 다음에 궁금해할' 후속 질문 3개를 제안하세요. "
-        "사용자의 가려운 곳을 긁어주는 질문 — 수치 뒤의 '왜?'/드라이버, 비교, 리스크, 거시 연결, 과거 통계/시나리오. "
-        "초보~전문가를 아우르게 섞으세요(쉬운 설명형 1개 + 깊은 분석형). "
+    "deepen": (
+        "당신은 날카로운 리서치 애널리스트입니다. 방금 답변을 보고 사용자가 '오, 그거 마침 궁금했는데' 하며 바로 누르고 "
+        "싶을 심화 질문 3개를 만드세요. 답변에 실제로 등장한 '구체적 수치·기업·사건'을 직접 짚고 그 이면을 파고드세요: "
+        "그 수치를 만든 핵심 드라이버('왜 그렇게 됐나'), 데이터 속 의외/모순/긴장 지점, '무엇이 바뀌면 이 그림이 달라지나', "
+        "과거 비슷한 국면과의 비교, 한 단계 더 나간 2차 효과. 분석가가 진짜 다음에 던질 법한, 답이 궁금해지는 질문으로."
     ),
-    "showcase": (
-        "당신은 우리 데이터 플랫폼의 제품 전문가입니다. 답변 맥락에서, 우리 서비스의 차별화 기능/데이터를 "
-        "자연스럽게 경험시킬 후속 질문 3개를 제안하세요(거부감 없이). 각 질문은 아래 능력 중 서로 다른 것을 자극해야 합니다.\n"
+    "connect": (
+        "당신은 통찰 있는 리서치 멘토입니다. 방금 주제를 '한 발 더 넓혀' 새로운 각을 여는 질문 3개를 만드세요. 답변의 구체 "
+        "대상과 연결하되, 관점을 재구성하는 비교(동종업계·과거 사이클), 그 수치를 설명해줄 수급·공시·뉴스·거시 연결고리, "
+        "또는 밸류에이션 각도처럼 우리가 출처로 보여줄 수 있는 방향을 쓰세요 — 단, 기능 안내가 아니라 '구체적이고 흥미로운 "
+        "질문' 그 자체로. 아래 능력 중 서로 다른 것을 자극하세요.\n"
         + _CAPABILITY_MENU
     ),
 }
 
 _FOLLOWUP_PROMPT = (
     "{persona}\n"
-    "규칙: 각 질문은 (1) 사용자 질문과 같은 언어, (2) 출처 기반 데이터로 답 가능(예측·목표가·매수/매도 의견 요청 "
-    "금지), (3) 자기완결적(종목·지표를 명시), (4) 서로 다른 각도. 답변을 반복하지 말 것.\n"
+    "규칙: 각 질문은 (1) 사용자와 같은 언어, (2) 우리 출처 데이터로 답 가능(가격 예측·목표가·매수/매도 의견 요청 금지), "
+    "(3) 답변에 실제 등장한 종목·수치·사건을 구체적으로 지목해 자기완결적, (4) 직전 대화 맥락을 이어 더 깊이 들어갈 것"
+    "(이미 답한 내용을 처음부터 다시 묻지 말 것), (5) 서로 다른 각도. "
+    "'관련 지표/뉴스/섹터를 보여줘', '최근 동향 알려줘' 같은 일반적이고 뻔한 문구는 절대 쓰지 마세요 — 그 답변을 읽은 "
+    "사람만 떠올릴 수 있는, 구체적이고 호기심을 자극하는 질문이어야 합니다.\n"
     'JSON만: {{"followups": ["…", "…", "…"]}}\n\n'
-    "사용자 질문: {task}\n{context}\n답변:\n{answer}"
+    "{conversation}최근 사용자 질문: {task}\n{context}\n답변:\n{answer}"
 )
 
 
@@ -355,7 +361,7 @@ _FOLLOWUP_SCHEMA = {
 
 
 async def _followups_one(client, model: str, persona: str, task: str, answer: str, context: str,
-                         retries: int = 3) -> list[str]:
+                         conversation: str = "", retries: int = 3) -> list[str]:
     """One persona's follow-ups with exponential backoff — rides out transient 429/503/timeouts
     (the two personas fire in parallel, so a paid pro key can momentarily hit per-minute RPM)."""
     import asyncio
@@ -367,7 +373,8 @@ async def _followups_one(client, model: str, persona: str, task: str, answer: st
                                       response_mime_type="application/json",
                                       response_schema=_FOLLOWUP_SCHEMA)
     contents = _FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
-                                       context=context, answer=(answer or "")[:2500])
+                                       context=context, conversation=conversation,
+                                       answer=(answer or "")[:2500])
     last: Exception | None = None
     for i in range(retries):
         try:
@@ -429,17 +436,18 @@ def _fallback_followups(task: str, tickers: list[str] | None = None,
 
 async def suggest_followups(task: str, answer: str, model: str, backend: str | None = None,
                             context: str | None = None, tickers: list[str] | None = None,
-                            kinds: list[str] | None = None) -> list[str]:
-    """PH-THINK / 고도화: capability-aware follow-up chips. On gemini, runs two personas in PARALLEL
-    on the deep model — one scratches the user's curiosity (skill-spanning), one showcases our
-    differentiated data/features — then merges to 3-4 DIVERSE suggestions. ALWAYS returns chips when
-    there's an answer: if the backend is stub, the client init fails, or every model yields nothing,
-    it falls back to deterministic capability-aware chips so the row is never empty. Each click leads
-    into a real capability (수급·13F·백테스트·밸류에이션·증거·거시 등)."""
+                            kinds: list[str] | None = None, conversation: str | None = None) -> list[str]:
+    """PH-THINK / 고도화: capability-aware follow-up chips. On gemini, runs two personas in PARALLEL —
+    one DEEPENS (the sharp analyst's next question, grounded in the answer's specifics), one CONNECTS
+    (broadens via comparison / our differentiated data) — then merges to 3-4 DIVERSE suggestions.
+    ``conversation`` is a short recent transcript so the chips build ON the thread (심화), not restart.
+    ALWAYS returns chips when there's an answer: if the client init fails or every model yields
+    nothing, it falls back to deterministic capability-aware chips so the row is never empty."""
     import asyncio
 
     if not (answer or "").strip():
         return []
+    conv = conversation or ""
     eff_backend = backend or settings.llm_backend
     fallback = _fallback_followups(task, tickers, kinds)
     if eff_backend != "gemini":
@@ -469,7 +477,7 @@ async def suggest_followups(task: str, answer: str, model: str, backend: str | N
         for m in chain:
             try:
                 results = await asyncio.gather(
-                    *[_followups_one(client, m, p, task, answer, ctx) for p in _FOLLOWUP_PERSONAS.values()],
+                    *[_followups_one(client, m, p, task, answer, ctx, conv) for p in _FOLLOWUP_PERSONAS.values()],
                     return_exceptions=True)
                 lists = [r for r in results if isinstance(r, list) and r]
                 errs = [r for r in results if isinstance(r, Exception)]
