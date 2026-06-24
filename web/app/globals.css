@@ -504,6 +504,45 @@ select.input { appearance: none; }
 .star { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--faint); }
 .star.on { color: var(--ink); }
 
+/* 관심 v2 (wireframe 07) — preset empty state, @group list w/ bot indicator, detail + bot banner */
+.wl-empty { display: flex; flex-direction: column; gap: 14px; max-width: 640px; }
+.wl-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.wl-preset { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 11px; padding: 13px 14px; cursor: pointer; font-family: inherit; }
+.wl-preset:hover { border-color: var(--accent); }
+.wl-preset-n { font-size: 14px; font-weight: 600; color: var(--accent-fg); font-family: var(--mono); }
+.wl-preset-c { font-size: 11.5px; color: var(--muted); }
+.wl-new { display: flex; gap: 8px; }
+.wl-gsearch { padding: 8px 11px; font-size: 13px; }
+.wl-glabel { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; color: var(--muted); padding: 4px 2px 2px; }
+.wl-group { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; }
+.wl-group .gh { flex: 1; font-family: var(--mono); color: var(--accent-fg); }
+.wl-group .gc { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.wl-botind { font-size: 9.5px; color: var(--faint); font-family: var(--mono); white-space: nowrap; }
+.wl-botind.on { color: var(--accent-fg); }
+.wl-addgroup { width: 100%; text-align: left; background: none; border: 1px dashed var(--line-2); border-radius: 9px;
+  padding: 8px 11px; color: var(--muted); cursor: pointer; font-size: 13px; font-family: inherit; }
+.wl-addgroup:hover { border-color: var(--accent); color: var(--accent-fg); }
+.wl-dhead { display: flex; align-items: center; gap: 8px; }
+.wl-dtitle { display: flex; align-items: baseline; gap: 10px; }
+.wl-dtitle b { font-size: 15px; }
+.wl-dsub { font-size: 11.5px; color: var(--muted); }
+.wl-botbanner { display: flex; align-items: center; gap: 10px; background: var(--accent-bg); border: 1px solid #C7CAE0;
+  border-radius: 11px; padding: 10px 13px; font-size: 12.5px; color: var(--text-2); }
+.wl-bot-ic { flex: none; }
+.wl-bot-txt { flex: 1; line-height: 1.45; }
+.wl-table { display: flex; flex-direction: column; }
+.wl-thead { display: flex; align-items: center; font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em;
+  color: var(--muted); padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.wl-thead .wl-th-alert { margin-left: auto; }
+.wl-trow { display: flex; align-items: center; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--line-3); font-size: 13px; }
+.wl-tname { flex: 1; }
+.wl-tname .meta { color: var(--muted); font-size: 11.5px; font-family: var(--mono); margin-left: 6px; }
+.wl-talert { display: flex; align-items: center; gap: 6px; }
+.wl-addalert { background: none; border: 1px solid var(--line-2); border-radius: 999px; color: var(--accent-fg);
+  font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: inherit; }
+.wl-addalert:hover { border-color: var(--accent); background: var(--accent-bg); }
+
 .center { display: flex; height: 100vh; align-items: center; justify-content: center; background: var(--bg); }
 .card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 16px; padding: 32px; width: 380px; text-align: center; box-shadow: var(--shadow-pop); }
 .card h1 { margin: 0 0 8px; }
