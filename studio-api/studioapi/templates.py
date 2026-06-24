@@ -166,26 +166,31 @@ async def board_from_template(body: FromTemplateIn, user: User = Depends(current
                     PinnedArtifact.user_email == user.email, PinnedArtifact.board_id == board.id)
             ).scalars().all()
         }
+        # Lay widgets out in GRID UNITS (12-col grid) so the dashboard's react-grid-layout places
+        # them cleanly (w = 6 cols for a wide widget else 4; h = 7 rows). Flow L→R, wrap at 12.
         created = []
         x = y = 0
+        rowh = 0
         for w in widgets:
             spec = w.get("spec") or {}
             title = str(spec.get("title") or "위젯")[:200]
             if title in existing:
                 continue
             existing.add(title)
-            cols = int(w.get("cols", 1))
-            ww = 380 if cols == 2 else 240
+            gw = 6 if int(w.get("cols", 1)) == 2 else 4
+            gh = 7
+            if x + gw > 12:
+                x = 0
+                y += rowh
+                rowh = 0
             p = PinnedArtifact(
                 user_email=user.email, board_id=board.id, title=title,
                 spec=json.dumps(spec, ensure_ascii=False),
-                x=x, y=y, w=ww, h=240,
+                x=x, y=y, w=gw, h=gh,
             )
             db.add(p)
             created.append(p)
-            x += ww + 12
-            if x > 800:
-                x = 0
-                y += 252
+            x += gw
+            rowh = max(rowh, gh)
         db.commit()
         return {"board_id": board.id, "created": len(created)}

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Rnd } from "react-rnd";
+import GridLayout, { WidthProvider, type Layout } from "react-grid-layout";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
 import { ArtifactCard, type Artifact } from "./ArtifactCard";
 import { SourceCard, type Citation } from "./SourceCard";
 import AlertSheet, { type AlertDraft } from "./AlertSheet";
@@ -11,57 +13,45 @@ import WidgetGallery, { type AddedWidget } from "./WidgetGallery";
 import { Button, FreshnessDot } from "./ui";
 import { ChannelStatus, TriggerType } from "@/lib/alerts";
 
+// react-grid-layout drives the placement: a true column grid with collision resolution,
+// auto-packing (no gaps), a magnetic drop placeholder, smooth snap animation, and resize reflow.
+const RGL = WidthProvider(GridLayout);
+
 type Board = { id: string; name: string };
 type Item = { id: string; spec: any; x: number | null; y: number | null; w: number | null; h: number | null };
 type Template = { id: string; name: string; description?: string; market?: string | null; widgets: any[] };
 
-const DEF = { artifact: { w: 380, h: 320 }, source: { w: 300, h: 210 }, text: { w: 320, h: 160 } };
+const COLS = 12;
+const ROW_H = 36;        // px per grid row
 const RANGES = ["1D", "1W", "1M", "1Y", "LIVE"];
-const GRID = 8;     // drag/resize snap grid → clean alignment
-const SNAP = 12;    // edge-snap threshold to neighbor widgets
-
+// default + min sizes per widget kind, in GRID UNITS (cols × rows).
+const GDEF = {
+  artifact: { w: 4, h: 7, minW: 3, minH: 4 },
+  source: { w: 4, h: 6, minW: 3, minH: 4 },
+  text: { w: 3, h: 4, minW: 2, minH: 2 },
+};
 const kindOf = (spec: any) => (spec?.kind === "source" ? "source" : spec?.kind === "text" ? "text" : "artifact");
-type Box = { x: number; y: number; w: number; h: number };
-const overlap = (a: Box, b: Box) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// stored coords are grid units once a board is touched; legacy px (w>COLS/h>40) → re-flow.
+const isGridCoord = (it: Item) =>
+  it.x != null && it.y != null && it.w != null && it.h != null && it.w <= COLS && it.h <= 40;
 
-// Give every item a concrete x/y/w/h: keep placed ones, auto-flow the unplaced into a tidy grid.
-function normalize(pins: Item[]): Item[] {
-  let fx = GRID, fy = GRID, rowH = 0;
-  return pins.map((p) => {
-    const d = DEF[kindOf(p.spec) as keyof typeof DEF];
-    const w = p.w ?? d.w, h = p.h ?? d.h;
-    if (p.x != null && p.y != null) return { ...p, w, h };
-    if (fx + w > 820) { fx = GRID; fy += rowH + GRID; rowH = 0; }
-    const placed = { ...p, x: fx, y: fy, w, h };
-    fx += w + GRID; rowH = Math.max(rowH, h);
-    return placed;
+// Build the react-grid-layout from items: keep placed (grid-unit) widgets, auto-flow the rest into
+// the next free cells so nothing overlaps; RGL then compacts upward to remove gaps.
+function toLayout(items: Item[]): Layout[] {
+  const baseY = items.filter(isGridCoord).reduce((m, p) => Math.max(m, (p.y ?? 0) + (p.h ?? 0)), 0);
+  let cx = 0, cy = 0, rowH = 0;
+  return items.map((it) => {
+    const d = GDEF[kindOf(it.spec) as keyof typeof GDEF];
+    if (isGridCoord(it)) {
+      return { i: it.id, x: it.x!, y: it.y!, w: it.w!, h: it.h!, minW: d.minW, minH: d.minH };
+    }
+    if (cx + d.w > COLS) { cx = 0; cy += rowH; rowH = 0; }
+    const node = { i: it.id, x: cx, y: baseY + cy, w: d.w, h: d.h, minW: d.minW, minH: d.minH };
+    cx += d.w; rowH = Math.max(rowH, d.h);
+    return node;
   });
 }
 
-// Snap a box to the grid + to nearby neighbor edges, then push it below any widget it overlaps.
-function resolveBox(self: Box, others: Box[]): Box {
-  let x = Math.round(self.x / GRID) * GRID;
-  let y = Math.round(self.y / GRID) * GRID;
-  const { w, h } = self;
-  for (const o of others) {
-    if (Math.abs(x - (o.x + o.w + GRID)) < SNAP) x = o.x + o.w + GRID;   // sit to the right
-    else if (Math.abs(x + w - o.x) < SNAP) x = o.x - w - GRID;            // sit to the left
-    else if (Math.abs(x - o.x) < SNAP) x = o.x;                           // align left edges
-    if (Math.abs(y - (o.y + o.h + GRID)) < SNAP) y = o.y + o.h + GRID;    // sit below
-    else if (Math.abs(y + h - o.y) < SNAP) y = o.y - h - GRID;            // sit above
-    else if (Math.abs(y - o.y) < SNAP) y = o.y;                           // align top edges
-  }
-  x = Math.max(0, x); y = Math.max(0, y);
-  let guard = 0;
-  while (others.some((o) => overlap({ x, y, w, h }, o)) && guard++ < 300) {
-    const hit = others.find((o) => overlap({ x, y, w, h }, o))!;
-    y = hit.y + hit.h + GRID;  // drop just below the widget it collided with
-  }
-  return { x, y, w, h };
-}
-
-// Guess a widget's natural alert trigger from its data source, so the widget-bell opens the sheet
-// pre-set sensibly (the user can still change it).
 function triggerForSpec(spec: any): TriggerType {
   const s = `${spec?.tool || ""} ${spec?.source || ""}`.toLowerCase();
   if (/fred|ecos|bls|cpi|macro/.test(s)) return "macro_indicator";
@@ -111,10 +101,9 @@ function InlineEdit({ value, placeholder, onSave, className }: {
   );
 }
 
-// The dashboard (홈): a board's pinned WIDGETS on a free grid — dragged, resized, refreshed; every
-// widget carries source · as_of · freshness, and a 🔔 to set a per-widget alert. Empty boards offer
-// the template gallery (F2). ＋위젯 opens the all-sources gallery (F4); the board-bell sets a
-// board-scope alert. Several named dashboards switchable by tab.
+// The dashboard (홈): a board's WIDGETS on a react-grid-layout grid — drag to repack, resize to
+// reflow, magnetic snap. Every widget carries source · as_of · freshness + a 🔔 per-widget alert.
+// Empty boards offer the template gallery (F2); ＋위젯 opens the all-sources gallery (F4).
 export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation) => void }) {
   const [boards, setBoards] = useState<Board[]>([]);
   const [active, setActive] = useState<string>("");
@@ -125,11 +114,11 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [gallery, setGallery] = useState(false);
-  const [applying, setApplying] = useState(false);  // guards template apply against double-click
+  const [applying, setApplying] = useState(false);
   const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
-  const populatedRef = useRef<Set<string>>(new Set());  // tool widgets we've auto-refreshed once
+  const populatedRef = useRef<Set<string>>(new Set());
 
   const loadBoards = useCallback(async () => {
     const r = await fetch("/api/boards");
@@ -144,8 +133,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     if (r.ok) {
       const pinned = ((await r.json()).pinned ?? []) as Item[];
       const seen = new Set<string>();
-      const uniq = pinned.filter((p) => (seen.has(p.id) ? false : seen.add(p.id)));  // de-dup by id
-      setItems(normalize(uniq));  // give every widget a concrete, non-overlapping position
+      setItems(pinned.filter((p) => (seen.has(p.id) ? false : seen.add(p.id))));  // de-dup by id
       setLastRefresh(new Date().toLocaleTimeString());
     }
   }, []);
@@ -161,15 +149,21 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     }
   }, [items.length, templates.length]);
 
-  // Commit a widget's new geometry after drag/resize: snap to grid + neighbor edges, push out of
-  // any overlap, then persist. Controlled layout so the resolved position actually sticks.
-  function commitBox(id: string, box: Box) {
-    const others = itemsRef.current.filter((i) => i.id !== id)
-      .map((i) => ({ x: i.x ?? 0, y: i.y ?? 0, w: i.w ?? DEF.artifact.w, h: i.h ?? DEF.artifact.h }));
-    const r = resolveBox(box, others);
-    setItems((p) => p.map((i) => (i.id === id ? { ...i, x: r.x, y: r.y, w: r.w, h: r.h } : i)));
-    void fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ x: r.x, y: r.y, w: r.w, h: r.h }) });
+  // Persist the grid after a drag/resize: RGL gives the full layout (incl. items it repacked);
+  // write back every widget whose grid coords changed (grid units).
+  function persistLayout(layout: Layout[]) {
+    const cur = itemsRef.current;
+    setItems(cur.map((it) => {
+      const l = layout.find((n) => n.i === it.id);
+      return l ? { ...it, x: l.x, y: l.y, w: l.w, h: l.h } : it;
+    }));
+    for (const l of layout) {
+      const it = cur.find((i) => i.id === l.i);
+      if (it && (it.x !== l.x || it.y !== l.y || it.w !== l.w || it.h !== l.h)) {
+        void fetch(`/api/board/${l.i}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ x: l.x, y: l.y, w: l.w, h: l.h }) });
+      }
+    }
   }
   async function removeItem(id: string) {
     setItems((p) => p.filter((i) => i.id !== id));
@@ -183,15 +177,12 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     setLastRefresh(new Date().toLocaleTimeString());
     await Promise.allSettled(itemsRef.current.filter((i) => i.spec?.tool).map((i) => refreshItem(i.id)));
   }
-  // auto-refresh: every 30s re-fetch tool-bearing widgets (LIVE dashboard).
   useEffect(() => {
     if (!autoRefresh) return;
     const t = setInterval(() => { void refreshAll(); }, 30_000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
-  // Populate freshly added / templated tool widgets that have no data yet — once each, so a
-  // template-applied or post-onboarding dashboard fills in (failed refresh stays an honest gap).
   useEffect(() => {
     const dataless = items.filter((it) => it.spec?.tool && !populatedRef.current.has(it.id)
       && !(it.spec?.series?.length || it.spec?.candles?.length || it.spec?.table?.length || it.spec?.sections?.length));
@@ -207,7 +198,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   }
   async function addText() {
     const r = await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec: { kind: "text", text: "" }, board_ids: [active], x: 24, y: 24, w: DEF.text.w, h: DEF.text.h }) });
+      body: JSON.stringify({ spec: { kind: "text", text: "" }, board_ids: [active] }) });  // RGL auto-places it
     if (r.ok) loadItems(active);
   }
   async function newBoard() {
@@ -229,7 +220,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     setActive(""); await loadBoards();
   }
   async function applyTemplate(tid: string) {
-    if (applying) return;  // guard against double-click → duplicate widgets
+    if (applying) return;
     setApplying(true);
     try {
       let bid = active;
@@ -265,7 +256,6 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
 
   return (
     <div className="board">
-      {/* top control bar (wireframe 03) */}
       <div className="dash-tabs">
         {boards.map((b) => (
           <button key={b.id} className={`board-tab ${b.id === active ? "on" : ""}`} onClick={() => setActive(b.id)}>{b.name}</button>
@@ -305,7 +295,6 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
       )}
 
       {items.length === 0 ? (
-        // empty state → template gallery (wireframe 02)
         <div className="dash-empty">
           <div className="dash-hero">
             <h2>나만의 실시간 대시보드를 시작하세요</h2>
@@ -329,47 +318,44 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
         </div>
       ) : (
         <div className="board-canvas">
-          {items.map((it) => {
-            const kind = kindOf(it.spec);
-            const d = DEF[kind as keyof typeof DEF];
-            const src = it.spec?.source as string | undefined;
-            const asOf = it.spec?.as_of as string | undefined;
-            return (
-              <Rnd key={`${active}:${it.id}`} bounds="parent" dragHandleClassName="bc-drag"
-                position={{ x: it.x ?? 0, y: it.y ?? 0 }} size={{ width: it.w ?? d.w, height: it.h ?? d.h }}
-                dragGrid={[GRID, GRID]} resizeGrid={[GRID, GRID]}
-                minWidth={200} minHeight={120} className="bc-item"
-                onDragStop={(_e, p) => commitBox(it.id, { x: p.x, y: p.y, w: it.w ?? d.w, h: it.h ?? d.h })}
-                onResizeStop={(_e, _dir, ref, _delta, p) => commitBox(it.id, {
-                  x: p.x, y: p.y, w: ref.offsetWidth, h: ref.offsetHeight })}>
-                <div className="bc-card">
-                  <div className="bc-drag">
-                    <span className="bc-grip">⠿</span>
-                    <InlineEdit className="bc-title" value={it.spec?.title || ""}
-                      placeholder={kind === "text" ? "메모 제목" : "제목"} onSave={(v) => saveSpec(it.id, { title: v })} />
-                    {kind === "artifact" && <FreshnessDot f={it.spec?.freshness ?? undefined} />}
-                    <span className="grow" />
-                    {kind !== "text" && (
-                      <button className="bc-btn" title="이 위젯에 알림" onClick={() => openWidgetAlert(it)}>🔔</button>
+          <RGL className="dash-grid" layout={toLayout(items)} cols={COLS} rowHeight={ROW_H}
+            margin={[12, 12]} containerPadding={[4, 4]} draggableHandle=".bc-drag"
+            isBounded={false} compactType="vertical" resizeHandles={["se"]}
+            onDragStop={persistLayout} onResizeStop={persistLayout}>
+            {items.map((it) => {
+              const kind = kindOf(it.spec);
+              const src = it.spec?.source as string | undefined;
+              const asOf = it.spec?.as_of as string | undefined;
+              return (
+                <div key={it.id} className="bc-item">
+                  <div className="bc-card">
+                    <div className="bc-drag">
+                      <span className="bc-grip">⠿</span>
+                      <InlineEdit className="bc-title" value={it.spec?.title || ""}
+                        placeholder={kind === "text" ? "메모 제목" : "제목"} onSave={(v) => saveSpec(it.id, { title: v })} />
+                      {kind === "artifact" && <FreshnessDot f={it.spec?.freshness ?? undefined} />}
+                      <span className="grow" />
+                      {kind !== "text" && (
+                        <button className="bc-btn" title="이 위젯에 알림" onClick={() => openWidgetAlert(it)}>🔔</button>
+                      )}
+                      {kind === "artifact" && it.spec?.tool && (
+                        <button className="bc-btn" title="새로고침" onClick={() => refreshItem(it.id)}>↻</button>
+                      )}
+                      <button className="bc-btn" title="삭제" onClick={() => removeItem(it.id)}>✕</button>
+                    </div>
+                    <div className="bc-body">
+                      {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} hideTitle bare />}
+                      {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} hideTitle />}
+                      {kind === "text" && <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveSpec(it.id, { text: v })} />}
+                    </div>
+                    {kind !== "text" && src && (
+                      <div className="bc-foot mono">{src}{asOf ? ` · as_of ${asOf}` : ""}</div>
                     )}
-                    {kind === "artifact" && it.spec?.tool && (
-                      <button className="bc-btn" title="새로고침" onClick={() => refreshItem(it.id)}>↻</button>
-                    )}
-                    <button className="bc-btn" title="삭제" onClick={() => removeItem(it.id)}>✕</button>
                   </div>
-                  {/* content shows directly in the widget (no nested card) */}
-                  <div className="bc-body">
-                    {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} hideTitle bare />}
-                    {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} hideTitle />}
-                    {kind === "text" && <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveSpec(it.id, { text: v })} />}
-                  </div>
-                  {kind !== "text" && src && (
-                    <div className="bc-foot mono">{src}{asOf ? ` · as_of ${asOf}` : ""}</div>
-                  )}
                 </div>
-              </Rnd>
-            );
-          })}
+              );
+            })}
+          </RGL>
         </div>
       )}
 
