@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from functools import cache
 from typing import Protocol
@@ -69,11 +70,21 @@ class PgVectorStore:
         self._register = register_vector
         self._dsn = dsn
         self._dim = dim
-        with self._connect() as conn:
+        # bootstrap on a RAW connection — register_vector() (in _connect) needs the `vector` type to
+        # already exist, so the extension must be created first, before we ever register the adapter.
+        with psycopg.connect(dsn) as conn:
             conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            conn.commit()
+        with self._connect() as conn:
             conn.execute(
                 f"CREATE TABLE IF NOT EXISTS rag_chunks (id TEXT PRIMARY KEY, text TEXT, "
                 f"meta JSONB, embedding vector({dim}))"
+            )
+            # HNSW ANN index for cosine — single-digit-ms search up to millions of vectors. Built
+            # incrementally on insert. (pgvector caps HNSW at 2000 dims; our 1536 is well under.)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS rag_chunks_hnsw ON rag_chunks "
+                "USING hnsw (embedding vector_cosine_ops)"
             )
             conn.commit()
 
@@ -91,14 +102,18 @@ class PgVectorStore:
                 m["tenant"] = c.tenant
             return json.dumps(m)
 
-        rows = [(c.id, c.text, _meta(c), v) for c, v in zip(chunks, vectors)]
-        with self._connect() as conn:
-            conn.cursor().executemany(
-                "INSERT INTO rag_chunks (id, text, meta, embedding) VALUES (%s,%s,%s,%s) "
-                "ON CONFLICT (id) DO UPDATE SET text=EXCLUDED.text, meta=EXCLUDED.meta, embedding=EXCLUDED.embedding",
-                rows,
-            )
-            conn.commit()
+        rows = [(c.id, c.text, _meta(c), np.asarray(v, dtype=np.float32)) for c, v in zip(chunks, vectors)]
+
+        def _run() -> None:
+            with self._connect() as conn:
+                conn.cursor().executemany(
+                    "INSERT INTO rag_chunks (id, text, meta, embedding) VALUES (%s,%s,%s,%s) "
+                    "ON CONFLICT (id) DO UPDATE SET text=EXCLUDED.text, meta=EXCLUDED.meta, embedding=EXCLUDED.embedding",
+                    rows,
+                )
+                conn.commit()
+
+        await asyncio.to_thread(_run)  # blocking psycopg off the event loop
 
     async def search(self, vector, top_k, filters=None):
         where, filter_params = "", []
@@ -117,9 +132,16 @@ class PgVectorStore:
             "SELECT id, text, meta, 1 - (embedding <=> %s) AS score FROM rag_chunks "
             f"{where} ORDER BY embedding <=> %s LIMIT %s"
         )
-        args = [vector, *filter_params, vector, top_k]
-        with self._connect() as conn:
-            rows = conn.execute(sql, args).fetchall()
+        # pass the query vector as a numpy array — register_vector adapts ndarray → pgvector
+        # `vector` (a plain list serializes as double precision[], which the <=> operator rejects).
+        qv = np.asarray(vector, dtype=np.float32)
+        args = [qv, *filter_params, qv, top_k]
+
+        def _run():
+            with self._connect() as conn:
+                return conn.execute(sql, args).fetchall()
+
+        rows = await asyncio.to_thread(_run)  # blocking psycopg off the event loop
         out = []
         for cid, text, meta, score in rows:
             meta = meta or {}
