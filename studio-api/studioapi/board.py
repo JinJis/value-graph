@@ -143,6 +143,35 @@ async def list_pins(board_id: str | None = None, user: User = Depends(current_us
         return {"board_id": bid, "pinned": [_row(p) for p in rows]}
 
 
+@router.get("/library", summary="All the user's pinned data assets across boards (the 탐색 pin pool)")
+async def pin_library(user: User = Depends(current_user)) -> dict:
+    """Every data asset the user pinned from 탐색 (chat) — across ALL boards — deduped by content.
+    This is the pool the dashboard widget gallery draws from: a widget is always something pinned
+    in 탐색. Text memos are excluded (not a datasource); newest first."""
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(PinnedArtifact).where(PinnedArtifact.user_email == user.email)
+            .order_by(PinnedArtifact.created_at.desc())
+        ).scalars().all()
+    seen: set = set()
+    out: list[dict] = []
+    for p in rows:
+        try:
+            spec = json.loads(p.spec)
+        except (ValueError, TypeError):
+            continue
+        if spec.get("kind") == "text":  # memos aren't pinned datasources
+            continue
+        # dedupe: the same asset pinned onto several boards is ONE library entry
+        key = (p.title, spec.get("tool"), spec.get("source"),
+               json.dumps(spec.get("args") or {}, sort_keys=True, ensure_ascii=False))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(_row(p))
+    return {"pins": out}
+
+
 @router.post("", summary="Pin an asset (chart/source/text) to one or more boards")
 async def pin(body: PinIn, user: User = Depends(current_user)) -> dict:
     kind = body.spec.get("kind")

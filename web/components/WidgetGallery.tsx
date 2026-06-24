@@ -1,24 +1,26 @@
 "use client";
 
-// 위젯 추가 갤러리 — wireframe 04. 3-pane: 카테고리(9, from /api/connectors) → 소스/지표 목록 →
-// 설정·미리보기 + "이 위젯에 알림" 토글. Sources come from the datasets /catalog (never hardcoded).
-// Adding creates a pin (a dashboard widget) carrying the tool+args+viz; if the alert toggle is on,
-// the parent opens the alert sheet bound to the new widget.
+// 위젯 추가 갤러리 — 탐색에서 핀한 데이터 에셋(라이브러리)에서 위젯을 고른다. 위젯은 언제나 "탐색" 채팅에서
+// 발굴해 핀한 것이다(원자료가 아닌 카탈로그 나열이 아님). 핀이 하나도 없으면 탐색에서 핀할 에셋을 찾아보라고
+// 자연스럽게 안내한다. 추가하면 선택한 핀의 spec을 현재 보드에 위젯으로 올리고, 주기성 데이터면 알림도 켤 수 있다.
 
-import { useEffect, useMemo, useState } from "react";
-import { Button, FreshnessDot } from "./ui";
+import { useEffect, useState } from "react";
+import { Button, CadenceTag, FreshnessDot } from "./ui";
+import { isPeriodic } from "@/lib/alerts";
 
-type Tool = { name: string; label: string; description?: string; source?: string; markets?: string[]; connector_name?: string };
-type Cat = { id: string; label: string; description?: string; tools: Tool[] };
-
-const VIZ: { key: string; label: string; kind: string; chart_style?: string }[] = [
-  { key: "line", label: "라인", kind: "timeseries", chart_style: "line" },
-  { key: "value", label: "숫자", kind: "kpi" },
-  { key: "spark", label: "스파크", kind: "timeseries" },
-  { key: "table", label: "표", kind: "table" },
-];
+type LibPin = { id: string; title: string; spec: any; board_id: string | null };
 
 export type AddedWidget = { pinId: string; spec: any; withAlert: boolean };
+
+// human label for a pinned asset's nature (chart / table·value / source / narrative)
+function kindLabel(spec: any): string {
+  const k = spec?.kind;
+  if (k === "source") return "출처";
+  if (k === "table" || k === "kpi") return "표·값";
+  if (k === "narrative") return "내러티브";
+  if (k === "candlestick" || k === "timeseries" || k === "compare") return "차트";
+  return "데이터";
+}
 
 export default function WidgetGallery({
   boardId, boardName, onClose, onAdded,
@@ -28,59 +30,39 @@ export default function WidgetGallery({
   onClose: () => void;
   onAdded: (w: AddedWidget) => void;
 }) {
-  const [cats, setCats] = useState<Cat[]>([]);
-  const [catId, setCatId] = useState<string>("");
-  const [tool, setTool] = useState<Tool | null>(null);
-  const [viz, setViz] = useState("line");
-  const [target, setTarget] = useState("");
+  const [pins, setPins] = useState<LibPin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sel, setSel] = useState<LibPin | null>(null);
   const [withAlert, setWithAlert] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch("/api/connectors");
-        const cs = (r.ok ? (await r.json()).categories : []) as Cat[];
-        setCats(cs);
-        if (cs.length) setCatId(cs[0].id);
+        const r = await fetch("/api/board/library");
+        const ps = (r.ok ? (await r.json()).pins : []) as LibPin[];
+        setPins(ps);
+        if (ps.length) setSel(ps[0]);
       } catch {} finally { setLoading(false); }
     })();
   }, []);
 
-  const cat = useMemo(() => cats.find((c) => c.id === catId) ?? null, [cats, catId]);
-  const vizMeta = VIZ.find((v) => v.key === viz) ?? VIZ[0];
-
-  function buildSpec(): any {
-    const t = target.trim();
-    const args: any = {};
-    if (t) {
-      args.ticker = t;
-      if (/^\d/.test(t)) args.market = "KR"; else args.market = "US";
-    }
-    const spec: any = {
-      kind: vizMeta.kind, title: tool?.label || tool?.name || "위젯",
-      source: tool?.source || tool?.connector_name, viz,
-      tool: tool?.name, args,
-    };
-    if (vizMeta.chart_style) spec.chart_style = vizMeta.chart_style;
-    return spec;
-  }
+  const periodic = sel ? isPeriodic(sel.spec) : false;
 
   async function add() {
-    if (!tool) return;
+    if (!sel) return;
     setBusy(true);
     try {
-      const spec = buildSpec();
+      // place a copy of the pinned asset onto the current board (RGL auto-flows it)
       const r = await fetch("/api/board", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, board_ids: [boardId] }),
+        body: JSON.stringify({ spec: sel.spec, board_ids: [boardId] }),
       });
       if (!r.ok) throw new Error();
       const pin = (await r.json()).pinned?.[0];
-      // populate live data best-effort (honest gap if the tool can't refresh)
-      if (pin?.id) { try { await fetch(`/api/board/${pin.id}/refresh`, { method: "POST" }); } catch {} }
-      onAdded({ pinId: pin?.id, spec, withAlert });
+      // refresh tool-backed assets so they show live data immediately (honest gap otherwise)
+      if (pin?.id && sel.spec?.tool) { try { await fetch(`/api/board/${pin.id}/refresh`, { method: "POST" }); } catch {} }
+      onAdded({ pinId: pin?.id, spec: sel.spec, withAlert: withAlert && periodic });
     } catch { setBusy(false); }
   }
 
@@ -91,67 +73,69 @@ export default function WidgetGallery({
           <h3>위젯 추가</h3>
           <button className="x" onClick={onClose} aria-label="닫기">✕</button>
         </div>
-        <div className="wg-sub">대시보드{boardName ? `: ${boardName}` : ""} · 지원하는 모든 데이터 소스</div>
+        <div className="wg-sub">대시보드{boardName ? `: ${boardName}` : ""} · 탐색에서 핀한 데이터로 위젯을 만듭니다</div>
 
-        <div className="wg-body">
-          {/* categories */}
-          <div className="wg-cats">
-            {loading && <div className="muted-note">불러오는 중…</div>}
-            {cats.map((c) => (
-              <button key={c.id} type="button" className={`wg-cat ${c.id === catId ? "on" : ""}`}
-                onClick={() => { setCatId(c.id); setTool(null); }}>{c.label}</button>
-            ))}
-            {!loading && cats.length === 0 && <div className="muted-note">카탈로그를 불러올 수 없어요.</div>}
+        {loading ? (
+          <div className="wg-empty"><div className="muted-note">불러오는 중…</div></div>
+        ) : pins.length === 0 ? (
+          <div className="wg-empty">
+            <div className="wg-empty-ic" aria-hidden>📌</div>
+            <h4>아직 핀한 데이터가 없어요</h4>
+            <p>위젯은 <b>탐색</b>에서 채팅으로 찾은 데이터를 핀해서 만듭니다.<br />
+               탐색에서 궁금한 것을 물어보고, 답변의 <b>차트·표·출처</b>를 <b>＋ 대시보드</b>로 핀해 보세요.</p>
           </div>
+        ) : (
+          <div className="wg-body wg-lib">
+            {/* the pin library — every asset pinned across 탐색 conversations */}
+            <div className="wg-libcol">
+              <div className="wg-cat-desc">핀한 데이터 {pins.length}</div>
+              {pins.map((p) => (
+                <button key={p.id} type="button" className={`wg-libitem ${sel?.id === p.id ? "on" : ""}`}
+                  onClick={() => setSel(p)}>
+                  <FreshnessDot f={p.spec?.freshness ?? "fresh"} />
+                  <span className="wg-libitem-title">{p.title}</span>
+                  <span className="wg-libitem-kind mono">{kindLabel(p.spec)}</span>
+                </button>
+              ))}
+            </div>
 
-          {/* source list */}
-          <div className="wg-sources">
-            {cat && <div className="wg-cat-desc">{cat.label}{cat.description ? ` · ${cat.description}` : ""}</div>}
-            {(cat?.tools ?? []).map((t) => (
-              <button key={t.name} type="button" className={`wg-source ${tool?.name === t.name ? "on" : ""}`}
-                onClick={() => setTool(t)}>
-                <FreshnessDot f="fresh" />
-                <span className="wg-source-label">{t.label}</span>
-                <span className="wg-source-badge mono">{t.source || t.connector_name}</span>
-              </button>
-            ))}
-            {cat && cat.tools.length === 0 && <div className="muted-note">이 카테고리에 도구가 없어요.</div>}
+            {/* preview + add */}
+            <div className="wg-config">
+              <div className="wg-cfg-l">위젯 미리보기</div>
+              {sel && (
+                <>
+                  <div className="wg-preview">
+                    <div className="wg-prev-head">{sel.title}
+                      <span className="wg-prev-src mono">{sel.spec?.source || "출처"}</span>
+                      <FreshnessDot f={sel.spec?.freshness ?? "fresh"} />
+                    </div>
+                    <div className="wg-libmeta">
+                      <span className="wg-libchip">{kindLabel(sel.spec)}</span>
+                      {sel.spec?.cadence && <CadenceTag c={sel.spec.cadence} />}
+                      {sel.spec?.as_of && <span className="mono muted-note">as_of {sel.spec.as_of}</span>}
+                    </div>
+                    <div className="wg-prev-foot mono">출처: {sel.spec?.source || "—"}</div>
+                  </div>
+                  {periodic ? (
+                    <label className="wg-alert">
+                      <span>🔔 이 위젯에 알림 — 주기성 데이터</span>
+                      <input type="checkbox" checked={withAlert} onChange={(e) => setWithAlert(e.target.checked)} />
+                    </label>
+                  ) : (
+                    <div className="muted-note" style={{ marginTop: 10 }}>단발성 데이터 — 값으로 표시 (알림 없음)</div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-
-          {/* config + preview */}
-          <div className="wg-config">
-            <div className="wg-cfg-l">위젯 설정</div>
-            {!tool && <div className="muted-note">왼쪽에서 데이터 소스를 선택하세요.</div>}
-            {tool && (
-              <>
-                <div className="wg-field-l">시각화</div>
-                <div className="wg-viz">
-                  {VIZ.map((v) => (
-                    <button key={v.key} type="button" className={`wg-viz-btn ${viz === v.key ? "on" : ""}`} onClick={() => setViz(v.key)}>{v.label}</button>
-                  ))}
-                </div>
-                <div className="wg-field-l">대상 <span className="muted-note">(선택 · 티커/심볼)</span></div>
-                <input className="input" value={target} placeholder="예: 005930.KS · AAPL" onChange={(e) => setTarget(e.target.value)} />
-
-                <div className="wg-preview">
-                  <div className="wg-prev-head">{tool.label}<span className="wg-prev-src mono">{tool.source || tool.connector_name}</span><FreshnessDot f="fresh" /></div>
-                  <div className="wg-prev-ph">{vizMeta.label} · 미리보기</div>
-                  <div className="wg-prev-foot mono">출처: {tool.source || tool.connector_name} · as_of —</div>
-                </div>
-
-                <label className="wg-alert">
-                  <span>🔔 이 위젯에 알림</span>
-                  <input type="checkbox" checked={withAlert} onChange={(e) => setWithAlert(e.target.checked)} />
-                </label>
-              </>
-            )}
-          </div>
-        </div>
+        )}
 
         <div className="modal-foot">
           <span className="grow" />
-          <Button variant="ghost" onClick={onClose} disabled={busy}>취소</Button>
-          <Button onClick={add} disabled={busy || !tool}>{busy ? "추가 중…" : "대시보드에 추가"}</Button>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>{pins.length === 0 ? "닫기" : "취소"}</Button>
+          {pins.length > 0 && (
+            <Button onClick={add} disabled={busy || !sel}>{busy ? "추가 중…" : "대시보드에 추가"}</Button>
+          )}
         </div>
       </div>
     </div>
