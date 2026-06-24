@@ -360,6 +360,37 @@ _FOLLOWUP_SCHEMA = {
 }
 
 
+def _loads_followups(raw: str) -> list[str]:
+    """Robustly pull the follow-up list out of a model response — flash models don't reliably honor
+    strict JSON mode, so they sometimes wrap it in prose ('Here is the JSON…'), markdown fences, or
+    emit a near-JSON variant. Never trust a bare json.loads. Returns [] if nothing parseable."""
+    s = re.sub(r"```(?:json)?", "", (raw or "").strip()).strip().strip("`").strip()
+    if not s:
+        return []
+
+    def _arr(items) -> list[str]:
+        return [str(x).strip() for x in items if str(x).strip()] if isinstance(items, list) else []
+
+    try:  # 1) direct: an object with "followups", or a bare array
+        d = json.loads(s)
+        return _arr(d.get("followups")) if isinstance(d, dict) else _arr(d)
+    except Exception:  # noqa: BLE001
+        pass
+    m = re.search(r'"followups"\s*:\s*(\[[^\]]*\])', s, re.S)  # 2) the followups slice
+    if m:
+        try:
+            return _arr(json.loads(m.group(1)))
+        except Exception:  # noqa: BLE001
+            pass
+    m = re.search(r'\[\s*"(?:[^"\\]|\\.)*"(?:\s*,\s*"(?:[^"\\]|\\.)*")*\s*\]', s, re.S)  # 3) any string array
+    if m:
+        try:
+            return _arr(json.loads(m.group(0)))
+        except Exception:  # noqa: BLE001
+            pass
+    return []
+
+
 async def _followups_one(client, model: str, persona: str, task: str, answer: str, context: str,
                          conversation: str = "", retries: int = 3) -> list[str]:
     """One persona's follow-ups with exponential backoff — rides out transient 429/503/timeouts
@@ -369,7 +400,11 @@ async def _followups_one(client, model: str, persona: str, task: str, answer: st
 
     from google.genai import types
 
-    cfg = types.GenerateContentConfig(temperature=0.3, max_output_tokens=400,
+    # thinking_budget=0: gemini-flash-latest is a THINKING model — left on, its reasoning eats the
+    # output-token budget and the JSON comes back truncated/empty (→ every chip fell back to the
+    # generic set). Off + a roomy budget makes the structured JSON come through cleanly.
+    cfg = types.GenerateContentConfig(temperature=0.3, max_output_tokens=1024,
+                                      thinking_config=types.ThinkingConfig(thinking_budget=0),
                                       response_mime_type="application/json",
                                       response_schema=_FOLLOWUP_SCHEMA)
     contents = _FOLLOWUP_PROMPT.format(persona=persona, task=(task or "")[:400],
@@ -381,10 +416,11 @@ async def _followups_one(client, model: str, persona: str, task: str, answer: st
             logger.debug("followups[%s/%s]: attempt %d/%d", model, persona, i + 1, retries)
             resp = await asyncio.to_thread(client.models.generate_content, model=model,
                                            contents=contents, config=cfg)
-            raw = getattr(resp, "text", "") or "{}"
+            raw = getattr(resp, "text", "") or ""
             logger.debug("followups[%s/%s]: raw response = %s", model, persona, raw[:500])
-            d = json.loads(raw)
-            out = [str(s).strip() for s in (d.get("followups") or []) if str(s).strip()][:3]
+            out = _loads_followups(raw)[:3]
+            if not out:
+                raise ValueError(f"no parseable followups in response: {raw[:160]!r}")
             logger.debug("followups[%s/%s]: parsed %d item(s): %s", model, persona, len(out), out)
             return out
         except Exception as exc:  # noqa: BLE001 — retry transient errors with backoff
@@ -563,7 +599,8 @@ async def refine_evidence(task: str, citations: list[dict], model: str,
         resp = await asyncio.wait_for(asyncio.to_thread(
             client.models.generate_content, model=model,
             contents=_REFINE_PROMPT.format(task=(task or "")[:400], ev=ev[:4000]),
-            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=600,
+            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=1024,
+                                               thinking_config=types.ThinkingConfig(thinking_budget=0),
                                                response_mime_type="application/json",
                                                response_schema=_REFINE_SCHEMA)),
             timeout=settings.gemini_enrich_timeout_seconds)
