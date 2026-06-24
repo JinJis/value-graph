@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
 import type { Citation } from "./SourceCard";
@@ -60,15 +60,48 @@ export type Artifact = {
 
 const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // table-view legend swatches
 
+// Responsive matrix for bare (dashboard) widgets: shows as many rows as fit the widget height
+// (more rows as it grows, fewer when small — never broken), all columns (scroll-x if narrow).
+function ResponsiveTable({ head, rows }: { head: string[]; rows: string[][] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [vis, setVis] = useState(rows.length);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const rowH = 29, headH = 30;
+      setVis(Math.max(1, Math.floor((el.clientHeight - headH) / rowH)));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, []);
+  const shown = rows.slice(0, vis);
+  const more = rows.length - shown.length;
+  return (
+    <div className="bc-tablewrap" ref={ref}>
+      <table className="artifact-table kpi-table">
+        <thead><tr>{head.map((h, i) => <th key={i} className={i === 0 ? "" : "mono"}>{h}</th>)}</tr></thead>
+        <tbody>
+          {shown.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} className={ci === 0 ? "" : "mono"}>{c}</td>)}</tr>)}
+        </tbody>
+      </table>
+      {more > 0 && <div className="bc-more">외 {more}개 더 · 위젯을 키우면 더 보여요</div>}
+    </div>
+  );
+}
+
 // PH-DATA-5: a table/KPI artifact (no time series) — render the header-first matrix as a
 // card so a pinned KPI card shows on the Board too. Pin/remove reuse the chart-card chrome.
 function TableArtifact(
-  { a, onPin, onRemove, hideTitle }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; hideTitle?: boolean },
+  { a, onPin, onRemove, hideTitle, bare }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; hideTitle?: boolean; bare?: boolean },
 ) {
   const [pinned, setPinned] = useState(false);
   const t = a.table ?? [];
   const [head, ...rows] = t;
   if (!head || rows.length === 0) return null;
+  if (bare) return <ResponsiveTable head={head} rows={rows} />;  // dashboard widget: content only
   return (
     <div className="artifact kpi-card">
       <div className="artifact-head">
@@ -103,11 +136,16 @@ function TableArtifact(
 
 // CE-4: a 종목 내러티브 (관전 포인트) card — structured, sourced sections. Pinnable like other cards.
 function NarrativeArtifact(
-  { a, onPin, onRemove, hideTitle }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; hideTitle?: boolean },
+  { a, onPin, onRemove, hideTitle, bare }: { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; hideTitle?: boolean; bare?: boolean },
 ) {
   const [pinned, setPinned] = useState(false);
   const secs = a.sections ?? [];
   if (secs.length === 0) return null;
+  if (bare) return (
+    <div className="bc-narrwrap narrative-body">
+      {secs.map((s, i) => <div key={i} className="narrative-sec"><div className="narrative-h">{s.heading}</div><p className="narrative-p">{s.body}</p></div>)}
+    </div>
+  );
   return (
     <div className="artifact narrative-card">
       <div className="artifact-head">
@@ -179,13 +217,17 @@ function fmt(y: number | null | undefined, unit?: string | null, currency: "KRW"
 }
 
 export function ArtifactCard(
-  { a, onPin, onRemove, onRefresh, onEvidence, onAnnotate, hideTitle }:
+  { a, onPin, onRemove, onRefresh, onEvidence, onAnnotate, hideTitle, bare }:
   { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void;
     onEvidence?: (c: Citation) => void;
     // PH-VIZ-5: persist the user's drawings (provided for already-pinned Board cards).
     onAnnotate?: (ann: ChartAnnotations | null) => void;
     // hideTitle: the board widget card header already shows the title — suppress the duplicate here.
-    hideTitle?: boolean },
+    hideTitle?: boolean;
+    // bare: dashboard-widget mode — render ONLY the content (no inner card head/foot/border),
+    // chart fills the widget height, table shows as many rows as fit. Trust line lives on the
+    // board card. Keeps widgets clean (Datadog-style).
+    bare?: boolean },
 ) {
   const [table, setTable] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -264,11 +306,11 @@ export function ArtifactCard(
 
   // CE-4: a narrative artifact carries structured sections instead of a chart/table.
   if (a.kind === "narrative" && (a.sections?.length ?? 0) > 0) {
-    return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} />;
+    return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} bare={bare} />;
   }
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
   if ((a.kind === "kpi" || a.kind === "table" || (a.series?.length ?? 0) === 0) && a.table?.length) {
-    return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} />;
+    return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} bare={bare} />;
   }
   const series = finSeries ?? a.series ?? [];  // prefer the fuller fetched financials history (default [])
   const xs = Array.from(new Set(series.flatMap((s) => (s.points ?? []).map((p) => p.x)))).sort();
@@ -277,6 +319,7 @@ export function ArtifactCard(
   // No data yet (a freshly added / templated widget before refresh, or feed/calendar): draw an
   // honest gap with the trust line — never crash, never fabricate. The board card header owns ↻.
   if (xs.length === 0 && !hasCandles && !hasOverlays) {
+    if (bare) return <div className="artifact-empty">아직 데이터를 불러오지 않았어요{a.tool ? " — ↻ 로 가져옵니다." : "."}</div>;
     return (
       <div className="artifact">
         <div className="artifact-head">
@@ -294,6 +337,15 @@ export function ArtifactCard(
           <span className="artifact-src">{a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}</span>
           <FreshnessDot f={a.freshness ?? "gap"} />
         </div>
+      </div>
+    );
+  }
+
+  // bare (dashboard widget): just the chart, filling the widget height — clean, no chrome.
+  if (bare) {
+    return (
+      <div className="bc-chartfill">
+        <TradeChart a={a} bars={bars} series={finSeries} currency={currency} onEvidence={onEvidence} compact fillHeight />
       </div>
     );
   }

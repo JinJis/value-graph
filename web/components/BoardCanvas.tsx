@@ -8,7 +8,7 @@ import { ArtifactCard, type Artifact } from "./ArtifactCard";
 import { SourceCard, type Citation } from "./SourceCard";
 import AlertSheet, { type AlertDraft } from "./AlertSheet";
 import WidgetGallery, { type AddedWidget } from "./WidgetGallery";
-import { Button } from "./ui";
+import { Button, FreshnessDot } from "./ui";
 import { ChannelStatus, TriggerType } from "@/lib/alerts";
 
 type Board = { id: string; name: string };
@@ -17,6 +17,48 @@ type Template = { id: string; name: string; description?: string; market?: strin
 
 const DEF = { artifact: { w: 380, h: 320 }, source: { w: 300, h: 210 }, text: { w: 320, h: 160 } };
 const RANGES = ["1D", "1W", "1M", "1Y", "LIVE"];
+const GRID = 8;     // drag/resize snap grid → clean alignment
+const SNAP = 12;    // edge-snap threshold to neighbor widgets
+
+const kindOf = (spec: any) => (spec?.kind === "source" ? "source" : spec?.kind === "text" ? "text" : "artifact");
+type Box = { x: number; y: number; w: number; h: number };
+const overlap = (a: Box, b: Box) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// Give every item a concrete x/y/w/h: keep placed ones, auto-flow the unplaced into a tidy grid.
+function normalize(pins: Item[]): Item[] {
+  let fx = GRID, fy = GRID, rowH = 0;
+  return pins.map((p) => {
+    const d = DEF[kindOf(p.spec) as keyof typeof DEF];
+    const w = p.w ?? d.w, h = p.h ?? d.h;
+    if (p.x != null && p.y != null) return { ...p, w, h };
+    if (fx + w > 820) { fx = GRID; fy += rowH + GRID; rowH = 0; }
+    const placed = { ...p, x: fx, y: fy, w, h };
+    fx += w + GRID; rowH = Math.max(rowH, h);
+    return placed;
+  });
+}
+
+// Snap a box to the grid + to nearby neighbor edges, then push it below any widget it overlaps.
+function resolveBox(self: Box, others: Box[]): Box {
+  let x = Math.round(self.x / GRID) * GRID;
+  let y = Math.round(self.y / GRID) * GRID;
+  const { w, h } = self;
+  for (const o of others) {
+    if (Math.abs(x - (o.x + o.w + GRID)) < SNAP) x = o.x + o.w + GRID;   // sit to the right
+    else if (Math.abs(x + w - o.x) < SNAP) x = o.x - w - GRID;            // sit to the left
+    else if (Math.abs(x - o.x) < SNAP) x = o.x;                           // align left edges
+    if (Math.abs(y - (o.y + o.h + GRID)) < SNAP) y = o.y + o.h + GRID;    // sit below
+    else if (Math.abs(y + h - o.y) < SNAP) y = o.y - h - GRID;            // sit above
+    else if (Math.abs(y - o.y) < SNAP) y = o.y;                           // align top edges
+  }
+  x = Math.max(0, x); y = Math.max(0, y);
+  let guard = 0;
+  while (others.some((o) => overlap({ x, y, w, h }, o)) && guard++ < 300) {
+    const hit = others.find((o) => overlap({ x, y, w, h }, o))!;
+    y = hit.y + hit.h + GRID;  // drop just below the widget it collided with
+  }
+  return { x, y, w, h };
+}
 
 // Guess a widget's natural alert trigger from its data source, so the widget-bell opens the sheet
 // pre-set sensibly (the user can still change it).
@@ -102,7 +144,8 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     if (r.ok) {
       const pinned = ((await r.json()).pinned ?? []) as Item[];
       const seen = new Set<string>();
-      setItems(pinned.filter((p) => (seen.has(p.id) ? false : seen.add(p.id))));  // defensive de-dup by id
+      const uniq = pinned.filter((p) => (seen.has(p.id) ? false : seen.add(p.id)));  // de-dup by id
+      setItems(normalize(uniq));  // give every widget a concrete, non-overlapping position
       setLastRefresh(new Date().toLocaleTimeString());
     }
   }, []);
@@ -118,8 +161,15 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     }
   }, [items.length, templates.length]);
 
-  async function saveLayout(id: string, patch: Partial<{ x: number; y: number; w: number; h: number }>) {
-    await fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+  // Commit a widget's new geometry after drag/resize: snap to grid + neighbor edges, push out of
+  // any overlap, then persist. Controlled layout so the resolved position actually sticks.
+  function commitBox(id: string, box: Box) {
+    const others = itemsRef.current.filter((i) => i.id !== id)
+      .map((i) => ({ x: i.x ?? 0, y: i.y ?? 0, w: i.w ?? DEF.artifact.w, h: i.h ?? DEF.artifact.h }));
+    const r = resolveBox(box, others);
+    setItems((p) => p.map((i) => (i.id === id ? { ...i, x: r.x, y: r.y, w: r.w, h: r.h } : i)));
+    void fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ x: r.x, y: r.y, w: r.w, h: r.h }) });
   }
   async function removeItem(id: string) {
     setItems((p) => p.filter((i) => i.id !== id));
@@ -279,23 +329,25 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
         </div>
       ) : (
         <div className="board-canvas">
-          {items.map((it, idx) => {
-            const kind = it.spec?.kind === "source" ? "source" : it.spec?.kind === "text" ? "text" : "artifact";
-            const d = DEF[kind];
-            const x = it.x ?? 24 + (idx % 3) * (d.w + 20);
-            const y = it.y ?? 24 + Math.floor(idx / 3) * (d.h + 20);
+          {items.map((it) => {
+            const kind = kindOf(it.spec);
+            const d = DEF[kind as keyof typeof DEF];
+            const src = it.spec?.source as string | undefined;
+            const asOf = it.spec?.as_of as string | undefined;
             return (
               <Rnd key={`${active}:${it.id}`} bounds="parent" dragHandleClassName="bc-drag"
-                default={{ x, y, width: it.w ?? d.w, height: it.h ?? d.h }}
-                minWidth={200} minHeight={110} className="bc-item"
-                onDragStop={(_e, p) => { void saveLayout(it.id, { x: Math.round(p.x), y: Math.round(p.y) }); }}
-                onResizeStop={(_e, _dir, ref, _delta, p) => { void saveLayout(it.id, {
-                  x: Math.round(p.x), y: Math.round(p.y), w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight) }); }}>
+                position={{ x: it.x ?? 0, y: it.y ?? 0 }} size={{ width: it.w ?? d.w, height: it.h ?? d.h }}
+                dragGrid={[GRID, GRID]} resizeGrid={[GRID, GRID]}
+                minWidth={200} minHeight={120} className="bc-item"
+                onDragStop={(_e, p) => commitBox(it.id, { x: p.x, y: p.y, w: it.w ?? d.w, h: it.h ?? d.h })}
+                onResizeStop={(_e, _dir, ref, _delta, p) => commitBox(it.id, {
+                  x: p.x, y: p.y, w: ref.offsetWidth, h: ref.offsetHeight })}>
                 <div className="bc-card">
                   <div className="bc-drag">
                     <span className="bc-grip">⠿</span>
                     <InlineEdit className="bc-title" value={it.spec?.title || ""}
                       placeholder={kind === "text" ? "메모 제목" : "제목"} onSave={(v) => saveSpec(it.id, { title: v })} />
+                    {kind === "artifact" && <FreshnessDot f={it.spec?.freshness ?? undefined} />}
                     <span className="grow" />
                     {kind !== "text" && (
                       <button className="bc-btn" title="이 위젯에 알림" onClick={() => openWidgetAlert(it)}>🔔</button>
@@ -305,12 +357,15 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                     )}
                     <button className="bc-btn" title="삭제" onClick={() => removeItem(it.id)}>✕</button>
                   </div>
+                  {/* content shows directly in the widget (no nested card) */}
                   <div className="bc-body">
-                    {/* hideTitle: the board card header already shows the title — avoid the duplicate */}
-                    {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} hideTitle />}
+                    {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} hideTitle bare />}
                     {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} hideTitle />}
                     {kind === "text" && <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveSpec(it.id, { text: v })} />}
                   </div>
+                  {kind !== "text" && src && (
+                    <div className="bc-foot mono">{src}{asOf ? ` · as_of ${asOf}` : ""}</div>
+                  )}
                 </div>
               </Rnd>
             );
