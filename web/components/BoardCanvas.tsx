@@ -1,20 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Rnd } from "react-rnd";
 import { ArtifactCard, type Artifact } from "./ArtifactCard";
 import { SourceCard, type Citation } from "./SourceCard";
+import AlertSheet, { type AlertDraft } from "./AlertSheet";
+import WidgetGallery, { type AddedWidget } from "./WidgetGallery";
 import { Button } from "./ui";
+import { ChannelStatus, TriggerType } from "@/lib/alerts";
 
 type Board = { id: string; name: string };
 type Item = { id: string; spec: any; x: number | null; y: number | null; w: number | null; h: number | null };
+type Template = { id: string; name: string; description?: string; market?: string | null; widgets: any[] };
 
 const DEF = { artifact: { w: 380, h: 320 }, source: { w: 300, h: 210 }, text: { w: 320, h: 160 } };
+const RANGES = ["1D", "1W", "1M", "1Y", "LIVE"];
 
-// A rich (markdown) memo block: renders formatted text; click to edit the markdown source,
-// blur to save + re-render. "Word처럼" writing — headings/bold/lists/links/tables via markdown.
+// Guess a widget's natural alert trigger from its data source, so the widget-bell opens the sheet
+// pre-set sensibly (the user can still change it).
+function triggerForSpec(spec: any): TriggerType {
+  const s = `${spec?.tool || ""} ${spec?.source || ""}`.toLowerCase();
+  if (/fred|ecos|bls|cpi|macro/.test(s)) return "macro_indicator";
+  if (/news/.test(s) || spec?.kind === "feed") return "filing_news";
+  if (/dart|sec|edgar|financ|income/.test(s)) return "earnings";
+  if (/price|yahoo|kis/.test(s)) return "price_threshold";
+  return "digest";
+}
+
 function TextBlock({ value, onSave }: { value: string; onSave: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   if (editing) {
@@ -27,15 +41,11 @@ function TextBlock({ value, onSave }: { value: string; onSave: (v: string) => vo
   }
   return (
     <div className="bc-md md" onClick={() => setEditing(true)} title="클릭해 편집">
-      {value
-        ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
-        : <span className="bc-ph">클릭해 메모 작성 (마크다운 지원)</span>}
+      {value ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown> : <span className="bc-ph">클릭해 메모 작성 (마크다운 지원)</span>}
     </div>
   );
 }
 
-// Click-to-edit text (title / description). User-friendly: shows the value (or a placeholder),
-// click turns it into an input; Enter or blur saves, Esc cancels. Stops drag while editing.
 function InlineEdit({ value, placeholder, onSave, className }: {
   value: string; placeholder: string; onSave: (v: string) => void; className?: string;
 }) {
@@ -44,17 +54,11 @@ function InlineEdit({ value, placeholder, onSave, className }: {
   useEffect(() => { setV(value); }, [value]);
   if (editing) {
     return (
-      <input
-        className={`bc-edit ${className || ""}`} autoFocus value={v}
+      <input className={`bc-edit ${className || ""}`} autoFocus value={v}
         onChange={(e) => setV(e.target.value)}
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
         onBlur={() => { setEditing(false); if (v !== value) onSave(v); }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          if (e.key === "Escape") { setV(value); setEditing(false); }
-        }}
-      />
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") { setV(value); setEditing(false); } }} />
     );
   }
   return (
@@ -65,12 +69,23 @@ function InlineEdit({ value, placeholder, onSave, className }: {
   );
 }
 
-// Notion-like canvas: a user's pinned assets (charts, sources, text) freely placed, dragged,
-// and resized; text blocks are editable. Several named boards, switchable by tab.
+// The dashboard (홈): a board's pinned WIDGETS on a free grid — dragged, resized, refreshed; every
+// widget carries source · as_of · freshness, and a 🔔 to set a per-widget alert. Empty boards offer
+// the template gallery (F2). ＋위젯 opens the all-sources gallery (F4); the board-bell sets a
+// board-scope alert. Several named dashboards switchable by tab.
 export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation) => void }) {
   const [boards, setBoards] = useState<Board[]>([]);
   const [active, setActive] = useState<string>("");
   const [items, setItems] = useState<Item[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [channels, setChannels] = useState<ChannelStatus[]>([]);
+  const [range, setRange] = useState("1M");
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const [gallery, setGallery] = useState(false);
+  const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
+  const itemsRef = useRef<Item[]>([]);
+  itemsRef.current = items;
 
   const loadBoards = useCallback(async () => {
     const r = await fetch("/api/boards");
@@ -79,15 +94,22 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     setBoards(bs);
     setActive((cur) => (cur && bs.some((b) => b.id === cur) ? cur : bs[0]?.id ?? ""));
   }, []);
-
   const loadItems = useCallback(async (bid: string) => {
     if (!bid) return;
     const r = await fetch(`/api/board?board_id=${encodeURIComponent(bid)}`);
-    if (r.ok) setItems((await r.json()).pinned ?? []);
+    if (r.ok) { setItems((await r.json()).pinned ?? []); setLastRefresh(new Date().toLocaleTimeString()); }
+  }, []);
+  const loadChannels = useCallback(async () => {
+    try { const r = await fetch("/api/channels"); if (r.ok) setChannels((await r.json()).channels ?? []); } catch {}
   }, []);
 
-  useEffect(() => { loadBoards(); }, [loadBoards]);
+  useEffect(() => { loadBoards(); loadChannels(); }, [loadBoards, loadChannels]);
   useEffect(() => { if (active) loadItems(active); }, [active, loadItems]);
+  useEffect(() => {
+    if (items.length === 0 && templates.length === 0) {
+      fetch("/api/templates").then((r) => (r.ok ? r.json() : { templates: [] })).then((d) => setTemplates(d.templates ?? [])).catch(() => {});
+    }
+  }, [items.length, templates.length]);
 
   async function saveLayout(id: string, patch: Partial<{ x: number; y: number; w: number; h: number }>) {
     await fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
@@ -96,24 +118,26 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     setItems((p) => p.filter((i) => i.id !== id));
     await fetch(`/api/board/${id}`, { method: "DELETE" });
   }
-  async function refreshItem(id: string) {
+  const refreshItem = useCallback(async (id: string) => {
     const r = await fetch(`/api/board/${id}/refresh`, { method: "POST" });
     if (r.ok) { const fresh = await r.json(); setItems((p) => p.map((i) => (i.id === id ? { ...i, spec: fresh.spec } : i))); }
+  }, []);
+  async function refreshAll() {
+    setLastRefresh(new Date().toLocaleTimeString());
+    await Promise.allSettled(itemsRef.current.filter((i) => i.spec?.tool).map((i) => refreshItem(i.id)));
   }
-  async function saveText(id: string, text: string) {
-    await saveSpec(id, { text });
-  }
-  // merge a partial into an item's spec (title/description/text) and persist the full spec.
+  // auto-refresh: every 30s re-fetch tool-bearing widgets (LIVE dashboard).
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const t = setInterval(() => { void refreshAll(); }, 30_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh]);
+
   async function saveSpec(id: string, patch: Record<string, any>) {
     let merged: any = null;
-    setItems((p) => p.map((i) => {
-      if (i.id !== id) return i;
-      merged = { ...i.spec, ...patch };
-      return { ...i, spec: merged };
-    }));
-    if (merged) {
-      await fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ spec: merged }) });
-    }
+    setItems((p) => p.map((i) => { if (i.id !== id) return i; merged = { ...i.spec, ...patch }; return { ...i, spec: merged }; }));
+    if (merged) await fetch(`/api/board/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ spec: merged }) });
   }
   async function addText() {
     const r = await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -121,47 +145,118 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     if (r.ok) loadItems(active);
   }
   async function newBoard() {
-    const name = prompt("새 보드 이름");
+    const name = prompt("새 대시보드 이름");
     if (!name?.trim()) return;
     const r = await fetch("/api/boards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
     if (r.ok) { const b = await r.json(); await loadBoards(); setActive(b.id); }
   }
   async function renameBoard() {
     const cur = boards.find((b) => b.id === active);
-    const name = prompt("보드 이름 변경", cur?.name ?? "");
+    const name = prompt("대시보드 이름 변경", cur?.name ?? "");
     if (!name?.trim()) return;
     await fetch(`/api/boards/${active}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
     loadBoards();
   }
   async function deleteBoard() {
-    if (!confirm("이 보드와 안의 카드를 모두 삭제할까요?")) return;
+    if (!confirm("이 대시보드와 위젯을 모두 삭제할까요?")) return;
     await fetch(`/api/boards/${active}`, { method: "DELETE" });
-    setActive("");
-    await loadBoards();
+    setActive(""); await loadBoards();
   }
+  async function applyTemplate(tid: string) {
+    let bid = active;
+    if (!bid) { await newBoard(); bid = active; }
+    const r = await fetch("/api/board/from-template", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template_id: tid, board_id: bid || undefined }) });
+    if (r.ok) { const d = await r.json(); setActive(d.board_id); await loadItems(d.board_id); await refreshAll(); }
+  }
+  function openBoardAlert() {
+    setAlertDraft({ scope: "board", board_id: active, source_spec: { deeplink: `/?board=${active}` } });
+  }
+  function openWidgetAlert(it: Item) {
+    const target = it.spec?.args?.ticker || it.spec?.ticker || it.spec?.title;
+    setAlertDraft({
+      scope: "widget", board_id: active, pin_id: it.id, name: it.spec?.title,
+      trigger_type: triggerForSpec(it.spec), params: { target },
+      source_spec: { tool: it.spec?.tool, args: it.spec?.args, source: it.spec?.source, deeplink: `/?board=${active}&widget=${it.id}` },
+    });
+  }
+  function onWidgetAdded(w: AddedWidget) {
+    setGallery(false);
+    loadItems(active);
+    if (w.withAlert && w.pinId) {
+      setAlertDraft({
+        scope: "widget", board_id: active, pin_id: w.pinId, name: w.spec?.title,
+        trigger_type: triggerForSpec(w.spec), params: { target: w.spec?.args?.ticker || w.spec?.title },
+        source_spec: { tool: w.spec?.tool, args: w.spec?.args, source: w.spec?.source, deeplink: `/?board=${active}&widget=${w.pinId}` },
+      });
+    }
+  }
+
+  const activeBoard = boards.find((b) => b.id === active);
 
   return (
     <div className="board">
-      <div className="board-head">
-        <h3>📊 보드</h3>
-        <span className="sub">노션처럼 — 끌어서 배치 · 모서리로 크기 조절 · 메모 작성</span>
-      </div>
-
-      <div className="board-tabs">
+      {/* top control bar (wireframe 03) */}
+      <div className="dash-tabs">
         {boards.map((b) => (
           <button key={b.id} className={`board-tab ${b.id === active ? "on" : ""}`} onClick={() => setActive(b.id)}>{b.name}</button>
         ))}
-        <button className="board-tab add" onClick={newBoard} title="새 보드">＋</button>
-        <span className="grow" />
-        {active && <>
-          <Button variant="ghost" size="sm" onClick={addText}>＋ 메모</Button>
-          <Button variant="ghost" size="sm" onClick={renameBoard}>이름변경</Button>
-          <Button variant="ghost" size="sm" onClick={deleteBoard}>보드삭제</Button>
-        </>}
+        <button className="board-tab add" onClick={newBoard} title="새 대시보드">＋ 대시보드</button>
       </div>
 
+      <div className="dash-bar">
+        <div className="dash-range">
+          {RANGES.map((r) => (
+            <button key={r} className={`dash-range-btn ${range === r ? "on" : ""}`} onClick={() => setRange(r)}>
+              {r === "LIVE" ? <><span className="fdot fresh" /> LIVE</> : r}
+            </button>
+          ))}
+        </div>
+        <button className={`dash-auto ${autoRefresh ? "on" : ""}`} onClick={() => setAutoRefresh((v) => !v)}
+          title={autoRefresh ? "자동갱신 켜짐 (30s)" : "자동갱신 꺼짐 — 켜기"}>↻ 30s</button>
+        <button className="dash-chip" onClick={() => void refreshAll()} title="지금 전체 갱신">↻ 갱신</button>
+        <span className="grow" />
+        {active && (
+          <>
+            <button className="dash-bell" onClick={openBoardAlert} title="이 보드 전체 알림">🔔 보드 알림</button>
+            <Button variant="ghost" size="sm" onClick={() => alert("공유 링크는 곧 제공됩니다.")}>↗ 공유</Button>
+            <Button size="sm" onClick={() => setGallery(true)}>＋ 위젯</Button>
+          </>
+        )}
+      </div>
+
+      {active && (
+        <div className="dash-meta">
+          <span className="fdot fresh" /> 실시간 · 마지막 갱신 {lastRefresh ?? "—"} · {items.length}개 위젯
+          <span className="grow" />
+          <button className="dash-link" onClick={addText}>＋ 메모</button>
+          <button className="dash-link" onClick={renameBoard}>이름변경</button>
+          <button className="dash-link" onClick={deleteBoard}>삭제</button>
+        </div>
+      )}
+
       {items.length === 0 ? (
-        <p className="live-empty">이 보드는 비어 있어요. 답변의 차트·표·<b>출처</b> 카드에서 <b>📌</b>를 누르면 여기에 모이고, <b>＋ 메모</b>로 글을 적어 자유롭게 배치할 수 있어요.</p>
+        // empty state → template gallery (wireframe 02)
+        <div className="dash-empty">
+          <div className="dash-hero">
+            <h2>나만의 실시간 대시보드를 시작하세요</h2>
+            <p>템플릿으로 바로 채우거나, <b>탐색</b>에서 자연어로 찾아 위젯을 추가하세요.</p>
+          </div>
+          <div className="tpl-grid">
+            {templates.map((t) => (
+              <button key={t.id} type="button" className="tpl-card" onClick={() => applyTemplate(t.id)}>
+                <div className="tpl-prev"><span /><span /><span /><span /></div>
+                <div className="tpl-name">{t.name}</div>
+                <div className="tpl-desc">{t.description}</div>
+                <div className="tpl-cta">이 템플릿으로 시작 →</div>
+              </button>
+            ))}
+            <button type="button" className="tpl-card blank" onClick={() => setGallery(true)}>
+              <div className="tpl-blank-ic">＋</div>
+              <div className="tpl-name">빈 캔버스로</div>
+              <div className="tpl-desc">위젯을 직접 추가</div>
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="board-canvas">
           {items.map((it, idx) => {
@@ -175,15 +270,16 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                 minWidth={200} minHeight={110} className="bc-item"
                 onDragStop={(_e, p) => { void saveLayout(it.id, { x: Math.round(p.x), y: Math.round(p.y) }); }}
                 onResizeStop={(_e, _dir, ref, _delta, p) => { void saveLayout(it.id, {
-                  x: Math.round(p.x), y: Math.round(p.y),
-                  w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight) }); }}>
+                  x: Math.round(p.x), y: Math.round(p.y), w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight) }); }}>
                 <div className="bc-card">
                   <div className="bc-drag">
                     <span className="bc-grip">⠿</span>
                     <InlineEdit className="bc-title" value={it.spec?.title || ""}
-                      placeholder={kind === "text" ? "메모 제목" : "제목"}
-                      onSave={(v) => saveSpec(it.id, { title: v })} />
+                      placeholder={kind === "text" ? "메모 제목" : "제목"} onSave={(v) => saveSpec(it.id, { title: v })} />
                     <span className="grow" />
+                    {kind !== "text" && (
+                      <button className="bc-btn" title="이 위젯에 알림" onClick={() => openWidgetAlert(it)}>🔔</button>
+                    )}
                     {kind === "artifact" && it.spec?.tool && (
                       <button className="bc-btn" title="새로고침" onClick={() => refreshItem(it.id)}>↻</button>
                     )}
@@ -196,15 +292,23 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                   <div className="bc-body">
                     {kind === "artifact" && <ArtifactCard a={it.spec as Artifact} onEvidence={onEvidence} />}
                     {kind === "source" && <SourceCard c={it.spec as Citation} onExpand={onEvidence} />}
-                    {kind === "text" && (
-                      <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveText(it.id, v)} />
-                    )}
+                    {kind === "text" && <TextBlock value={it.spec?.text ?? ""} onSave={(v) => saveSpec(it.id, { text: v })} />}
                   </div>
                 </div>
               </Rnd>
             );
           })}
         </div>
+      )}
+
+      {gallery && active && (
+        <WidgetGallery boardId={active} boardName={activeBoard?.name} onClose={() => setGallery(false)} onAdded={onWidgetAdded} />
+      )}
+      {alertDraft && (
+        <AlertSheet initial={alertDraft} channels={channels} boardName={activeBoard?.name}
+          widgetName={alertDraft.scope === "widget" ? alertDraft.name : undefined}
+          onClose={() => setAlertDraft(null)} onChannelsChanged={loadChannels}
+          onCreated={() => setAlertDraft(null)} />
       )}
     </div>
   );

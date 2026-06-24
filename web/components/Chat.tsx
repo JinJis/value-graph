@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import AgentBuilder, { Agent, Category } from "./AgentBuilder";
 import BoardCanvas from "./BoardCanvas";
+import BotHome from "./BotHome";
+import Onboarding from "./Onboarding";
 import PinPicker from "./PinPicker";
 import PromptLibrary from "./PromptLibrary";
 import PromptWaterfall, { WaterfallPrompt } from "./PromptWaterfall";
@@ -130,11 +132,12 @@ export default function Chat({ name }: { name: string }) {
   const [library, setLibrary] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // shell view + watchlists / @groups
-  const [view, setView] = useState<"desk" | "watch" | "board">("desk");
+  // shell view + watchlists / @groups. Dashboard is home; 탐색(explore) is the chat surface.
+  const [view, setView] = useState<"dashboard" | "explore" | "watch" | "bot">("dashboard");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pinTarget, setPinTarget] = useState<any | null>(null);  // asset awaiting a board-picker pin
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);  // null = checking; false = show onboarding
   const [viewer, setViewer] = useState<Citation | null>(null);  // expanded source viewer
   // chat session/history — persisted in studio-api; resume a past conversation.
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -149,7 +152,7 @@ export default function Chat({ name }: { name: string }) {
   async function openConversation(id: string) {
     viewConvRef.current = id;   // claim the view first so any other stream stops rendering
     setConversationId(id);
-    setView("desk");
+    setView("explore");
     setBusy(false);
     try {
       const r = await fetch(`/api/conversations/${id}/messages`);
@@ -170,7 +173,7 @@ export default function Chat({ name }: { name: string }) {
   function newChat() {
     viewConvRef.current = null;
     setMessages([]); setConversationId(null); setInput("");
-    setView("desk");
+    setView("explore");
     setBusy(false);
   }
 
@@ -202,6 +205,12 @@ export default function Chat({ name }: { name: string }) {
     loadAgents();
     loadHandles();
     loadHistory();
+    (async () => {
+      try {
+        const r = await fetch("/api/me");
+        setOnboarded(r.ok ? !!(await r.json()).onboarded : true);  // on error, don't block the app
+      } catch { setOnboarded(true); }
+    })();
     (async () => {
       try {
         const r = await fetch("/api/connectors");
@@ -418,20 +427,27 @@ export default function Chat({ name }: { name: string }) {
   };
 
   return (
+    <>
+    {onboarded === false && (
+      <Onboarding onDone={() => { setOnboarded(true); setView("dashboard"); loadHandles(); }} />
+    )}
     <div className="shell no-right">
       <nav className="rail">
         <div className="rail-brand"><span className="mascot" aria-hidden /><span className="wordmark">ValueGraph</span></div>
         <button className="rail-new" onClick={newChat}>
-          <span className="ic">✎</span><span>새 대화</span>
+          <span className="ic">✎</span><span>새 탐색</span>
         </button>
-        <button className={`rail-item ${view === "desk" ? "on" : ""}`} onClick={() => setView("desk")}>
-          <span className="ic">🏠</span><span className="lbl">데스크</span>
+        <button className={`rail-item ${view === "dashboard" ? "on" : ""}`} onClick={() => setView("dashboard")}>
+          <span className="ic">📊</span><span className="lbl">대시보드</span>
         </button>
-        <button className={`rail-item ${view === "board" ? "on" : ""}`} onClick={() => setView("board")}>
-          <span className="ic">📊</span><span className="lbl">보드</span>
+        <button className={`rail-item ${view === "explore" ? "on" : ""}`} onClick={() => setView("explore")}>
+          <span className="ic">🔍</span><span className="lbl">탐색</span>
         </button>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
           <span className="ic">⭐</span><span className="lbl">관심</span>
+        </button>
+        <button className={`rail-item ${view === "bot" ? "on" : ""}`} onClick={() => setView("bot")}>
+          <span className="ic">🔔</span><span className="lbl">봇</span>
         </button>
         {convs.length > 0 && (
           <div className="rail-hist">
@@ -456,33 +472,19 @@ export default function Chat({ name }: { name: string }) {
       <div className="main">
         {view === "watch" ? (
           <Watchlists embedded onChanged={loadHandles} />
-        ) : view === "board" ? (
+        ) : view === "dashboard" ? (
           <BoardCanvas onEvidence={setViewer} />
+        ) : view === "bot" ? (
+          <BotHome onOpenDashboard={() => setView("dashboard")} />
         ) : (
           <>
             <header className="top">
               <div className="desk-id">
                 <Mascot />
                 <FreshnessDot f="fresh" />
-                <select className="agentpick" value={agentId} onChange={(e) => setAgentId(e.target.value)} title="분석가 선택">
-                  <option value="">기본 에이전트</option>
-                  {agents.some((a) => a.is_template) && (
-                    <optgroup label="제공 템플릿">
-                      {agents.filter((a) => a.is_template).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </optgroup>
-                  )}
-                  {agents.some((a) => !a.is_template) && (
-                    <optgroup label="내 에이전트">
-                      {agents.filter((a) => !a.is_template).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </optgroup>
-                  )}
-                </select>
+                <span className="explore-title">탐색<span className="explore-sub"> — 자연어로 데이터를 찾아 대시보드에 추가</span></span>
               </div>
               <div className="agentbar">
-                <Button variant="ghost" size="sm" onClick={() => setBuilder({ open: true, base: selected })}
-                  title={selected ? "선택한 분석가 편집/복제" : "새 분석가 만들기"}>
-                  {selected ? (selected.editable ? "⚙ 편집" : "⧉ 복제") : "＋ 분석가"}
-                </Button>
                 <Button variant="ghost" size="sm" onClick={() => setLibrary(true)} title="프롬프트 라이브러리">프롬프트</Button>
               </div>
             </header>
@@ -491,8 +493,7 @@ export default function Chat({ name }: { name: string }) {
               {messages.length === 0 && (
                 <div className="empty">
                   <h2>무엇이든 물어보세요</h2>
-                  <p>보유 종목, 뉴스, 시황, 경제 — 분석가가 우리 데이터로 답하고 출처를 보여줍니다.</p>
-                  {selected && <p className="agenthint">분석가: <b>{selected.name}</b>{selected.description ? ` · ${selected.description}` : ""}</p>}
+                  <p>보유 종목, 뉴스, 시황, 경제 — 우리 데이터로 답하고 출처를 보여줍니다. 답변의 차트·표·출처는 <b>＋ 대시보드</b>로 홈에 올릴 수 있어요.</p>
                   {libPrompts.length > 0 ? (
                     // prompt-library examples rising in an infinite loop; hover pauses; click
                     // drops the FULL prompt into the composer to fill {TICKER} and send.
@@ -662,5 +663,6 @@ export default function Chat({ name }: { name: string }) {
         <PinPicker spec={pinTarget} onClose={() => setPinTarget(null)} onPinned={() => setPinTarget(null)} />
       )}
     </div>
+    </>
   );
 }

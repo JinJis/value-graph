@@ -29,14 +29,20 @@ def _add_missing_columns() -> None:
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
-    if "pinned_artifacts" not in inspector.get_table_names():
-        return
-    existing = {c["name"] for c in inspector.get_columns("pinned_artifacts")}
-    add = {"board_id": "VARCHAR(48)", "x": "INTEGER", "y": "INTEGER", "w": "INTEGER", "h": "INTEGER"}
-    with engine.begin() as conn:
-        for col, decl in add.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE pinned_artifacts ADD COLUMN {col} {decl}"))
+    names = inspector.get_table_names()
+    if "pinned_artifacts" in names:
+        existing = {c["name"] for c in inspector.get_columns("pinned_artifacts")}
+        add = {"board_id": "VARCHAR(48)", "x": "INTEGER", "y": "INTEGER", "w": "INTEGER", "h": "INTEGER"}
+        with engine.begin() as conn:
+            for col, decl in add.items():
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE pinned_artifacts ADD COLUMN {col} {decl}"))
+    # F1: onboarding flag on users (default 0 = not yet onboarded)
+    if "users" in names:
+        ucols = {c["name"] for c in inspector.get_columns("users")}
+        if "onboarded" not in ucols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN onboarded BOOLEAN DEFAULT 0"))
 
 
 def init_db() -> None:

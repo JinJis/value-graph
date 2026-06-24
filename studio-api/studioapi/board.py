@@ -19,8 +19,10 @@ from studioapi.db import SessionLocal
 from studioapi.deps import current_user, require_service
 from studioapi.models import Board, PinnedArtifact, User
 
-# kinds a pin may carry: chart/table artifacts, a source/evidence card, or a text block.
-_ALLOWED_KINDS = {"timeseries", "candlestick", "compare", "table", "kpi", "narrative", "source", "text"}
+# kinds a pin (dashboard widget) may carry: chart/table artifacts, a source/evidence card, a text
+# block, or the dashboard-only feed/calendar widgets.
+_ALLOWED_KINDS = {"timeseries", "candlestick", "compare", "table", "kpi", "narrative",
+                  "source", "text", "feed", "calendar"}
 
 boards_router = APIRouter(prefix="/boards", tags=["Board"], dependencies=[Depends(require_service)])
 router = APIRouter(prefix="/board", tags=["Board"], dependencies=[Depends(require_service)])

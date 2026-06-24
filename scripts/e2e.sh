@@ -130,6 +130,33 @@ MINE=$(curl -s "${SH[@]}" $SA/prompts)
 has "imported prompt lands in personal library" "$MINE" "$PID"
 has "imported copy records its source" "$MINE" 'cpr_earnings'
 
+section "F3: dashboard (template -> widget -> alert -> delivery)"
+# provided dashboard templates are seeded
+TPLS=$(curl -s "${SH[@]}" $SA/templates)
+has "studio seeds dashboard templates" "$TPLS" 'dt_semi'
+# default board exists (auto-created)
+BID=$(curl -s "${SH[@]}" $SA/boards | jget '["boards"][0]["id"]')
+[ -n "$BID" ] && ok "default dashboard exists ($BID)" || fail "default dashboard"
+# materialize a template's widgets onto the board
+NW=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/board/from-template -d "{\"template_id\":\"dt_semi\",\"board_id\":\"$BID\"}" | jget '["created"]')
+[ "${NW:-0}" -ge 1 ] && ok "template created $NW widgets" || fail "from-template widget creation"
+PINS=$(curl -s "${SH[@]}" "$SA/board?board_id=$BID")
+has "dashboard now has widgets" "$PINS" 'yahoo__prices'
+# create a board-scope alert (telegram), then fire it — no creds => simulated, but a sourced delivery is recorded
+ALID=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/alerts \
+  -d "{\"name\":\"E2E 금리\",\"scope\":\"board\",\"board_id\":\"$BID\",\"trigger_type\":\"rate\",\"params\":{\"target\":\"@mc\"},\"schedule\":{\"freq\":\"event\"},\"channels\":[\"telegram\"]}" | jget '["id"]')
+[ -n "$ALID" ] && ok "alert created ($ALID)" || fail "alert creation"
+FIRE=$(curl -s "${SH[@]}" "${J[@]}" -X POST $SA/alerts/$ALID/fire)
+has "alert fires (simulated, no creds)" "$FIRE" 'simulated'
+has "delivery carries as_of + source" "$FIRE" 'as_of'
+has "delivery carries a desk deep link" "$FIRE" 'deeplink'
+DLV=$(curl -s "${SH[@]}" "$SA/deliveries?alert_id=$ALID")
+has "delivery recorded in the feed" "$DLV" "$ALID"
+# channel link shows connected
+curl -s "${SH[@]}" "${J[@]}" -X POST $SA/channels -d '{"channel":"slack","config":{"webhook_url":"https://example.invalid/hook"}}' >/dev/null
+CHS=$(curl -s "${SH[@]}" $SA/channels)
+has "linked channel reports connected" "$CHS" 'connected'
+
 section "teardown"
 docker compose down -v >/dev/null 2>&1
 
