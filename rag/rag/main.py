@@ -35,8 +35,8 @@ async def health() -> dict:
 @app.get("/rag/info", tags=["RAG"], summary="Active backends")
 async def info() -> dict:
     return {
-        "embedding_backend": settings.embedding_backend,
         "embedding_model": settings.embedding_model,
+        "embedding_dim": settings.embedding_dim,
         "reranker_backend": settings.reranker_backend,
         "vector_store": settings.vector_store,
     }

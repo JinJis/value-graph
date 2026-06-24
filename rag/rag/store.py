@@ -145,6 +145,6 @@ def get_store() -> VectorStore:
     if settings.vector_store == "pgvector":
         from rag.embeddings import get_embedder
 
-        dim = get_embedder().dim or settings.hash_dim
+        dim = get_embedder().dim or settings.embedding_dim
         return PgVectorStore(settings.database_url, dim)
     raise ValueError(f"Unknown RAG_VECTOR_STORE '{settings.vector_store}'.")

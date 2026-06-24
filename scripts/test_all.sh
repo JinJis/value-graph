@@ -30,7 +30,7 @@ step "Unit tests (in docker — uv image, no host uv)"
 for d in datasets control-plane mcp agent-engine studio-api; do
   echo "-- $d"; unit "$d" "" || FAIL=1
 done
-echo "-- rag (+ real oss-cpu semantic)"; unit rag "--extra oss" || FAIL=1
+echo "-- rag (pipeline on a fake embedder; live semantic skips without GOOGLE_API_KEY)"; unit rag "" || FAIL=1
 
 step "Web build (docker build)"
 docker compose build web >/dev/null 2>&1 && echo "  web build ok" || { echo "  web build FAILED"; FAIL=1; }

@@ -11,7 +11,7 @@ from rag.store import get_store
 
 async def search(query: str, top_k: int | None = None, filters: dict | None = None) -> list[SearchHit]:
     top_k = top_k or settings.top_k
-    qvec = (await get_embedder().embed([query]))[0]
+    qvec = await get_embedder().embed_query(query)  # asymmetric query embedding (RETRIEVAL_QUERY)
     hits = await get_store().search(qvec, top_k, filters or None)
     if not hits:
         return []

@@ -1,24 +1,61 @@
-"""RAG tests on the dependency-free default (hash embedder + memory store + no rerank).
+"""RAG pipeline tests (chunk → embed → store → search → provenance) + tenant isolation.
 
-The hash embedder is lexical, so semantically these are keyword-overlap checks —
-enough to verify the full pipeline + provenance end-to-end without heavy models.
+Embeddings are Gemini-only in production, so these unit tests inject a deterministic LEXICAL fake
+embedder (no key, no network) to exercise the full pipeline end-to-end; a separate live-key test
+(test_rag_semantic.py) proves real SEMANTIC retrieval with the actual Gemini model.
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
+import re
 
+import pytest
 from fastapi.testclient import TestClient
 
+import rag.embeddings
+import rag.ingest
+import rag.search
 from rag import store
 from rag.chunk import chunk_text
-from rag.embeddings import HashEmbedder, get_embedder
 from rag.ingest import ingest_docs
 from rag.main import app
 from rag.models import IngestDoc
 from rag.search import search
 
 client = TestClient(app)
+
+_TOK = re.compile(r"[A-Za-z0-9]+|[가-힣]+")
+
+
+class _FakeEmbedder:
+    """Deterministic lexical embedder for key-free unit tests (stands in for the production Gemini
+    embedder). Bag-of-hashed-tokens, L2-normalized — stable vector space to test the pipeline."""
+
+    dim = 64
+
+    def _vec(self, text: str) -> list[float]:
+        v = [0.0] * self.dim
+        for tok in _TOK.findall((text or "").lower()):
+            v[int(hashlib.md5(tok.encode()).hexdigest(), 16) % self.dim] += 1.0
+        n = math.sqrt(sum(x * x for x in v))
+        return [x / n for x in v] if n else v
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [self._vec(t) for t in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return self._vec(text)
+
+
+@pytest.fixture(autouse=True)
+def _fake_embedder(monkeypatch):
+    fake = _FakeEmbedder()
+    for mod in (rag.embeddings, rag.ingest, rag.search):
+        monkeypatch.setattr(mod, "get_embedder", lambda: fake)
+    store.get_store.cache_clear()
+    yield
 
 
 def _reset():
@@ -29,19 +66,6 @@ def test_chunking():
     text = "Para one is here.\n\nPara two follows.\n\nThird paragraph ends it."
     chunks = chunk_text(text, size=25, overlap=5)
     assert len(chunks) >= 2 and all(chunks)
-
-
-async def test_hash_embedder_normalized_and_deterministic():
-    e = HashEmbedder(64)
-    a = (await e.embed(["apple chip supplier"]))[0]
-    b = (await e.embed(["apple chip supplier"]))[0]
-    assert a == b  # deterministic
-    assert abs(math.sqrt(sum(x * x for x in a)) - 1.0) < 1e-6  # L2-normalized
-
-
-def test_default_backend_is_hash():
-    get_embedder.cache_clear()
-    assert isinstance(get_embedder(), HashEmbedder)
 
 
 async def test_ingest_search_with_provenance():
@@ -90,7 +114,7 @@ async def test_search_filter_by_market():
 
 def test_endpoints():
     _reset()
-    assert client.get("/rag/info").json()["embedding_backend"] == "hash"
+    assert "gemini-embedding" in client.get("/rag/info").json()["embedding_model"]
     ing = client.post("/rag/ingest", json={"documents": [
         {"text": "Apple sources chips from TSMC, a key supplier.", "source": "SEC EDGAR", "ticker": "AAPL", "url": "https://sec.gov/x"}
     ]})
@@ -106,22 +130,9 @@ async def test_reranker_none_passthrough():
     assert out == [(0, 0.0), (1, 0.0)]
 
 
-def test_embedder_factory_unknown_raises(monkeypatch):
-    import pytest
-
-    from rag import embeddings
-    from rag.config import settings as s
-
-    embeddings.get_embedder.cache_clear()
-    monkeypatch.setattr(s, "embedding_backend", "nope")
-    with pytest.raises(ValueError):
-        embeddings.get_embedder()
-    embeddings.get_embedder.cache_clear()
-
-
 def test_info_endpoint_reflects_backends():
     j = client.get("/rag/info").json()
-    assert j["embedding_backend"] == "hash" and j["vector_store"] == "memory" and j["reranker_backend"] == "none"
+    assert "gemini-embedding" in j["embedding_model"] and j["vector_store"] == "memory" and j["reranker_backend"] == "none"
 
 
 async def test_search_on_empty_store_returns_nothing():
