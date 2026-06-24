@@ -86,6 +86,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
   const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
+  const populatedRef = useRef<Set<string>>(new Set());  // tool widgets we've auto-refreshed once
 
   const loadBoards = useCallback(async () => {
     const r = await fetch("/api/boards");
@@ -133,6 +134,15 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
+  // Populate freshly added / templated tool widgets that have no data yet — once each, so a
+  // template-applied or post-onboarding dashboard fills in (failed refresh stays an honest gap).
+  useEffect(() => {
+    const dataless = items.filter((it) => it.spec?.tool && !populatedRef.current.has(it.id)
+      && !(it.spec?.series?.length || it.spec?.candles?.length || it.spec?.table?.length || it.spec?.sections?.length));
+    if (!dataless.length) return;
+    dataless.forEach((it) => populatedRef.current.add(it.id));
+    void Promise.allSettled(dataless.map((it) => refreshItem(it.id)));
+  }, [items, refreshItem]);
 
   async function saveSpec(id: string, patch: Record<string, any>) {
     let merged: any = null;

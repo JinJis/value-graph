@@ -265,14 +265,36 @@ export function ArtifactCard(
     return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} />;
   }
   // a KPI / table artifact carries a matrix instead of time series — render that shape.
-  if ((a.kind === "kpi" || a.kind === "table" || a.series.length === 0) && a.table?.length) {
+  if ((a.kind === "kpi" || a.kind === "table" || (a.series?.length ?? 0) === 0) && a.table?.length) {
     return <TableArtifact a={a} onPin={onPin} onRemove={onRemove} />;
   }
-  const series = finSeries ?? a.series;  // prefer the fuller fetched financials history
-  const xs = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.x)))).sort();
+  const series = finSeries ?? a.series ?? [];  // prefer the fuller fetched financials history (default [])
+  const xs = Array.from(new Set(series.flatMap((s) => (s.points ?? []).map((p) => p.x)))).sort();
   const hasCandles = (a.candles?.length ?? 0) > 0;
   const hasOverlays = (a.overlays?.length ?? 0) > 0;  // PH-VIZ-4: technical-only chart
-  if (xs.length === 0 && !hasCandles && !hasOverlays) return null;
+  // No data yet (a freshly added / templated widget before refresh, or feed/calendar): draw an
+  // honest gap with the trust line — never crash, never fabricate. The board card header owns ↻.
+  if (xs.length === 0 && !hasCandles && !hasOverlays) {
+    return (
+      <div className="artifact">
+        <div className="artifact-head">
+          <span className="artifact-title">{displayTitle}</span>
+          <FreshnessDot f={a.freshness ?? "gap"} />
+          {onRefresh && (
+            <button type="button" className="artifact-toggle" disabled={busy}
+              onClick={async () => { setBusy(true); try { await onRefresh(); } finally { setBusy(false); } }}>
+              {busy ? "…" : "↻ 새로고침"}
+            </button>
+          )}
+        </div>
+        <div className="artifact-empty">아직 데이터를 불러오지 않았어요{a.tool ? " — ↻ 새로고침으로 출처에서 가져옵니다." : "."}</div>
+        <div className="artifact-foot">
+          <span className="artifact-src">{a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}</span>
+          <FreshnessDot f={a.freshness ?? "gap"} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="artifact">
@@ -340,7 +362,7 @@ export function ArtifactCard(
                 <tr key={x}>
                   <td className="mono">{x}</td>
                   {series.map((s) => {
-                    const pt = s.points.find((p) => p.x === x);
+                    const pt = (s.points ?? []).find((p) => p.x === x);
                     return <td key={s.label} className="mono">{fmt(pt?.y, s.unit, currency)}</td>;
                   })}
                 </tr>
