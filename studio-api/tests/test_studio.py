@@ -249,11 +249,12 @@ def test_agent_create_get_update_delete(monkeypatch):
     _mock_control_plane()
     email = "builder@u.com"
     created = client.post("/agents", headers=_hdr(email), json={
-        "name": "My Filings Bot", "description": "filings only", "model": "stub",
+        "name": "My Filings Bot", "description": "filings only",
         "system_prompt": "Cite filings.", "data_sources": ["sec_edgar", "rag"],
     }).json()
     aid = created["id"]
     assert created["editable"] and created["data_sources"] == ["sec_edgar", "rag"]
+    assert created["model"] == "gemini"  # gemini-only (invariant #7)
     # it appears in the list alongside templates
     assert aid in {a["id"] for a in client.get("/agents", headers=_hdr(email)).json()["agents"]}
     # update
@@ -265,11 +266,13 @@ def test_agent_create_get_update_delete(monkeypatch):
 
 
 @respx.mock
-def test_agent_invalid_model_rejected(monkeypatch):
+def test_agent_model_is_gemini_only(monkeypatch):
+    # Gemini-only (invariant #7): any requested model (incl. legacy "stub" or a bogus value) is
+    # accepted and normalized to gemini — there is no other backend to reject toward.
     _cfg(monkeypatch)
     _mock_control_plane()
-    r = client.post("/agents", headers=_hdr("v@u.com"), json={"name": "bad", "model": "gpt-9"})
-    assert r.status_code == 422
+    r = client.post("/agents", headers=_hdr("v@u.com"), json={"name": "coerced", "model": "gpt-9"})
+    assert r.status_code == 200 and r.json()["model"] == "gemini"
 
 
 @respx.mock

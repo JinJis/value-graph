@@ -13,7 +13,7 @@ class AgentSpec(BaseModel):
     # (``yahoo__prices``) or connector ids (``yahoo`` → all of its tools).
     allowed_tools: list[str] | None = None
     max_steps: int | None = None
-    backend: str | None = None  # planner override: 'stub' | 'gemini' (default = server setting)
+    backend: str | None = None  # legacy field — ignored; the platform is Gemini-only (invariant #7)
 
 
 class RunRequest(BaseModel):
@@ -76,7 +76,7 @@ class Citation(BaseModel):
     used: bool = False
     # PH-THINK (verify pass): how well this source supports answering the question, scored
     # by the reviewer in one pass (high|medium|low) + a one-line rationale. Descriptive —
-    # never a forecast. None when the verify pass didn't run (stub / no key).
+    # never a forecast. None when the verify pass didn't run (no key / LLM unavailable).
     confidence: str | None = None
     confidence_why: str | None = None
 

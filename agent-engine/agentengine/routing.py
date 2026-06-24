@@ -1,10 +1,11 @@
-"""StubPlanner routing brain: intent keywords, ticker resolution, candidate
-selection, and the deterministic stub messages.
+"""Ticker resolution + (legacy) keyword-routing helpers.
 
-Pure data + functions (no LLM, no I/O) extracted from ``planner.py`` so the
-deterministic dev/CI router lives apart from the planner classes. ``planner.py``
-re-exports the names other modules/tests reference (e.g. ``resolve_ticker``).
-"""
+``resolve_ticker``/``_user_text`` normalize the ticker the Gemini planner produces (e.g.
+"Apple" → "AAPL", a KR name → its 6-digit code) and resolve follow-up references — these are
+live on the Gemini path and re-exported via ``planner.py``. The remaining keyword-candidate /
+arg-builder / summary helpers are **legacy** from the removed stub planner (the platform is
+Gemini-only — invariant #7) and are no longer used by the product; they're kept only because
+``resolve_ticker`` lives alongside them. Pure data + functions (no LLM, no I/O)."""
 
 from __future__ import annotations
 

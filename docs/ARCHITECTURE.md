@@ -38,7 +38,7 @@ flowchart TD
     subgraph product["Product layer"]
         web["<b>web</b> :3000<br/>Next.js + Auth.js<br/>chat · agent builder · prompts"]
         studio["<b>studio-api</b> :8004<br/>user↔tenant · conversations<br/>chat BFF · holds tenant key"]
-        agent["<b>agent-engine</b> :8003<br/>guardrail → plan(stub / gemini)<br/>→ call tools → cite"]
+        agent["<b>agent-engine</b> :8003<br/>guardrail → plan (Gemini)<br/>→ call tools → cite"]
     end
 
     subgraph control["Control plane"]
@@ -82,7 +82,7 @@ flowchart TD
 **Request flow (a chat turn).** ① the browser POSTs to the web BFF, which attaches the Auth.js session;
 ② on first login studio-api provisions a tenant/project/key + default activations via the control-plane
 admin API; ③ studio-api streams the conversation to the agent engine with the **server-side tenant key**;
-④ the agent plans (stub or Gemini) and calls each tool **through the gateway** with that key; ⑤ the gateway
+④ the agent plans (Gemini) and calls each tool **through the gateway** with that key; ⑤ the gateway
 authenticates, checks the project activated the connector, rate-limits, meters, and proxies to `datasets`
 or `rag` (chosen by path · market · `service`); ⑥ the provider adapter fetches from the real upstream (or
 the ingestion store). External MCP clients hit the exact same gateway, so entitlement + metering are
@@ -106,7 +106,7 @@ message + citations, and the answer streams back to the browser as SSE (`token` 
 |---|---|---|---|
 | **web** | 3000 | Next.js chat UI + agent builder + prompt library; `/api/*` BFF holds only an Auth.js session | studio-api |
 | **studio-api** | 8004 | Google user → tenant provisioning, conversations, chat BFF (**holds the tenant key**) | control-plane (admin), agent-engine |
-| **agent-engine** | 8003 | guardrail → plan (stub\|gemini) → tool-calling loop → provenance citations; `/agent/run`, `/agent/chat` (SSE) | control-plane (gateway) |
+| **agent-engine** | 8003 | guardrail → plan (Gemini) → tool-calling loop → provenance citations; `/agent/run`, `/agent/chat` (SSE) | control-plane (gateway) |
 | **control-plane** | 8010 | the **gateway**: auth → entitlement → rate-limit → meter/audit → proxy; tenants/keys/activations admin | datasets, rag |
 | **datasets** | 8000 | REST data plane: connectors (SEC/Yahoo/FRED/DART/ECOS/News) + point-in-time ingestion store + `/catalog` | upstream APIs, (Postgres) |
 | **rag** | 8002 | provenance-first retrieval: chunk→embed→store→retrieve→rerank; pluggable backends | (vector store, embed backend) |
@@ -127,7 +127,7 @@ and what the agent engine resolves tools from — so REST, MCP, and the agent al
    sourced** (vs Deep Research, which is at most one optional tool, never the backbone). It does **not**
    mean the agent/reasoning logic should be hardcoded. **Answer quality and orchestration are achieved
    with Gemini (and, going forward, multi-agent flows) — never hand-rolled keyword/heuristic rules.** The
-   `stub` planner's keyword routing is a dev/CI fallback only, not the product's intelligence.
+   the platform is Gemini-only — there is no keyword router anywhere; routing and synthesis are the model's.
 2. **Provenance / trust envelope everywhere** — every datum, chunk, and (eventually) agent output
    carries `source` + `as_of` + `freshness` + **`cadence`** (+ `confidence` where derivable). No number
    without a source. **Cadence** is the datasource's periodicity, declared centrally in the catalog
@@ -218,10 +218,10 @@ Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
   plane. Each tool result's provenance is collected into **citations** → sourced answers.
 - **Guardrails:** refuses forecasts / price targets / buy-sell advice at the boundary ("not investment
   advice"; no prediction — matches the PRD's out-of-scope).
-- **Pluggable planner (`AGENT_LLM_BACKEND`):** `stub` (keyword routing — a **dev/CI fallback only**, not
-  the product's intelligence) · `gemini` (real function-calling LLM; the production path — answer quality
-  and step-budget assessment come from the model, not hardcoded rules; extra `gemini`, needs
-  `GOOGLE_API_KEY` / Vertex).
+- **Planner (`AGENT_LLM_BACKEND`):** Gemini-only — `gemini` is the sole supported value (default; the env
+  var is kept for compatibility). Real function-calling LLM; answer quality and step-budget assessment
+  come from the model, not hardcoded rules (extra `gemini`, needs `GOOGLE_API_KEY` / Vertex). There is no
+  keyword-routing fallback — the agent loop requires a key.
 - **Builder modes:** declarative `AgentSpec` (system + allowed_tools + max_steps) and NL `/agent/compile`.
 - **Endpoints:** `POST /agent/run` (X-API-KEY), `POST /agent/compile`, `GET /agent/info`.
 - **7 tests.** Verified live (e2e): refuses advice; uses `yahoo__prices` via the gateway; cites Yahoo Finance.
@@ -229,7 +229,7 @@ Runs agents over a tenant's activated connectors + RAG. Package `agentengine`.
 ### 4.7 Product layer — `studio-api/` + `web/`  ✅ (F0)
 A Claude-style chat product over the platform.
 - **`agent-engine`** gained `POST /agent/chat` (SSE): multi-turn, streams `token`/`tool`/`tool_result`/
-  `citation`/`done`. Planner-agnostic (stub + gemini); tool calls still go through the metered gateway.
+  `citation`/`done`. Gemini planner; tool calls still go through the metered gateway.
 - **`studio-api`** (`studioapi`): maps a Google-authenticated user → a platform tenant (provisioned via
   the control-plane admin API, with default connector activations), owns `conversations`/`messages`, and
   `POST /chat/stream` proxies the agent-engine SSE while persisting the turn. The tenant key is held
@@ -244,7 +244,7 @@ A Claude-style chat product over the platform.
 ### 4.8 Agent builder — `studio-api` + `web`  ✅ (F1)
 Users configure agents and run chats through them.
 - **`AgentSpec`** (agent-engine) now carries `system`, `allowed_tools`, `max_steps`, and a per-agent
-  `backend` (`stub|gemini`). `get_planner(backend)` resolves the planner per agent; `filter_tools` accepts
+  `backend` (`gemini`). `get_planner()` resolves the Gemini planner; `filter_tools` accepts
   **connector ids** (`yahoo` → all its tools) as well as full tool names, so "data sources = connectors"
   maps cleanly to the activation subset. The system prompt is threaded into the planner.
 - **`studio-api`**: `agents` CRUD (`/agents`, `/agents/{id}`) + 4 seeded **provided templates** (종합 리서치 /

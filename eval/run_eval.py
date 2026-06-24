@@ -97,6 +97,8 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
     code, raw = _request("POST", f"{STUDIO}/chat/stream",
                          {"messages": messages, "agent_id": agent_id}, headers)
     tools, statuses, cites, ans, arts, cads = [], [], [], [], [], []
+    confs, suggestions, subagents = [], [], {}
+    clarify = None
     refused = None
     for line in raw.decode("utf-8", "replace").splitlines():
         line = line.strip()
@@ -116,17 +118,28 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
                 cites.append(ev["source"])
             if ev.get("cadence"):
                 cads.append(ev["cadence"])
+            if ev.get("confidence"):
+                confs.append(ev["confidence"])
         elif t == "artifact":
             if ev.get("artifact"):
                 arts.append(ev["artifact"])
                 if ev["artifact"].get("cadence"):
                     cads.append(ev["artifact"]["cadence"])
+        # LLM-driven orchestration events (each is produced only by a Gemini decision):
+        elif t == "clarify":                       # intake offered scoping options
+            clarify = ev
+        elif t == "subagent":                      # A2A: one facet researched in parallel
+            subagents[ev.get("id")] = ev
+        elif t == "suggestions":                   # smart follow-ups
+            suggestions = ev.get("items", []) or []
         elif t == "token":
             ans.append(ev.get("text", ""))
         elif t == "done":
             refused = ev.get("refused")
     return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
-            "artifacts": arts, "cadences": cads, "answer": "".join(ans).strip(), "refused": bool(refused)}
+            "artifacts": arts, "cadences": cads, "confidences": confs,
+            "clarify": clarify, "subagents": list(subagents.values()), "suggestions": suggestions,
+            "answer": "".join(ans).strip(), "refused": bool(refused)}
 
 
 def chat(question: str, agent_id: str) -> dict:
@@ -237,6 +250,37 @@ def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
     if "expect_refused" in checks:
         want = checks["expect_refused"]
         out.append((f"refused={want}", r["refused"] == want, f"refused={r['refused']}"))
+    # --- LLM-orchestration checks (each gates a Gemini-driven behavior) -----------------
+    if "expect_connectors_all" in checks:
+        # PARALLEL multi-source gather: every named connector was reached in the turn.
+        joined = " ".join(t or "" for t in r["tools"])
+        for c in checks["expect_connectors_all"]:
+            out.append((f"reaches {c}", c in joined, f"tools={r['tools']}"))
+    if "expect_clarify" in checks:
+        # intake offered scoping options instead of guessing (clarify-with-options).
+        want = checks["expect_clarify"]
+        cl = r.get("clarify")
+        n = len((cl or {}).get("options") or [])
+        ok = (bool(cl) and n >= 2) if want is True else (bool(cl) == want)
+        out.append((f"clarify={want}", ok, f"clarify_options={n}"))
+    if "expect_subagents" in checks:
+        # A2A decomposition: at least N facets researched in parallel.
+        want = checks["expect_subagents"]
+        n = len(r.get("subagents") or [])
+        out.append((f"≥{want} sub-agents", n >= want, f"subagents={n}"))
+    if "expect_suggestions" in checks:
+        # smart follow-ups: at least N capability-aware next questions.
+        want = checks["expect_suggestions"]
+        n = len(r.get("suggestions") or [])
+        out.append((f"≥{want} follow-ups", n >= want, f"suggestions={n}"))
+    if "expect_confidence" in checks:
+        # verify pass scored per-source evidentiary confidence (high|medium|low).
+        confs = r.get("confidences") or []
+        out.append(("per-source confidence scored", bool(confs), f"confidences={confs}"))
+    if "forbid_artifact" in checks:
+        # e.g. a conceptual answer must NOT fabricate a chart/table.
+        arts = r.get("artifacts") or []
+        out.append(("no artifact (conceptual)", not arts, f"artifacts={[a.get('kind') for a in arts]}"))
     return out
 
 

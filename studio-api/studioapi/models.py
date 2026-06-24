@@ -71,7 +71,7 @@ class Agent(Base):
     user_email: Mapped[str | None] = mapped_column(index=True, nullable=True)  # null = provided template
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str | None] = mapped_column(String(280), nullable=True)
-    model: Mapped[str] = mapped_column(String(64), default="stub")  # stub | gemini
+    model: Mapped[str] = mapped_column(String(64), default="gemini")  # gemini-only (invariant #7)
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     data_sources: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of connector ids
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)

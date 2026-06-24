@@ -103,7 +103,7 @@ def seed_templates() -> None:
 class AgentIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
-    model: str = "stub"
+    model: str = "gemini"  # gemini-only (invariant #7); legacy "stub" is coerced to gemini
     system_prompt: str | None = None
     data_sources: list[str] = []
 
@@ -156,10 +156,9 @@ async def list_agents(user: User = Depends(current_user)) -> dict:
 
 @router.post("", summary="Create an agent")
 async def create_agent(body: AgentIn, user: User = Depends(current_user)) -> dict:
-    if body.model not in ("stub", "gemini"):
-        raise HTTPException(422, "model must be 'stub' or 'gemini'.")
+    # Gemini-only (invariant #7): any value (incl. legacy "stub") is stored as gemini.
     agent = Agent(
-        user_email=user.email, name=body.name, description=body.description, model=body.model,
+        user_email=user.email, name=body.name, description=body.description, model="gemini",
         system_prompt=body.system_prompt, data_sources=json.dumps(body.data_sources), is_template=False,
     )
     with SessionLocal() as db:
@@ -183,14 +182,12 @@ async def update_agent(agent_id: str, body: AgentPatch, user: User = Depends(cur
         a = db.get(Agent, agent_id)
         if a is None or a.user_email != user.email:
             raise HTTPException(404, "Agent not found or not editable.")  # templates aren't editable
-        if body.model is not None and body.model not in ("stub", "gemini"):
-            raise HTTPException(422, "model must be 'stub' or 'gemini'.")
         if body.name is not None:
             a.name = body.name
         if body.description is not None:
             a.description = body.description
         if body.model is not None:
-            a.model = body.model
+            a.model = "gemini"  # gemini-only (invariant #7); any requested value normalizes here
         if body.system_prompt is not None:
             a.system_prompt = body.system_prompt
         if body.data_sources is not None:

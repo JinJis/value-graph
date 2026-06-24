@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Model tiering — quality where it's READ, economy where it's MECHANICAL. Override via env.
-    # Planner backend: stub (deterministic, dev/CI) | gemini (real LLM)
-    llm_backend: str = "stub"
+    # The platform is Gemini-only (invariant #7). The legacy `stub` planner has been removed;
+    # this remains for env compatibility but only "gemini" is supported.
+    llm_backend: str = "gemini"
     model: str = "gemini-flash-latest"  # tool-routing / planning model (frequent → flash)
     # A light/cheap model for the first-pass intake: guardrail + budget + plan (+ needs_data).
     budget_model: str = "gemini-flash-lite-latest"

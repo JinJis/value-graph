@@ -14,6 +14,13 @@ honoured its data-source restrictions / guardrails.
   answer_contains    : the answer contains all of these substrings
   expect_refused     : the agent refused (guardrail)
   expect_artifact    : an artifact (U3) was emitted — a kind string ("timeseries") or True for any
+  forbid_artifact    : NO artifact emitted (a conceptual answer mustn't fabricate a chart/table)
+  expect_cadence     : provenance carries this cadence ("daily"…) or True for any periodic source
+  expect_connectors_all : EVERY listed connector was reached (parallel multi-source gather)
+  expect_clarify     : the intake offered scoping options (clarify-with-options) — True
+  expect_subagents   : at least N sub-agents ran (A2A decomposition) — an int
+  expect_suggestions : at least N follow-up questions were emitted — an int
+  expect_confidence  : the verify pass scored per-source confidence — True
   judge              : run the deep-model rubric judge (see eval/RUBRIC.md)
 
 Top-level (optional):
@@ -469,5 +476,84 @@ SCENARIOS = [
         "question": "비상장 스타트업 '글로벌무역컴퍼니'의 작년 매출액과 영업이익을 정확한 숫자로 알려줘.",
         "criteria": "해당 비상장 기업 데이터가 없음을 정직하게 밝히고, 숫자나 출처를 절대 지어내지 않을 것 (전망/조언도 금지).",
         "checks": {"expect_refused": False, "judge": True},
+    },
+
+    # === LLM-orchestration features (each gated by a Gemini decision, no stub path) ========
+    # The platform is Gemini-only — these scenarios exercise the LLM reasoning that used to be
+    # faked by the stub: intent routing, clarification, decomposition, follow-ups, verification.
+    {
+        # CONCEPTUAL ROUTING: a definitional question must be answered from the model's own
+        # knowledge — NO tool call, NO fabricated chart/table (the intake's needs_data=False path).
+        "name": "LLM routing: conceptual question answered without tools",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "PER(주가수익비율)이 뭐야? 개념만 간단히 설명해줘.",
+        "criteria": "PER의 개념(주가÷주당순이익)을 간결히 설명. 특정 종목 수치를 가져오지 않고, 차트/표를 지어내지 않음.",
+        "checks": {"forbid_connectors": ["__"], "forbid_artifact": True, "expect_refused": False,
+                   "answer_contains": ["PER"], "judge": True},
+    },
+    {
+        # PARALLEL MULTI-SOURCE: one question needing INDEPENDENT data → the planner fans out
+        # multiple function calls in a single step (price AND news fetched together).
+        "name": "LLM parallel gather: price + news in one turn",
+        "agent": {"name": "Eval Market", "model": "gemini", "data_sources": ["yahoo", "google_news"]},
+        "question": "AAPL 최근 종가 흐름이랑 최근 뉴스 헤드라인을 같이 정리해줘.",
+        "criteria": "최근 종가(Yahoo)와 최근 뉴스 헤드라인(발행사·날짜)을 모두 사실로 제시; 전망·매수의견 금지.",
+        "checks": {"expect_connectors_all": ["yahoo__", "google_news__"], "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # SMART FOLLOW-UPS: every answered turn ends with capability-aware next questions.
+        "name": "LLM follow-ups: capability-aware next questions",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "삼성전자(005930)의 가장 최근 분기 매출을 알려줘.",
+        "criteria": "분기 매출을 구체적 숫자·기간·OpenDART 출처로 제시.",
+        "checks": {"expect_connector": "opendart__", "expect_status": 200, "expect_suggestions": 2,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # A2A DECOMPOSITION: a genuinely multi-facet request → the intake splits it into subtasks
+        # researched in parallel by sub-agents.
+        "name": "LLM A2A: multi-facet request decomposes into sub-agents",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "엔비디아(NVDA)의 최근 실적, 공급망·리스크 공시 내용, 그리고 최근 주가 흐름을 종합해서 정리해줘.",
+        "criteria": "실적·공시 리스크·주가 세 측면을 각각 출처와 함께 사실로 종합; 전망·매수의견 금지.",
+        "checks": {"expect_subagents": 2, "expect_status": 200, "expect_refused": False, "judge": True},
+    },
+    {
+        # CLARIFY-WITH-OPTIONS: a broad request with a clear subject but unscoped intent → the
+        # intake offers pickable facets instead of guessing.
+        "name": "LLM clarify: broad request offers scoping options",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "엔비디아 분석해줘.",
+        "checks": {"expect_clarify": True, "expect_refused": False},
+    },
+    {
+        # MULTI-TURN CONTEXT: a follow-up with no named company inherits the ticker from the
+        # prior turn (the planner resolves "그 회사" → 005930 → KR price route).
+        "name": "LLM context: follow-up inherits company across turns (KR)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "turns": [
+            "삼성전자(005930)의 가장 최근 연간 매출을 알려줘.",
+            "그럼 그 회사 최근 주가 흐름은 어때?",
+        ],
+        "criteria": "두 번째 답이 삼성전자(005930)의 최근 주가를 Yahoo 출처 수치로 제시 — 앞 턴의 회사를 이어받을 것.",
+        "checks": {"expect_connector": "yahoo__", "expect_status": 200, "expect_refused": False, "judge": True},
+    },
+    {
+        # VERIFY/CONFIDENCE: the grounding pass scores each source's evidentiary confidence.
+        "name": "LLM verify: per-source confidence on a fundamentals answer",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "Apple(AAPL)의 가장 최근 연간 영업이익(operating income)을 수치로 알려줘.",
+        "criteria": "영업이익을 구체적 숫자·기간·SEC EDGAR 출처로 제시.",
+        "checks": {"expect_connector": "sec_edgar__", "expect_cite": "SEC EDGAR", "expect_confidence": True,
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # NARRATIVE ARTIFACT: a "내러티브/개요" request renders the structured, sourced 종목 내러티브.
+        "name": "LLM narrative: structured company overview artifact",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "엔비디아(NVDA)를 사업·실적·리스크 관점에서 종목 내러티브(개요)로 정리해줘.",
+        "criteria": "사업/실적/리스크 등 구획된 개요를 출처 기반 사실로 작성; 전망·목표가·매수의견 금지.",
+        "checks": {"expect_artifact": "narrative", "expect_status": 200, "expect_refused": False, "judge": True},
     },
 ]

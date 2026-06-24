@@ -55,9 +55,10 @@ These hold across every service; breaking one fails review.
 9. **Deterministic *data*, not deterministic *logic*.** "Deterministic" describes the **data plane** —
    connectors are API-based, so figures are reproducible and **always accurately sourced**. It is **not**
    license to hardcode reasoning. **Answer quality, routing, and orchestration come from Gemini and
-   multi-agent flows — never hand-rolled keyword/heuristic rules.** The `stub` planner's keyword routing
-   exists only as a dev/CI fallback. When a task needs judgment (difficulty, extraction, synthesis,
-   review), reach for an LLM/agent, not an `if`-ladder.
+   multi-agent flows — never hand-rolled keyword/heuristic rules.** The platform is **Gemini-only**:
+   there is no keyword router anywhere — routing, clarification, decomposition, and answer quality all
+   come from Gemini. When a task needs judgment (difficulty, extraction, synthesis, review), reach for an
+   LLM/agent, not an `if`-ladder.
 
 ## 3. Services (ports = host:container; one `docker compose`, one shared `.env`)
 
@@ -66,7 +67,7 @@ These hold across every service; breaking one fails review.
 | `datasets` | 8000 | `app` | data plane: US+KR connectors + ingestion store + `/catalog` |
 | `control-plane` | 8010→8001 | `controlplane` | the **gateway** + tenants/keys/activations admin |
 | `rag` | 8002 | `rag` | provenance-first chunk→embed→retrieve→rerank |
-| `agent-engine` | 8003 | `agentengine` | guardrail→plan(stub\|gemini)→tool loop→citations; `/agent/chat` SSE |
+| `agent-engine` | 8003 | `agentengine` | guardrail→plan (Gemini)→tool loop→citations; `/agent/chat` SSE |
 | `studio-api` | 8004 | `studioapi` | Google user→tenant provisioning; conversations; **holds tenant key**; agents/prompts/(watchlists/briefs) |
 | `web` | 3000 | Next.js | chat UI + builder + prompt library; `/api/*` BFF (Auth.js session only) |
 | `admin` | 8005 | — | out-of-band CRUD/ops console over service DBs (not in the request path) |
@@ -98,7 +99,7 @@ docker compose down                  # stop (-v also wipes SQLite/volumes)
 # Tests — only Docker required (no host uv/npm). See README "Run the tests".
 bash scripts/test_all.sh             # everything; live e2e+eval need GOOGLE_API_KEY (else skip cleanly)
 bash scripts/coverage.sh             # EVERY catalog tool through the gateway
-bash scripts/e2e.sh                  # stub planner, whole product chain, deterministic
+bash scripts/e2e.sh                  # Gemini planner, whole product chain; skips (exit 2) without a key
 bash scripts/e2e_functional.sh       # real upstream data + MCP + semantic RAG (oss-cpu)
 GOOGLE_API_KEY=... bash scripts/e2e_live.sh   # real Gemini, grounded+cited
 python3 eval/run_eval.py             # quality eval (stack up first; skips without GOOGLE_API_KEY)
@@ -112,7 +113,7 @@ the new roadmap's test totals + the task status updated in the same PR.
 ## 6. Environment (Gemini only; never commit secrets — document new keys in `.env.example`)
 ```
 GOOGLE_API_KEY=                      # one key for all Gemini use — enables the gemini planner + live tests
-AGENT_LLM_BACKEND=stub|gemini        # default stub (deterministic, no key)
+AGENT_LLM_BACKEND=gemini             # Gemini-only (stub removed); default gemini, requires GOOGLE_API_KEY
 AUTH_DEV_LOGIN=true                  # local login without Google
 DATABASE_URL=                        # SQLite by default; Postgres in prod
 OPENDART_API_KEY= / ECOS_API_KEY= / FRED_API_KEY=    # free KR/US data keys
