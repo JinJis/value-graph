@@ -18,6 +18,7 @@ from studioapi.config import settings
 from studioapi.db import SessionLocal
 from studioapi.deps import current_user, require_service
 from studioapi.models import Board, PinnedArtifact, User
+from studioapi.orm_helpers import get_owned
 
 # kinds a pin (dashboard widget) may carry: chart/table artifacts, a source/evidence card, a text
 # block, or the dashboard-only feed/calendar widgets.
@@ -73,9 +74,7 @@ async def create_board(body: BoardIn, user: User = Depends(current_user)) -> dic
 @boards_router.patch("/{board_id}", summary="Rename a board")
 async def rename_board(board_id: str, body: BoardIn, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        b = db.get(Board, board_id)
-        if b is None or b.user_email != user.email:
-            raise HTTPException(404, "Board not found.")
+        b = get_owned(db, Board, board_id, user.email, "Board not found.")
         b.name = (body.name or b.name)[:120]
         db.commit()
         db.refresh(b)
@@ -85,9 +84,7 @@ async def rename_board(board_id: str, body: BoardIn, user: User = Depends(curren
 @boards_router.delete("/{board_id}", summary="Delete a board and its pins")
 async def delete_board(board_id: str, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        b = db.get(Board, board_id)
-        if b is None or b.user_email != user.email:
-            raise HTTPException(404, "Board not found.")
+        b = get_owned(db, Board, board_id, user.email, "Board not found.")
         for p in db.execute(select(PinnedArtifact).where(PinnedArtifact.board_id == board_id)).scalars().all():
             db.delete(p)
         db.delete(b)
@@ -200,9 +197,7 @@ async def pin(body: PinIn, user: User = Depends(current_user)) -> dict:
 @router.patch("/{pin_id}", summary="Update a pin's canvas layout and/or text content")
 async def update_pin(pin_id: str, body: UpdateIn, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        p = db.get(PinnedArtifact, pin_id)
-        if p is None or p.user_email != user.email:
-            raise HTTPException(404, "Pin not found.")
+        p = get_owned(db, PinnedArtifact, pin_id, user.email, "Pin not found.")
         for f in ("x", "y", "w", "h"):
             v = getattr(body, f)
             if v is not None:
@@ -218,9 +213,7 @@ async def update_pin(pin_id: str, body: UpdateIn, user: User = Depends(current_u
 @router.post("/{pin_id}/annotate", summary="Save the user's drawings on a pinned chart (PH-VIZ-5)")
 async def annotate_pin(pin_id: str, body: AnnotateIn, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        p = db.get(PinnedArtifact, pin_id)
-        if p is None or p.user_email != user.email:
-            raise HTTPException(404, "Pinned artifact not found.")
+        p = get_owned(db, PinnedArtifact, pin_id, user.email, "Pinned artifact not found.")
         spec = json.loads(p.spec)
         if body.user_annotations:
             spec["user_annotations"] = body.user_annotations
@@ -235,9 +228,7 @@ async def annotate_pin(pin_id: str, body: AnnotateIn, user: User = Depends(curre
 @router.post("/{pin_id}/refresh", summary="Re-fetch a pinned artifact (live, new as_of)")
 async def refresh_pin(pin_id: str, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        p = db.get(PinnedArtifact, pin_id)
-        if p is None or p.user_email != user.email:
-            raise HTTPException(404, "Pinned artifact not found.")
+        p = get_owned(db, PinnedArtifact, pin_id, user.email, "Pinned artifact not found.")
         spec = json.loads(p.spec)
     tool = spec.get("tool")
     if not tool:
@@ -270,9 +261,7 @@ async def refresh_pin(pin_id: str, user: User = Depends(current_user)) -> dict:
 @router.delete("/{pin_id}", summary="Remove a pinned asset")
 async def unpin(pin_id: str, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        p = db.get(PinnedArtifact, pin_id)
-        if p is None or p.user_email != user.email:
-            raise HTTPException(404, "Pinned artifact not found.")
+        p = get_owned(db, PinnedArtifact, pin_id, user.email, "Pinned artifact not found.")
         db.delete(p)
         db.commit()
         return {"deleted": pin_id}

@@ -27,6 +27,7 @@ from studioapi import channels as channels_mod
 from studioapi.config import settings
 from studioapi.db import SessionLocal
 from studioapi.deps import current_user, require_service
+from studioapi.orm_helpers import get_owned
 from studioapi.models import (
     ChannelConnection,
     NotificationAlert,
@@ -397,10 +398,7 @@ async def create_alert(body: AlertIn, user: User = Depends(current_user)) -> dic
 
 
 def _owned(db, alert_id: str, user: User) -> NotificationAlert:
-    a = db.get(NotificationAlert, alert_id)
-    if a is None or a.user_email != user.email:
-        raise HTTPException(404, "Alert not found.")
-    return a
+    return get_owned(db, NotificationAlert, alert_id, user.email, "Alert not found.")
 
 
 @router.get("/{alert_id}", summary="Get one alert")

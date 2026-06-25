@@ -19,6 +19,7 @@ from sqlalchemy import or_, select
 from studioapi.config import settings
 from studioapi.db import SessionLocal
 from studioapi.deps import current_user, require_service
+from studioapi.orm_helpers import get_owned
 from studioapi.models import Agent, User
 
 router = APIRouter(prefix="/agents", tags=["Agents"], dependencies=[Depends(require_service)])
@@ -179,9 +180,7 @@ async def get_agent(agent_id: str, user: User = Depends(current_user)) -> dict:
 @router.patch("/{agent_id}", summary="Update an agent (own only)")
 async def update_agent(agent_id: str, body: AgentPatch, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        a = db.get(Agent, agent_id)
-        if a is None or a.user_email != user.email:
-            raise HTTPException(404, "Agent not found or not editable.")  # templates aren't editable
+        a = get_owned(db, Agent, agent_id, user.email, "Agent not found or not editable.")  # templates aren't editable
         if body.name is not None:
             a.name = body.name
         if body.description is not None:
@@ -199,9 +198,7 @@ async def update_agent(agent_id: str, body: AgentPatch, user: User = Depends(cur
 @router.delete("/{agent_id}", summary="Delete an agent (own only)")
 async def delete_agent(agent_id: str, user: User = Depends(current_user)) -> dict:
     with SessionLocal() as db:
-        a = db.get(Agent, agent_id)
-        if a is None or a.user_email != user.email:
-            raise HTTPException(404, "Agent not found or not deletable.")
+        a = get_owned(db, Agent, agent_id, user.email, "Agent not found or not deletable.")
         db.delete(a)
         db.commit()
         return {"deleted": agent_id}

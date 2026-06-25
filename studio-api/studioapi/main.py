@@ -19,6 +19,7 @@ from studioapi.runs import manager as run_manager
 from studioapi.db import SessionLocal, init_db
 from studioapi.deps import current_user, require_service
 from studioapi.models import Conversation, Message, User
+from studioapi.orm_helpers import get_owned
 from studioapi.prompts import router as prompts_router
 from studioapi.prompts import seed_community_prompts
 from studioapi.search import router as search_router
@@ -129,9 +130,7 @@ async def run_stream(run_id: str, user: User = Depends(current_user), from_index
     if run is None:
         raise HTTPException(404, "Run not found or already evicted.")
     with SessionLocal() as db:
-        conv = db.get(Conversation, run.conversation_id)
-        if conv is None or conv.user_email != user.email:
-            raise HTTPException(404, "Run not found.")
+        get_owned(db, Conversation, run.conversation_id, user.email, "Run not found.")
     return StreamingResponse(sse_tail(run, from_index), media_type="text/event-stream")
 
 
