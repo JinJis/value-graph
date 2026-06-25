@@ -274,6 +274,10 @@ async def catalog_view(request: Request):
 def _interval_label(seconds: int) -> str:
     if not seconds:
         return "—"
+    if seconds % 604800 == 0:
+        return f"{seconds // 604800}주마다"
+    if seconds % 86400 == 0:
+        return f"{seconds // 86400}일마다"
     if seconds % 3600 == 0:
         return f"{seconds // 3600}시간마다"
     if seconds % 60 == 0:
@@ -284,7 +288,9 @@ def _interval_label(seconds: int) -> str:
 def _pipeline_card(p: dict, scheduled: set[str], interval: int) -> str:
     """Visualize one pipeline: source → store, schedule, and its latest run (status/rows/error)."""
     is_sched = p["id"] in scheduled
-    sched_txt = (f"⏱ {_interval_label(interval)}" if is_sched else "수동 전용")
+    # each pipeline has its OWN cadence (min_interval_seconds) — heavy history runs less often.
+    cadence = p.get("min_interval_seconds") or interval
+    sched_txt = (f"⏱ {_interval_label(cadence)}" if is_sched else "수동 전용")
     sched_cls = "ok" if is_sched else ""
     j = p.get("latest") or {}
     if j:

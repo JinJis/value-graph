@@ -1646,6 +1646,7 @@ async def test_scheduler_run_once_runs_pipelines(monkeypatch):
     s = Scheduler()
     s.universe_spec = "us_sp500"
     s.pipeline_ids = ["financials", "prices"]
+    s.cadence_aware = False  # this test covers pure dispatch wiring; cadence is tested separately
     s.enabled = True
     await s._run_once()
     assert s.last_status == "ok" and s.run_count == 1
@@ -1670,6 +1671,76 @@ async def test_prices_pipeline_uses_configured_backfill_years(monkeypatch):
     monkeypatch.setattr(PI, "run_prices_ingest", fake_run)
     await P._run_prices("US", ["AAPL"])
     assert seen["years"] == 7
+
+
+async def test_scheduler_cadence_skips_within_interval(monkeypatch):
+    # PH-PIPE efficiency: a sweep runs a pipeline only when its last run is older than its cadence,
+    # so heavy historical pipelines aren't re-fetched every sweep. A forced run ignores cadence.
+    from datetime import timedelta
+
+    from app import scheduler as sched_mod
+    from app.scheduler import Scheduler
+
+    now = sched_mod._utcnow_naive()
+    last = {  # by IngestionJob `kind`: news ran 10m ago (1h cadence), prices 2d ago (1일), financials never
+        "news": now - timedelta(minutes=10),
+        "prices": now - timedelta(days=2),
+        "backfill": None,  # financials' kind
+    }
+    monkeypatch.setattr(sched_mod, "last_job_at", lambda kind: last.get(kind))
+    s = Scheduler()
+    s.pipeline_ids = ["news", "prices", "financials"]
+
+    due = s._due_pipelines(s.pipeline_ids, force=False)
+    assert "news" not in due                 # within its 1h cadence → skipped
+    assert "prices" in due and "financials" in due
+    assert "news" in s.last_skipped and s.last_skipped["news"] > 0
+    # a manual/forced run ignores cadence and runs everything
+    assert s._due_pipelines(s.pipeline_ids, force=True) == ["news", "prices", "financials"]
+    assert s.last_skipped == {}
+
+
+def test_incremental_start_logic():
+    from datetime import date
+
+    from app.store.prices_ingest import _incremental_start
+
+    full = date(2020, 1, 1)
+    # no prior data → full backfill
+    assert _incremental_start(None, full, 5) == full
+    # prior data → last − overlap (never before full_start)
+    assert _incremental_start(date(2026, 6, 1), full, 5) == date(2026, 5, 27)
+    assert _incremental_start(date(2020, 1, 2), full, 30) == full  # clamped to full_start
+
+
+async def test_run_prices_ingest_is_incremental(monkeypatch):
+    # prices fetches each ticker only since its last stored bar (− overlap); a fresh ticker with no
+    # data falls back to the full PRICES_BACKFILL_YEARS window. (No upstream network — ingest stubbed.)
+    from datetime import date, timedelta
+
+    import app.store.prices_ingest as PI
+
+    seen: dict[str, date] = {}
+
+    async def fake_ingest(mk, t, start, end, retries=1):
+        seen[t] = start
+        return 1
+
+    last = {"AAPL": date(2026, 6, 1), "NEW": None}
+    monkeypatch.setattr(PI, "ingest_prices_ticker", fake_ingest)
+    monkeypatch.setattr(PI, "_last_bar_date", lambda market, ticker: last.get(ticker))
+    monkeypatch.setattr(PI, "init_db", lambda: None)
+    monkeypatch.setattr(PI, "start_job", lambda *a, **k: 1)
+    monkeypatch.setattr(PI, "finish_job", lambda *a, **k: None)
+    monkeypatch.setattr(PI, "update_progress", lambda *a, **k: None)
+
+    await PI.run_prices_ingest("US", ["AAPL", "NEW"], years=5, overlap_days=5)
+
+    today = date.today()
+    full_start = (date(today.year - 5, today.month, today.day) if today.year - 5 > 0
+                  else date(today.year - 5, 1, 1))
+    assert seen["AAPL"] == date(2026, 6, 1) - timedelta(days=5)  # incremental
+    assert seen["NEW"] == full_start                              # first-ever pull → full backfill
 
 
 async def test_run_pipelines_dispatches_and_isolates_failures(monkeypatch):

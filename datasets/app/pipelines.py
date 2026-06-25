@@ -46,13 +46,20 @@ async def _run_evidence_docs(market: str, tickers: list[str]) -> None:
     await run_build_evidence_docs(market, tickers)
 
 
+# pipeline cadence tiers — the scheduler skips a pipeline that ran within `min_interval_seconds`,
+# so heavy historical pulls don't re-fetch the full history every sweep. Pairs with incremental
+# fetch in the runners (prices/corp_actions only pull since the last stored date).
+_HOUR, _DAY, _WEEK = 3600, 86400, 604800
+
 # id → metadata + runner. `kind` is the IngestionJob kind the runner writes (so the admin
 # can group jobs by pipeline). `default` = part of the standard scheduled set.
 # `upstream` = the EXACT external API(s) + request each pipeline issues (so the admin can show
 # operators "어떤 API를 어떤 쿼리로 fetch하는지" verbatim). `fetch` = scope + re-fetch behavior.
+# `min_interval_seconds` = cadence tier (how often the scheduler re-runs this pipeline).
 PIPELINES: list[dict] = [
     {"id": "financials", "label": "재무제표", "source": "SEC EDGAR · OpenDART", "store": "financial_facts",
      "kind": "backfill", "markets": ["US", "KR"], "default": True, "runner": _run_financials,
+     "min_interval_seconds": _WEEK,
      "desc": "3대 재무제표 + 회사 정보(딥 백필)",
      "upstream": [
          "US · SEC EDGAR (XBRL) — GET https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
@@ -64,24 +71,27 @@ PIPELINES: list[dict] = [
               "(market,ticker,statement,line_item,period,report_period,accession). ⚠️ 매 실행 전체 재수집(증분 없음)."},
     {"id": "prices", "label": "가격(OHLCV)", "source": "Yahoo Finance", "store": "price_bars",
      "kind": "prices", "markets": ["US", "KR"], "default": True, "runner": _run_prices,
+     "min_interval_seconds": _DAY,
      "desc": "일별 시·고·저·종가 + 거래량",
      "upstream": [
          "US·KR · Yahoo Finance chart — GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
          "?period1={start_epoch}&period2={end_epoch}&interval=1d",
      ],
-     "fetch": "최근 PRICES_BACKFILL_YEARS년 일봉 OHLCV+거래량. UPSERT 키 (market,ticker,interval,bar_date). "
-              "⚠️ 매 실행 N년 전체 재수집(증분 없음)."},
+     "fetch": "일봉 OHLCV+거래량. UPSERT 키 (market,ticker,interval,bar_date). "
+              "✅ 증분: 종목별 마지막 저장일 이후만 fetch(최초 1회만 PRICES_BACKFILL_YEARS년 전체)."},
     {"id": "corp_actions", "label": "배당·분할", "source": "Yahoo Finance", "store": "corporate_actions",
      "kind": "corp_actions", "markets": ["US", "KR"], "default": True, "runner": _run_corp_actions,
+     "min_interval_seconds": _WEEK,
      "desc": "배당락일·금액 + 액면분할(10년)",
      "upstream": [
          "US·KR · Yahoo Finance chart events — GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
          "?period1={start_epoch}&period2={end_epoch}&interval=1d&events=div,split",
      ],
-     "fetch": "최근 10년 배당락일·금액 + 액면분할 비율. UPSERT 키 (market,ticker,kind,event_date). "
-              "⚠️ 매 실행 10년 전체 재수집(증분 없음)."},
+     "fetch": "배당락일·금액 + 액면분할 비율. UPSERT 키 (market,ticker,kind,event_date). "
+              "✅ 증분: 종목별 마지막 이벤트일 이후만 fetch(최초 1회만 10년 전체)."},
     {"id": "news", "label": "뉴스 → RAG", "source": "Google News", "store": "RAG corpus",
      "kind": "news", "markets": ["US", "KR"], "default": True, "runner": _run_news,
+     "min_interval_seconds": _HOUR,
      "desc": "종목별 최신 헤드라인을 RAG 색인",
      "upstream": [
          "US·KR · Google News RSS — GET https://news.google.com/rss/search"
@@ -91,6 +101,7 @@ PIPELINES: list[dict] = [
               "과거 이력 없음 — 최신 N건만 반환(본질적으로 증분)."},
     {"id": "filing_text", "label": "공시 본문 → RAG", "source": "SEC/DART PDF", "store": "RAG corpus",
      "kind": "filing_text", "markets": ["US", "KR"], "default": False, "runner": _run_filing_text,
+     "min_interval_seconds": _WEEK,
      "desc": "공시 PDF 본문을 RAG 색인(무거움)",
      "upstream": [
          "US · SEC iXBRL 본문 — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc} → renderer PDF",
@@ -100,6 +111,7 @@ PIPELINES: list[dict] = [
               "PDF는 캐시(증분), 텍스트는 매 실행 재색인."},
     {"id": "evidence_docs", "label": "증거 PDF", "source": "SEC/DART", "store": "evidence_docs",
      "kind": "evidence_docs", "markets": ["US", "KR"], "default": False, "runner": _run_evidence_docs,
+     "min_interval_seconds": _WEEK,
      "desc": "공시를 PDF로 캐시(증거 하이라이트, 무거움)",
      "upstream": [
          "US · SEC iXBRL → renderer PDF · KR · OpenDART 공식 PDF (filing_text와 동일 원천)",

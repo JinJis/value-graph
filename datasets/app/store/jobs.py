@@ -67,6 +67,14 @@ def finish_job(job_id: int, status: str, rows: int = 0, error: str | None = None
         db.commit()
 
 
+def last_job_at(kind: str) -> datetime | None:
+    """Most recent start time for a pipeline `kind` (any status) — the scheduler uses this to
+    skip a pipeline that ran within its cadence (so heavy historical pipelines don't re-fetch the
+    full history every sweep). Returns a naive-UTC datetime, matching how jobs are stamped."""
+    with SessionLocal() as db:
+        return db.scalar(select(func.max(IngestionJob.started_at)).where(IngestionJob.kind == kind))
+
+
 def list_jobs(limit: int = 25) -> list[dict]:
     with SessionLocal() as db:
         rows = db.execute(

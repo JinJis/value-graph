@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 
@@ -35,6 +35,28 @@ def _to_date(v) -> date | None:
 
 def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
+
+
+# --- incremental: only fetch since the last stored row (a small overlap re-checks recent dates
+#     for corrections / weekend gaps). First-ever pull falls back to the full history window. -----
+def _last_bar_date(market: str, ticker: str) -> date | None:
+    with SessionLocal() as db:
+        return db.scalar(select(func.max(PriceBar.bar_date)).where(
+            PriceBar.market == market, PriceBar.ticker == ticker, PriceBar.interval == _INTERVAL))
+
+
+def _last_event_date(market: str, ticker: str) -> date | None:
+    with SessionLocal() as db:
+        return db.scalar(select(func.max(CorporateAction.event_date)).where(
+            CorporateAction.market == market, CorporateAction.ticker == ticker))
+
+
+def _incremental_start(last: date | None, full_start: date, overlap_days: int) -> date:
+    """Start date for an incremental pull: last-stored − overlap, never before `full_start`.
+    `last is None` (no prior data) → full backfill from `full_start`."""
+    if last is None:
+        return full_start
+    return max(full_start, last - timedelta(days=overlap_days))
 
 
 async def _retry(fn, retries: int):
@@ -87,17 +109,24 @@ async def ingest_prices_ticker(market: Market, ticker: str, start: date, end: da
     return await asyncio.to_thread(_write)
 
 
-async def run_prices_ingest(market: str, tickers: list[str], years: int = 2, retries: int = 1) -> dict:
-    """Collect daily OHLCV for ``tickers`` into ``PriceBar``; recorded as an IngestionJob."""
+async def run_prices_ingest(market: str, tickers: list[str], years: int = 2, retries: int = 1,
+                            overlap_days: int = 5) -> dict:
+    """Collect daily OHLCV for ``tickers`` into ``PriceBar``; recorded as an IngestionJob.
+
+    Incremental: each ticker is fetched only from its last stored bar (minus ``overlap_days`` to
+    re-check recent corrections); a ticker with no data yet gets the full ``years``-year backfill."""
     init_db()
     mk = Market(market)
     end = date.today()
-    start = date(end.year - years, end.month, end.day) if end.year - years > 0 else date(end.year - years, 1, 1)
-    job = await asyncio.to_thread(start_job, "prices", market, f"prices:{years}y · {len(tickers)} tickers", len(tickers))
+    full_start = date(end.year - years, end.month, end.day) if end.year - years > 0 else date(end.year - years, 1, 1)
+    job = await asyncio.to_thread(start_job, "prices", market, f"prices · {len(tickers)} tickers (증분)", len(tickers))
     per: dict[str, int] = {}
     try:
         for i, t in enumerate(tickers, 1):
             try:
+                nt = build_ref(mk, t).ticker
+                last = await asyncio.to_thread(_last_bar_date, market, nt)
+                start = _incremental_start(last, full_start, overlap_days)
                 per[t] = await ingest_prices_ticker(mk, t, start, end, retries)
             except Exception as exc:  # noqa: BLE001
                 per[t] = -1
@@ -113,11 +142,9 @@ async def run_prices_ingest(market: str, tickers: list[str], years: int = 2, ret
 
 
 # --- corporate actions ---------------------------------------------------
-async def ingest_corp_actions_ticker(market: Market, ticker: str, years: int, retries: int = 1) -> int:
+async def ingest_corp_actions_ticker(market: Market, ticker: str, start: date, end: date, retries: int = 1) -> int:
     ref = build_ref(market, ticker)
     provider = get_prices_provider(market)
-    end = date.today()
-    start = date(end.year - years, 1, 1)
     data = await _retry(lambda: provider.corporate_actions(ref, start, end), retries)
     rows = []
     for d in (data.get("dividends") or []):
@@ -150,16 +177,25 @@ async def ingest_corp_actions_ticker(market: Market, ticker: str, years: int, re
     return await asyncio.to_thread(_write)
 
 
-async def run_corp_actions_ingest(market: str, tickers: list[str], years: int = 10, retries: int = 1) -> dict:
-    """Collect dividends + splits for ``tickers`` into ``CorporateAction``; recorded as a job."""
+async def run_corp_actions_ingest(market: str, tickers: list[str], years: int = 10, retries: int = 1,
+                                  overlap_days: int = 35) -> dict:
+    """Collect dividends + splits for ``tickers`` into ``CorporateAction``; recorded as a job.
+
+    Incremental: each ticker is fetched only from its last stored event (minus ``overlap_days``);
+    a ticker with no events yet gets the full ``years``-year backfill."""
     init_db()
     mk = Market(market)
-    job = await asyncio.to_thread(start_job, "corp_actions", market, f"corp_actions:{years}y · {len(tickers)} tickers", len(tickers))
+    end = date.today()
+    full_start = date(end.year - years, 1, 1)
+    job = await asyncio.to_thread(start_job, "corp_actions", market, f"corp_actions · {len(tickers)} tickers (증분)", len(tickers))
     per: dict[str, int] = {}
     try:
         for i, t in enumerate(tickers, 1):
             try:
-                per[t] = await ingest_corp_actions_ticker(mk, t, years, retries)
+                nt = build_ref(mk, t).ticker
+                last = await asyncio.to_thread(_last_event_date, market, nt)
+                start = _incremental_start(last, full_start, overlap_days)
+                per[t] = await ingest_corp_actions_ticker(mk, t, start, end, retries)
             except Exception as exc:  # noqa: BLE001
                 per[t] = -1
                 logger.warning("corp-actions ingest failed %s:%s — %s", market, t, exc)
