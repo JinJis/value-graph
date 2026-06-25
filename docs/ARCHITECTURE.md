@@ -110,7 +110,6 @@ message + citations, and the answer streams back to the browser as SSE (`token` 
 | **control-plane** | 8010 | the **gateway**: auth → entitlement → rate-limit → meter/audit → proxy; tenants/keys/activations admin | datasets, rag |
 | **datasets** | 8000 | REST data plane: connectors (SEC/Yahoo/FRED/DART/ECOS/News) + point-in-time ingestion store + `/catalog` | upstream APIs, (Postgres) |
 | **rag** | 8002 | provenance-first retrieval: chunk→embed→store→retrieve→rerank; pluggable backends | (vector store, embed backend) |
-| **renderer** | 8006 | PH-PROV3: normalizes a US filing (iXBRL HTML) to **PDF** at ingest, one-shot (`/pdf/from-html`, Playwright/Chromium, isolated). KR uses DART's official PDF directly (no Chromium). Query-time highlighting is PyMuPDF in `datasets` (browser-free). Internal-only; reached from datasets via `RENDERER_URL` | (none; called by datasets) |
 | *mcp* | stdio | one tool per catalog resource, routed through the gateway with the tenant key (entitled + metered) | control-plane |
 | **admin** | 8005 | Django-admin-style CRUD over every service DB (SQLAlchemy reflection + sqladmin) + ops console (scheduler · self-test · RAG · catalog). Out-of-band tool, not in the request path | controlplane/studio/datasets DB volumes |
 
