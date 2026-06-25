@@ -295,7 +295,8 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
   optional per-service override. `.env` is gitignored; `.env.example` is the template.
 - **Stores:** one Postgres instance (the `postgres` service), one DB per service (`rag` · `datasets`
   · `controlplane` · `studio`); the RAG vector store is pgvector in that same instance. The extra DBs
-  are created on first init via `postgres-init/`. SQLite is used only for hermetic unit tests.
+  are self-created at startup by each service (`_ensure_database` in its `db.py` — no host-mounted
+  init script, so it's robust across hosts). SQLite is used only for hermetic unit tests.
 - MCP runs over stdio (launched by the MCP client, not in compose). RAG runs standalone (`:8002`).
 
 ---

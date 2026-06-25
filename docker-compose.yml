@@ -69,7 +69,6 @@ services:
       POSTGRES_DB: rag
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d:ro   # creates datasets/controlplane/studio DBs on first init
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
