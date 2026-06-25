@@ -144,6 +144,62 @@ SCENARIOS = [
                    "answer_contains": ["TSMC"], "expect_refused": False, "judge": True},
     },
     {
+        # RANKING-SENSITIVE: a keyword-dense distractor repeats every query term but carries NO
+        # figure; the passage that actually answers must out-rank it (embedding + Vertex reranker).
+        # Fictional company so the model can't answer from prior knowledge — it MUST ground in RAG.
+        "name": "RAG reranker disambiguation → answer beats keyword distractor (US/SEC)",
+        "agent": {"name": "Eval Disclosure", "model": "gemini", "data_sources": ["rag"]},
+        "rag_docs": [
+            {"text": "Globex Corp's Cloud Infrastructure segment generated $7.8 billion of revenue in fiscal 2024, up 41% year over year.",
+             "source": "SEC EDGAR", "doc_type": "10-K", "ticker": "GLBX", "url": "https://sec.gov/glbx-10k-seg"},
+            {"text": "Globex Corp recognizes Cloud Infrastructure segment revenue over time. This section covers Cloud Infrastructure segment revenue recognition policies, Cloud Infrastructure competition, and Cloud Infrastructure capacity expansion.",
+             "source": "SEC EDGAR", "doc_type": "10-K", "ticker": "GLBX", "url": "https://sec.gov/glbx-10k-pol"},
+            {"text": "Globex Corp's board declared a quarterly cash dividend and described its share repurchase authorization.",
+             "source": "SEC EDGAR", "doc_type": "10-K", "ticker": "GLBX", "url": "https://sec.gov/glbx-10k-div"},
+            {"text": "Globex Corp employs approximately 48,000 people across its global offices.",
+             "source": "SEC EDGAR", "doc_type": "10-K", "ticker": "GLBX", "url": "https://sec.gov/glbx-10k-hr"},
+        ],
+        "question": "According to the disclosures, what was Globex's Cloud Infrastructure segment revenue in fiscal 2024?",
+        "criteria": "state $7.8 billion as Globex's fiscal-2024 Cloud Infrastructure segment revenue, grounded in the cited SEC disclosure that carries the figure — not the keyword-heavy revenue-policy passage.",
+        "checks": {"expect_connector": "rag__search", "expect_status": 200, "expect_cite": "SEC EDGAR",
+                   "answer_regex": r"7\.8", "expect_refused": False, "judge": True},
+    },
+    {
+        # KR datasource coverage: Korean disclosure retrieval; a generic "위험 노출" distractor must
+        # lose to the passage carrying the actual FX-impact figure (the live A/B win, as an eval).
+        "name": "RAG retrieval (KR/DART) → cited Korean disclosure",
+        "agent": {"name": "Eval Disclosure KR", "model": "gemini", "data_sources": ["rag"]},
+        "rag_docs": [
+            {"text": "한빛전자는 2024 사업연도에 환율 변동으로 영업이익이 약 1,200억원 감소했다고 공시하였다.",
+             "source": "OpenDART (FSS)", "doc_type": "사업보고서", "ticker": "999999", "market": "KR", "url": "https://dart.fss.or.kr/hanbit-fx"},
+            {"text": "한빛전자는 다양한 시장위험에 노출되어 있으며 위험 노출 정도를 정기적으로 점검하고 관리한다고 기술하였다.",
+             "source": "OpenDART (FSS)", "doc_type": "사업보고서", "ticker": "999999", "market": "KR", "url": "https://dart.fss.or.kr/hanbit-risk"},
+            {"text": "한빛전자의 이사회는 분기 배당을 결의하였으며 자기주식 취득 계획을 설명하였다.",
+             "source": "OpenDART (FSS)", "doc_type": "사업보고서", "ticker": "999999", "market": "KR", "url": "https://dart.fss.or.kr/hanbit-div"},
+        ],
+        "question": "공시에 따르면 한빛전자의 2024년 환율 변동으로 인한 영업이익 영향은 얼마였어?",
+        "criteria": "환율 변동으로 영업이익이 약 1,200억원 감소했다는 공시 내용을, 일반적인 '위험 노출' 문구가 아닌 수치가 담긴 근거에서 OpenDART 출처와 함께 제시.",
+        "checks": {"expect_connector": "rag__search", "expect_status": 200, "expect_cite": "OpenDART",
+                   "answer_regex": r"1[,\.]?200", "expect_refused": False, "judge": True},
+    },
+    {
+        # News/streaming datasource coverage: retrieve a specific market event from a news item and
+        # report it as facts only (who / how much) — no forecast or advice (guardrail stays intact).
+        "name": "RAG retrieval (news) → cited market event",
+        "agent": {"name": "Eval News Feed", "model": "gemini", "data_sources": ["rag"]},
+        "rag_docs": [
+            {"text": "Zentech said it agreed to acquire rival chipmaker NovaCore for $3 billion, the largest semiconductor deal of the year.",
+             "source": "Reuters", "doc_type": "news", "ticker": "ZTCH", "url": "https://news.example/zentech-novacore"},
+            {"text": "Zentech opened a new research campus and reported higher quarterly shipment volumes.",
+             "source": "Reuters", "doc_type": "news", "ticker": "ZTCH", "url": "https://news.example/zentech-campus"},
+        ],
+        "question": "According to the news, which company is Zentech acquiring, and for how much?",
+        "criteria": "name NovaCore as the acquisition target and $3 billion as the price, grounded in the cited news item — facts only, no forecast or advice.",
+        "checks": {"expect_connector": "rag__search", "expect_status": 200, "expect_cite": "Reuters",
+                   # accept the figure in EN ("$3 billion") or KO ("30억 달러") — the agent answers in the user's language
+                   "answer_contains": ["NovaCore"], "answer_regex": r"3\s*billion|\$\s*3|30\s*억", "expect_refused": False, "judge": True},
+    },
+    {
         "name": "Data-source restriction honoured (SEC-only agent, price question)",
         "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
         "question": "AAPL의 현재 주가(price)를 알려줘.",

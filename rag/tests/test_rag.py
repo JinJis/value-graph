@@ -130,6 +130,69 @@ async def test_reranker_none_passthrough():
     assert out == [(0, 0.0), (1, 0.0)]
 
 
+# --- reranker wiring into search (the gcp Vertex ranker is exercised live in
+#     test_rag_semantic.py; here we prove the search→rerank plumbing + fail-safe with fakes) ----
+class _ReverseReranker:
+    """Stand-in ranker that reverses the embedding order — lets us assert search applies its order."""
+
+    async def rerank(self, query, docs, top_n):
+        return [(i, 1.0) for i in reversed(range(len(docs)))][:top_n]
+
+
+class _BrokenReranker:
+    """Simulates a reranker outage (e.g. the GCP 403 before the SA is granted)."""
+
+    async def rerank(self, query, docs, top_n):
+        raise RuntimeError("403 PermissionDenied: discoveryengine.rankingConfigs.rank denied (simulated)")
+
+
+async def test_search_applies_reranker_order(monkeypatch):
+    # when a reranker is active, search must return hits in the RERANKER's order, not the embedder's.
+    _reset()
+    await ingest_docs([
+        IngestDoc(text="Apple relies on TSMC to fabricate its custom silicon chips.", source="SEC EDGAR", ticker="AAPL"),
+        IngestDoc(text="Apple discloses supplier concentration risk across its component vendors.", source="SEC EDGAR", ticker="AAPL2"),
+        IngestDoc(text="Apple sources display panels and chips from several key suppliers.", source="SEC EDGAR", ticker="AAPL3"),
+    ])
+    q = "Apple chip suppliers TSMC concentration"
+    monkeypatch.setattr(rag.search.settings, "reranker_backend", "none")
+    base = [h.provenance["ticker"] for h in await search(q, top_k=3)]
+    monkeypatch.setattr(rag.search.settings, "reranker_backend", "gcp")
+    monkeypatch.setattr(rag.search, "get_reranker", lambda: _ReverseReranker())
+    reranked = [h.provenance["ticker"] for h in await search(q, top_k=3)]
+    assert reranked == base[::-1]  # reranker order won, end to end
+
+
+async def test_search_survives_reranker_failure(monkeypatch):
+    # a reranker outage must NEVER break search — it falls back to the embedding order (fail-safe).
+    _reset()
+    await ingest_docs([
+        IngestDoc(text="Apple relies on TSMC to fabricate its custom silicon chips.", source="SEC EDGAR", ticker="AAPL"),
+        IngestDoc(text="The cafeteria served pasta on Tuesday.", source="Misc", ticker="ZZZ"),
+    ])
+    monkeypatch.setattr(rag.search.settings, "reranker_backend", "gcp")
+    monkeypatch.setattr(rag.search, "get_reranker", lambda: _BrokenReranker())
+    hits = await search("TSMC silicon chips supplier", top_k=2)  # must not raise
+    assert hits and hits[0].provenance["ticker"] == "AAPL"  # embedding order preserved
+
+
+def test_get_reranker_selects_backend(monkeypatch):
+    from rag import rerank
+
+    for backend in ("none", "bogus", ""):
+        rerank.get_reranker.cache_clear()
+        monkeypatch.setattr(rerank.settings, "reranker_backend", backend)
+        assert type(rerank.get_reranker()).__name__ == "NoneReranker"
+    rerank.get_reranker.cache_clear()
+
+
+def test_config_gcp_location_is_global():
+    # the Vertex semantic-ranker ranking_config is global-only; a regional default would 404 it.
+    from rag.config import settings as cfg
+
+    assert cfg.gcp_location == "global"
+
+
 def test_info_endpoint_reflects_backends():
     j = client.get("/rag/info").json()
     assert "gemini-embedding" in j["embedding_model"] and j["vector_store"] == "memory" and j["reranker_backend"] == "none"
