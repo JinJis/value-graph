@@ -951,6 +951,27 @@ async def test_ttl_cache_caches():
     assert len(calls) == 1  # second call served from cache
 
 
+async def test_ttl_cache_single_flight():
+    # RF-06: concurrent cold-cache callers for one key invoke the factory exactly once; different
+    # keys still load independently. (This is the guarantee the KIS token now relies on.)
+    import asyncio as _aio
+
+    from app.cache import TTLCache
+
+    c = TTLCache(60)
+    calls: list[str] = []
+
+    async def factory(tag: str):
+        calls.append(tag)
+        await _aio.sleep(0.02)  # hold so concurrent callers pile up on the per-key lock
+        return tag
+
+    results = await _aio.gather(*[c.get_or_set("k", lambda: factory("k")) for _ in range(5)])
+    assert results == ["k"] * 5 and calls.count("k") == 1     # factory ran once for the 5 callers
+    await c.get_or_set("other", lambda: factory("other"))
+    assert calls.count("other") == 1                          # a different key loads independently
+
+
 # --- symbols --------------------------------------------------------------
 def test_kr_market_suffix():
     from app.symbols import kr_market_suffix
