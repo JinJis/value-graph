@@ -299,12 +299,22 @@ def _pipeline_card(p: dict, scheduled: set[str], interval: int) -> str:
     else:
         last = "<div class=sub muted>아직 실행 기록 없음</div>"
     markets = " ".join(badge(m) for m in p.get("markets", []))
+    # 원천 API · 쿼리 — operators can see EXACTLY which upstream endpoint + request each pipeline issues.
+    api_lines = p.get("upstream") or []
+    fetch = p.get("fetch") or ""
+    detail = ""
+    if api_lines or fetch:
+        body = "\n".join(api_lines)
+        if fetch:
+            body += ("\n\n" if body else "") + "fetch: " + fetch
+        detail = (f"<details class=errlog><summary>원천 API · 쿼리</summary>"
+                  f"<pre>{_esc(body)}</pre></details>")
     return (
         f"<div class=card><h3>{_esc(p['label'])} {badge(sched_txt, sched_cls)}</h3>"
         f"<div class=sub>{_esc(p.get('desc') or '')}</div>"
         f"<div class=flow><span class=pill>{_esc(p.get('source'))}</span> <span class=arrow>→</span> "
         f"<span class=pill><code>{_esc(p.get('store'))}</code></span> {markets}</div>"
-        f"{last}</div>"
+        f"{detail}{last}</div>"
     )
 
 

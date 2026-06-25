@@ -48,25 +48,63 @@ async def _run_evidence_docs(market: str, tickers: list[str]) -> None:
 
 # id → metadata + runner. `kind` is the IngestionJob kind the runner writes (so the admin
 # can group jobs by pipeline). `default` = part of the standard scheduled set.
+# `upstream` = the EXACT external API(s) + request each pipeline issues (so the admin can show
+# operators "어떤 API를 어떤 쿼리로 fetch하는지" verbatim). `fetch` = scope + re-fetch behavior.
 PIPELINES: list[dict] = [
     {"id": "financials", "label": "재무제표", "source": "SEC EDGAR · OpenDART", "store": "financial_facts",
      "kind": "backfill", "markets": ["US", "KR"], "default": True, "runner": _run_financials,
-     "desc": "3대 재무제표 + 회사 정보(딥 백필)"},
+     "desc": "3대 재무제표 + 회사 정보(딥 백필)",
+     "upstream": [
+         "US · SEC EDGAR (XBRL) — GET https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+         "US · SEC EDGAR (필링 목록) — GET https://data.sec.gov/submissions/CIK{cik}.json",
+         "KR · OpenDART — GET https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+         "?corp_code={corp}&bsns_year={YYYY}&reprt_code={11011|11012|11013|11014}&fs_div=CFS",
+     ],
+     "fetch": "US: 전 기간 연·분기 XBRL 재무사실 / KR: 최근 15개 보고서(연·분기). UPSERT 키 "
+              "(market,ticker,statement,line_item,period,report_period,accession). ⚠️ 매 실행 전체 재수집(증분 없음)."},
     {"id": "prices", "label": "가격(OHLCV)", "source": "Yahoo Finance", "store": "price_bars",
      "kind": "prices", "markets": ["US", "KR"], "default": True, "runner": _run_prices,
-     "desc": "일별 시·고·저·종가 + 거래량(2년)"},
+     "desc": "일별 시·고·저·종가 + 거래량",
+     "upstream": [
+         "US·KR · Yahoo Finance chart — GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+         "?period1={start_epoch}&period2={end_epoch}&interval=1d",
+     ],
+     "fetch": "최근 PRICES_BACKFILL_YEARS년 일봉 OHLCV+거래량. UPSERT 키 (market,ticker,interval,bar_date). "
+              "⚠️ 매 실행 N년 전체 재수집(증분 없음)."},
     {"id": "corp_actions", "label": "배당·분할", "source": "Yahoo Finance", "store": "corporate_actions",
      "kind": "corp_actions", "markets": ["US", "KR"], "default": True, "runner": _run_corp_actions,
-     "desc": "배당락일·금액 + 액면분할(10년)"},
+     "desc": "배당락일·금액 + 액면분할(10년)",
+     "upstream": [
+         "US·KR · Yahoo Finance chart events — GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+         "?period1={start_epoch}&period2={end_epoch}&interval=1d&events=div,split",
+     ],
+     "fetch": "최근 10년 배당락일·금액 + 액면분할 비율. UPSERT 키 (market,ticker,kind,event_date). "
+              "⚠️ 매 실행 10년 전체 재수집(증분 없음)."},
     {"id": "news", "label": "뉴스 → RAG", "source": "Google News", "store": "RAG corpus",
      "kind": "news", "markets": ["US", "KR"], "default": True, "runner": _run_news,
-     "desc": "종목별 최신 헤드라인을 RAG 색인"},
+     "desc": "종목별 최신 헤드라인을 RAG 색인",
+     "upstream": [
+         "US·KR · Google News RSS — GET https://news.google.com/rss/search"
+         "?q={회사명 또는 티커}&hl={ko|en-US}&gl={KR|US}&ceid={KR:ko|US:en}",
+     ],
+     "fetch": "종목별 최신 헤드라인 NEWS_INGEST_LIMIT건(기본 8) → RAG 색인(doc_id=url). "
+              "과거 이력 없음 — 최신 N건만 반환(본질적으로 증분)."},
     {"id": "filing_text", "label": "공시 본문 → RAG", "source": "SEC/DART PDF", "store": "RAG corpus",
      "kind": "filing_text", "markets": ["US", "KR"], "default": False, "runner": _run_filing_text,
-     "desc": "공시 PDF 본문을 RAG 색인(무거움)"},
+     "desc": "공시 PDF 본문을 RAG 색인(무거움)",
+     "upstream": [
+         "US · SEC iXBRL 본문 — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc} → renderer PDF",
+         "KR · OpenDART 공식 PDF — https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}",
+     ],
+     "fetch": "재무제표에 등장한 최근 4개 공시 본문을 PDF→페이지 텍스트로 RAG 색인(doc_id={accession}:p.{n}). "
+              "PDF는 캐시(증분), 텍스트는 매 실행 재색인."},
     {"id": "evidence_docs", "label": "증거 PDF", "source": "SEC/DART", "store": "evidence_docs",
      "kind": "evidence_docs", "markets": ["US", "KR"], "default": False, "runner": _run_evidence_docs,
-     "desc": "공시를 PDF로 캐시(증거 하이라이트, 무거움)"},
+     "desc": "공시를 PDF로 캐시(증거 하이라이트, 무거움)",
+     "upstream": [
+         "US · SEC iXBRL → renderer PDF · KR · OpenDART 공식 PDF (filing_text와 동일 원천)",
+     ],
+     "fetch": "최근 4개 공시를 PDF로 렌더·캐시. UPSERT 키 (market,accession). 이미 캐시된 PDF는 건너뜀(증분)."},
 ]
 
 PIPELINE_BY_ID = {p["id"]: p for p in PIPELINES}
