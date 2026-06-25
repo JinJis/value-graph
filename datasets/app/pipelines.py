@@ -94,10 +94,10 @@ PIPELINES: list[dict] = [
      ],
      "fetch": "종목별 최신 헤드라인 NEWS_INGEST_LIMIT건(기본 8) → RAG 색인(doc_id=url). "
               "과거 이력 없음 — 최신 N건만 반환(본질적으로 증분)."},
-    {"id": "filing_text", "label": "공시 본문 → RAG", "source": "SEC/DART PDF", "store": "RAG corpus",
+    {"id": "filing_text", "label": "공시 본문 → RAG", "source": "SEC iXBRL · OpenDART", "store": "RAG corpus",
      "kind": "filing_text", "markets": ["US", "KR"], "default": False, "runner": _run_filing_text,
      "min_interval_seconds": _WEEK,
-     "desc": "공시 PDF 본문을 RAG 색인(무거움)",
+     "desc": "공시 본문 HTML을 텍스트 추출해 RAG 색인(인앱 뷰어와 동일 원천)",
      "upstream": [
          "US · SEC iXBRL 본문 — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc}",
          "KR · OpenDART document.xml — GET https://opendart.fss.or.kr/api/document.xml?rcept_no={rcept_no}",
