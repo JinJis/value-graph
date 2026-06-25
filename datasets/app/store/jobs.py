@@ -8,6 +8,9 @@ console reads these so an empty store is obvious (and fixable) rather than silen
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -16,6 +19,8 @@ from app.store.bulk import bulk_load_kr, bulk_load_us
 from app.store.db import SessionLocal
 from app.store.models import IngestionJob
 from app.store.universes import resolve_one
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -79,6 +84,37 @@ def list_jobs(limit: int = 25) -> list[dict]:
             }
             for j in rows
         ]
+
+
+async def run_ticker_job(
+    kind: str, market: str, spec: str, tickers: list[str],
+    ingest_one: Callable[[str], Awaitable[int]],
+) -> dict:
+    """Run ``ingest_one(ticker)`` for each ticker as ONE IngestionJob — the per-ticker best-effort
+    pattern shared by the prices + corp-actions runners (RF-05).
+
+    Best-effort per ticker: a failure records ``-1`` and is logged, never sinking the run; live
+    progress ticks after each; the job finalizes ``success`` (with a ``failed: [...]`` note if any
+    failed) or ``error`` if the loop itself blows up. Sync ``jobs`` calls run off the event loop.
+    Returns ``{status, rows, per_ticker, failed}`` (or ``{status: 'error', error}``).
+    """
+    job = await asyncio.to_thread(start_job, kind, market, spec, len(tickers))
+    per: dict[str, int] = {}
+    try:
+        for i, t in enumerate(tickers, 1):
+            try:
+                per[t] = await ingest_one(t)
+            except Exception as exc:  # noqa: BLE001 — one ticker never sinks the run
+                per[t] = -1
+                logger.warning("%s ingest failed %s:%s — %s", kind, market, t, exc)
+            await asyncio.to_thread(update_progress, job, i)
+        rows = sum(v for v in per.values() if v > 0)
+        failed = [t for t, v in per.items() if v == -1]
+        await asyncio.to_thread(finish_job, job, "success", rows, (f"failed: {failed}" if failed else None))
+        return {"status": "success", "rows": rows, "per_ticker": per, "failed": failed}
+    except Exception as exc:  # noqa: BLE001
+        await asyncio.to_thread(finish_job, job, "error", 0, str(exc))
+        return {"status": "error", "error": str(exc)}
 
 
 async def run_backfill(

@@ -27,7 +27,7 @@ async def _run_prices(market: str, tickers: list[str]) -> None:
 
 
 async def _run_corp_actions(market: str, tickers: list[str]) -> None:
-    from app.store.prices_ingest import run_corp_actions_ingest
+    from app.store.corp_actions_ingest import run_corp_actions_ingest
     await run_corp_actions_ingest(market, tickers)
 
 

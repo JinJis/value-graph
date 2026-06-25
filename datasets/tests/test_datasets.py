@@ -1673,7 +1673,7 @@ async def test_queue_defer_sweep_rejects_unknown_pipeline():
 def test_incremental_start_logic():
     from datetime import date
 
-    from app.store.prices_ingest import _incremental_start
+    from app.store._ingest_helpers import _incremental_start
 
     full = date(2020, 1, 1)
     # no prior data → full backfill
@@ -1681,6 +1681,27 @@ def test_incremental_start_logic():
     # prior data → last − overlap (never before full_start)
     assert _incremental_start(date(2026, 6, 1), full, 5) == date(2026, 5, 27)
     assert _incremental_start(date(2020, 1, 2), full, 30) == full  # clamped to full_start
+
+
+async def test_run_ticker_job_best_effort(monkeypatch):
+    # RF-05: the shared per-ticker job orchestrator — skip failures (-1), sum rows, record a failed note.
+    import app.store.jobs as J
+
+    finished: dict = {}
+    monkeypatch.setattr(J, "start_job", lambda *a, **k: 7)
+    monkeypatch.setattr(J, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(J, "finish_job", lambda job, status, rows=0, error=None:
+                        finished.update(job=job, status=status, rows=rows, error=error))
+
+    async def ingest_one(t):
+        if t == "BAD":
+            raise RuntimeError("upstream down")
+        return {"AAPL": 5, "MSFT": 3}[t]
+
+    out = await J.run_ticker_job("prices", "US", "spec", ["AAPL", "BAD", "MSFT"], ingest_one)
+    assert out["status"] == "success" and out["rows"] == 8
+    assert out["per_ticker"] == {"AAPL": 5, "BAD": -1, "MSFT": 3} and out["failed"] == ["BAD"]
+    assert finished == {"job": 7, "status": "success", "rows": 8, "error": "failed: ['BAD']"}
 
 
 async def test_run_prices_ingest_is_incremental(monkeypatch):
@@ -1700,9 +1721,11 @@ async def test_run_prices_ingest_is_incremental(monkeypatch):
     monkeypatch.setattr(PI, "ingest_prices_ticker", fake_ingest)
     monkeypatch.setattr(PI, "_last_bar_date", lambda market, ticker: last.get(ticker))
     monkeypatch.setattr(PI, "init_db", lambda: None)
-    monkeypatch.setattr(PI, "start_job", lambda *a, **k: 1)
-    monkeypatch.setattr(PI, "finish_job", lambda *a, **k: None)
-    monkeypatch.setattr(PI, "update_progress", lambda *a, **k: None)
+    # the IngestionJob lifecycle now lives in jobs.run_ticker_job (RF-05) → stub the jobs.* calls there
+    import app.store.jobs as J
+    monkeypatch.setattr(J, "start_job", lambda *a, **k: 1)
+    monkeypatch.setattr(J, "finish_job", lambda *a, **k: None)
+    monkeypatch.setattr(J, "update_progress", lambda *a, **k: None)
 
     await PI.run_prices_ingest("US", ["AAPL", "NEW"], years=5, overlap_days=5)
 
