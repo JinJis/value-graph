@@ -35,7 +35,7 @@ S(<1h) · M(half-day) · L(multi-day).
 
 | ID | Task | Service | Sev | Eff | Status |
 |---|---|---|---|---|---|
-| **RF-01** | Dead-code + config-bug sweep: remove duplicate KIS keys in `config.py`; delete the `as_reported()` stub (`opendart.py`); remove orphaned `_STATEMENTS`/`_SKIP` if unused (`store/ingest.py`); add missing return-type hints (`jobs.py` `start_job`/`finish_job`); verify `routing.py` legacy dead code (agent-engine); add a scope comment to `evidence.py`. | datasets, agent-engine | high | S | TODO |
+| **RF-01** | Dead-code + config-bug sweep. **DONE:** removed duplicate KIS keys in `config.py`; deleted ~90 LOC of legacy keyword-routing dead code from agent-engine `routing.py` (kept only the live `resolve_ticker`/`_user_text`). **Verified NOT dead (kept):** `opendart.as_reported()` (KR route `financials.py:108` calls it — honest empty per invariant #6), `store/ingest.py` `_STATEMENTS`/`_SKIP` (used by `ingest_ticker`/KR bulk), `jobs.py` type hints (already present), `evidence.py` (already documented). | datasets, agent-engine | high | S | DONE |
 | **RF-02** | Shared provider number-parsing: new `providers/_parse_utils.py` (`parse_int`/`parse_float`, comma-aware) replacing `_num` (sec_edgar), `_i`/`_f` (kis), and any twins. | datasets | high | S | TODO |
 | **RF-03** | Single provenance field tuple: collapse `_PROV` (`store.py`) and `_PROVENANCE` (`models.py`) into one shared constant. | rag | med | S | TODO |
 

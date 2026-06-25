@@ -39,8 +39,6 @@ class Settings(BaseSettings):
     kis_app_secret: str = ""
     kis_domain: str = "https://openapi.koreainvestment.com:9443"  # 실전; 모의 = openapivts:29443
     krx_api_key: str = ""
-    kis_app_key: str = ""
-    kis_app_secret: str = ""
 
     # --- per-domain provider selection (override the free defaults) --------
     prices_provider_us: str = "yahoo"  # yahoo | stooq | polygon | tiingo | fmp
