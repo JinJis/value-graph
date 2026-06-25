@@ -65,21 +65,6 @@ export function evidenceDocSrc(url?: string): string | null {
   return `/api/evidence/doc?market=${encodeURIComponent(market)}&accession=${encodeURIComponent(accession)}`;
 }
 
-// PH-PROV2: inline teaser of the highlighted-filing screenshot, shown right on the
-// card so the evidence is visible without expanding. Lazy-loaded; on 204/error it
-// removes itself (never a broken image). Click the card to open the full viewer.
-function InlineEvidence({ src }: { src: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return null;
-  return (
-    <figure className="sp-evidence">
-      <img className="sp-evidence-img" src={src} loading="lazy"
-           alt="원문에서 인용한 수치 하이라이트" onError={() => setFailed(true)} />
-      <figcaption className="sp-evidence-cap mono">📷 실제 공시 원문 · 노란 박스 = 인용 수치 · 클릭해 확대</figcaption>
-    </figure>
-  );
-}
-
 // A compact extracted-data table for the preview — header row + data rows, the
 // cited (latest) row highlighted. Shows the *real* figures the answer used.
 export function SrcTable({ table }: { table: string[][] }) {
@@ -118,8 +103,9 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
   const [pinned, setPinned] = useState(false);
   const shape = sourceShape(c);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
-  const evSrc = evidenceSrc(c.evidence_image_url);  // PH-PROV2: highlighted screenshot, if any
-  const evBadge = evSrc ? <span className="sp-ev-badge mono" title="실제 공시 원문 스크린샷">📷 원문</span> : null;
+  // A filing-backed citation (공시 본문 or 재무제표 수치) opens the REAL document in-app on click.
+  const hasFiling = !!c.evidence_image_url && shape !== "web";
+  const evBadge = hasFiling ? <span className="sp-ev-badge mono" title="클릭하면 원문 전체를 인앱에서 봅니다">📄 원문</span> : null;
   const open = c.url ? (
     <a className="sp-open" href={c.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
       {OPEN_LABEL[shape]}
@@ -151,15 +137,13 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
             {c.page ? <span className="sp-page mono">{c.page}</span> : null}
             {evBadge}
           </div>
-          {evSrc ? <InlineEvidence src={evSrc} /> : (
-            <div className="sp-doc">
-              {c.doc_type && c.doc_type !== "news" ? <div className="sp-doc-sec mono">{c.doc_type}</div> : null}
-              <span className="sp-skel" style={{ width: "82%" }} />
-              {c.snippet ? <div className="sp-quote">{c.snippet}</div> : <span className="sp-skel" style={{ width: "95%" }} />}
-              <span className="sp-skel" style={{ width: "94%" }} />
-              <span className="sp-skel" style={{ width: "60%" }} />
-            </div>
-          )}
+          <div className="sp-doc">
+            {c.doc_type && c.doc_type !== "news" ? <div className="sp-doc-sec mono">{c.doc_type}</div> : null}
+            <span className="sp-skel" style={{ width: "82%" }} />
+            {c.snippet ? <div className="sp-quote">{c.snippet}</div> : <span className="sp-skel" style={{ width: "95%" }} />}
+            <span className="sp-skel" style={{ width: "94%" }} />
+            <span className="sp-skel" style={{ width: "60%" }} />
+          </div>
           {foot}
         </>
       )}
@@ -191,7 +175,6 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
           {c.table ? <SrcTable table={c.table} /> : null}
           {c.snippet ? <div className="sp-data mono">{c.snippet}</div>
             : (!c.table ? <div className="sp-data mono">계산에 사용된 값</div> : null)}
-          {evSrc ? <InlineEvidence src={evSrc} /> : null}
           {foot}
         </>
       )}

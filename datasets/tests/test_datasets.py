@@ -2056,6 +2056,40 @@ def test_catalog_has_rag_connector_routed_to_rag_service():
     assert rag.license.redistribution is False
 
 
+# --- filing HTML viewer: sanitize + serve the original markup -------------
+def test_filing_html_sanitize_keeps_ixbrl_blocks_egress():
+    from app.store.filing_html import sanitize
+
+    raw = ('<html><head><title>F</title></head><body>'
+           '<script>alert(1)</script>'
+           '<ix:nonfraction name="us-gaap:Revenues" contextref="FY">383,285</ix:nonfraction>'
+           '<img src="http://tracker/x.png"><p onclick="x()">Net sales</p></body></html>')
+    out = sanitize(raw)
+    assert "<script" not in out.lower()                 # active scripts stripped
+    assert "Content-Security-Policy" in out and "default-src 'none'" in out  # CSP → no egress
+    assert 'name="us-gaap:Revenues"' in out             # inline-XBRL tag preserved (viewer targets it)
+    assert "383,285" in out                             # the cited figure preserved verbatim
+
+
+async def test_get_filing_html_caches(tmp_path, monkeypatch):
+    import app.store.filing_html as FH
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
+    calls = {"n": 0}
+
+    async def fake_source(market, accession, cik):
+        calls["n"] += 1
+        return '<html><body><script>x()</script><p>Net sales 383,285</p></body></html>'
+
+    monkeypatch.setattr(FH, "_source_html", fake_source)
+    h1 = await FH.get_filing_html("US", "0000-1", "320193")
+    assert h1 and "<script" not in h1.lower() and "Content-Security-Policy" in h1
+    assert (tmp_path / "html" / "US" / "0000-1.html").exists()        # cached to disk
+    h2 = await FH.get_filing_html("US", "0000-1", "320193")           # second call
+    assert h2 == h1 and calls["n"] == 1                               # fetched once, then served from cache
+
+
 # --- PH-PROV3: PDF-normalized evidence document store ---------------------
 async def test_ph_prov3_ensure_doc_caches_kr_official_pdf(tmp_path, monkeypatch):
     """KR uses DART's official PDF directly (Chromium-free); it's written to the data
