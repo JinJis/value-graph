@@ -18,12 +18,23 @@ from __future__ import annotations
 import httpx
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import MetaData, Table, and_, create_engine, text
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from adminpanel.config import DATABASES, settings
+from adminpanel.clients import _ok, _safe_get
+from adminpanel.config import settings
 from adminpanel.logging_config import install_request_logging, setup_logging
+# Reflected service-DB state + DB helpers live in state.py (RF-14); re-exported here so importers
+# (and tests) that reference `adminpanel.main.DB_STATUS` keep working.
+from adminpanel.state import (  # noqa: F401
+    DB_STATUS,
+    ENGINES,
+    TABLES,
+    _has,
+    _mount_database,
+    _query,
+    _table_counts,
+)
 from adminpanel.views import _cell, _esc, badge, login_page, page, progress, sdot
 
 setup_logging()
@@ -31,33 +42,8 @@ setup_logging()
 app = FastAPI(title="ValueGraph Admin")
 install_request_logging(app)
 
-DB_STATUS: dict[str, dict] = {}   # key -> {title, tables:[...], error, meta:{table->{columns,pk}}}
-ENGINES: dict[str, object] = {}   # key -> sqlalchemy Engine
-TABLES: dict[str, dict] = {}      # key -> {table_name -> sqlalchemy Table} (for typed CRUD)
-
-
-def _mount_database(key: str, title: str, url: str) -> None:
-    """Reflect a service DB: capture table/column/pk metadata + Table objects (typed
-    CRUD) + the live engine, so the styled DB browser pages and edits rows directly."""
-    try:
-        engine = create_engine(url, connect_args={"check_same_thread": False} if url.startswith("sqlite") else {})
-        md = MetaData()
-        md.reflect(bind=engine)
-    except Exception as e:  # DB missing / unreachable — note it, keep the panel up
-        DB_STATUS[key] = {"title": title, "tables": [], "error": str(e)[:200], "meta": {}}
-        return
-
-    ENGINES[key] = engine
-    TABLES[key] = dict(md.tables)
-    meta: dict[str, dict] = {}
-    for tname, tbl in sorted(md.tables.items()):
-        meta[tname] = {"columns": [c.name for c in tbl.columns],
-                       "pk": [c.name for c in tbl.primary_key.columns]}
-    DB_STATUS[key] = {"title": title, "tables": sorted(meta), "error": None, "meta": meta}
-
-
-for _k, _t, _u in DATABASES:
-    _mount_database(_k, _t, _u)
+from adminpanel import db_browser  # noqa: E402
+app.include_router(db_browser.router)
 
 
 # --- auth -----------------------------------------------------------------
@@ -100,36 +86,9 @@ async def logout(request: Request):
     return RedirectResponse("/login", status_code=302)
 
 
-# --- shared data fetch ----------------------------------------------------
-async def _safe_get(client: httpx.AsyncClient, url: str) -> dict:
-    try:
-        r = await client.get(url, timeout=8)
-        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"_status": r.status_code}
-    except Exception as e:
-        return {"_error": str(e)[:120]}
-
-
-def _ok(d: dict) -> bool:
-    return isinstance(d, dict) and "_error" not in d and "_status" not in d
-
-
+# --- shared HTML bits (fetch helpers → clients.py; DB state/helpers → state.py — RF-14) ---------
 def _flash(msg: str) -> str:
     return f"<div class=flash>{_esc(msg)}</div>" if msg else ""
-
-
-def _table_counts(key: str) -> dict[str, int]:
-    out: dict[str, int] = {}
-    engine = ENGINES.get(key)
-    meta = DB_STATUS.get(key, {}).get("meta", {})
-    if engine is None:
-        return out
-    with engine.connect() as conn:
-        for tname in meta:
-            try:
-                out[tname] = conn.execute(text(f'SELECT COUNT(*) FROM "{tname}"')).scalar()
-            except Exception:
-                out[tname] = "?"
-    return out
 
 
 def _tile(k, v, ic, href, small=False) -> str:
@@ -527,21 +486,6 @@ async def data_view(request: Request):
 
 
 # --- Users / tenants ------------------------------------------------------
-def _query(key: str, sql: str, params: dict | None = None) -> list:
-    engine = ENGINES.get(key)
-    if engine is None:
-        return []
-    try:
-        with engine.connect() as conn:
-            return conn.execute(text(sql), params or {}).fetchall()
-    except Exception:
-        return []
-
-
-def _has(key: str, table: str) -> bool:
-    return table in DB_STATUS.get(key, {}).get("meta", {})
-
-
 def _simple_table(key: str, table: str, cols: list[str], limit: int = 50) -> str:
     if not _has(key, table):
         return f"<div class=empty>No <code>{_esc(table)}</code> table.</div>"
@@ -761,226 +705,3 @@ async def ops_rag_search(request: Request, query: str = Form(...)):
             f"<div class=tablewrap><table><thead><tr><th>score</th><th>source</th><th>text</th></tr></thead>"
             f"<tbody>{rows}</tbody></table></div>")
     return HTMLResponse(page("/pipelines", "RAG search", body))
-
-
-# --- DB browser (styled CRUD; no sqladmin) --------------------------------
-_PAGE = 50
-
-
-@app.get("/db", response_class=HTMLResponse)
-async def db_index(request: Request):
-    cards = ""
-    for key, info in DB_STATUS.items():
-        if info["error"]:
-            cards += (f"<div class=card><h3>{_esc(info['title'])} <span class=muted>{key}</span></h3>"
-                      f"<div class=err>unavailable: {_esc(info['error'])}</div></div>")
-            continue
-        counts = _table_counts(key)
-        chips = "".join(
-            f"<span class=pill><a href='/db/{key}/{t}'>{_esc(t)}</a><span class=cnt>{_esc(counts.get(t, '?'))}</span></span>"
-            for t in info["meta"]) or "<span class=muted>(no tables)</span>"
-        cards += f"<div class=card><h3>{_esc(info['title'])} <span class=muted>{key}</span></h3>{chips}</div>"
-    body = ("<p class=hint>Every reflected service table — view, edit, create, delete in the panel theme.</p>"
-            "<div class=grid>" + cards + "</div>")
-    return HTMLResponse(page("/db", "DB browser", body))
-
-
-def _check(key: str, table: str):
-    info = DB_STATUS.get(key)
-    meta = (info or {}).get("meta", {})
-    if not info or table not in meta:
-        return None, None
-    return info, meta[table]
-
-
-def _crumb(key, table, extra="") -> str:
-    info = DB_STATUS.get(key, {})
-    return (f"<div class=crumb><a href=/db>DB browser</a> / {_esc(info.get('title', key))} "
-            f"<span class=muted>({_esc(key)})</span> / <a href='/db/{key}/{table}'>{_esc(table)}</a>{extra}</div>")
-
-
-@app.get("/db/{key}/{table}", response_class=HTMLResponse)
-async def browse_table(request: Request, key: str, table: str, page_: int = 0):
-    info, m = _check(key, table)
-    if not info:
-        return HTMLResponse(page("/db", "not found", "<div class=warn>unknown table</div>"), status_code=404)
-    cols, pk = m["columns"], m["pk"]
-    engine = ENGINES[key]
-    order = f'"{pk[0]}"' if pk else f'"{cols[0]}"'
-    p = max(page_, 0)
-    offset = p * _PAGE
-    with engine.connect() as conn:
-        total = conn.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar() or 0
-        rows = conn.execute(text(f'SELECT * FROM "{table}" ORDER BY {order} LIMIT :l OFFSET :o'),
-                            {"l": _PAGE, "o": offset}).fetchall()
-    head = "".join(f"<th>{_esc(c)}</th>" for c in cols)
-    trs = ""
-    for i, row in enumerate(rows):
-        cells = "".join(f"<td class=wrap>{_cell(v, 80)}</td>" for v in row)
-        trs += f"<tr class=rowlink onclick=\"location='/db/{key}/{table}/row/{offset + i}'\">{cells}</tr>"
-    if not rows:
-        trs = f"<tr><td colspan={len(cols)} class=muted>no rows</td></tr>"
-
-    last = max((total - 1) // _PAGE, 0)
-    nav = ""
-    if p > 0:
-        nav += f"<a class=pg href='/db/{key}/{table}?page_={p - 1}'>← prev</a>"
-    nav += f"<span class=muted>rows {offset + 1 if total else 0}–{min(offset + _PAGE, total)} of {total}</span>"
-    if p < last:
-        nav += f"<a class=pg href='/db/{key}/{table}?page_={p + 1}'>next →</a>"
-    new_btn = (f"<a class='btn p' href='/db/{key}/{table}/new'>+ new row</a>" if pk
-               else "<span class=muted>read-only (no PK)</span>")
-
-    body = (_crumb(key, table)
-            + "<div class=top style='display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'>"
-              f"<div class=pgbar>{nav}</div>{new_btn}</div>"
-            + f"<div class=tablewrap><table><thead><tr>{head}</tr></thead><tbody>{trs}</tbody></table></div>"
-            + "<p class=hint>Click a row to view / edit.</p>")
-    return HTMLResponse(page("/db", f"{table}", body))
-
-
-def _row_at(key: str, table: str, offset: int):
-    info, m = _check(key, table)
-    if not info:
-        return None, None
-    cols, pk = m["columns"], m["pk"]
-    engine = ENGINES[key]
-    order = f'"{pk[0]}"' if pk else f'"{cols[0]}"'
-    with engine.connect() as conn:
-        row = conn.execute(text(f'SELECT * FROM "{table}" ORDER BY {order} LIMIT 1 OFFSET :o'),
-                           {"o": max(offset, 0)}).fetchone()
-    return (dict(zip(cols, row)) if row is not None else None), m
-
-
-@app.get("/db/{key}/{table}/row/{offset}", response_class=HTMLResponse)
-async def row_detail(request: Request, key: str, table: str, offset: int):
-    rec, m = _row_at(key, table, offset)
-    if rec is None:
-        return HTMLResponse(page("/db", "not found", "<div class=warn>row not found</div>"), status_code=404)
-    kv = "".join(f"<tr><th class=kvk>{_esc(c)}</th><td class=kvv>{_cell(v)}</td></tr>" for c, v in rec.items())
-    back_page = offset // _PAGE
-    actions = ""
-    if m["pk"]:
-        actions = (f"<a class='btn p' href='/db/{key}/{table}/row/{offset}/edit'>✎ edit</a>"
-                   f"<form method=post action='/db/{key}/{table}/row/{offset}/delete' "
-                   "onsubmit=\"return confirm('Delete this row? This cannot be undone.')\" style='display:inline'>"
-                   "<button class=danger>🗑 delete</button></form>")
-    body = (_crumb(key, table, f" / row #{offset}")
-            + "<div class=top style='margin-bottom:12px'>"
-              f"<a class=pg href='/db/{key}/{table}?page_={back_page}'>← back to list</a></div>"
-            + f"<div class=tablewrap><table><tbody>{kv}</tbody></table></div>"
-            + f"<div class=actions>{actions}</div>")
-    return HTMLResponse(page("/db", f"{table} · row", body))
-
-
-def _coerce(col, raw: str):
-    if raw == "":
-        return None
-    try:
-        pyt = col.type.python_type
-    except Exception:
-        return raw
-    try:
-        if pyt is bool:
-            return raw.strip().lower() in ("1", "true", "yes", "on")
-        if pyt is int:
-            return int(raw)
-        if pyt is float:
-            return float(raw)
-    except (ValueError, TypeError):
-        return raw
-    return raw
-
-
-def _form_fields(tbl: Table, rec: dict | None) -> str:
-    out = ""
-    for col in tbl.columns:
-        val = "" if rec is None or rec.get(col.name) is None else rec.get(col.name)
-        tname = type(col.type).__name__
-        out += (f"<label class=fld><span class=nm>{_esc(col.name)} "
-                f"<code>{_esc(tname)}{' · PK' if col.primary_key else ''}</code></span>"
-                f"<input name='f_{_esc(col.name)}' value='{_esc(val)}'></label>")
-    return out
-
-
-@app.get("/db/{key}/{table}/row/{offset}/edit", response_class=HTMLResponse)
-async def edit_form(request: Request, key: str, table: str, offset: int):
-    rec, m = _row_at(key, table, offset)
-    if rec is None or not m["pk"]:
-        return HTMLResponse(page("/db", "not editable",
-                                 "<div class=warn>row not found or table has no primary key</div>"), status_code=404)
-    tbl = TABLES[key][table]
-    body = (_crumb(key, table, f" / row #{offset} / edit")
-            + f"<h2>Edit row</h2><form method=post action='/db/{key}/{table}/row/{offset}/edit'>"
-            + _form_fields(tbl, rec)
-            + f"<div class=actions><button class=p>Save</button>"
-              f"<a class=pg href='/db/{key}/{table}/row/{offset}'>cancel</a></div></form>")
-    return HTMLResponse(page("/db", f"{table} · edit", body))
-
-
-@app.post("/db/{key}/{table}/row/{offset}/edit")
-async def edit_save(request: Request, key: str, table: str, offset: int):
-    rec, m = _row_at(key, table, offset)
-    if rec is None or not m["pk"]:
-        return HTMLResponse(page("/db", "not editable", "<div class=warn>row gone</div>"), status_code=404)
-    tbl = TABLES[key][table]
-    form = await request.form()
-    vals = {c.name: _coerce(c, form.get(f"f_{c.name}", "")) for c in tbl.columns}
-    where = [tbl.c[pk] == rec[pk] for pk in m["pk"]]
-    try:
-        with ENGINES[key].begin() as conn:
-            conn.execute(tbl.update().where(and_(*where)).values(**vals))
-    except Exception as e:
-        body = (_crumb(key, table) + f"<div class=warn>update failed: {_esc(str(e)[:200])}</div>"
-                f"<a class=pg href='/db/{key}/{table}/row/{offset}/edit'>← back</a>")
-        return HTMLResponse(page("/db", "error", body), status_code=400)
-    return RedirectResponse(f"/db/{key}/{table}/row/{offset}", status_code=303)
-
-
-@app.post("/db/{key}/{table}/row/{offset}/delete")
-async def delete_row(request: Request, key: str, table: str, offset: int):
-    rec, m = _row_at(key, table, offset)
-    if rec is None or not m["pk"]:
-        return HTMLResponse(page("/db", "not deletable", "<div class=warn>row gone</div>"), status_code=404)
-    tbl = TABLES[key][table]
-    where = [tbl.c[pk] == rec[pk] for pk in m["pk"]]
-    with ENGINES[key].begin() as conn:
-        conn.execute(tbl.delete().where(and_(*where)))
-    return RedirectResponse(f"/db/{key}/{table}?msg=deleted", status_code=303)
-
-
-@app.get("/db/{key}/{table}/new", response_class=HTMLResponse)
-async def new_form(request: Request, key: str, table: str):
-    info, m = _check(key, table)
-    if not info or not m["pk"]:
-        return HTMLResponse(page("/db", "not creatable",
-                                 "<div class=warn>unknown table / no primary key</div>"), status_code=404)
-    tbl = TABLES[key][table]
-    body = (_crumb(key, table, " / new")
-            + "<h2>New row</h2><p class=hint>Leave a field blank to use its default / autoincrement.</p>"
-            + f"<form method=post action='/db/{key}/{table}/new'>" + _form_fields(tbl, None)
-            + f"<div class=actions><button class=p>Create</button>"
-              f"<a class=pg href='/db/{key}/{table}'>cancel</a></div></form>")
-    return HTMLResponse(page("/db", f"{table} · new", body))
-
-
-@app.post("/db/{key}/{table}/new")
-async def new_save(request: Request, key: str, table: str):
-    info, m = _check(key, table)
-    if not info or not m["pk"]:
-        return HTMLResponse(page("/db", "not creatable", "<div class=warn>unknown table</div>"), status_code=404)
-    tbl = TABLES[key][table]
-    form = await request.form()
-    vals = {}
-    for c in tbl.columns:
-        raw = form.get(f"f_{c.name}", "")
-        if raw != "":
-            vals[c.name] = _coerce(c, raw)
-    try:
-        with ENGINES[key].begin() as conn:
-            conn.execute(tbl.insert().values(**vals))
-    except Exception as e:
-        body = (_crumb(key, table) + f"<div class=warn>insert failed: {_esc(str(e)[:200])}</div>"
-                f"<a class=pg href='/db/{key}/{table}/new'>← back</a>")
-        return HTMLResponse(page("/db", "error", body), status_code=400)
-    return RedirectResponse(f"/db/{key}/{table}?msg=created", status_code=303)
