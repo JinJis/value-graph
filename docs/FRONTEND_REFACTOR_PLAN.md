@@ -44,7 +44,7 @@
 
 | ID | Task | Sev | Eff | Status |
 |---|---|---|---|---|
-| **FE-04** | `lib/hooks.ts`: `useFetch<T>(url, deps?)`, `useAsyncOp()` (busy/error/run), `useDebounce(v, ms)` — each re-implemented across the modals (`PromptLibrary`/`Watchlists`/`AgentBuilder`/`AlertSheet`). Migrate them onto the hooks. | high | M | TODO |
+| **FE-04** | Created `lib/hooks.ts` (`useFetch<T>`, `useAsyncOp`, `useDebounce`). Migrated `PromptLibrary`'s 3 mutations (create/remove/import) onto `useAsyncOp` (`setBusy(true);try{}finally{setBusy(false)}` → `run(fn)` — identical busy semantics, now also captures errors). **Other modals adopt the hooks incrementally as Phase 2 touches them** — kept FE-04 safe: `Watchlists`'s search debounce is deliberately NOT migrated yet (its spinner shows *immediately* on keystroke vs after the debounce settles, a spinner-timing nuance that's risky to rewrite without a test net). tsc clean + `next build` passes. | high | M | DONE |
 | **FE-05** | BFF: extract `streamStudioEvents(req, path)` into `lib/studio.ts` for the SSE routes (`api/chat`, `api/runs/[id]/stream`) — the only 2 that bypass the existing `proxyStudio`/`studioFetch` helper (the ~38 JSON routes already use it — the audit's "40× copy-paste" was wrong). Standardize query-string forwarding + the `SSE_HEADERS` constant. | med | S | TODO |
 | **FE-06** | Make `ui.tsx`'s `Modal` the single composable shell (title-as-node, footer slot) **with a11y** (focus trap + Escape + `role="dialog"`/`aria-modal`/`aria-labelledby`), and migrate `AlertSheet` + `WidgetGallery` off their inline `modal-backdrop` re-implementations. | med | M | TODO |
 
