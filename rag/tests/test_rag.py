@@ -102,6 +102,19 @@ async def test_reingest_same_doc_upserts_no_duplicates():
     assert sum(1 for h in hits if "TSMC" in h.text) == 1  # the passage appears exactly once
 
 
+async def test_reingest_unchanged_skips_embedding():
+    # incremental: re-ingesting identical docs embeds nothing (the weekly filing_text sweep must
+    # not re-embed unchanged filings); a CHANGED text under the same doc_id does re-embed.
+    _reset()
+    doc = IngestDoc(text="Apple relies on TSMC to fabricate its custom silicon chips.",
+                    doc_id="aapl:s.1", source="SEC EDGAR", doc_type="filing", ticker="AAPL")
+    assert await ingest_docs([doc]) >= 1          # first pass embeds
+    assert await ingest_docs([doc]) == 0          # identical → nothing re-embedded
+    changed = IngestDoc(text="Apple now sources chips from multiple foundries.",
+                        doc_id="aapl:s.1", source="SEC EDGAR", doc_type="filing", ticker="AAPL")
+    assert await ingest_docs([changed]) >= 1      # changed text → re-embedded
+
+
 async def test_search_filter_by_market():
     _reset()
     await ingest_docs([

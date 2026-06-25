@@ -22,6 +22,9 @@ _PROV = ("source", "doc_type", "ticker", "market", "as_of", "url", "section", "a
 class VectorStore(Protocol):
     async def upsert(self, chunks: list[Chunk], vectors: list[list[float]]) -> None: ...
     async def search(self, vector: list[float], top_k: int, filters: dict | None = None) -> list[tuple[Chunk, float]]: ...
+    async def existing_texts(self, ids: list[str]) -> dict[str, str]:
+        """{id: stored_text} for ids already present — lets ingest skip re-embedding unchanged chunks."""
+        ...
 
 
 class MemoryStore:
@@ -42,6 +45,9 @@ class MemoryStore:
             else:
                 self._chunks[idx] = c
                 self._matrix[idx] = v
+
+    async def existing_texts(self, ids: list[str]) -> dict[str, str]:
+        return {cid: self._chunks[self._pos[cid]].text for cid in ids if cid in self._pos}
 
     async def search(self, vector, top_k, filters=None):
         if not self._matrix:
@@ -114,6 +120,17 @@ class PgVectorStore:
                 conn.commit()
 
         await asyncio.to_thread(_run)  # blocking psycopg off the event loop
+
+    async def existing_texts(self, ids: list[str]) -> dict[str, str]:
+        if not ids:
+            return {}
+
+        def _run():
+            with self._connect() as conn:
+                return conn.execute("SELECT id, text FROM rag_chunks WHERE id = ANY(%s)", (list(ids),)).fetchall()
+
+        rows = await asyncio.to_thread(_run)
+        return {cid: text for cid, text in rows}
 
     async def search(self, vector, top_k, filters=None):
         where, filter_params = "", []
