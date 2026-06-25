@@ -14,9 +14,7 @@ from typing import Protocol
 import numpy as np
 
 from rag.config import settings
-from rag.models import Chunk
-
-_PROV = ("source", "doc_type", "ticker", "market", "as_of", "url", "section", "accession")
+from rag.models import PROVENANCE_FIELDS, Chunk
 
 
 class VectorStore(Protocol):
@@ -162,7 +160,7 @@ class PgVectorStore:
         out = []
         for cid, text, meta, score in rows:
             meta = meta or {}
-            out.append((Chunk(id=cid, text=text, **{k: meta.get(k) for k in _PROV}), float(score)))
+            out.append((Chunk(id=cid, text=text, **{k: meta.get(k) for k in PROVENANCE_FIELDS}), float(score)))
         return out
 
 
