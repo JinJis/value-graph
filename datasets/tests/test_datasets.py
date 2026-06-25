@@ -253,6 +253,39 @@ async def test_queue_overview_failsafe_without_db(monkeypatch):
     assert "run_pipeline" in ov["tasks"]
 
 
+def test_router_common_validators_keep_messages():
+    # RF-04: shared validators raise the SAME 400 message the inline checks used to.
+    import pytest as _pytest
+
+    from app.errors import APIError
+    from app.routers._common import INTERVALS, PERIODS, validate_interval, validate_period
+
+    validate_interval("day")          # valid → no raise
+    validate_period("ttm")
+    with _pytest.raises(APIError) as ei:
+        validate_interval("decade")
+    assert ei.value.status_code == 400 and ei.value.message == f"interval must be one of {INTERVALS}."
+    with _pytest.raises(APIError) as ep:
+        validate_period("forever")
+    assert ep.value.message == f"period must be one of {PERIODS}."
+
+
+async def test_router_common_gather_best_effort_skips_failures():
+    # RF-04: best-effort fan-out drops items that raise OR return None, keeps the rest, concurrently.
+    from app.routers._common import gather_best_effort
+
+    async def fn(x):
+        if x == "boom":
+            raise RuntimeError("upstream down")
+        if x == "none":
+            return None
+        return x.upper()
+
+    out = await gather_best_effort(["a", "boom", "none", "b"], fn)
+    assert out == ["A", "B"]
+    assert await gather_best_effort([], fn) == []
+
+
 def test_shared_number_parsers():
     # RF-02: one comma-aware parser shared by SEC/FMP/KIS (replaces the per-provider _num/_i/_f).
     from app.providers._parse_utils import parse_float, parse_int
