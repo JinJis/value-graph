@@ -12,6 +12,7 @@ import AlertSheet, { type AlertDraft } from "./AlertSheet";
 import WidgetGallery, { type AddedWidget } from "./WidgetGallery";
 import { Button, FreshnessDot } from "./ui";
 import { ChannelStatus, cadenceLabel, isPeriodic, triggerFromMeta } from "@/lib/alerts";
+import { widgetKind } from "@/lib/widgets";
 
 // react-grid-layout drives the placement: a true column grid with collision resolution,
 // auto-packing (no gaps), a magnetic drop placeholder, smooth snap animation, and resize reflow.
@@ -29,7 +30,6 @@ const GDEF = {
   source: { w: 4, h: 6, minW: 3, minH: 4 },
   text: { w: 3, h: 4, minW: 2, minH: 2 },
 };
-const kindOf = (spec: any) => (spec?.kind === "source" ? "source" : spec?.kind === "text" ? "text" : "artifact");
 // stored coords are grid units once a board is touched; legacy px (w>COLS/h>40) → re-flow.
 const isGridCoord = (it: Item) =>
   it.x != null && it.y != null && it.w != null && it.h != null && it.w <= COLS && it.h <= 40;
@@ -40,7 +40,7 @@ function toLayout(items: Item[]): Layout[] {
   const baseY = items.filter(isGridCoord).reduce((m, p) => Math.max(m, (p.y ?? 0) + (p.h ?? 0)), 0);
   let cx = 0, cy = 0, rowH = 0;
   return items.map((it) => {
-    const d = GDEF[kindOf(it.spec) as keyof typeof GDEF];
+    const d = GDEF[widgetKind(it.spec) as keyof typeof GDEF];
     if (isGridCoord(it)) {
       return { i: it.id, x: it.x!, y: it.y!, w: it.w!, h: it.h!, minW: d.minW, minH: d.minH };
     }
@@ -311,7 +311,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
             onDragStart={startGesture} onResizeStart={startGesture}
             onDragStop={persistLayout} onResizeStop={persistLayout}>
             {items.map((it) => {
-              const kind = kindOf(it.spec);
+              const kind = widgetKind(it.spec);
               const src = it.spec?.source as string | undefined;
               const asOf = it.spec?.as_of as string | undefined;
               // a widget is alertable iff its datasource recurs (cadence != one_shot). Text memos

@@ -7,6 +7,7 @@
 // :root; these primitives own the structural classNames that consume them.
 
 import { ButtonHTMLAttributes, ReactNode } from "react";
+import { cadenceLabel } from "@/lib/alerts";
 
 // ── Button ──────────────────────────────────────────────────────────────────
 // primary = ink fill · ghost = hairline · danger = light red outline.
@@ -64,15 +65,11 @@ export function FreshnessDot({ f }: { f?: string }) {
   return <span className={`fdot ${f}`} title={label} aria-label={label} />;
 }
 // Periodicity tag — a periodic datasource (cadence != one_shot) is alertable once pinned; a
-// one-shot value is just a figure. Mirrors datasets Cadence + web/lib/alerts cadenceLabel.
-const CADENCE_LABEL: Record<string, string> = {
-  intraday: "실시간", daily: "일간", event: "공시·이벤트", scheduled: "정기 발표",
-  streaming: "뉴스 피드", one_shot: "단발성",
-};
+// one-shot value is just a figure. Cadence labels come from lib/alerts (single source — FE-03).
 export function CadenceTag({ c }: { c?: string | null }) {
   if (!c) return null;
   const periodic = c !== "one_shot";
-  const label = CADENCE_LABEL[c] || c;
+  const label = cadenceLabel(c);
   return (
     <span className={`cad-tag ${periodic ? "periodic" : "oneshot"}`}
       title={periodic ? `주기성 데이터 (${label}) — 대시보드에 고정하면 알림봇 설정 가능` : "단발성 데이터 — 고정 시 값으로 표시 (알림 없음)"}>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, Modal } from "./ui";
+import { widgetKind, widgetKindLabel } from "@/lib/widgets";
 
 export type Board = { id: string; name: string };
 
@@ -62,7 +63,7 @@ export default function PinPicker({
     } catch { setBusy(false); }
   }
 
-  const label = spec?.kind === "source" ? "출처" : spec?.kind === "text" ? "메모" : "자료";
+  const label = widgetKindLabel(widgetKind(spec));
 
   return (
     <Modal title={`📌 ${label} → ＋ 대시보드에 추가`} onClose={onClose}
