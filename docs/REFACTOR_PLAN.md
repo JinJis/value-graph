@@ -1,5 +1,13 @@
 # Backend Refactoring Plan (RF-01 … RF-18)
 
+> **✅ COMPLETE — all 18 tasks done** (Phase 0–3), each its own commit on `development`, every
+> touched service's unit suite green (datasets 147 · agent-engine 99 · rag 20 · studio-api 51 ·
+> control-plane 14 · admin 20 · mcp 10) and key paths live-verified. No behavior change. A recurring
+> theme: several audit findings were **overstated or wrong** (RF-06 caches already shared, RF-16
+> gateway already clean, RF-17 suggestions would harm deliberate design, RF-18 gaps mostly already
+> tested) — each was verified against the real code before acting, so no churn was spent on
+> non-problems.
+
 > **Goal:** reduce structural debt in the backend services **without changing behavior**.
 > Pure structure/maintainability work — every task ships with the touched service's unit tests
 > green + the relevant e2e/coverage harness still passing (Definition of Done, CLAUDE.md §5).
@@ -67,7 +75,7 @@ S(<1h) · M(half-day) · L(multi-day).
 |---|---|---|---|---|---|
 | **RF-16** | **Audit premise mostly overstated** — `gateway()` was already a clean numbered pipeline (0-4) and the entitlement logic already lives in `catalog_index` (`candidate_connectors`/`is_governed`/`cost_units`). **Did:** named the audit actions (`ACTION_ACCESS`/`DENIED`/`ERROR` constants, was bare literals) and extracted `_resolve_entitlement(project_id, key_id, method, path, market)` — the invariant #2/#3 "which activated connector serves this" decision — out of `gateway()` into a named, isolated function (gateway now reads auth→resolve_entitlement→ratelimit→proxy). **Skipped:** `byo_credentials` validation (stored but never read by the gateway — a feature gap, not a refactor target) and the rate-limit TTL rework (the opportunistic-at-10k cleanup is fine for the single-process limiter). control-plane 13 pass. | control-plane | med | M | DONE |
 | **RF-17** | **Audit premise rejected** — every structural suggestion would harm a *deliberate* design property: a central BackendRegistry **reduces cohesion** (the 3 `@cache` factories sit with their own backend impls); a shared filter-matcher is **impossible** (MemoryStore is a Python predicate, PgVectorStore is a SQL WHERE — can't share code); startup eager-init/validation **fights the lazy, no-key-tolerant startup** (`get_embedder` is Gemini-only and must not need a key at boot) and the **fail-safe reranker** (validating it at boot defeats graceful degradation). **Did the safe, design-respecting bits:** documented the tenant/filter semantics authoritatively on the `VectorStore.search` Protocol (one spec both impls conform to) and named the exception type in the reranker-failure log (config/auth vs transient). Store-parity is covered as a **test in RF-18**. rag 20 pass. | rag | med | M | DONE |
-| **RF-18** | Test gaps: ingest job lifecycle (`start_job`/progress/`finish_job`); RAG tenant isolation + reranker-fallback + Memory↔Pg store parity; gateway rate-limit key isolation + minute-boundary; MCP "tool list derives from catalog" assertion. | all | med | L | TODO |
+| **RF-18** | **Most claimed gaps were already covered** — verified RAG tenant isolation (`test_tenant_cannot_see_another_tenants_docs` + global-visible + not-in-provenance), reranker fail-safe (`test_search_survives_reranker_failure`), and store market-filter all exist; ingest job lifecycle is covered by RF-05's `run_ticker_job` test. **Added the 2 real gaps:** control-plane `test_ratelimit_key_isolation_and_window_reset` (key A exhausting doesn't affect key B; minute-boundary resets — faked clock) and MCP `test_build_tools_covers_every_catalog_resource` (exactly one tool per catalog resource, nothing hand-added/dropped — invariant #8). Memory↔Pg parity stays e2e (the unit suite is MemoryStore-only); the RF-17 Protocol docstring is the shared spec. mcp 10 + control-plane 14 pass. | all | med | L | DONE |
 
 ---
 
