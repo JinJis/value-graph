@@ -55,15 +55,17 @@ def _html_path(market: str, accession: str) -> pathlib.Path:
     return pathlib.Path(settings.evidence_docs_dir) / "html" / market.upper() / f"{safe}.html"
 
 
-async def _source_html(market: str, accession: str, cik: str | None) -> str | None:
-    """Fetch the raw filing markup per market (KR: document.xml ZIP; US: iXBRL primary doc)."""
+async def _source_html(market: str, accession: str, cik: str | None,
+                       fetch_url: str | None = None) -> str | None:
+    """Fetch the raw filing markup per market (KR: document.xml ZIP; US: iXBRL primary doc).
+    `fetch_url` (US) skips the submissions lookup; else it's resolved from the CIK."""
     if market == "KR":
         return await fetch_document_markup(accession)
-    if not cik:
-        return None
-    from app.store.evidence_docs import _primary_doc_map  # local import avoids an import cycle
+    url = fetch_url
+    if not url and cik:
+        from app.store.filing_refs import _primary_doc_map  # local import avoids an import cycle
 
-    url = (await _primary_doc_map(cik.zfill(10))).get(accession)
+        url = (await _primary_doc_map(cik.zfill(10))).get(accession)
     if not url:
         return None
     try:
@@ -72,13 +74,14 @@ async def _source_html(market: str, accession: str, cik: str | None) -> str | No
         return None
 
 
-async def get_filing_html(market: str, accession: str, cik: str | None = None) -> str | None:
+async def get_filing_html(market: str, accession: str, cik: str | None = None,
+                          fetch_url: str | None = None) -> str | None:
     """Cache-first sanitized filing HTML for the in-app viewer (or None → UI uses the source link)."""
     market = market.upper()
     path = _html_path(market, accession)
     if path.exists():
         return await asyncio.to_thread(path.read_text, encoding="utf-8", errors="replace")
-    raw = await _source_html(market, accession, cik)
+    raw = await _source_html(market, accession, cik, fetch_url)
     if not raw or not raw.strip():
         log.info("filing html skipped (no source markup) %s %s", market, accession)
         return None

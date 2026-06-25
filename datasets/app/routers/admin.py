@@ -11,7 +11,6 @@ from app.deps import ApiKeyDep
 from app.pipelines import list_pipelines, resolve_pipeline_ids, run_pipelines
 from app.scheduler import scheduler
 from app.selftest import run_selftest
-from app.store.evidence_docs import run_build_evidence_docs
 from app.store.filing_ingest import run_filing_text_ingest
 from app.store.jobs import backfill_running, list_jobs, run_backfill
 from app.store.news_ingest import news_ingest_running, run_news_ingest
@@ -164,38 +163,14 @@ class EvidenceDocsRequest(BaseModel):
 
 
 @router.post(
-    "/evidence-docs",
-    dependencies=[ApiKeyDep],
-    summary="▶ PH-PROV3: cache filings as PDFs for on-demand evidence (US + KR)",
-    description=(
-        "Downloads each ticker's recent filings and stores each as a PDF-normalized "
-        "`EvidenceDoc` (US iXBRL HTML / KR DART markup → PDF). At query time PyMuPDF "
-        "highlights whatever a figure cited — coverage is the whole document, not a fixed "
-        "concept list. Runs in the background; progress in `/admin/jobs`."
-    ),
-)
-async def evidence_docs(body: EvidenceDocsRequest) -> dict:
-    market, tickers = body.market, body.tickers
-    if body.preset:
-        market, tickers = await resolve_one(body.preset)  # dynamic fetch (PH-PIPE)
-        if not tickers:
-            return {"started": False, "detail": f"universe {body.preset!r} resolved to no tickers"}
-    if market not in ("US", "KR"):
-        return {"started": False, "detail": "US + KR only", "market": market}
-    if not tickers:
-        return {"started": False, "detail": "tickers required"}
-    asyncio.create_task(run_build_evidence_docs(market, tickers))
-    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
-
-
-@router.post(
     "/filings/ingest",
     dependencies=[ApiKeyDep],
-    summary="▶ PH-PROV3e: index filing PDF text into RAG (full-text search + passage evidence)",
+    summary="▶ index filing text into RAG (full-text search + passage evidence)",
     description=(
-        "Caches each ticker's filings as PDFs (if needed) and indexes their page text into RAG, "
-        "so `rag__search` returns real filing passages (MD&A, notes, any line) and `/evidence` can "
-        "highlight the cited passage. Global corpus; runs in the background, progress in `/admin/jobs`."
+        "Fetches each ticker's recent filings as HTML (US iXBRL · KR document.xml) and indexes "
+        "their text into RAG, so `rag__search` returns real filing passages (MD&A, notes, any line) "
+        "and the in-app viewer can highlight the cited passage. Global corpus; runs in the "
+        "background, progress in `/admin/jobs`."
     ),
 )
 async def filings_ingest(body: EvidenceDocsRequest) -> dict:

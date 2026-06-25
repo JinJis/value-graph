@@ -30,7 +30,7 @@ export type Citation = {
   page?: string;
   table?: string[][];   // extracted figures (header row first, cited row = first data row)
   used?: boolean;       // evidence flag (set from the answer's [n] / artifact backing)
-  evidence_image_url?: string;  // PH-PROV2: /evidence?… → highlighted screenshot of the filing line
+  evidence_image_url?: string;  // /evidence?… params (market/accession/concept/value/text/cik) → in-app filing viewer
   confidence?: string;  // PH-THINK verify pass: high | medium | low (evidentiary support)
   confidence_why?: string;
 };
@@ -48,22 +48,6 @@ export function ConfBadge({ c }: { c: Citation }) {
   return <span className={`sp-conf ${m.cls}`} title={c.confidence_why || "근거의 질문 적합도"}>{m.label}</span>;
 }
 
-// PH-PROV2: map the agent's gateway-relative /evidence URL to the web BFF route the
-// browser can fetch (carries the session → tenant key).
-export function evidenceSrc(url?: string): string | null {
-  return url ? url.replace(/^\/evidence/, "/api/evidence") : null;
-}
-
-// PH-PROV3: the real source-filing PDF for "원문 열기", derived from the same /evidence
-// params (market + accession). Null if the citation carries no evidence link.
-export function evidenceDocSrc(url?: string): string | null {
-  const q = url?.split("?")[1];
-  if (!q) return null;
-  const p = new URLSearchParams(q);
-  const market = p.get("market"), accession = p.get("accession");
-  if (!market || !accession) return null;
-  return `/api/evidence/doc?market=${encodeURIComponent(market)}&accession=${encodeURIComponent(accession)}`;
-}
 
 // A compact extracted-data table for the preview — header row + data rows, the
 // cited (latest) row highlighted. Shows the *real* figures the answer used.

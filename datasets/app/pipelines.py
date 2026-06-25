@@ -41,11 +41,6 @@ async def _run_filing_text(market: str, tickers: list[str]) -> None:
     await run_filing_text_ingest(market, tickers)
 
 
-async def _run_evidence_docs(market: str, tickers: list[str]) -> None:
-    from app.store.evidence_docs import run_build_evidence_docs
-    await run_build_evidence_docs(market, tickers)
-
-
 # pipeline cadence tiers — the scheduler skips a pipeline that ran within `min_interval_seconds`,
 # so heavy historical pulls don't re-fetch the full history every sweep. Pairs with incremental
 # fetch in the runners (prices/corp_actions only pull since the last stored date).
@@ -104,19 +99,11 @@ PIPELINES: list[dict] = [
      "min_interval_seconds": _WEEK,
      "desc": "공시 PDF 본문을 RAG 색인(무거움)",
      "upstream": [
-         "US · SEC iXBRL 본문 — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc} → renderer PDF",
-         "KR · OpenDART 공식 PDF — https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}",
+         "US · SEC iXBRL 본문 — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc}",
+         "KR · OpenDART document.xml — GET https://opendart.fss.or.kr/api/document.xml?rcept_no={rcept_no}",
      ],
-     "fetch": "재무제표에 등장한 최근 4개 공시 본문을 PDF→페이지 텍스트로 RAG 색인(doc_id={accession}:p.{n}). "
-              "PDF는 캐시(증분), 텍스트는 매 실행 재색인."},
-    {"id": "evidence_docs", "label": "증거 PDF", "source": "SEC/DART", "store": "evidence_docs",
-     "kind": "evidence_docs", "markets": ["US", "KR"], "default": False, "runner": _run_evidence_docs,
-     "min_interval_seconds": _WEEK,
-     "desc": "공시를 PDF로 캐시(증거 하이라이트, 무거움)",
-     "upstream": [
-         "US · SEC iXBRL → renderer PDF · KR · OpenDART 공식 PDF (filing_text와 동일 원천)",
-     ],
-     "fetch": "최근 4개 공시를 PDF로 렌더·캐시. UPSERT 키 (market,accession). 이미 캐시된 PDF는 건너뜀(증분)."},
+     "fetch": "재무제표에 등장한 최근 4개 공시 본문 HTML을 텍스트 추출→RAG 색인(doc_id={accession}:s.{n}). "
+              "HTML은 인앱 뷰어와 동일 원천을 공유·캐시(증분)."},
 ]
 
 PIPELINE_BY_ID = {p["id"]: p for p in PIPELINES}

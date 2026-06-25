@@ -83,13 +83,9 @@ class Settings(BaseSettings):
     # Headlines fetched per ticker per news-ingest run.
     news_ingest_limit: int = 8
 
-    # --- PH-PROV2: deterministic visual evidence --------------------------
-    # The renderer service that turns a fact locator into a highlighted screenshot.
-    renderer_url: str = "http://renderer:8006"
-    # PH-PROV3: cache each filing as a PDF during ingest so /evidence works for it
-    # (US iXBRL→render · KR official PDF). Off by default (adds fetch/render time to ingest).
-    precompute_locations: bool = False
-    # Where cached PDF-normalized filings live (on the datasets data volume).
+    # --- evidence: the in-app filing viewer -------------------------------
+    # Where sanitized filing HTML is cached (shared by the viewer + filing-text RAG ingest),
+    # on the datasets data volume.
     evidence_docs_dir: str = "/data/evidence_docs"
 
     @property

@@ -1,9 +1,9 @@
-"""Evidence-image proxy (PH-PROV2).
+"""Evidence proxy — the original filing as sanitized HTML for the in-app viewer.
 
-The browser can't call the gateway directly (no tenant key client-side), so this streams
-the highlighted source-filing screenshot from the data plane through the **gateway** with
-the user's server-side tenant key — entitled + metered like any other data pull. Returns
-the PNG, or 204 when no evidence is available (the UI then shows the text source card)."""
+The browser can't call the gateway directly (no tenant key client-side), so this streams the
+filing HTML from the data plane through the **gateway** with the user's server-side tenant key.
+Returns the HTML, or 204 when no source markup is available (the UI then offers the external
+"원문 보기" link). The viewer renders it in a sandboxed iframe and highlights the cited element."""
 
 from __future__ import annotations
 
@@ -17,36 +17,6 @@ from studioapi.models import User
 router = APIRouter(tags=["Evidence"], dependencies=[Depends(require_service)])
 
 
-@router.get("/evidence", summary="Highlighted source-filing screenshot for a cited figure (via the gateway)")
-async def evidence(
-    market: str = Query("US"),
-    accession: str = Query(...),
-    concept: str | None = Query(None),
-    report_period: str | None = Query(None),
-    value: float | None = Query(None),
-    text: str | None = Query(None),       # PH-PROV3e: highlight a cited passage (text mode)
-    cik: str | None = Query(None),
-    user: User = Depends(current_user),
-):
-    params: dict = {"market": market, "accession": accession}
-    for k, v in (("concept", concept), ("report_period", report_period),
-                 ("value", value), ("text", text), ("cik", cik)):
-        if v is not None:
-            params[k] = v
-    try:
-        async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 40) as client:
-            resp = await client.get(
-                f"{settings.control_plane_url}/evidence", params=params,
-                headers={"X-API-KEY": user.api_key},
-            )
-        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image/"):
-            return Response(content=resp.content, media_type="image/png",
-                            headers={"cache-control": "private, max-age=86400"})
-    except httpx.HTTPError:
-        pass
-    return Response(status_code=204)  # graceful fallback → UI shows the text source card
-
-
 @router.get("/evidence/html", summary="The original filing as sanitized HTML for the in-app viewer (via the gateway)")
 async def evidence_html(
     market: str = Query("US"),
@@ -54,8 +24,6 @@ async def evidence_html(
     cik: str | None = Query(None),
     user: User = Depends(current_user),
 ):
-    """Stream the original filing as sanitized HTML (→ gateway → datasets) with the user's tenant
-    key, for the in-app filing viewer. 204 when no source markup → UI offers the external link."""
     params: dict = {"market": market, "accession": accession}
     if cik is not None:
         params["cik"] = cik
@@ -71,26 +39,3 @@ async def evidence_html(
     except httpx.HTTPError:
         pass
     return Response(status_code=204)  # graceful fallback → UI shows the external source link
-
-
-@router.get("/evidence/doc", summary="The cached source-filing PDF for '원문 열기' (via the gateway)")
-async def evidence_doc(
-    market: str = Query("US"),
-    accession: str = Query(...),
-    user: User = Depends(current_user),
-):
-    """Stream the real filing PDF (PH-PROV3) from the data plane through the gateway with the
-    user's tenant key, so '원문 열기' opens the exact document. 204 when none is cached."""
-    try:
-        async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 40) as client:
-            resp = await client.get(
-                f"{settings.control_plane_url}/evidence/doc",
-                params={"market": market, "accession": accession},
-                headers={"X-API-KEY": user.api_key},
-            )
-        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
-            return Response(content=resp.content, media_type="application/pdf",
-                            headers={"cache-control": "private, max-age=86400"})
-    except httpx.HTTPError:
-        pass
-    return Response(status_code=204)

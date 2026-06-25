@@ -20,7 +20,13 @@ export function evidenceHtmlSrc(c: Citation): string | null {
   const market = p.get("market"), accession = p.get("accession");
   if (!market || !accession) return null;
   const out = new URLSearchParams({ market, accession });
-  const cik = p.get("cik");
+  // US needs the CIK to resolve the primary doc; figure citations carry it, filing-prose (RAG)
+  // citations don't — but their canonical SEC url embeds it (/edgar/data/{cik}/…).
+  let cik = p.get("cik");
+  if (!cik && market.toUpperCase() === "US" && c.url) {
+    const m = c.url.match(/edgar\/data\/(\d+)/);
+    if (m) cik = m[1];
+  }
   if (cik) out.set("cik", cik);
   return `/api/evidence/html?${out.toString()}`;
 }

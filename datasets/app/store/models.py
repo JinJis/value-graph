@@ -46,32 +46,6 @@ class FinancialFact(Base):
     )
 
 
-class EvidenceDoc(Base):
-    """PH-PROV3: the cached, PDF-normalized source document for one filing.
-
-    Instead of precomputing a pointer per fixed concept (FactLocation), we cache the WHOLE
-    filing as a PDF once (US iXBRL HTML / KR DART markup → PDF via the renderer). At query
-    time PyMuPDF locates whatever figure or passage the answer actually cited and highlights
-    it — so coverage is the entire document (any question), not a pre-chosen concept list,
-    and the heavy headless render is paid at most once per filing."""
-
-    __tablename__ = "evidence_docs"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    market: Mapped[str] = mapped_column(String(2), index=True)
-    ticker: Mapped[str | None] = mapped_column(String(20), index=True, nullable=True)
-    accession_number: Mapped[str] = mapped_column(String(40))
-    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)  # canonical "원문 열기" link
-    pdf_path: Mapped[str] = mapped_column(Text)                          # cached PDF on the data volume
-    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(16), index=True)          # stored | unavailable
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-    __table_args__ = (
-        UniqueConstraint("market", "accession_number", name="uq_evidence_doc"),
-    )
-
-
 class IngestionJob(Base):
     """One ingestion run (manual backfill or a scheduled refresh) — so operators can
     see what was loaded, when, how many rows, and any error, instead of guessing

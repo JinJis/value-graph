@@ -655,37 +655,6 @@ def test_admin_news_ingest_endpoint(monkeypatch):
     assert r.status_code == 200 and r.json()["started"] is True
 
 
-async def test_ingest_ticker_builds_evidence_docs_when_flagged(monkeypatch):
-    # PH-PROV3: with PRECOMPUTE_LOCATIONS on, a backfill (manual OR scheduled/deep — both go
-    # through ingest_ticker) also caches each filing as a PDF so /evidence works — US AND KR.
-    import app.store.evidence_docs as ED
-    import app.store.ingest as I
-    from app.symbols import Market
-
-    class _Prov:
-        async def income_statements(self, *a, **k): return []
-        async def balance_sheets(self, *a, **k): return []
-        async def cash_flow_statements(self, *a, **k): return []
-        async def company_facts(self, *a, **k): raise RuntimeError("skip")
-
-    monkeypatch.setattr(I, "build_ref", lambda market, ticker: type("R", (), {"ticker": ticker, "cik": "0"})())
-    monkeypatch.setattr(I, "get_financials_provider", lambda m: _Prov())
-    monkeypatch.setattr(I, "get_company_provider", lambda m: _Prov())
-
-    calls = []
-
-    async def fake_build(market, ticker, *a, **k):
-        calls.append((market, ticker))
-        return {}
-
-    monkeypatch.setattr(ED, "build_evidence_docs_for_ticker", fake_build)
-    monkeypatch.setattr(I.settings, "precompute_locations", True)
-
-    await I.ingest_ticker(Market.US, "AAPL")
-    await I.ingest_ticker(Market.KR, "005930")
-    assert calls == [("US", "AAPL"), ("KR", "005930")]   # both markets cache evidence PDFs
-
-
 # --- PH-5: cheap universe-enumeration endpoints ---------------------------
 _SEC_TICKERS = {
     "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
@@ -2078,7 +2047,7 @@ async def test_get_filing_html_caches(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
     calls = {"n": 0}
 
-    async def fake_source(market, accession, cik):
+    async def fake_source(market, accession, cik, fetch_url=None):
         calls["n"] += 1
         return '<html><body><script>x()</script><p>Net sales 383,285</p></body></html>'
 
@@ -2088,141 +2057,6 @@ async def test_get_filing_html_caches(tmp_path, monkeypatch):
     assert (tmp_path / "html" / "US" / "0000-1.html").exists()        # cached to disk
     h2 = await FH.get_filing_html("US", "0000-1", "320193")           # second call
     assert h2 == h1 and calls["n"] == 1                               # fetched once, then served from cache
-
-
-# --- PH-PROV3: PDF-normalized evidence document store ---------------------
-async def test_ph_prov3_ensure_doc_caches_kr_official_pdf(tmp_path, monkeypatch):
-    """KR uses DART's official PDF directly (Chromium-free); it's written to the data
-    volume + indexed as an EvidenceDoc, and the second call is served from cache."""
-    import app.store.evidence_docs as ED
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
-    calls = {"n": 0}
-
-    async def _fake_pdf(rcept):
-        calls["n"] += 1
-        return b"%PDF-1.4 official-dart"
-
-    monkeypatch.setattr(ED, "fetch_dart_pdf", _fake_pdf)
-
-    r1 = await ED.ensure_doc("KR", "005930", "20260310002820",
-                             canonical_url="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260310002820")
-    assert r1 == "stored"
-    assert (tmp_path / "KR" / "20260310002820.pdf").read_bytes().startswith(b"%PDF")
-    doc = ED.get_evidence_doc("KR", "20260310002820")
-    assert doc and doc["status"] == "stored" and "dart.fss.or.kr" in doc["source_url"]
-
-    r2 = await ED.ensure_doc("KR", "005930", "20260310002820", canonical_url="x")  # idempotent
-    assert r2 == "cached" and calls["n"] == 1  # no second fetch
-
-
-@respx.mock
-async def test_ph_prov3_ensure_doc_us_renders_via_chromium(tmp_path, monkeypatch):
-    """US has no official PDF → iXBRL HTML is rendered to PDF once by the renderer."""
-    import app.store.evidence_docs as ED
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
-
-    async def _fake_markup(accession, fetch_url):
-        return "<html><body><table><tr><td>Revenue</td><td>391,035</td></tr></table></body></html>"
-
-    monkeypatch.setattr(ED, "_us_markup", _fake_markup)
-    respx.post("http://renderer:8006/pdf/from-html").mock(
-        return_value=httpx.Response(200, content=b"%PDF-1.7 us", headers={"content-type": "application/pdf"}))
-
-    r = await ED.ensure_doc("US", "AAPL", "0000320193-24-000123",
-                            fetch_url="https://www.sec.gov/x.htm", canonical_url="https://www.sec.gov/i.htm")
-    assert r == "stored"
-    assert (tmp_path / "US" / "0000320193-24-000123.pdf").read_bytes().startswith(b"%PDF")
-
-
-def _make_pdf(path, line):
-    import fitz
-
-    doc = fitz.open()
-    doc.new_page().insert_text((72, 200), line)
-    doc.save(str(path))
-    doc.close()
-
-
-def test_ph_prov3b_pymupdf_highlight(tmp_path, monkeypatch):
-    """PyMuPDF locates the cited value (at the millions scale) next to its label, highlights
-    it, and rasterizes a PNG — cache-first; a value not present returns None (graceful)."""
-    from app.config import settings
-    from app.store.evidence_render import highlight_png, labels_for
-
-    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
-    pdf = tmp_path / "us.pdf"
-    _make_pdf(pdf, "Net sales      391,035")  # millions, as a 10-K renders it
-    labels = labels_for("US", "Revenues")
-    assert "Net sales" in labels
-
-    png = highlight_png(str(pdf), 391_035_000_000.0, labels)
-    assert png and png.startswith(b"\x89PNG")
-    assert highlight_png(str(pdf), 391_035_000_000.0, labels) == png      # cache hit
-    assert highlight_png(str(pdf), 999.0, labels) is None                 # value absent → None
-
-
-def test_ph_prov3b_evidence_pdf_endpoint(tmp_path, monkeypatch):
-    """/evidence highlights the cited figure in the cached PDF; /evidence/doc serves the PDF."""
-    from app.config import settings
-    from app.store.evidence_docs import _upsert_doc
-
-    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
-    pdf = tmp_path / "us.pdf"
-    _make_pdf(pdf, "Net sales      391,035")  # ASCII fixture → US 'Net sales' label anchors deterministically
-    _upsert_doc({"market": "US", "ticker": "AAPL", "accession_number": "0000320193-24-000123",
-                 "source_url": "https://www.sec.gov/...-index.htm",
-                 "pdf_path": str(pdf), "page_count": 1, "status": "stored"})
-
-    r = client.get("/evidence?market=US&accession=0000320193-24-000123&concept=Revenues"
-                   "&report_period=2024-09-28&value=391035000000")
-    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
-
-    d = client.get("/evidence/doc?market=US&accession=0000320193-24-000123")
-    assert d.status_code == 200 and d.headers["content-type"] == "application/pdf"
-    assert client.get("/evidence/doc?market=US&accession=NOPE").status_code == 204
-
-
-def test_ph_prov3a_admin_evidence_docs_endpoint(monkeypatch):
-    import app.routers.admin as A
-
-    fired: dict = {}
-
-    async def _fake_run(market, tickers):
-        fired["market"], fired["tickers"] = market, tickers
-
-    monkeypatch.setattr(A, "run_build_evidence_docs", _fake_run)
-    assert client.post("/admin/evidence-docs", json={"market": "KR", "tickers": ["005930"]}).json()["started"] is True
-    assert fired == {"market": "KR", "tickers": ["005930"]}
-    # unsupported market / no tickers → not started
-    assert client.post("/admin/evidence-docs", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
-    assert client.post("/admin/evidence-docs", json={"market": "US"}).json()["started"] is False
-
-
-# --- PH-PROV3e: filing PDF text → RAG corpus ------------------------------
-def test_ph_prov3e_pdf_to_docs(tmp_path):
-    """Each non-empty PDF page → one RAG IngestDoc carrying accession + section (p.N) so a
-    search hit points back to the exact page for evidence highlighting."""
-    import fitz
-
-    from app.store.filing_ingest import _pdf_to_docs
-
-    pdf = tmp_path / "f.pdf"
-    d = fitz.open()
-    d.new_page().insert_text((72, 200), "Net sales were 391,035; risks include supply concentration.")
-    d.new_page()  # 2nd page near-empty → skipped
-    d.save(str(pdf))
-    d.close()
-
-    docs = _pdf_to_docs(str(pdf), "US", "AAPL", "0000320193-24-000123", "SEC EDGAR", "https://sec.gov/x")
-    assert len(docs) == 1  # empty page dropped
-    doc = docs[0]
-    assert doc["section"] == "p.1" and doc["accession"] == "0000320193-24-000123"
-    assert doc["doc_type"] == "filing" and doc["ticker"] == "AAPL" and doc["market"] == "US"
-    assert "Net sales" in doc["text"]
 
 
 def test_ph_prov3e_admin_filings_ingest_endpoint(monkeypatch):
@@ -2237,26 +2071,6 @@ def test_ph_prov3e_admin_filings_ingest_endpoint(monkeypatch):
     assert client.post("/admin/filings/ingest", json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
     assert fired == {"market": "US", "tickers": ["AAPL"]}
     assert client.post("/admin/filings/ingest", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
-
-
-def test_ph_prov3e_text_evidence_endpoint(tmp_path, monkeypatch):
-    """/evidence text mode highlights a cited PASSAGE in the cached filing PDF."""
-    from app.config import settings
-    from app.store.evidence_docs import _upsert_doc
-
-    monkeypatch.setattr(settings, "evidence_docs_dir", str(tmp_path))
-    pdf = tmp_path / "f.pdf"
-    _make_pdf(pdf, "Net sales were 391,035 and supply chain risks remain significant.")
-    _upsert_doc({"market": "US", "ticker": "AAPL", "accession_number": "0000320193-24-000123",
-                 "source_url": "https://sec.gov/i.htm", "pdf_path": str(pdf), "page_count": 1, "status": "stored"})
-
-    r = client.get("/evidence", params={"market": "US", "accession": "0000320193-24-000123",
-                                        "text": "Net sales were 391,035 and supply chain risks remain"})
-    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
-    # a passage that isn't in the doc → 204 (graceful)
-    r2 = client.get("/evidence", params={"market": "US", "accession": "0000320193-24-000123",
-                                         "text": "totally unrelated sentence not present anywhere here"})
-    assert r2.status_code == 204
 
 
 # --- PH-8: index-fund / ETF holdings (SEC N-PORT) -------------------------
@@ -2624,3 +2438,22 @@ def test_periodic_vs_one_shot_partition():
     assert ("datasets_store", "backtest") in one_shot
     assert ("sec_edgar", "comparables") in one_shot
     assert Cadence.one_shot.periodic is False and Cadence.daily.periodic is True
+
+
+# --- filing text → RAG corpus (extracted from the original HTML) ----------
+def test_html_to_docs_sections_filing_text():
+    """Filing HTML → section-sized RAG IngestDocs carrying accession + section (s.N) so a hit
+    points back to a region for the in-app viewer to highlight. Script text is not indexed."""
+    from app.store.filing_ingest import _html_to_docs
+
+    html = ("<html><body><script>track()</script>"
+            "<h1>Item 7. MD&A</h1>"
+            "<p>Net sales were 391,035 and supply concentration remains a key risk.</p>"
+            "<table><tr><td>Revenue</td><td>391,035</td></tr></table></body></html>")
+    docs = _html_to_docs(html, "US", "AAPL", "0000320193-24-000123", "SEC EDGAR", "https://sec.gov/x")
+    assert docs and docs[0]["accession"] == "0000320193-24-000123"
+    assert docs[0]["section"].startswith("s.") and docs[0]["doc_type"] == "filing"
+    assert docs[0]["ticker"] == "AAPL" and docs[0]["market"] == "US"
+    joined = " ".join(d["text"] for d in docs)
+    assert "Net sales" in joined and "391,035" in joined
+    assert "track()" not in joined  # <script> text excluded from the corpus
