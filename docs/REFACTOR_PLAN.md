@@ -36,7 +36,7 @@ S(<1h) · M(half-day) · L(multi-day).
 | ID | Task | Service | Sev | Eff | Status |
 |---|---|---|---|---|---|
 | **RF-01** | Dead-code + config-bug sweep. **DONE:** removed duplicate KIS keys in `config.py`; deleted ~90 LOC of legacy keyword-routing dead code from agent-engine `routing.py` (kept only the live `resolve_ticker`/`_user_text`). **Verified NOT dead (kept):** `opendart.as_reported()` (KR route `financials.py:108` calls it — honest empty per invariant #6), `store/ingest.py` `_STATEMENTS`/`_SKIP` (used by `ingest_ticker`/KR bulk), `jobs.py` type hints (already present), `evidence.py` (already documented). | datasets, agent-engine | high | S | DONE |
-| **RF-02** | Shared provider number-parsing: new `providers/_parse_utils.py` (`parse_int`/`parse_float`, comma-aware) replacing `_num` (sec_edgar), `_i`/`_f` (kis), and any twins. | datasets | high | S | TODO |
+| **RF-02** | Shared provider number-parsing: new `providers/_parse_utils.py` (`parse_int`/`parse_float`, comma-aware) replacing `_num` (sec_edgar + fmp), `_i`/`_f` (kis) via import-alias (zero call-site churn). | datasets | high | S | DONE |
 | **RF-03** | Single provenance field tuple: collapse `_PROV` (`store.py`) and `_PROVENANCE` (`models.py`) into one shared constant. | rag | med | S | TODO |
 
 ## Phase 1 — Cross-cutting foundations (highest value; other refactors build on these)

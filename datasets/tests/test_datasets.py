@@ -253,6 +253,21 @@ async def test_queue_overview_failsafe_without_db(monkeypatch):
     assert "run_pipeline" in ov["tasks"]
 
 
+def test_shared_number_parsers():
+    # RF-02: one comma-aware parser shared by SEC/FMP/KIS (replaces the per-provider _num/_i/_f).
+    from app.providers._parse_utils import parse_float, parse_int
+
+    assert parse_float("1,234,567.5") == 1234567.5
+    assert parse_float(42) == 42.0          # already-numeric (FMP JSON numbers) still works
+    assert parse_float(None) is None and parse_float("") is None and parse_float("n/a") is None
+    assert parse_int("1,234") == 1234
+    assert parse_int(None) is None and parse_int("") is None and parse_int("3.5") is None
+    # the provider aliases point at the shared impl
+    from app.providers.us.sec_edgar import _num as sec_num
+    from app.providers.kr.kis import _i as kis_i, _f as kis_f
+    assert sec_num is parse_float and kis_f is parse_float and kis_i is parse_int
+
+
 def test_selftest_classifier():
     from app.selftest import _classify
 

@@ -15,6 +15,7 @@ import httpx
 
 from app.config import settings
 from app.errors import bad_request, upstream_error
+from app.providers._parse_utils import parse_float as _f, parse_int as _i  # shared parsers (RF-02)
 from app.http import fetch_json
 
 # module-level token cache (token, expires_at_epoch); a lock so concurrent callers issue once.
@@ -62,20 +63,6 @@ async def _get(path: str, tr_id: str, params: dict, output_key: str = "output") 
         raise upstream_error("kis", str(data.get("msg1") or "KIS error")[:160])
     out = (data.get(output_key) if isinstance(data, dict) else None) or []
     return out if isinstance(out, list) else [out]
-
-
-def _i(v):
-    try:
-        return int(str(v).replace(",", "")) if v not in (None, "") else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _f(v):
-    try:
-        return float(str(v).replace(",", "")) if v not in (None, "") else None
-    except (TypeError, ValueError):
-        return None
 
 
 async def volume_rank(limit: int = 30) -> dict:
