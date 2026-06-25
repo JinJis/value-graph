@@ -11,29 +11,12 @@
 
 import { useState } from "react";
 import { CadenceTag, FreshnessDot, FRESH_LABEL, TrustLegend } from "./ui";
+// Citation lives in lib/types.ts (FE-01); imported for local use + re-exported for back-compat
+// (importers use `import { Citation } from "./SourceCard"`).
+import type { Citation } from "../lib/types";
 
 export { FreshnessDot, TrustLegend };
-
-export type Citation = {
-  tool?: string;
-  source?: string;
-  url?: string;
-  index?: number;
-  kind?: string; // filing | news | metric | data
-  doc_type?: string;
-  as_of?: string;
-  freshness?: string; // fresh | aging | stale | gap
-  cadence?: string;   // intraday|daily|event|scheduled|streaming|one_shot — periodic ⇒ alertable
-  category?: string;  // market|fundamentals|valuation|filings|gurus|macro|news|…
-  snippet?: string;
-  ticker?: string;
-  page?: string;
-  table?: string[][];   // extracted figures (header row first, cited row = first data row)
-  used?: boolean;       // evidence flag (set from the answer's [n] / artifact backing)
-  evidence_image_url?: string;  // /evidence?… params (market/accession/concept/value/text/cik) → in-app filing viewer
-  confidence?: string;  // PH-THINK verify pass: high | medium | low (evidentiary support)
-  confidence_why?: string;
-};
+export type { Citation } from "../lib/types";
 
 // PH-THINK: a small confidence chip (how well this source supports the question).
 const CONF: Record<string, { label: string; cls: string }> = {

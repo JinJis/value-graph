@@ -11,20 +11,14 @@ import PromptWaterfall, { WaterfallPrompt } from "./PromptWaterfall";
 import Watchlists, { Watchlist } from "./Watchlists";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Citation, SourceCard } from "./SourceCard";
+import { SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
-import { Artifact, ArtifactCard } from "./ArtifactCard";
+import { ArtifactCard } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
-
-type ToolUse = { name: string; label?: string };
-type Think = { phase: string; text: string };
-type ClarifyOption = { label: string; description?: string | null };
-// CLARIFY-WITH-OPTIONS: the agent offers choices to scope a broad request; `origin` is the
-// user's question the picks refine into a follow-up.
-type Clarify = { prompt: string; options: ClarifyOption[]; multi: boolean; origin: string };
-// A2A: a sub-agent dispatched on one facet of a complex request, shown as a live card.
-type SubAgent = { id: number; title: string; status: string; sources?: number; steps?: number };
-type Msg = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; citations?: Citation[]; artifacts?: Artifact[]; refused?: boolean; used?: number[]; thinking?: Think[]; clarify?: Clarify; subagents?: SubAgent[]; suggestions?: string[] };
+// Chat / SSE-event + Artifact/Citation shapes now live in lib/types.ts (FE-01).
+import type {
+  Artifact, Citation, Clarify, ClarifyOption, Msg, SubAgent, Think, ToolUse,
+} from "../lib/types";
 
 // Render the assistant's markdown (bold/bullets/tables/links). Links open out-of-tab.
 const mdComponents = {

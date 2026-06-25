@@ -36,7 +36,7 @@
 
 | ID | Task | Sev | Eff | Status |
 |---|---|---|---|---|
-| **FE-01** | `lib/types.ts` as the single source for the schema contracts: `Artifact`, `Citation`, the SSE event union, and `WidgetSpec` (`Artifact | Citation | {kind:'text'}`). Replace the inline redefinitions in `Chat.tsx`/`SourceCard.tsx`/`ArtifactCard.tsx` and the `spec: any` in `BoardCanvas.tsx` (kills the `as any` casts). | high | M | TODO |
+| **FE-01** | Created `lib/types.ts` as the single source: `Artifact` (+ chart child types), `Citation`, the chat/SSE types (`ToolUse`/`Think`/`Clarify`/`ClarifyOption`/`SubAgent`/`Msg`), and `WidgetSpec`. Moved the defs out of `ArtifactCard`/`SourceCard`/`Chat` (importing a *type* no longer drags in a *component*); the components **re-export** them for back-compat → zero importer churn. **`BoardCanvas`'s `spec: any` → `WidgetSpec` deferred to FE-10** (the union needs narrowing at every `spec.x` access — a cascade best done with the WidgetFrame split). tsc clean (1 known react-grid-layout baseline error) + `next build` passes + page renders. | high | M | DONE |
 | **FE-02** | `lib/format.ts`: the number/currency/volume/date formatters (`fmtBig`/`fmtPrice`/`fmtVol`/pct/`currencyOf`) currently duplicated across `ArtifactCard.tsx` + `TradeChart.tsx` (+ `BoardCanvas`). One locale-aware module (조/억 · $T/B/M · ratio→%). | med | S | TODO |
 | **FE-03** | `lib/widgets.ts`: centralize `widgetKind(spec)` + the kind/cadence **label** lookups duplicated across `BoardCanvas` (`kindOf`), `WidgetGallery` (`kindLabel`), `PinPicker`, and `ui.tsx` (`CadenceTag`'s own `CADENCE_LABEL`). Cadence→trigger stays in the already-clean `lib/alerts.ts`. | med | S | TODO |
 

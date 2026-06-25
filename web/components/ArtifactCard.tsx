@@ -4,61 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { CadenceTag, FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
 import type { Citation } from "./SourceCard";
+import type { Artifact, ArtifactCandle, ArtifactSeries, ChartAnnotations } from "../lib/types";
+
+// Types live in lib/types.ts (FE-01); re-exported here for back-compat (importers use
+// `import { Artifact } from "./ArtifactCard"`).
+export type {
+  Artifact, ArtifactMarker, ArtifactPriceLine, ChartAnnotations, ChartOverlay, OverlayLine,
+} from "../lib/types";
 
 // U3-02 / PH-VIZ-1: render a connector-backed Artifact as an interactive card. Time-series
 // and price (candlestick) artifacts delegate to <TradeChart> (TradingView Lightweight
 // Charts); a 차트/표 toggle keeps the extracted-figures table; KPI/table artifacts render
 // as a sourced matrix.
-
-type ArtifactPoint = { x: string; y: number | null };
-type ArtifactSeries = { label: string; unit?: string | null; points: ArtifactPoint[] };
-type ArtifactCandle = {
-  time: string; open?: number | null; high?: number | null; low?: number | null;
-  close?: number | null; volume?: number | null;
-};
-export type ArtifactMarker = {
-  time: string; label: string; kind?: string; position?: string;
-  color?: string | null; source?: string | null; url?: string | null; snippet?: string | null;
-};
-export type ArtifactPriceLine = { price: number; label: string; color?: string | null };
-export type ChartAnnotations = {
-  lines?: { x1: string; y1: number; x2: string; y2: number; label?: string | null; color?: string | null }[];
-  hlines?: { price: number; label?: string | null; color?: string | null }[];
-  vlines?: { time: string; label?: string | null; color?: string | null }[];
-  zones?: { t0: string; t1: string; label?: string | null; color?: string | null }[];
-  rebase?: boolean;
-  note?: string | null;
-};
-export type OverlayLine = {
-  label: string; color?: string | null; points: { time: string; value: number }[];
-};
-export type ChartOverlay = {
-  key: string; name: string; pane?: string; unit?: string | null;
-  lines: OverlayLine[]; source?: string | null;
-};
-export type Artifact = {
-  kind: string;
-  chart_style?: string | null;  // "bar" for money amounts (revenue/income); else line
-  title: string;
-  series: ArtifactSeries[];
-  candles?: ArtifactCandle[];  // kind=candlestick (prices): real OHLCV → candles + volume
-  markers?: ArtifactMarker[];  // PH-VIZ-2: sourced events on the time axis (click → evidence)
-  pricelines?: ArtifactPriceLine[];  // PH-VIZ-2: descriptive period high/low lines
-  annotations?: ChartAnnotations | null;  // PH-VIZ-3: agent-authored lines/levels/zones
-  user_annotations?: ChartAnnotations | null;  // PH-VIZ-5: the user's own drawings (persisted on pin)
-  overlays?: ChartOverlay[];   // PH-VIZ-4: technical indicators (price-pane + sub-panes)
-  table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
-  sections?: { heading: string; body: string }[];  // kind=narrative (CE-4): 종목 내러티브 sections
-  source?: string | null;
-  as_of?: string | null;
-  freshness?: string | null;
-  cadence?: string | null;   // intraday|daily|event|scheduled|streaming|one_shot — periodic ⇒ alertable
-  category?: string | null;  // market|fundamentals|valuation|filings|gurus|macro|news|…
-  ticker?: string | null;
-  has_gap?: boolean;
-  tool?: string | null;
-  args?: ({ market?: string } & Record<string, unknown>) | null;  // tool args (for re-fetch / market)
-};
 
 const STROKES = ["#5A5A62", "#A6A6AC", "#1FA463", "#D9A300"]; // table-view legend swatches
 
