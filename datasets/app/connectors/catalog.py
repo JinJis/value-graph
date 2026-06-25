@@ -385,199 +385,107 @@ CONNECTORS: list[ConnectorManifest] = [
 ]
 
 
-# --- user-facing categories ------------------------------------------------
-# Central (connector_id, resource_name) → category map. The SINGLE place tools get categorized.
-# Applied at import; a resource missing here fails the load, so EVERY tool (incl. future ones)
-# must be categorized. Connectors remain the data-plane routing unit — this is presentation only.
-_CATEGORY: dict[tuple[str, str], Category] = {
-    # SEC EDGAR (US)
-    ("sec_edgar", "company_facts"): Category.fundamentals,
-    ("sec_edgar", "company_search"): Category.fundamentals,
-    ("sec_edgar", "income_statements"): Category.fundamentals,
-    ("sec_edgar", "balance_sheets"): Category.fundamentals,
-    ("sec_edgar", "cash_flow_statements"): Category.fundamentals,
-    ("sec_edgar", "all_financials"): Category.fundamentals,
-    ("sec_edgar", "as_reported"): Category.fundamentals,
-    ("sec_edgar", "filings"): Category.filings,
-    ("sec_edgar", "earnings"): Category.filings,
-    ("sec_edgar", "insider_trades"): Category.gurus,
-    ("sec_edgar", "institutional_holdings"): Category.gurus,
-    ("sec_edgar", "index_funds"): Category.gurus,
-    ("sec_edgar", "gurus"): Category.gurus,
-    ("sec_edgar", "guru_trades"): Category.gurus,
-    ("sec_edgar", "guru_common"): Category.gurus,
-    ("sec_edgar", "metrics_snapshot"): Category.valuation,
-    ("sec_edgar", "comparables"): Category.valuation,
-    # Yahoo Finance
-    ("yahoo", "prices"): Category.market,
-    ("yahoo", "price_snapshot"): Category.market,
-    ("yahoo", "corporate_actions"): Category.market,
-    ("yahoo", "technical_indicators"): Category.market,
-    ("yahoo", "asset_classes"): Category.market,
-    ("yahoo", "sector_heatmap"): Category.market,
-    ("yahoo", "commodities"): Category.market,
-    ("yahoo", "semiconductor"): Category.market,
-    ("yahoo", "themes"): Category.market,
-    # FRED / DBnomics (US macro)
-    ("fred", "interest_rates"): Category.macro,
-    ("fred", "interest_rates_snapshot"): Category.macro,
-    ("fred", "economic_indicators"): Category.macro,
-    ("fred", "macro_panel"): Category.macro,
-    # OpenDART (KR)
-    ("opendart", "company_facts"): Category.fundamentals,
-    ("opendart", "company_search"): Category.fundamentals,
-    ("opendart", "income_statements"): Category.fundamentals,
-    ("opendart", "balance_sheets"): Category.fundamentals,
-    ("opendart", "cash_flow_statements"): Category.fundamentals,
-    ("opendart", "all_financials"): Category.fundamentals,
-    ("opendart", "filings"): Category.filings,
-    ("opendart", "earnings"): Category.filings,
-    ("opendart", "insider_trades"): Category.gurus,
-    ("opendart", "metrics_snapshot"): Category.valuation,
-    ("opendart", "comparables"): Category.valuation,
-    # Bank of Korea ECOS (KR macro)
-    ("ecos", "interest_rates"): Category.macro,
-    ("ecos", "interest_rates_snapshot"): Category.macro,
-    # Google News
-    ("google_news", "news"): Category.news,
-    # FMP (CE-11) — consensus estimates + earnings calendar
-    ("fmp", "consensus_estimates"): Category.valuation,
-    ("fmp", "earnings_calendar"): Category.fundamentals,
-    # KIS (CE-12) — KR realtime rankings + investor flows
-    ("kis", "volume_rank"): Category.market,
-    ("kis", "investor_flow"): Category.gurus,  # 수급 (투자거장·수급)
-    ("kis", "fluctuation_rank"): Category.market,
-    ("kis", "market_cap_rank"): Category.market,
-    ("kis", "etf_nav"): Category.market,
-    # Ingestion store (screener)
-    ("datasets_store", "screener"): Category.screener,
-    ("datasets_store", "line_items"): Category.screener,
-    ("datasets_store", "quant_screen"): Category.screener,
-    ("datasets_store", "metrics_history"): Category.fundamentals,
-    ("datasets_store", "ir_materials"): Category.filings,
-    ("datasets_store", "filing_search"): Category.filings,
-    ("datasets_store", "valuation"): Category.valuation,
-    ("datasets_store", "backtest"): Category.portfolio,
-    # Document RAG
-    ("rag", "search"): Category.filings,
+# --- resource metadata: category + cadence (single source) -----------------
+# Central (connector_id, resource_name) → (category, cadence) map — the ONE place every tool is
+# classified for the builder's user-facing CATEGORY and the pin→alert CADENCE (periodic vs one_shot).
+# Applied at import; a resource missing here (or a stale entry) fails the load, so every tool —
+# present or future — must be classified. Connectors remain the data-plane routing unit; this is
+# presentation/periodicity only. Cadence rule of thumb — discrete future event worth pushing? →
+# event; price/technicals/daily-flow → daily/intraday; rate/macro release → scheduled; news →
+# streaming; a derived/computed snapshot or profile → one_shot.
+_RESOURCE_META: dict[tuple[str, str], tuple[Category, Cadence]] = {
+    # sec_edgar
+    ("sec_edgar", "company_facts"): (Category.fundamentals, Cadence.one_shot),
+    ("sec_edgar", "company_search"): (Category.fundamentals, Cadence.one_shot),
+    ("sec_edgar", "income_statements"): (Category.fundamentals, Cadence.event),
+    ("sec_edgar", "balance_sheets"): (Category.fundamentals, Cadence.event),
+    ("sec_edgar", "cash_flow_statements"): (Category.fundamentals, Cadence.event),
+    ("sec_edgar", "all_financials"): (Category.fundamentals, Cadence.event),
+    ("sec_edgar", "as_reported"): (Category.fundamentals, Cadence.event),
+    ("sec_edgar", "filings"): (Category.filings, Cadence.event),
+    ("sec_edgar", "earnings"): (Category.filings, Cadence.event),
+    ("sec_edgar", "insider_trades"): (Category.gurus, Cadence.event),
+    ("sec_edgar", "institutional_holdings"): (Category.gurus, Cadence.event),
+    ("sec_edgar", "index_funds"): (Category.gurus, Cadence.event),
+    ("sec_edgar", "gurus"): (Category.gurus, Cadence.event),
+    ("sec_edgar", "guru_trades"): (Category.gurus, Cadence.event),
+    ("sec_edgar", "guru_common"): (Category.gurus, Cadence.event),
+    ("sec_edgar", "metrics_snapshot"): (Category.valuation, Cadence.one_shot),
+    ("sec_edgar", "comparables"): (Category.valuation, Cadence.one_shot),
+    # yahoo
+    ("yahoo", "prices"): (Category.market, Cadence.daily),
+    ("yahoo", "price_snapshot"): (Category.market, Cadence.daily),
+    ("yahoo", "corporate_actions"): (Category.market, Cadence.event),
+    ("yahoo", "technical_indicators"): (Category.market, Cadence.daily),
+    ("yahoo", "asset_classes"): (Category.market, Cadence.one_shot),
+    ("yahoo", "sector_heatmap"): (Category.market, Cadence.one_shot),
+    ("yahoo", "commodities"): (Category.market, Cadence.one_shot),
+    ("yahoo", "semiconductor"): (Category.market, Cadence.one_shot),
+    ("yahoo", "themes"): (Category.market, Cadence.one_shot),
+    # fred
+    ("fred", "interest_rates"): (Category.macro, Cadence.scheduled),
+    ("fred", "interest_rates_snapshot"): (Category.macro, Cadence.scheduled),
+    ("fred", "economic_indicators"): (Category.macro, Cadence.scheduled),
+    ("fred", "macro_panel"): (Category.macro, Cadence.scheduled),
+    # opendart
+    ("opendart", "company_facts"): (Category.fundamentals, Cadence.one_shot),
+    ("opendart", "company_search"): (Category.fundamentals, Cadence.one_shot),
+    ("opendart", "income_statements"): (Category.fundamentals, Cadence.event),
+    ("opendart", "balance_sheets"): (Category.fundamentals, Cadence.event),
+    ("opendart", "cash_flow_statements"): (Category.fundamentals, Cadence.event),
+    ("opendart", "all_financials"): (Category.fundamentals, Cadence.event),
+    ("opendart", "filings"): (Category.filings, Cadence.event),
+    ("opendart", "earnings"): (Category.filings, Cadence.event),
+    ("opendart", "insider_trades"): (Category.gurus, Cadence.event),
+    ("opendart", "metrics_snapshot"): (Category.valuation, Cadence.one_shot),
+    ("opendart", "comparables"): (Category.valuation, Cadence.one_shot),
+    # ecos
+    ("ecos", "interest_rates"): (Category.macro, Cadence.scheduled),
+    ("ecos", "interest_rates_snapshot"): (Category.macro, Cadence.scheduled),
+    # google_news
+    ("google_news", "news"): (Category.news, Cadence.streaming),
+    # fmp
+    ("fmp", "consensus_estimates"): (Category.valuation, Cadence.event),
+    ("fmp", "earnings_calendar"): (Category.fundamentals, Cadence.event),
+    # kis
+    ("kis", "volume_rank"): (Category.market, Cadence.intraday),
+    ("kis", "investor_flow"): (Category.gurus, Cadence.daily),
+    ("kis", "fluctuation_rank"): (Category.market, Cadence.intraday),
+    ("kis", "market_cap_rank"): (Category.market, Cadence.intraday),
+    ("kis", "etf_nav"): (Category.market, Cadence.intraday),
+    # datasets_store
+    ("datasets_store", "screener"): (Category.screener, Cadence.one_shot),
+    ("datasets_store", "line_items"): (Category.screener, Cadence.one_shot),
+    ("datasets_store", "quant_screen"): (Category.screener, Cadence.one_shot),
+    ("datasets_store", "metrics_history"): (Category.fundamentals, Cadence.event),
+    ("datasets_store", "ir_materials"): (Category.filings, Cadence.event),
+    ("datasets_store", "filing_search"): (Category.filings, Cadence.one_shot),
+    ("datasets_store", "valuation"): (Category.valuation, Cadence.one_shot),
+    ("datasets_store", "backtest"): (Category.portfolio, Cadence.one_shot),
+    # rag
+    ("rag", "search"): (Category.filings, Cadence.one_shot),
 }
 
 
-# --- periodicity (cadence) -------------------------------------------------
-# Central (connector_id, resource_name) → Cadence map. Like _CATEGORY, this is the SINGLE place
-# datasources are classified periodic vs one-shot, and it is enforced at load (a resource missing
-# here fails the import). The product gates the pin→alert flow on this: only `cadence.periodic`
-# tools can carry a notification bot. Rule of thumb — is there a discrete future event worth
-# pushing? Filing/earnings/13F/corp-action → event; price/technicals/daily-flow → daily/intraday;
-# rate/macro release → scheduled; news → streaming; a derived/computed snapshot or profile → one_shot.
-_CADENCE: dict[tuple[str, str], Cadence] = {
-    # SEC EDGAR (US)
-    ("sec_edgar", "company_facts"): Cadence.one_shot,
-    ("sec_edgar", "company_search"): Cadence.one_shot,
-    ("sec_edgar", "income_statements"): Cadence.event,
-    ("sec_edgar", "balance_sheets"): Cadence.event,
-    ("sec_edgar", "cash_flow_statements"): Cadence.event,
-    ("sec_edgar", "all_financials"): Cadence.event,
-    ("sec_edgar", "as_reported"): Cadence.event,
-    ("sec_edgar", "filings"): Cadence.event,
-    ("sec_edgar", "earnings"): Cadence.event,
-    ("sec_edgar", "insider_trades"): Cadence.event,
-    ("sec_edgar", "institutional_holdings"): Cadence.event,
-    ("sec_edgar", "index_funds"): Cadence.event,
-    ("sec_edgar", "gurus"): Cadence.event,
-    ("sec_edgar", "guru_trades"): Cadence.event,
-    ("sec_edgar", "guru_common"): Cadence.event,
-    ("sec_edgar", "metrics_snapshot"): Cadence.one_shot,
-    ("sec_edgar", "comparables"): Cadence.one_shot,
-    # Yahoo Finance
-    ("yahoo", "prices"): Cadence.daily,
-    ("yahoo", "price_snapshot"): Cadence.daily,
-    ("yahoo", "corporate_actions"): Cadence.event,
-    ("yahoo", "technical_indicators"): Cadence.daily,
-    ("yahoo", "asset_classes"): Cadence.one_shot,
-    ("yahoo", "sector_heatmap"): Cadence.one_shot,
-    ("yahoo", "commodities"): Cadence.one_shot,
-    ("yahoo", "semiconductor"): Cadence.one_shot,
-    ("yahoo", "themes"): Cadence.one_shot,
-    # FRED / DBnomics (US macro) — released on a calendar
-    ("fred", "interest_rates"): Cadence.scheduled,
-    ("fred", "interest_rates_snapshot"): Cadence.scheduled,
-    ("fred", "economic_indicators"): Cadence.scheduled,
-    ("fred", "macro_panel"): Cadence.scheduled,
-    # OpenDART (KR) — mirrors SEC
-    ("opendart", "company_facts"): Cadence.one_shot,
-    ("opendart", "company_search"): Cadence.one_shot,
-    ("opendart", "income_statements"): Cadence.event,
-    ("opendart", "balance_sheets"): Cadence.event,
-    ("opendart", "cash_flow_statements"): Cadence.event,
-    ("opendart", "all_financials"): Cadence.event,
-    ("opendart", "filings"): Cadence.event,
-    ("opendart", "earnings"): Cadence.event,
-    ("opendart", "insider_trades"): Cadence.event,
-    ("opendart", "metrics_snapshot"): Cadence.one_shot,
-    ("opendart", "comparables"): Cadence.one_shot,
-    # Bank of Korea ECOS (KR macro)
-    ("ecos", "interest_rates"): Cadence.scheduled,
-    ("ecos", "interest_rates_snapshot"): Cadence.scheduled,
-    # Google News — rolling feed
-    ("google_news", "news"): Cadence.streaming,
-    # FMP — analyst/earnings events
-    ("fmp", "consensus_estimates"): Cadence.event,
-    ("fmp", "earnings_calendar"): Cadence.event,
-    # KIS (KR realtime)
-    ("kis", "volume_rank"): Cadence.intraday,
-    ("kis", "investor_flow"): Cadence.daily,
-    ("kis", "fluctuation_rank"): Cadence.intraday,
-    ("kis", "market_cap_rank"): Cadence.intraday,
-    ("kis", "etf_nav"): Cadence.intraday,
-    # Ingestion store — derived snapshots are one-shot; period-indexed history is event-driven
-    ("datasets_store", "screener"): Cadence.one_shot,
-    ("datasets_store", "line_items"): Cadence.one_shot,
-    ("datasets_store", "quant_screen"): Cadence.one_shot,
-    ("datasets_store", "metrics_history"): Cadence.event,
-    ("datasets_store", "ir_materials"): Cadence.event,
-    ("datasets_store", "filing_search"): Cadence.one_shot,
-    ("datasets_store", "valuation"): Cadence.one_shot,
-    ("datasets_store", "backtest"): Cadence.one_shot,
-    # Document RAG — on-demand retrieval result (a snapshot of passages)
-    ("rag", "search"): Cadence.one_shot,
-}
-
-
-def _apply_categories() -> None:
-    """Stamp each resource with its user-facing category. Raises if a resource has no mapping
-    (forces every new tool to be categorized) or the map has a stale entry."""
+def _apply_resource_meta() -> None:
+    """Stamp each resource's user-facing ``category`` + periodicity ``cadence`` from _RESOURCE_META.
+    Raises if a resource has no entry (forces every new tool to be classified) or the map has a stale
+    entry — the load-time guard that keeps the catalog the single source of truth (RF-07 merged the
+    former parallel _CATEGORY / _CADENCE maps + their two apply fns into this one)."""
     actual = {(c.id, r.name) for c in CONNECTORS for r in c.resources}
-    missing = actual - set(_CATEGORY)
-    stale = set(_CATEGORY) - actual
+    missing = actual - set(_RESOURCE_META)
+    stale = set(_RESOURCE_META) - actual
     if missing or stale:
         raise RuntimeError(
-            f"Catalog category map out of sync — missing {sorted(missing)}, stale {sorted(stale)}. "
-            "Every catalog resource must have a _CATEGORY entry (datasets/app/connectors/catalog.py)."
+            f"Catalog resource-meta map out of sync — missing {sorted(missing)}, stale {sorted(stale)}. "
+            "Every catalog resource needs a _RESOURCE_META entry (datasets/app/connectors/catalog.py)."
         )
     for c in CONNECTORS:
         for r in c.resources:
-            r.category = _CATEGORY[(c.id, r.name)]
+            r.category, r.cadence = _RESOURCE_META[(c.id, r.name)]
 
 
-def _apply_cadence() -> None:
-    """Stamp each resource with its periodicity class. Raises if a resource has no mapping (forces
-    every new tool to be classified) or the map has a stale entry — same contract as categories."""
-    actual = {(c.id, r.name) for c in CONNECTORS for r in c.resources}
-    missing = actual - set(_CADENCE)
-    stale = set(_CADENCE) - actual
-    if missing or stale:
-        raise RuntimeError(
-            f"Catalog cadence map out of sync — missing {sorted(missing)}, stale {sorted(stale)}. "
-            "Every catalog resource must have a _CADENCE entry (datasets/app/connectors/catalog.py)."
-        )
-    for c in CONNECTORS:
-        for r in c.resources:
-            r.cadence = _CADENCE[(c.id, r.name)]
-
-
-_apply_categories()
-_apply_cadence()
+_apply_resource_meta()
 
 
 def get_categories() -> list[dict]:

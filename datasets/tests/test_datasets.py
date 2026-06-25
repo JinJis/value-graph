@@ -1986,7 +1986,7 @@ def test_catalog_manifests_valid():
 
 def test_every_resource_has_a_valid_category():
     # The builder groups tools by user-facing category (not by API) — so EVERY tool, present or
-    # future, must carry a known category. _apply_categories() raises on a gap; assert it held.
+    # future, must carry a known category. _apply_resource_meta() raises on a gap; assert it held.
     from app.connectors.catalog import get_catalog, get_categories
     from app.connectors.manifest import Category
 
