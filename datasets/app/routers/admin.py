@@ -156,7 +156,7 @@ async def backfill(body: BackfillRequest) -> dict:
     return {"started": True, "target": target, "see": "/admin/jobs"}
 
 
-class EvidenceDocsRequest(BaseModel):
+class FilingsIngestRequest(BaseModel):
     preset: str | None = None  # a universe preset id (US); takes precedence
     market: str = "US"
     tickers: list[str] | None = None  # explicit tickers (watchlist-scoped)
@@ -173,7 +173,7 @@ class EvidenceDocsRequest(BaseModel):
         "background, progress in `/admin/jobs`."
     ),
 )
-async def filings_ingest(body: EvidenceDocsRequest) -> dict:
+async def filings_ingest(body: FilingsIngestRequest) -> dict:
     market, tickers = body.market, body.tickers
     if body.preset:
         market, tickers = await resolve_one(body.preset)  # dynamic fetch (PH-PIPE)

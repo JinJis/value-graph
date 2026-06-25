@@ -114,7 +114,7 @@ def _rag_citations(tool: dict, data) -> list[Citation] | None:
         as_of = prov.get("as_of")
         text = (h or {}).get("text") or ""
         # news/web passages get a text-fragment deep link so opening the source highlights the
-        # cited passage in the live page; filing passages keep a clean url (+ PDF screenshot below).
+        # cited passage in the live page; filing passages keep a clean url (the in-app viewer highlights them).
         is_news = (prov.get("doc_type") or "").lower() == "news" and not prov.get("accession")
         link = text_fragment_url(url, text) if is_news else url
         cites.append(Citation(

@@ -418,8 +418,8 @@ export default function Chat({ name }: { name: string }) {
           // knows whether it can carry a notification bot (cadence != one_shot).
           cadence: ev.cadence, category: ev.category,
           snippet: ev.snippet, ticker: ev.ticker, page: ev.page,
-          // PH-PROV2: carry the extracted table + the highlighted-filing screenshot URL,
-          // else the Live Context / source card can never show the visual evidence.
+          // carry the extracted table + the /evidence params (market/accession/concept/value/cik)
+          // the in-app filing viewer opens from; else the source card can't reach the original.
           table: ev.table, evidence_image_url: ev.evidence_image_url,
         };
         const dup = (a.citations || []).some((c) => c.source === cite.source && c.url === cite.url);
