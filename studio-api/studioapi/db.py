@@ -23,9 +23,12 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
 def _add_missing_columns() -> None:
-    """Lightweight forward migration: ADD COLUMN for new fields on existing tables (create_all
-    only creates missing TABLES, not columns). Idempotent — skips columns already present. Keeps
-    a user's existing SQLite/Postgres data intact across the multi-board upgrade."""
+    """Lightweight forward migration for legacy SQLite stores: ADD COLUMN for new fields on existing
+    tables (create_all only creates missing TABLES, not columns). SQLite-only — Postgres starts from
+    the full schema via create_all, and these ALTER decls (e.g. ``BOOLEAN DEFAULT 0``) are SQLite-
+    flavored. Idempotent; skips columns already present."""
+    if engine.dialect.name != "sqlite":
+        return
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)

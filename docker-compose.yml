@@ -8,11 +8,14 @@ services:
     image: valuegraph-datasets:latest
     env_file: [.env]
     environment:
-      DATABASE_URL: "sqlite:////data/datasets.db"
+      DATABASE_URL: "postgresql+psycopg://rag:rag@postgres:5432/datasets"
     volumes:
-      - datasets_data:/data
+      - datasets_data:/data   # evidence-HTML cache (/data/evidence_docs); the store is Postgres
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
@@ -29,9 +32,7 @@ services:
       # In the compose network backend services are reachable by name.
       DATASETS_URL: "http://datasets:8000"
       RAG_URL: "http://rag:8002"
-      DATABASE_URL: "sqlite:////data/controlplane.db"
-    volumes:
-      - controlplane_data:/data
+      DATABASE_URL: "postgresql+psycopg://rag:rag@postgres:5432/controlplane"
     ports:
       # host 8010 -> container 8001 (host 8001 is often taken)
       - "8010:8001"
@@ -39,6 +40,8 @@ services:
       datasets:
         condition: service_healthy
       rag:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -66,6 +69,7 @@ services:
       POSTGRES_DB: rag
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro   # creates datasets/controlplane/studio DBs on first init
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
@@ -133,15 +137,15 @@ services:
     environment:
       CONTROL_PLANE_URL: "http://control-plane:8001"
       AGENT_ENGINE_URL: "http://agent-engine:8003"
-      DATABASE_URL: "sqlite:////data/studio.db"
-    volumes:
-      - studio_data:/data
+      DATABASE_URL: "postgresql+psycopg://rag:rag@postgres:5432/studio"
     ports:
       - "8004:8004"
     depends_on:
       control-plane:
         condition: service_healthy
       agent-engine:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -166,8 +170,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Admin panel — Django-admin-style CRUD over every service DB (mounts their data
-  # volumes) + an ops console. Login via ADMINUI_USERNAME/ADMINUI_PASSWORD.
+  # Admin panel — Django-admin-style CRUD over every service DB (reflected over Postgres) +
+  # an ops console. Login via ADMINUI_USERNAME/ADMINUI_PASSWORD.
   admin:
     build: ./admin
     image: valuegraph-admin:latest
@@ -175,12 +179,12 @@ services:
     environment:
       ADMINUI_USERNAME: "${ADMINUI_USERNAME:-admin}"
       ADMINUI_PASSWORD: "${ADMINUI_PASSWORD:-admin}"
+      # browse the service DBs over Postgres (no more mounted SQLite files)
+      CONTROLPLANE_DB: "postgresql+psycopg://rag:rag@postgres:5432/controlplane"
+      STUDIO_DB: "postgresql+psycopg://rag:rag@postgres:5432/studio"
+      DATASETS_DB: "postgresql+psycopg://rag:rag@postgres:5432/datasets"
     ports:
       - "8005:8005"
-    volumes:
-      - controlplane_data:/dbs/controlplane
-      - studio_data:/dbs/studio
-      - datasets_data:/dbs/datasets
     depends_on:
       control-plane:
         condition: service_healthy
@@ -188,10 +192,10 @@ services:
         condition: service_healthy
       datasets:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   datasets_data: {}
   pg_data: {}
-  controlplane_data: {}
-  studio_data: {}

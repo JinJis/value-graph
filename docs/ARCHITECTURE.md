@@ -53,7 +53,7 @@ flowchart TD
 
     mcp["<b>mcp</b> (stdio)<br/>1 tool per catalog resource"]
     upstreams[("SEC · Yahoo · FRED<br/>OpenDART · ECOS · Google News")]
-    store[("ingestion store<br/>SQLite / Postgres")]
+    store[("ingestion store<br/>Postgres")]
     vec[("vector store<br/>memory / pgvector")]
 
     browser -->|"① POST /api/chat<br/>session"| web
@@ -154,7 +154,7 @@ A financial datasets API covering the US and Korean markets. Market chosen with 
   macro interest rates, financial-metrics snapshot, news, earnings, insider-trades, 13F (filer_cik),
   screener + line-items.
 - **Ingestion store (`app/store/`):** SQLAlchemy point-in-time / restatement-aware `FinancialFact`
-  (SQLite default, Postgres via `DATABASE_URL`). Backs the screener and deep history.
+  (Postgres at runtime; SQLite only for unit tests). Backs the screener and deep history.
 - **Bulk / deep backfill (`app/store/bulk.py`):** every annual+quarterly period from companyfacts
   (AAPL → 2007), full-universe via streaming SEC `companyfacts.zip`, KR via DART.
 - **Scheduler (`app/scheduler.py`):** periodic refresh; `SCHEDULER_DEEP` for deep backfill;
@@ -169,7 +169,7 @@ A financial datasets API covering the US and Korean markets. Market chosen with 
 A gateway in front of the data plane. Package `controlplane` (talks to data plane over HTTP).
 
 - **Store:** `Tenant → Project → ApiKey` (sha256-hashed, prefix lookup) + `Activation` (per-connector
-  entitlement) + `UsageEvent` (metering) + `AuditLog`. SQLite default.
+  entitlement) + `UsageEvent` (metering) + `AuditLog`. Postgres at runtime.
 - **Entitlement:** fetches the data-plane `/catalog`, maps `(method, path, market)` → connector(s); a
   request is allowed iff the project activated one of them.
 - **Gateway flow:** authenticate → entitle → rate-limit → proxy to data plane → meter + audit. Returns
@@ -293,7 +293,9 @@ REST docs · **MCP tool generation** · RAG source registration · entitlements 
   gateway (`:8010`), both reading **one shared `.env`** (compose `env_file`).
 - **Single env:** every service reads `env_file=("../.env", ".env")` — shared `.env` first,
   optional per-service override. `.env` is gitignored; `.env.example` is the template.
-- **Stores:** SQLite by default (persistent compose volumes); `DATABASE_URL` → Postgres in prod.
+- **Stores:** one Postgres instance (the `postgres` service), one DB per service (`rag` · `datasets`
+  · `controlplane` · `studio`); the RAG vector store is pgvector in that same instance. The extra DBs
+  are created on first init via `postgres-init/`. SQLite is used only for hermetic unit tests.
 - MCP runs over stdio (launched by the MCP client, not in compose). RAG runs standalone (`:8002`).
 
 ---

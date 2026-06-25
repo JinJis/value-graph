@@ -697,37 +697,21 @@ def test_watchlists_are_user_scoped(monkeypatch):
 
 
 @respx.mock
-def test_evidence_proxy_streams_png_or_204(monkeypatch):
-    """PH-PROV2: studio-api proxies the highlighted-evidence PNG from the gateway with the
-    user's tenant key, and degrades to 204 when the gateway has nothing."""
+def test_evidence_html_proxy_streams_html_or_204(monkeypatch):
+    """studio-api proxies the original filing HTML from the gateway with the user's tenant key
+    (for the in-app viewer), and degrades to 204 when the gateway has no markup."""
     _cfg(monkeypatch)
     _mock_control_plane()
-    route = respx.get("http://cp.test/evidence")
-    route.mock(return_value=httpx.Response(200, content=b"\x89PNG-ev", headers={"content-type": "image/png"}))
-    q = "market=US&accession=0000320193-24-000123&concept=Revenues&report_period=2024-09-28"
-    r = client.get(f"/evidence?{q}", headers=_hdr("e@u.com"))
-    assert r.status_code == 200 and r.headers["content-type"].startswith("image/")
-    assert r.content == b"\x89PNG-ev"
+    route = respx.get("http://cp.test/evidence/html")
+    route.mock(return_value=httpx.Response(
+        200, content=b"<html><body>filing</body></html>",
+        headers={"content-type": "text/html; charset=utf-8"}))
+    q = "market=US&accession=0000320193-24-000123&cik=320193"
+    r = client.get(f"/evidence/html?{q}", headers=_hdr("e@u.com"))
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    assert b"filing" in r.content
 
-    route.mock(return_value=httpx.Response(204))  # gateway → no evidence
-    r2 = client.get(f"/evidence?{q}", headers=_hdr("e@u.com"))
-    assert r2.status_code == 204
-
-
-@respx.mock
-def test_evidence_doc_proxy_streams_pdf_or_204(monkeypatch):
-    """PH-PROV3: studio-api proxies the real source-filing PDF (원문 열기) from the gateway
-    with the user's tenant key, and degrades to 204 when none is cached."""
-    _cfg(monkeypatch)
-    _mock_control_plane()
-    route = respx.get("http://cp.test/evidence/doc")
-    route.mock(return_value=httpx.Response(200, content=b"%PDF-1.4 ev", headers={"content-type": "application/pdf"}))
-    q = "market=KR&accession=20260310002820"
-    r = client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com"))
-    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
-    assert r.content == b"%PDF-1.4 ev"
-
-    route.mock(return_value=httpx.Response(204))
-    assert client.get(f"/evidence/doc?{q}", headers=_hdr("e@u.com")).status_code == 204
+    route.mock(return_value=httpx.Response(204))  # gateway → no markup
+    assert client.get(f"/evidence/html?{q}", headers=_hdr("e@u.com")).status_code == 204
 
 

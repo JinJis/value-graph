@@ -97,7 +97,7 @@ cp .env.example .env                 # free keys (OPENDART/ECOS/FRED); AUTH_DEV_
 docker compose up --build            # datasets:8000 gateway:8010 rag:8002 agent:8003 studio:8004 web:3000 admin:8005
 docker compose up -d --build web     # rebuild one service after a change
 docker compose logs -f studio-api    # follow a service
-docker compose down                  # stop (-v also wipes SQLite/volumes)
+docker compose down                  # stop (-v also wipes the Postgres data + volumes)
 
 # Tests — only Docker required (no host uv/npm). See README "Run the tests".
 bash scripts/test_all.sh             # everything; live e2e+eval need GOOGLE_API_KEY (else skip cleanly)
@@ -118,7 +118,7 @@ the new roadmap's test totals + the task status updated in the same PR.
 GOOGLE_API_KEY=                      # one key for all Gemini use — enables the gemini planner + live tests
 AGENT_LLM_BACKEND=gemini             # Gemini-only (stub removed); default gemini, requires GOOGLE_API_KEY
 AUTH_DEV_LOGIN=true                  # local login without Google
-DATABASE_URL=                        # SQLite by default; Postgres in prod
+DATABASE_URL=                        # runtime: Postgres (compose sets per-service DBs on the postgres svc); SQLite only for unit tests
 OPENDART_API_KEY= / ECOS_API_KEY= / FRED_API_KEY=    # free KR/US data keys
 RAG_EMBEDDING_BACKEND=hash|oss-cpu|oss-gpu|tei|gcp
 RAG_RERANKER_BACKEND=none|oss-cpu|oss-gpu|tei|gcp
