@@ -35,7 +35,21 @@ from adminpanel.state import (  # noqa: F401
     _query,
     _table_counts,
 )
-from adminpanel.views import _cell, _esc, badge, login_page, page, progress, sdot
+from adminpanel.views import (
+    JOB_STATUS_CLASS,
+    QUEUE_STATUS_CLASS,
+    QUEUE_STATUS_LABEL,
+    UPSTREAM_DOT,
+    UPSTREAM_LABEL,
+    _cell,
+    _esc,
+    badge,
+    login_page,
+    page,
+    progress,
+    sdot,
+    tile,
+)
 
 setup_logging()
 
@@ -91,11 +105,6 @@ def _flash(msg: str) -> str:
     return f"<div class=flash>{_esc(msg)}</div>" if msg else ""
 
 
-def _tile(k, v, ic, href, small=False) -> str:
-    inner = f"<div class='k'>{ic} {_esc(k)}</div><div class='v {'sm' if small else ''}'>{_esc(v)}</div>"
-    return f"<a class=tile href='{href}' style='display:block'>{inner}</a>"
-
-
 # --- Overview -------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def overview(request: Request, msg: str = ""):
@@ -116,12 +125,12 @@ async def overview(request: Request, msg: str = ""):
     q_pending, q_doing = q_totals.get("todo", 0), q_totals.get("doing", 0)
 
     tiles = "".join([
-        _tile("data sources", len(conns) if conns else "?", "◈", "/catalog"),
-        _tile("catalog tools", tool_count, "⚙", "/catalog"),
-        _tile("RAG embedder", raginfo.get("embedding_backend", "—"), "▤", "/data", small=True),
-        _tile("queue pending", q_pending if _ok(queue) else "—", "⚙", "/queue"),
-        _tile("store facts", stats.get("total_facts", "—"), "▦", "/data"),
-        _tile("queue running", q_doing if _ok(queue) else len(running), "●", "/queue"),
+        tile("data sources", len(conns) if conns else "?", "◈", "/catalog"),
+        tile("catalog tools", tool_count, "⚙", "/catalog"),
+        tile("RAG embedder", raginfo.get("embedding_backend", "—"), "▤", "/data", small=True),
+        tile("queue pending", q_pending if _ok(queue) else "—", "⚙", "/queue"),
+        tile("store facts", stats.get("total_facts", "—"), "▦", "/data"),
+        tile("queue running", q_doing if _ok(queue) else len(running), "●", "/queue"),
     ])
 
     # the queue is healthy if the overview came back AND its job DB was reachable (no 'error' field)
@@ -218,10 +227,10 @@ async def catalog_view(request: Request):
     )
 
     summary = "".join([
-        _tile("connectors", len(conns), "◈", "/catalog"),
-        _tile("MCP tools", tool_count, "⚙", "/catalog"),
-        _tile("RAG embedder", raginfo.get("embedding_backend", "—"), "▤", "/data", small=True),
-        _tile("agent model", agentinfo.get("model", "—"), "✦", "/catalog", small=True),
+        tile("connectors", len(conns), "◈", "/catalog"),
+        tile("MCP tools", tool_count, "⚙", "/catalog"),
+        tile("RAG embedder", raginfo.get("embedding_backend", "—"), "▤", "/data", small=True),
+        tile("agent model", agentinfo.get("model", "—"), "✦", "/catalog", small=True),
     ])
 
     err = "<div class=warn>Gateway/catalog unreachable — start the stack to see live connectors.</div>" if not conns else ""
@@ -261,7 +270,7 @@ def _pipeline_card(p: dict, cron_by_pid: dict[str, str]) -> str:
     j = p.get("latest") or {}
     if j:
         st = j.get("status")
-        kind = {"success": "ok", "error": "err", "running": "run"}.get(st, "")
+        kind = JOB_STATUS_CLASS.get(st, "")
         tot, dn = j.get("total") or 0, j.get("done") or 0
         last = (f"<div class=sub>최근 실행 {badge(_esc(st), kind)} · 수집 {_esc(j.get('rows', 0))}행"
                 + (f" · {dn}/{tot}" if tot else "") + f"<br><span class=muted>{_esc((j.get('started_at') or '')[:19])}</span>")
@@ -365,7 +374,7 @@ S&amp;P·코스피·코스닥 전체는 직접 입력란에 티커를 붙여넣�
         rows = ""
         for j in job_list:
             st = j.get("status")
-            kind = {"success": "ok", "error": "err", "running": "run"}.get(st, "")
+            kind = JOB_STATUS_CLASS.get(st, "")
             tot, dn = j.get("total") or 0, j.get("done") or 0
             ptxt = f"{dn}/{tot}" if tot else "—"
             err = j.get("error") or ""
@@ -418,12 +427,10 @@ async def upstream_view(request: Request):
     async with httpx.AsyncClient() as c:
         data = await _safe_get(c, f"{settings.datasets_url}/admin/upstream-health")
     ups = data.get("upstreams") or []
-    _DOT = {"ok": "ok", "degraded": "warn", "key-missing": "warn", "down": "err"}
-    _LABEL = {"ok": "정상", "degraded": "불안정", "key-missing": "키 없음", "down": "다운"}
     if ups:
         rows = "".join(
-            f"<tr><td>{sdot(_DOT.get(u['status'], 'err'))} {_esc(u['name'])}</td>"
-            f"<td>{badge(_LABEL.get(u['status'], u['status']), _DOT.get(u['status'], ''))}</td>"
+            f"<tr><td>{sdot(UPSTREAM_DOT.get(u['status'], 'err'))} {_esc(u['name'])}</td>"
+            f"<td>{badge(UPSTREAM_LABEL.get(u['status'], u['status']), UPSTREAM_DOT.get(u['status'], ''))}</td>"
             f"<td class=mono>{_esc(u.get('http_status') or '—')}</td>"
             f"<td class=mono>{_esc(u.get('latency_ms'))} ms</td>"
             f"<td>{'필요' if u.get('requires_key') else '불필요'}"
@@ -521,10 +528,6 @@ async def users_view(request: Request):
 
 
 # --- Queue (Procrastinate) — monitor + control ----------------------------
-_QSTATUS = {"todo": "warn", "doing": "run", "succeeded": "ok", "failed": "err",
-            "cancelled": "", "aborting": "warn", "aborted": ""}
-_QLABEL = {"todo": "대기", "doing": "실행중", "succeeded": "완료", "failed": "실패",
-           "cancelled": "취소됨", "aborting": "중단중", "aborted": "중단됨"}
 
 
 @app.get("/queue", response_class=HTMLResponse)
@@ -544,7 +547,7 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
         note = ""
 
     totals = ov.get("totals") or {}
-    tiles = "".join(_tile(_QLABEL[k], totals.get(k, 0), "●", f"/queue?status={k}", small=True)
+    tiles = "".join(tile(QUEUE_STATUS_LABEL[k], totals.get(k, 0), "●", f"/queue?status={k}", small=True)
                     for k in ("todo", "doing", "succeeded", "failed") )
 
     # periodic cron sweeps + a run-now button each
@@ -576,7 +579,7 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
             f"<tr><td>{_esc(j['id'])}</td><td>{badge(_esc(j.get('task')))}</td>"
             f"<td class=muted>{_esc(j.get('queue'))}</td>"
             f"<td class=wrap>{_esc(scope)}{f' · {tcount}종목' if tcount else ''}</td>"
-            f"<td>{badge(_QLABEL.get(st, st), _QSTATUS.get(st, ''))}</td>"
+            f"<td>{badge(QUEUE_STATUS_LABEL.get(st, st), QUEUE_STATUS_CLASS.get(st, ''))}</td>"
             f"<td>{_esc(j.get('attempts'))}</td>"
             f"<td class=muted>{_esc((j.get('scheduled_at') or '')[:19])}</td>"
             f"<td><div class=opsrow>{ctl}</div></td></tr>"
@@ -586,7 +589,7 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
                  f"<tbody>{rows or '<tr><td colspan=8 class=muted>작업 없음</td></tr>'}</tbody></table></div>")
 
     filt = " · ".join(
-        (f"<b>{_QLABEL[k]}</b>" if status == k else f"<a href='/queue?status={k}'>{_QLABEL[k]}</a>")
+        (f"<b>{QUEUE_STATUS_LABEL[k]}</b>" if status == k else f"<a href='/queue?status={k}'>{QUEUE_STATUS_LABEL[k]}</a>")
         for k in ("todo", "doing", "succeeded", "failed")
     )
     running = bool(totals.get("doing") or totals.get("todo"))
