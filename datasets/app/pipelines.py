@@ -95,7 +95,7 @@ PIPELINES: list[dict] = [
      "fetch": "종목별 최신 헤드라인 NEWS_INGEST_LIMIT건(기본 8) → RAG 색인(doc_id=url). "
               "과거 이력 없음 — 최신 N건만 반환(본질적으로 증분)."},
     {"id": "filing_text", "label": "공시 본문 → RAG", "source": "SEC iXBRL · OpenDART", "store": "RAG corpus",
-     "kind": "filing_text", "markets": ["US", "KR"], "default": False, "runner": _run_filing_text,
+     "kind": "filing_text", "markets": ["US", "KR"], "default": True, "runner": _run_filing_text,
      "min_interval_seconds": _WEEK,
      "desc": "공시 본문 HTML을 텍스트 추출해 RAG 색인(인앱 뷰어와 동일 원천)",
      "upstream": [
