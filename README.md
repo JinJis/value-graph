@@ -32,7 +32,7 @@ builders develop against a defined interface or via natural language.
 .                  # repo root
   datasets/        # ✅ DATA PLANE — US+KR financial data API (the foundation; built & tested)
                    #    connectors (SEC/DART/Yahoo/FRED/ECOS/news) · point-in-time ingestion store
-                   #    · bulk/deep backfill · scheduler · self-test · catalog manifests (P0)
+                   #    · bulk/deep backfill · Procrastinate queue+worker · self-test · catalog (P0)
   control-plane/   # ✅ CONTROL PLANE — tenants · scoped API keys · connector activation/entitlements
                    #    · metering · audit · rate-limit · gateway in front of the data plane (P1)
   mcp/             # ✅ MCP SERVER — tenant-scoped tools auto-derived from the catalog, routed through

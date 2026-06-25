@@ -111,7 +111,7 @@ message + citations, and the answer streams back to the browser as SSE (`token` 
 | **datasets** | 8000 | REST data plane: connectors (SEC/Yahoo/FRED/DART/ECOS/News) + point-in-time ingestion store + `/catalog` | upstream APIs, (Postgres) |
 | **rag** | 8002 | provenance-first retrieval: chunk→embed→store→retrieve→rerank; pluggable backends | (vector store, embed backend) |
 | *mcp* | stdio | one tool per catalog resource, routed through the gateway with the tenant key (entitled + metered) | control-plane |
-| **admin** | 8005 | Django-admin-style CRUD over every service DB (SQLAlchemy reflection + sqladmin) + ops console (scheduler · self-test · RAG · catalog). Out-of-band tool, not in the request path | controlplane/studio/datasets DB volumes |
+| **admin** | 8005 | Django-admin-style CRUD over every service DB (SQLAlchemy reflection + sqladmin) + ops console (queue · pipelines · self-test · RAG · catalog). Out-of-band tool, not in the request path | controlplane/studio/datasets DB volumes |
 
 The **catalog** (`datasets/app/connectors/`) is the keystone: each connector's manifest (resources, params,
 provenance, license, `service`) is what the gateway entitles against, what the MCP server turns into tools,
@@ -157,8 +157,16 @@ A financial datasets API covering the US and Korean markets. Market chosen with 
   (Postgres at runtime; SQLite only for unit tests). Backs the screener and deep history.
 - **Bulk / deep backfill (`app/store/bulk.py`):** every annual+quarterly period from companyfacts
   (AAPL → 2007), full-universe via streaming SEC `companyfacts.zip`, KR via DART.
-- **Scheduler (`app/scheduler.py`):** periodic refresh; `SCHEDULER_DEEP` for deep backfill;
-  monitor/control at `/admin/scheduler`.
+- **Queue + scheduler (`app/queue.py`, [Procrastinate](https://procrastinate.readthedocs.io)):**
+  Postgres-backed async job queue (the broker **is** Postgres — no Redis). Per-pipeline `@app.periodic`
+  **cron sweeps** (news ~hourly · prices ~daily · financials/corp_actions/filing_text ~weekly) resolve
+  the configured universe and `defer` a `run_pipeline` job per market. Each job has **retries**, a
+  per-`pipeline+market` **lock** (serialize) + **queueing_lock** (dedup) — replacing the old in-process
+  asyncio scheduler **and** the `backfill_running`/`news_ingest_running` mutexes. A separate **`worker`**
+  compose service runs the sweeps + processes jobs; the datasets web process opens the same app to
+  `defer` (manual admin runs) and to monitor/control via `app.job_manager`. Admin: **Queue** page
+  (`/admin/queue` — job list, per-queue counts, cron schedule, retry/cancel, run-a-sweep-now). Pause all
+  automatic ingestion by stopping the worker (`docker compose stop worker`).
 - **Self-test (`/admin/selftest`):** runs implemented endpoints in-process → pass/fail/skipped.
 - **Catalog (P0, `app/connectors/`):** each connector publishes a **manifest** (resources, params,
   output schema, provenance, freshness, cost tier, required credential, **license policy**). `GET /catalog`.

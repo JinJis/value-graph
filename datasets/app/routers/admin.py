@@ -7,17 +7,32 @@ import asyncio
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from app import queue as Q
 from app.deps import ApiKeyDep
-from app.pipelines import list_pipelines, resolve_pipeline_ids, run_pipelines
-from app.scheduler import scheduler
+from app.pipelines import PIPELINE_BY_ID, list_pipelines, resolve_pipeline_ids
 from app.selftest import run_selftest
-from app.store.filing_ingest import run_filing_text_ingest
-from app.store.jobs import backfill_running, list_jobs, run_backfill
-from app.store.news_ingest import news_ingest_running, run_news_ingest
+from app.store.jobs import list_jobs
 from app.store.screener import store_stats
 from app.store.universes import list_presets, resolve_one, resolve_universe
+from app.symbols import Market
 
 router = APIRouter(tags=["Admin / Ops"], prefix="/admin")
+
+
+async def _defer_groups(groups, pipeline_ids: list[str]) -> int:
+    """Enqueue the selected pipelines over each (market, tickers) group via the Procrastinate queue.
+    The queue's queueing_lock dedups, so re-dispatching an already-queued pipeline+market is a no-op.
+    Returns how many jobs were actually enqueued."""
+    n = 0
+    for market, tickers in groups:
+        if not tickers:
+            continue
+        for pid in pipeline_ids:
+            p = PIPELINE_BY_ID.get(pid)
+            if p and market.value in p["markets"]:
+                if await Q.defer_pipeline(market.value, tickers, pid):
+                    n += 1
+    return n
 
 
 class BackfillRequest(BaseModel):
@@ -85,7 +100,7 @@ async def pipelines() -> dict:
     pipes = []
     for p in list_pipelines():
         pipes.append({**p, "latest": latest.get(p["kind"])})
-    return {"pipelines": pipes, "scheduler": scheduler.status()}
+    return {"pipelines": pipes, "queue": await Q.queue_overview()}
 
 
 @router.post(
@@ -93,38 +108,31 @@ async def pipelines() -> dict:
     dependencies=[ApiKeyDep],
     summary="▶ PH-PIPE: run a SET of pipelines over a universe (unified backfill)",
     description=(
-        "Runs the selected `pipelines` (omit → default set) over a `preset` universe (or explicit "
-        "`market`+`tickers`) in the background. Each pipeline records its own IngestionJob "
-        "(see `/admin/jobs`); progress + errors + coverage show in the admin Pipelines view."
+        "Enqueues the selected `pipelines` (omit → default set) over a `preset` universe (or explicit "
+        "`market`+`tickers`) on the Procrastinate queue. The worker runs them with retries; each "
+        "pipeline records its own IngestionJob (see `/admin/jobs`) and live queue state shows in "
+        "`/admin/queue`. The queueing_lock dedups, so re-running an in-flight pipeline is a no-op."
     ),
 )
 async def pipelines_run(body: PipelineRunRequest) -> dict:
     ids = resolve_pipeline_ids(body.pipelines)
-
-    async def _run_groups(groups: list) -> None:
-        for market, tickers in groups:
-            if tickers:
-                await run_pipelines(market.value, tickers, ids)
-
-    # Explicit market+tickers resolve instantly → report counts. A PRESET may need a slow upstream
-    # fetch (pykrx/SEC/OpenDART), so resolve it INSIDE the background task — the request returns
-    # immediately and never times out (the old sync resolve was why a flaky KR fetch read as 실패).
+    # Explicit market+tickers resolve instantly → enqueue now and report how many jobs were queued.
     if body.market and body.tickers:
-        from app.symbols import Market
         try:
             groups = [(Market(body.market.upper()), body.tickers)]
         except ValueError:
             return {"started": False, "detail": f"unknown market {body.market!r}"}
-        asyncio.create_task(_run_groups(groups))
+        deferred = await _defer_groups(groups, ids)
         return {"started": True, "pipelines": ids,
                 "universe": [{"market": m.value, "count": len(t)} for m, t in groups],
-                "tickers_total": len(body.tickers), "see": "/admin/jobs"}
+                "deferred": deferred, "see": "/admin/queue"}
     if body.preset:
-        async def _run_preset() -> None:
-            groups = await resolve_universe(body.preset)  # dynamic fetch (may be slow)
-            await _run_groups(groups)
-        asyncio.create_task(_run_preset())
-        return {"started": True, "pipelines": ids, "preset": body.preset, "see": "/admin/jobs"}
+        # A PRESET may need a slow upstream fetch (pykrx/SEC/OpenDART) to resolve membership, so do it
+        # in the background and enqueue once resolved — the request returns immediately, never times out.
+        async def _resolve_and_defer() -> None:
+            await _defer_groups(await resolve_universe(body.preset), ids)
+        asyncio.create_task(_resolve_and_defer())
+        return {"started": True, "pipelines": ids, "preset": body.preset, "see": "/admin/queue"}
     return {"started": False, "detail": "preset or (market + tickers) required"}
 
 
@@ -138,22 +146,27 @@ async def ingestion_jobs(limit: int = 25) -> dict:
     dependencies=[ApiKeyDep],
     summary="▶ Trigger a historical backfill (populates the ingestion store)",
     description=(
-        "Runs in the background and records an `IngestionJob` (see `/admin/jobs`). "
-        "US: `tickers` optional (omit for a broader load). KR: `tickers` required. "
+        "Enqueues the **financials** pipeline (deep statements + company facts) over a `preset` "
+        "universe or explicit `market`+`tickers` on the queue. The worker runs it with retries and "
+        "records an `IngestionJob` (see `/admin/jobs`); queue state shows in `/admin/queue`. "
         "Without this, the store is empty and the screener / historical endpoints return nothing."
     ),
 )
 async def backfill(body: BackfillRequest) -> dict:
-    # serialize: report busy synchronously so the caller knows it didn't start
-    # (a single-worker queue; a real distributed queue is PH-11).
-    if await asyncio.to_thread(backfill_running):
-        return {"started": False, "busy": True, "detail": "A backfill is already running.", "see": "/admin/jobs"}
-    # fire-and-forget so the request returns immediately; progress is in /admin/jobs
-    asyncio.create_task(run_backfill(
-        market=body.market, tickers=body.tickers, deep=body.deep, limit=body.limit, preset=body.preset,
-    ))
-    target = body.preset or f"{body.market}:{body.tickers}"
-    return {"started": True, "target": target, "see": "/admin/jobs"}
+    if body.preset:
+        async def _resolve_and_defer() -> None:
+            await _defer_groups(await resolve_universe(body.preset), ["financials"])
+        asyncio.create_task(_resolve_and_defer())
+        return {"started": True, "target": body.preset, "see": "/admin/queue"}
+    if body.market and body.tickers:
+        try:
+            groups = [(Market(body.market.upper()), body.tickers)]
+        except ValueError:
+            return {"started": False, "detail": f"unknown market {body.market!r}"}
+        deferred = await _defer_groups(groups, ["financials"])
+        return {"started": True, "target": f"{body.market}:{len(body.tickers)}t",
+                "deferred": deferred, "see": "/admin/queue"}
+    return {"started": False, "detail": "preset or (market + tickers) required"}
 
 
 class FilingsIngestRequest(BaseModel):
@@ -183,8 +196,8 @@ async def filings_ingest(body: FilingsIngestRequest) -> dict:
         return {"started": False, "detail": "US + KR only", "market": market}
     if not tickers:
         return {"started": False, "detail": "tickers required"}
-    asyncio.create_task(run_filing_text_ingest(market, tickers))
-    return {"started": True, "target": f"{market}:{tickers}", "see": "/admin/jobs"}
+    deferred = await _defer_groups([(Market(market.upper()), tickers)], ["filing_text"])
+    return {"started": True, "target": f"{market}:{tickers}", "deferred": deferred, "see": "/admin/queue"}
 
 
 @router.post(
@@ -192,37 +205,43 @@ async def filings_ingest(body: FilingsIngestRequest) -> dict:
     dependencies=[ApiKeyDep],
     summary="▶ Pull news into the RAG index (makes rag__search return real context)",
     description=(
-        "Fetches Google News headlines for the given tickers (or broad market news) and "
-        "indexes them into RAG as a global corpus. Runs in the background; records an "
-        "`IngestionJob` (kind `news`) visible in `/admin/jobs`."
+        "Enqueues the **news** pipeline (Google News headlines → RAG) for the given tickers on the "
+        "queue. The worker runs it and records an `IngestionJob` (kind `news`); queue state shows in "
+        "`/admin/queue`."
     ),
 )
 async def news_ingest(body: NewsIngestRequest) -> dict:
-    if await asyncio.to_thread(news_ingest_running):
-        return {"started": False, "busy": True, "detail": "A news ingestion is already running.", "see": "/admin/jobs"}
-    asyncio.create_task(run_news_ingest(market=body.market, tickers=body.tickers, limit=body.limit))
-    target = f"{body.market}:{body.tickers or '(market)'}"
-    return {"started": True, "target": target, "see": "/admin/jobs"}
+    if not body.tickers:
+        return {"started": False, "detail": "tickers required (broad-market news is the streaming sweep)"}
+    try:
+        groups = [(Market(body.market.upper()), body.tickers)]
+    except ValueError:
+        return {"started": False, "detail": f"unknown market {body.market!r}"}
+    deferred = await _defer_groups(groups, ["news"])
+    return {"started": True, "target": f"{body.market}:{body.tickers}", "deferred": deferred, "see": "/admin/queue"}
 
 
-@router.get("/scheduler", dependencies=[ApiKeyDep], summary="Scheduler status (monitor)")
-async def scheduler_status() -> dict:
-    return scheduler.status()
+# --- Queue (Procrastinate) monitor + control ----------------------------------------------------
+@router.get("/queue", dependencies=[ApiKeyDep], summary="Queue overview (Procrastinate jobs + cron sweeps)")
+async def queue_status() -> dict:
+    return await Q.queue_overview()
 
 
-@router.post("/scheduler/run", dependencies=[ApiKeyDep], summary="Trigger an ingestion run now")
-async def scheduler_run() -> dict:
-    scheduler.trigger()
-    return {"triggered": True, **scheduler.status()}
+@router.get("/queue/jobs", dependencies=[ApiKeyDep], summary="List queue jobs (filter by status/queue)")
+async def queue_jobs(status: str | None = None, queue: str | None = None, limit: int = 50) -> dict:
+    return {"jobs": await Q.list_queue_jobs(status=status, queue=queue, limit=limit)}
 
 
-@router.post("/scheduler/pause", dependencies=[ApiKeyDep], summary="Pause the scheduler")
-async def scheduler_pause() -> dict:
-    scheduler.pause()
-    return scheduler.status()
+@router.post("/queue/jobs/{job_id}/retry", dependencies=[ApiKeyDep], summary="Retry a failed job now")
+async def queue_retry(job_id: int) -> dict:
+    return await Q.retry_queue_job(job_id)
 
 
-@router.post("/scheduler/resume", dependencies=[ApiKeyDep], summary="Resume the scheduler")
-async def scheduler_resume() -> dict:
-    scheduler.resume()
-    return scheduler.status()
+@router.post("/queue/jobs/{job_id}/cancel", dependencies=[ApiKeyDep], summary="Cancel/abort a job")
+async def queue_cancel(job_id: int) -> dict:
+    return await Q.cancel_queue_job(job_id)
+
+
+@router.post("/queue/sweep/{pipeline_id}", dependencies=[ApiKeyDep], summary="▶ Enqueue a pipeline's sweep now")
+async def queue_sweep(pipeline_id: str) -> dict:
+    return await Q.defer_sweep(pipeline_id)

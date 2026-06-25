@@ -24,6 +24,27 @@ services:
       retries: 3
       start_period: 10s
 
+  # Procrastinate worker — runs the per-pipeline cron sweeps (app/queue.py @app.periodic) and
+  # processes the deferred ingestion jobs with retries. The broker IS Postgres (no Redis). The
+  # datasets web process applies the queue schema at startup; this just runs the worker. Stop it
+  # (`docker compose stop worker`) to pause all automatic ingestion.
+  worker:
+    build: ./datasets
+    image: valuegraph-datasets:latest
+    env_file: [.env]
+    environment:
+      DATABASE_URL: "postgresql+psycopg://rag:rag@postgres:5432/datasets"
+      RAG_URL: "http://rag:8002"
+    command: ["python", "-m", "procrastinate", "--app=app.queue.app", "worker", "--concurrency=4", "--queues=ingest,sweep"]
+    depends_on:
+      datasets:
+        condition: service_healthy
+      rag:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   control-plane:
     build: ./control-plane
     image: valuegraph-control-plane:latest

@@ -16,25 +16,12 @@ the Live Context Feed's "context only, no forecast" shape.
 from __future__ import annotations
 
 import httpx
-from sqlalchemy import func, select
 
 from app.config import settings
 from app.models.generated import News
 from app.providers.registry import get_news_provider
-from app.store.db import SessionLocal
 from app.store.jobs import finish_job, start_job, update_progress
-from app.store.models import IngestionJob
 from app.symbols import Market
-
-
-def news_ingest_running() -> bool:
-    """True if a news ingestion is already in flight — serialize runs (PH-11 = real queue)."""
-    with SessionLocal() as db:
-        n = db.scalar(
-            select(func.count()).select_from(IngestionJob)
-            .where(IngestionJob.kind == "news", IngestionJob.status == "running")
-        )
-        return bool(n)
 
 
 def _news_to_doc(market: str, article: News) -> dict | None:
@@ -85,8 +72,8 @@ async def run_news_ingest(
 ) -> dict:
     """Pull news for ``tickers`` and index it into RAG, recorded as an IngestionJob.
 
-    An empty/None ticker list pulls broad market news. Serialized via
-    ``news_ingest_running`` so runs don't pile up.
+    An empty/None ticker list pulls broad market news. Concurrency is serialized by the
+    Procrastinate queue's per-pipeline lock (``pipe:news:<market>``), not a self-guard.
     """
     market = (market or "US").upper()
     try:
@@ -95,8 +82,6 @@ async def run_news_ingest(
         return {"status": "error", "error": f"Unknown market '{market}'."}
     # None entry => broad market news (the provider treats ticker=None that way).
     syms: list[str | None] = [t for t in (tickers or []) if t] or [None]
-    if news_ingest_running():
-        return {"status": "busy", "error": "A news ingestion is already running — wait for it to finish."}
 
     limit = limit or settings.news_ingest_limit
     rag_url = rag_url or settings.rag_url

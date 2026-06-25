@@ -60,16 +60,12 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 30.0
     log_level: str = "INFO"  # app log verbosity (DEBUG|INFO|WARNING|…) → docker logs
 
-    # --- periodic ingestion scheduler (PH-PIPE) ---------------------------
-    scheduler_enabled: bool = False
-    scheduler_interval_seconds: int = 21600  # 6h between full sweeps by default
-    # Universe to refresh — DYNAMIC source ids (see app/store/universes.py), fetched fresh each
-    # sweep: "us_sp500,kr_kospi200,kr_kosdaq150" (also us_all / kr_kospi_all / kr_kosdaq_all), and/or
-    # the legacy explicit form "US:AAPL,MSFT;KR:005930". Empty → scheduler idles.
+    # --- periodic ingestion: the Procrastinate queue (app/queue.py) -------
+    # The cron sweeps live in app/queue.py (@app.periodic); the `worker` compose service runs them.
+    # This is the universe each sweep refreshes — DYNAMIC source ids (see app/store/universes.py),
+    # fetched fresh every sweep: "us_sp500,kr_kospi200,kr_kosdaq150" (also us_all / kr_kospi_all /
+    # kr_kosdaq_all), and/or the legacy explicit form "US:AAPL,MSFT;KR:005930". Empty → sweeps no-op.
     scheduler_universe: str = "us_sp500,kr_kospi200,kr_kosdaq150"
-    # Which data pipelines each sweep runs (ids from app/pipelines.py). Empty → the
-    # registry's default set (financials, prices, corp_actions, news).
-    scheduler_pipelines: str = "financials,prices,corp_actions,news"
     # CE-0: how many years of daily OHLCV the prices pipeline stores. Deep enough for the
     # store-backed screener / quant / backtest (the chart fetches its own history live).
     prices_backfill_years: int = 5

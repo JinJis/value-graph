@@ -228,16 +228,29 @@ async def test_resolve_universe_legacy_and_dynamic(monkeypatch):
     assert u3["US"].count("AAPL") == 1 and "TSLA" in u3["US"]
 
 
-def test_scheduler_controls():
-    from app.scheduler import Scheduler
+async def test_queue_periodic_schedules_registered():
+    # The asyncio scheduler is replaced by Procrastinate @app.periodic cron sweeps — one per pipeline.
+    from app import queue as Q
 
-    s = Scheduler()
-    s.pause()
-    assert s.enabled is False
-    s.resume()
-    assert s.enabled is True
-    s.trigger()
-    assert s._force is True
+    sched = {s["pipeline_id"]: s["cron"] for s in await Q._periodic_schedules()}
+    assert sched["news"] == "0 * * * *"          # hourly
+    assert sched["prices"] == "0 4 * * *"         # daily
+    assert sched["financials"] == "0 3 * * 1"     # weekly
+    assert set(sched) == {"news", "prices", "financials", "corp_actions", "filing_text"}
+
+
+async def test_queue_overview_failsafe_without_db(monkeypatch):
+    # With the queue DB unreachable, the overview degrades to the (DB-free) schedule instead of 500-ing.
+    from app import queue as Q
+
+    async def boom():
+        raise RuntimeError("queue DB down")
+
+    monkeypatch.setattr(Q.app.job_manager, "list_queues_async", boom)
+    ov = await Q.queue_overview()
+    assert ov["queues"] == [] and "error" in ov
+    assert {s["pipeline_id"] for s in ov["periodic"]} >= {"news", "prices", "financials"}
+    assert "run_pipeline" in ov["tasks"]
 
 
 def test_selftest_classifier():
@@ -550,26 +563,6 @@ async def test_run_backfill_by_preset_sets_progress(monkeypatch):
     assert (await J.run_backfill(preset="bogus"))["status"] == "error"
 
 
-async def test_backfill_guard_blocks_concurrent(monkeypatch):
-    from app.store.db import SessionLocal, init_db
-    from app.store import jobs as J
-    from app.store.models import IngestionJob
-
-    init_db()
-    # simulate an in-flight backfill
-    with SessionLocal() as db:
-        db.add(IngestionJob(kind="backfill", market="US", status="running", total=5, done=1))
-        db.commit()
-    assert J.backfill_running() is True
-    out = await J.run_backfill(market="US", tickers=["AAPL"])
-    assert out["status"] == "busy"
-    # clean up
-    with SessionLocal() as db:
-        from sqlalchemy import delete
-        db.execute(delete(IngestionJob).where(IngestionJob.status == "running"))
-        db.commit()
-
-
 # --- PH-2b: news → RAG ingestion pipeline -------------------------------------
 class _FakeNewsProvider:
     async def news(self, market, ticker, limit):
@@ -624,35 +617,20 @@ async def test_run_news_ingest_records_error(monkeypatch):
     assert row["status"] == "error"
 
 
-async def test_news_ingest_guard_blocks_concurrent():
-    from app.store.db import SessionLocal, init_db
-    from app.store import news_ingest as N
-    from app.store.models import IngestionJob
-
-    init_db()
-    with SessionLocal() as db:
-        db.add(IngestionJob(kind="news", market="US", status="running", total=1, done=0))
-        db.commit()
-    assert N.news_ingest_running() is True
-    out = await N.run_news_ingest("US", ["AAPL"])
-    assert out["status"] == "busy"
-    with SessionLocal() as db:
-        from sqlalchemy import delete
-        db.execute(delete(IngestionJob).where(IngestionJob.status == "running"))
-        db.commit()
-
-
 def test_admin_news_ingest_endpoint(monkeypatch):
-    # the endpoint fires the pipeline in the background and returns started=True
+    # the endpoint enqueues the `news` pipeline on the queue and returns started=True
     import app.routers.admin as A
 
-    async def fake_run(market, tickers, limit=None):
-        return {"status": "success"}
+    seen = {}
 
-    monkeypatch.setattr(A, "run_news_ingest", fake_run)
-    monkeypatch.setattr(A, "news_ingest_running", lambda: False)
+    async def fake_defer(market, tickers, pipeline_id):
+        seen["call"] = (market, tuple(tickers), pipeline_id)
+        return 1
+
+    monkeypatch.setattr(A.Q, "defer_pipeline", fake_defer)
     r = client.post("/admin/news/ingest", json={"market": "US", "tickers": ["AAPL"]})
-    assert r.status_code == 200 and r.json()["started"] is True
+    assert r.status_code == 200 and r.json()["started"] is True and r.json()["deferred"] == 1
+    assert seen["call"] == ("US", ("AAPL",), "news")
 
 
 # --- PH-5: cheap universe-enumeration endpoints ---------------------------
@@ -1596,32 +1574,26 @@ async def test_resolve_universe_edges():
     assert u[0][0] is Market.US and u[0][1] == ["aapl"]
 
 
-async def test_scheduler_run_once_runs_pipelines(monkeypatch):
-    # PH-PIPE: a sweep dispatches the configured pipelines over the universe via run_pipelines.
-    from app import scheduler as sched_mod
-    from app.scheduler import Scheduler
+async def test_queue_sweep_defers_per_market(monkeypatch):
+    # A periodic sweep resolves the configured universe and defers one run_pipeline job per market
+    # (deduped by the queueing_lock). This replaces the old asyncio Scheduler._run_once dispatch.
+    from app import queue as Q
+    from app.store import universes as U
+
+    async def fake_resolve(spec):
+        return [(Market.US, ["AAPL"]), (Market.KR, ["005930"])]
 
     calls = []
 
-    async def fake_run_pipelines(market, tickers, pipeline_ids):
-        calls.append((market, tuple(tickers), tuple(pipeline_ids)))
-        return {pid: "ok" for pid in pipeline_ids}
+    async def fake_defer(market, tickers, pipeline_id):
+        calls.append((market, tuple(tickers), pipeline_id))
+        return len(calls)
 
-    async def fake_resolve(spec):  # PH-PIPE: the sweep resolves the universe dynamically
-        return [(Market.US, ["AAPL"])]
-
-    monkeypatch.setattr(sched_mod, "run_pipelines", fake_run_pipelines)
-    monkeypatch.setattr(sched_mod, "resolve_universe", fake_resolve)
-    s = Scheduler()
-    s.universe_spec = "us_sp500"
-    s.pipeline_ids = ["financials", "prices"]
-    s.cadence_aware = False  # this test covers pure dispatch wiring; cadence is tested separately
-    s.enabled = True
-    await s._run_once()
-    assert s.last_status == "ok" and s.run_count == 1
-    assert calls == [("US", ("AAPL",), ("financials", "prices"))]
-    assert s.last_summary == {"US": {"financials": "ok", "prices": "ok"}}
-    assert s.last_universe == [{"market": "US", "count": 1}]
+    monkeypatch.setattr(U, "resolve_universe", fake_resolve)
+    monkeypatch.setattr(Q, "defer_pipeline", fake_defer)
+    await Q._sweep("news")
+    assert ("US", ("AAPL",), "news") in calls
+    assert ("KR", ("005930",), "news") in calls
 
 
 async def test_prices_pipeline_uses_configured_backfill_years(monkeypatch):
@@ -1642,31 +1614,12 @@ async def test_prices_pipeline_uses_configured_backfill_years(monkeypatch):
     assert seen["years"] == 7
 
 
-async def test_scheduler_cadence_skips_within_interval(monkeypatch):
-    # PH-PIPE efficiency: a sweep runs a pipeline only when its last run is older than its cadence,
-    # so heavy historical pipelines aren't re-fetched every sweep. A forced run ignores cadence.
-    from datetime import timedelta
+async def test_queue_defer_sweep_rejects_unknown_pipeline():
+    # The admin "run now" defers a known pipeline's sweep; an unknown id is rejected, never queued.
+    from app import queue as Q
 
-    from app import scheduler as sched_mod
-    from app.scheduler import Scheduler
-
-    now = sched_mod._utcnow_naive()
-    last = {  # by IngestionJob `kind`: news ran 10m ago (1h cadence), prices 2d ago (1일), financials never
-        "news": now - timedelta(minutes=10),
-        "prices": now - timedelta(days=2),
-        "backfill": None,  # financials' kind
-    }
-    monkeypatch.setattr(sched_mod, "last_job_at", lambda kind: last.get(kind))
-    s = Scheduler()
-    s.pipeline_ids = ["news", "prices", "financials"]
-
-    due = s._due_pipelines(s.pipeline_ids, force=False)
-    assert "news" not in due                 # within its 1h cadence → skipped
-    assert "prices" in due and "financials" in due
-    assert "news" in s.last_skipped and s.last_skipped["news"] > 0
-    # a manual/forced run ignores cadence and runs everything
-    assert s._due_pipelines(s.pipeline_ids, force=True) == ["news", "prices", "financials"]
-    assert s.last_skipped == {}
+    out = await Q.defer_sweep("does_not_exist")
+    assert out["deferred"] is False and "unknown" in out["detail"]
 
 
 def test_incremental_start_logic():
@@ -1743,9 +1696,12 @@ def test_selftest_classifier_cases():
 
 
 # --- app-level integration (no upstream network) --------------------------
-def test_admin_scheduler_endpoint():
-    body = client.get("/admin/scheduler").json()
-    assert "enabled" in body and "run_count" in body
+def test_admin_queue_endpoint():
+    # The queue overview always renders (fail-safe): even with the queue DB unreachable in unit
+    # tests, it returns the DB-free cron-sweep schedule + the registered task names.
+    body = client.get("/admin/queue").json()
+    assert "periodic" in body and "tasks" in body
+    assert {s["pipeline_id"] for s in body["periodic"]} >= {"news", "prices", "financials"}
 
 
 def test_admin_store_stats_endpoint():
@@ -1761,7 +1717,7 @@ def test_admin_pipelines_endpoint():
     assert {"financials", "prices", "corp_actions", "news"} <= ids
     prices = next(p for p in body["pipelines"] if p["id"] == "prices")
     assert prices["store"] == "price_bars" and "latest" in prices
-    assert body["scheduler"]["state"] in ("enabled", "paused", "running")
+    assert "queue" in body and "periodic" in body["queue"]
 
 
 def test_admin_pipelines_run_dispatches(monkeypatch):
@@ -1769,15 +1725,17 @@ def test_admin_pipelines_run_dispatches(monkeypatch):
 
     seen = {}
 
-    async def fake_run_pipelines(market, tickers, ids):
-        seen["call"] = (market, tuple(tickers), tuple(ids))
+    async def fake_defer(market, tickers, pipeline_id):
+        seen["call"] = (market, tuple(tickers), pipeline_id)
+        return 1
 
-    monkeypatch.setattr(A, "run_pipelines", fake_run_pipelines)
-    # explicit market+tickers → no dynamic fetch needed (deterministic test)
+    monkeypatch.setattr(A.Q, "defer_pipeline", fake_defer)
+    # explicit market+tickers → enqueues on the queue immediately (no dynamic fetch needed)
     r = client.post("/admin/pipelines/run", json={"market": "US", "tickers": ["AAPL", "MSFT"], "pipelines": ["prices"]})
     body = r.json()
     assert r.status_code == 200 and body["started"] is True and body["pipelines"] == ["prices"]
     assert body["universe"][0]["market"] == "US" and body["universe"][0]["count"] == 2
+    assert body["deferred"] == 1 and seen["call"] == ("US", ("AAPL", "MSFT"), "prices")
 
 
 async def test_prices_ingest_shapes_and_upserts(monkeypatch):
@@ -2064,12 +2022,15 @@ def test_ph_prov3e_admin_filings_ingest_endpoint(monkeypatch):
 
     fired: dict = {}
 
-    async def _fake_run(market, tickers):
-        fired["market"], fired["tickers"] = market, tickers
+    async def fake_defer(market, tickers, pipeline_id):
+        fired["call"] = (market, tuple(tickers), pipeline_id)
+        return 1
 
-    monkeypatch.setattr(A, "run_filing_text_ingest", _fake_run)
+    monkeypatch.setattr(A.Q, "defer_pipeline", fake_defer)
+    # US → enqueues the filing_text pipeline on the queue
     assert client.post("/admin/filings/ingest", json={"market": "US", "tickers": ["AAPL"]}).json()["started"] is True
-    assert fired == {"market": "US", "tickers": ["AAPL"]}
+    assert fired["call"] == ("US", ("AAPL",), "filing_text")
+    # an unsupported market is rejected, never queued
     assert client.post("/admin/filings/ingest", json={"market": "JP", "tickers": ["7203"]}).json()["started"] is False
 
 

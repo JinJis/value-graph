@@ -68,6 +68,7 @@ These hold across every service; breaking one fails review.
 | Service | Host port | Package | Role |
 |---|---|---|---|
 | `datasets` | 8000 | `app` | data plane: US+KR connectors + ingestion store + `/catalog` |
+| `worker` | — | `app` (`app.queue`) | Procrastinate worker: runs the cron **sweeps** + processes ingestion jobs (Postgres-backed queue; no Redis) |
 | `control-plane` | 8010→8001 | `controlplane` | the **gateway** + tenants/keys/activations admin |
 | `rag` | 8002 | `rag` | provenance-first chunk→embed→retrieve→rerank |
 | `agent-engine` | 8003 | `agentengine` | guardrail→plan (Gemini)→tool loop→citations; `/agent/chat` SSE |
@@ -94,7 +95,8 @@ Request flow (one chat turn): browser → web BFF (session) → studio-api (tena
 ## 5. Commands
 ```bash
 cp .env.example .env                 # free keys (OPENDART/ECOS/FRED); AUTH_DEV_LOGIN=true; GOOGLE_API_KEY for Gemini
-docker compose up --build            # datasets:8000 gateway:8010 rag:8002 agent:8003 studio:8004 web:3000 admin:8005
+docker compose up --build            # datasets:8000 gateway:8010 rag:8002 agent:8003 studio:8004 web:3000 admin:8005 (+ worker)
+docker compose stop worker           # pause ALL automatic ingestion (the Procrastinate cron sweeps live here)
 docker compose up -d --build web     # rebuild one service after a change
 docker compose logs -f studio-api    # follow a service
 docker compose down                  # stop (-v also wipes the Postgres data + volumes)

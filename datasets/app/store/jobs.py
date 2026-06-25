@@ -22,17 +22,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def backfill_running() -> bool:
-    """True if a backfill is already in flight — used to serialize runs (a poor
-    man's single-worker queue; a real distributed queue is PH-11)."""
-    with SessionLocal() as db:
-        n = db.scalar(
-            select(func.count()).select_from(IngestionJob)
-            .where(IngestionJob.kind == "backfill", IngestionJob.status == "running")
-        )
-        return bool(n)
-
-
 def start_job(kind: str, market: str | None, spec: str | None, total: int = 0) -> int:
     with SessionLocal() as db:
         job = IngestionJob(kind=kind, market=market, spec=spec, status="running",
@@ -99,7 +88,8 @@ async def run_backfill(
     """Run a backfill and record it as an IngestionJob (with live per-ticker progress).
 
     Either pass a ``preset`` id (resolved from universes) or an explicit ``market`` +
-    ``tickers``. Serialized via ``backfill_running`` so runs don't pile up.
+    ``tickers``. Concurrency is serialized by the Procrastinate queue's per-pipeline lock
+    (``pipe:financials:<market>``), so this runner no longer guards itself.
     """
     if preset:
         market, tickers = await resolve_one(preset)  # dynamic fetch (PH-PIPE)
@@ -112,8 +102,6 @@ async def run_backfill(
         return {"status": "error", "error": "market or preset required."}
     if not tickers:
         return {"status": "error", "error": "No tickers to backfill (US universe needs a preset or explicit tickers)."}
-    if backfill_running():
-        return {"status": "busy", "error": "A backfill is already running — wait for it to finish."}
 
     job_id = start_job("backfill", market, (spec + (" · deep" if deep else ""))[:256], total=len(tickers))
     progress = lambda done, total: update_progress(job_id, done)  # noqa: E731

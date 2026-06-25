@@ -38,7 +38,7 @@ from app.routers import (  # noqa: I001
     technical,
     valuation,
 )
-from app.scheduler import scheduler
+from app.queue import close as close_queue, open_and_migrate
 from app.store.db import init_db
 
 
@@ -48,11 +48,14 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    await scheduler.start()
+    # Open the Procrastinate connector + apply its schema (idempotent), so manual admin runs can
+    # defer jobs and the admin Queue console can read app.job_manager. The `worker` compose service
+    # is a separate process that actually runs the periodic sweeps + processes the jobs.
+    await open_and_migrate()
     try:
         yield
     finally:
-        await scheduler.stop()
+        await close_queue()
 
 app = FastAPI(
     title="ValueGraph Datasets API (US + Korea)",

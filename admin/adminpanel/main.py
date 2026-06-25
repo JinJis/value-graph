@@ -141,7 +141,7 @@ def _tile(k, v, ic, href, small=False) -> str:
 @app.get("/", response_class=HTMLResponse)
 async def overview(request: Request, msg: str = ""):
     async with httpx.AsyncClient() as c:
-        sched = await _safe_get(c, f"{settings.datasets_url}/admin/scheduler")
+        queue = await _safe_get(c, f"{settings.datasets_url}/admin/queue")
         stats = await _safe_get(c, f"{settings.datasets_url}/admin/store/stats")
         jobs = await _safe_get(c, f"{settings.datasets_url}/admin/jobs")
         raginfo = await _safe_get(c, f"{settings.rag_url}/rag/info")
@@ -153,22 +153,26 @@ async def overview(request: Request, msg: str = ""):
     job_list = jobs.get("jobs") if isinstance(jobs, dict) else []
     running = [j for j in (job_list or []) if j.get("status") == "running"]
     errored = [j for j in (job_list or []) if j.get("status") == "error"][:5]
+    q_totals = queue.get("totals") or {}
+    q_pending, q_doing = q_totals.get("todo", 0), q_totals.get("doing", 0)
 
     tiles = "".join([
         _tile("data sources", len(conns) if conns else "?", "◈", "/catalog"),
         _tile("catalog tools", tool_count, "⚙", "/catalog"),
         _tile("RAG embedder", raginfo.get("embedding_backend", "—"), "▤", "/data", small=True),
-        _tile("scheduler", sched.get("state", "—"), "⏣", "/pipelines", small=True),
+        _tile("queue pending", q_pending if _ok(queue) else "—", "⚙", "/queue"),
         _tile("store facts", stats.get("total_facts", "—"), "▦", "/data"),
-        _tile("jobs running", len(running), "●", "/pipelines"),
+        _tile("queue running", q_doing if _ok(queue) else len(running), "●", "/queue"),
     ])
 
+    # the queue is healthy if the overview came back AND its job DB was reachable (no 'error' field)
+    queue_up = _ok(queue) and not queue.get("error")
     checks = [
         ("Gateway / catalog", _ok(catalog)),
-        ("Data plane (datasets)", _ok(stats) or _ok(sched)),
+        ("Data plane (datasets)", _ok(stats) or _ok(queue)),
         ("RAG", _ok(raginfo)),
         ("Agent engine", _ok(agentinfo)),
-        ("Scheduler", _ok(sched) and sched.get("state") in ("running", "enabled", "paused", "idle")),
+        ("Queue (Procrastinate)", queue_up),
     ]
     health = "".join(
         f"<div class=card><h3>{sdot('ok' if up else 'err')} {_esc(name)}</h3>"
@@ -195,7 +199,8 @@ async def overview(request: Request, msg: str = ""):
         + "<h2>Jump to</h2><div>"
         + "".join(f"<span class=pill><a href='{h}'>{_esc(l)}</a></span>"
                   for h, l in [("/catalog", "Catalog →"), ("/pipelines", "Pipelines →"),
-                               ("/data", "Data →"), ("/users", "Users →"), ("/db", "DB browser →")])
+                               ("/queue", "Queue →"), ("/data", "Data →"), ("/users", "Users →"),
+                               ("/db", "DB browser →")])
         + "</div>"
     )
     return HTMLResponse(page("/", "Overview", body, refresh=bool(running)))
@@ -285,13 +290,15 @@ def _interval_label(seconds: int) -> str:
     return f"{seconds}초마다"
 
 
-def _pipeline_card(p: dict, scheduled: set[str], interval: int) -> str:
-    """Visualize one pipeline: source → store, schedule, and its latest run (status/rows/error)."""
-    is_sched = p["id"] in scheduled
-    # each pipeline has its OWN cadence (min_interval_seconds) — heavy history runs less often.
-    cadence = p.get("min_interval_seconds") or interval
-    sched_txt = (f"⏱ {_interval_label(cadence)}" if is_sched else "수동 전용")
-    sched_cls = "ok" if is_sched else ""
+def _pipeline_card(p: dict, cron_by_pid: dict[str, str]) -> str:
+    """Visualize one pipeline: source → store, cron sweep, latest run (status/rows/error), run-now."""
+    pid = p["id"]
+    cron = cron_by_pid.get(pid)
+    # each pipeline has its OWN cadence (min_interval_seconds) → shown as a human label next to its cron.
+    cadence = p.get("min_interval_seconds") or 0
+    sched_txt = (f"⏱ {_interval_label(cadence)}" if cron else "수동 전용")
+    sched_cls = "ok" if cron else ""
+    cron_txt = f" <span class=muted><code>{_esc(cron)}</code></span>" if cron else ""
     j = p.get("latest") or {}
     if j:
         st = j.get("status")
@@ -315,12 +322,14 @@ def _pipeline_card(p: dict, scheduled: set[str], interval: int) -> str:
             body += ("\n\n" if body else "") + "fetch: " + fetch
         detail = (f"<details class=errlog><summary>원천 API · 쿼리</summary>"
                   f"<pre>{_esc(body)}</pre></details>")
+    run_now = (f"<form class=ops method=post action='/ops/queue/sweep/{_esc(pid)}'>"
+               f"<button class=p>지금 수집 ▶</button></form>") if cron else ""
     return (
-        f"<div class=card><h3>{_esc(p['label'])} {badge(sched_txt, sched_cls)}</h3>"
+        f"<div class=card><h3>{_esc(p['label'])} {badge(sched_txt, sched_cls)}{cron_txt}</h3>"
         f"<div class=sub>{_esc(p.get('desc') or '')}</div>"
         f"<div class=flow><span class=pill>{_esc(p.get('source'))}</span> <span class=arrow>→</span> "
         f"<span class=pill><code>{_esc(p.get('store'))}</code></span> {markets}</div>"
-        f"{detail}{last}</div>"
+        f"{detail}{last}<div class=opsrow>{run_now}</div></div>"
     )
 
 
@@ -332,50 +341,44 @@ async def pipelines(request: Request, msg: str = ""):
         universes = await _safe_get(c, f"{settings.datasets_url}/admin/universes")
 
     registry = pdata.get("pipelines") or []
-    sched = pdata.get("scheduler") or {}
-    scheduled = set(sched.get("pipelines") or [])
-    interval = sched.get("interval_seconds") or 0
-    sstate = sched.get("state", pdata.get("_error", "?"))
-    sbadge = badge(sstate, "run" if sstate == "running" else ("warn" if sstate == "paused" else "ok"))
+    queue = pdata.get("queue") or {}
+    periodic = queue.get("periodic") or []
+    cron_by_pid = {s["pipeline_id"]: s["cron"] for s in periodic}
+    totals = queue.get("totals") or {}
+    queue_up = not queue.get("error") and "totals" in queue
 
     job_list = jobs.get("jobs") if isinstance(jobs, dict) else []
     running = any(j.get("status") == "running" for j in (job_list or []))
 
-    # --- scheduler banner: state · cadence · scope · last sweep ---
-    uni_total = sched.get("universe_total", 0)
-    uni_breakdown = " · ".join(f"{_esc(u['market'])} {_esc(u['count'])}" for u in (sched.get("universe") or [])) or "비어 있음"
-    last_sweep = ""
-    if sched.get("last_summary"):
-        parts = []
-        for mkt, res in (sched["last_summary"] or {}).items():
-            if isinstance(res, dict):
-                oks = sum(1 for v in res.values() if v == "ok")
-                parts.append(f"{_esc(mkt)} {oks}/{len(res)} ok")
-        last_sweep = " · ".join(parts)
-    sched_banner = (
-        "<div class=card><h3>⏣ 스케줄러 " + sbadge + "</h3>"
-        f"<div class=flow><span class=pill>주기 <b>{_esc(_interval_label(interval))}</b></span>"
-        f"<span class=pill>대상 <b>{_esc(uni_total)}</b>종목 ({uni_breakdown})</span>"
-        f"<span class=pill>파이프라인 <b>{_esc(len(scheduled))}</b>개</span>"
-        f"<span class=pill>실행 {_esc(sched.get('run_count', 0))}회</span></div>"
-        f"<div class=sub>마지막 스윕: {_esc(sched.get('last_run_at') or '없음')}"
-        + (f" · {last_sweep}" if last_sweep else "") + "</div>"
+    # --- queue banner: the Procrastinate scheduler (worker) — cron sweeps + live job counts ---
+    qstate = ("run" if totals.get("doing") else "ok") if queue_up else "err"
+    qbadge = badge("가동중" if queue_up else "큐 DB 연결 안됨", qstate)
+    counts = (f"<span class=pill>대기 <b>{_esc(totals.get('todo', 0))}</b></span>"
+              f"<span class=pill>실행중 <b>{_esc(totals.get('doing', 0))}</b></span>"
+              f"<span class=pill>완료 <b>{_esc(totals.get('succeeded', 0))}</b></span>"
+              f"<span class=pill>실패 <b>{_esc(totals.get('failed', 0))}</b></span>") if queue_up else ""
+    sweeps = " · ".join(f"{_esc(s['label'])} <code>{_esc(s['cron'])}</code>" for s in periodic) or "없음"
+    queue_banner = (
+        "<div class=card><h3>⚙ 큐 스케줄러 (Procrastinate · 워커) " + qbadge + "</h3>"
+        f"<div class=flow>{counts}<span class=pill>크론 스윕 <b>{_esc(len(periodic))}</b>개</span></div>"
+        f"<div class=sub>자동 수집(크론): {sweeps}</div>"
+        "<div class=sub muted>워커가 정해진 크론에 유니버스를 스윕해 작업을 큐에 넣고 재시도와 함께 처리합니다. "
+        "개별 작업 모니터링·재시도·취소는 <a href=/queue>Queue →</a>. 자동 수집을 멈추려면 워커를 중지하세요 "
+        "(<code>docker compose stop worker</code>).</div>"
         "<div class=opsrow>"
-        "<form class=ops method=post action=/ops/scheduler/run><button class=p>지금 실행</button></form>"
-        "<form class=ops method=post action=/ops/scheduler/resume><button>가동(Resume)</button></form>"
-        "<form class=ops method=post action=/ops/scheduler/pause><button>일시정지</button></form>"
+        "<a class='btn p' href=/queue>큐 작업 보기 →</a>"
         "<form class=ops method=post action=/ops/selftest><button>self-test</button></form>"
         "</div></div>"
     )
 
     # --- per-pipeline visualization cards ---
-    cards = "".join(_pipeline_card(p, scheduled, interval) for p in registry) or "<div class=empty>파이프라인 레지스트리를 불러오지 못했어요.</div>"
+    cards = "".join(_pipeline_card(p, cron_by_pid) for p in registry) or "<div class=empty>파이프라인 레지스트리를 불러오지 못했어요.</div>"
 
     # --- unified backfill: pick universe + pipelines, run together ---
-    # CE-0: a one-click "full universe" option = the scheduler's configured spec (multi-preset,
+    # CE-0: a one-click "full universe" option = the sweep's configured spec (multi-preset,
     # resolved dynamically server-side), so the operator can deep-backfill everything at once.
-    full_spec = sched.get("universe_spec") or ""
-    full_opt = (f"<option value='{_esc(full_spec)}'>★ 전체 유니버스 (스케줄러: {_esc(full_spec)})</option>"
+    full_spec = queue.get("universe") or ""
+    full_opt = (f"<option value='{_esc(full_spec)}'>★ 전체 유니버스 (스윕: {_esc(full_spec)})</option>"
                 if full_spec else "")
     preset_opts = full_opt + "".join(
         f"<option value='{_esc(u['id'])}'>{_esc(u['label'])} · {_esc(u['market'])} ({_esc(u['count'])})</option>"
@@ -441,7 +444,7 @@ S&amp;P·코스피·코스닥 전체는 직접 입력란에 티커를 붙여넣�
     body = (_flash(msg)
             + "<p class=hint>모든 데이터 파이프라인을 한곳에서 — 무엇을 어떤 경로로 수집해 어디에 쌓는지, "
               "주기·상태·에러를 시각화합니다. 작업이 도는 동안 자동 새로고침됩니다.</p>"
-            + "<h2>스케줄러</h2><div class=grid>" + sched_banner + "</div>"
+            + "<h2>큐 스케줄러</h2><div class=grid>" + queue_banner + "</div>"
             + "<h2>파이프라인</h2><div class=grid>" + cards + "</div>"
             + backfill
             + f"<h2>수집 작업 {'· ⟳ live' if running else ''}</h2>" + jobs_html
@@ -573,12 +576,108 @@ async def users_view(request: Request):
     return HTMLResponse(page("/users", "Users", body))
 
 
-# --- ops actions (POST → redirect to /pipelines) --------------------------
-@app.post("/ops/scheduler/{action}")
-async def ops_scheduler(request: Request, action: str):
+# --- Queue (Procrastinate) — monitor + control ----------------------------
+_QSTATUS = {"todo": "warn", "doing": "run", "succeeded": "ok", "failed": "err",
+            "cancelled": "", "aborting": "warn", "aborted": ""}
+_QLABEL = {"todo": "대기", "doing": "실행중", "succeeded": "완료", "failed": "실패",
+           "cancelled": "취소됨", "aborting": "중단중", "aborted": "중단됨"}
+
+
+@app.get("/queue", response_class=HTMLResponse)
+async def queue_view(request: Request, msg: str = "", status: str = ""):
     async with httpx.AsyncClient() as c:
-        await c.post(f"{settings.datasets_url}/admin/scheduler/{action}", timeout=20)
-    return RedirectResponse(f"/pipelines?msg=scheduler+{action}+requested", status_code=303)
+        ov = await _safe_get(c, f"{settings.datasets_url}/admin/queue")
+        jq = f"{settings.datasets_url}/admin/queue/jobs?limit=100" + (f"&status={status}" if status else "")
+        jobs = await _safe_get(c, jq)
+
+    if not _ok(ov):
+        body = _flash(msg) + "<div class=warn>큐 정보를 불러오지 못했습니다 (datasets 연결 확인).</div>"
+        return HTMLResponse(page("/queue", "Queue", body))
+    if ov.get("error"):
+        # the overview rendered but the queue DB was unreachable — still show the cron schedule.
+        note = f"<div class=warn>큐 DB 연결 실패: {_esc(ov['error'])} — 워커/Postgres 상태를 확인하세요.</div>"
+    else:
+        note = ""
+
+    totals = ov.get("totals") or {}
+    tiles = "".join(_tile(_QLABEL[k], totals.get(k, 0), "●", f"/queue?status={k}", small=True)
+                    for k in ("todo", "doing", "succeeded", "failed") )
+
+    # periodic cron sweeps + a run-now button each
+    sweeps = ""
+    for s in (ov.get("periodic") or []):
+        sweeps += (f"<tr><td>{_esc(s['label'])}</td><td><code>{_esc(s['cron'])}</code></td>"
+                   f"<td class=muted>{_esc(s.get('source') or '')}</td>"
+                   f"<td><form class=ops method=post action='/ops/queue/sweep/{_esc(s['pipeline_id'])}'>"
+                   f"<button class=p>지금 수집 ▶</button></form></td></tr>")
+    sweeps_html = ("<div class=tablewrap><table><thead><tr><th>파이프라인</th><th>크론</th><th>원천</th>"
+                   f"<th></th></tr></thead><tbody>{sweeps}</tbody></table></div>")
+
+    # live jobs with retry/cancel controls
+    job_list = jobs.get("jobs") if isinstance(jobs, dict) else []
+    rows = ""
+    for j in (job_list or []):
+        st = j.get("status")
+        args = j.get("args") or {}
+        scope = f"{args.get('pipeline_id', j.get('task'))} · {args.get('market', '')}"
+        tcount = len(args.get("tickers") or []) if isinstance(args.get("tickers"), list) else ""
+        ctl = ""
+        if st == "failed":
+            ctl += (f"<form class=ops method=post action='/ops/queue/jobs/{_esc(j['id'])}/retry'>"
+                    f"<button class=p>재시도</button></form>")
+        if st in ("todo", "doing", "failed"):
+            ctl += (f"<form class=ops method=post action='/ops/queue/jobs/{_esc(j['id'])}/cancel'>"
+                    f"<button class=danger>취소</button></form>")
+        rows += (
+            f"<tr><td>{_esc(j['id'])}</td><td>{badge(_esc(j.get('task')))}</td>"
+            f"<td class=muted>{_esc(j.get('queue'))}</td>"
+            f"<td class=wrap>{_esc(scope)}{f' · {tcount}종목' if tcount else ''}</td>"
+            f"<td>{badge(_QLABEL.get(st, st), _QSTATUS.get(st, ''))}</td>"
+            f"<td>{_esc(j.get('attempts'))}</td>"
+            f"<td class=muted>{_esc((j.get('scheduled_at') or '')[:19])}</td>"
+            f"<td><div class=opsrow>{ctl}</div></td></tr>"
+        )
+    jobs_html = ("<div class=tablewrap><table><thead><tr><th>#</th><th>task</th><th>queue</th><th>scope</th>"
+                 "<th>status</th><th>시도</th><th>scheduled</th><th></th></tr></thead>"
+                 f"<tbody>{rows or '<tr><td colspan=8 class=muted>작업 없음</td></tr>'}</tbody></table></div>")
+
+    filt = " · ".join(
+        (f"<b>{_QLABEL[k]}</b>" if status == k else f"<a href='/queue?status={k}'>{_QLABEL[k]}</a>")
+        for k in ("todo", "doing", "succeeded", "failed")
+    )
+    running = bool(totals.get("doing") or totals.get("todo"))
+    body = (_flash(msg) + note
+            + "<p class=hint>Procrastinate 큐 — Postgres가 브로커입니다(Redis 없음). 워커가 크론 스윕을 돌려 "
+              "작업을 큐에 넣고 재시도와 함께 처리합니다. 여기서 작업을 모니터링하고 재시도/취소할 수 있어요.</p>"
+            + "<div class=tiles>" + tiles + "</div>"
+            + "<h2>자동 수집 (크론 스윕)</h2>" + sweeps_html
+            + f"<h2>작업 {'· ⟳ live' if running else ''}</h2>"
+            + f"<div class=hint>필터: 전체 · {filt}"
+            + (f" · <a href='/queue'>초기화</a>" if status else "") + "</div>"
+            + jobs_html)
+    return HTMLResponse(page("/queue", "Queue", body, refresh=running))
+
+
+@app.post("/ops/queue/sweep/{pipeline_id}")
+async def ops_queue_sweep(request: Request, pipeline_id: str):
+    async with httpx.AsyncClient() as c:
+        r = await c.post(f"{settings.datasets_url}/admin/queue/sweep/{pipeline_id}", timeout=30)
+        ok = r.status_code == 200 and (r.json() or {}).get("deferred")
+    return RedirectResponse(f"/queue?msg={pipeline_id}+{'enqueued' if ok else 'failed'}", status_code=303)
+
+
+@app.post("/ops/queue/jobs/{job_id}/retry")
+async def ops_queue_retry(request: Request, job_id: int):
+    async with httpx.AsyncClient() as c:
+        await c.post(f"{settings.datasets_url}/admin/queue/jobs/{job_id}/retry", timeout=20)
+    return RedirectResponse(f"/queue?msg=job+{job_id}+retried", status_code=303)
+
+
+@app.post("/ops/queue/jobs/{job_id}/cancel")
+async def ops_queue_cancel(request: Request, job_id: int):
+    async with httpx.AsyncClient() as c:
+        await c.post(f"{settings.datasets_url}/admin/queue/jobs/{job_id}/cancel", timeout=20)
+    return RedirectResponse(f"/queue?msg=job+{job_id}+cancel+requested", status_code=303)
 
 
 @app.post("/ops/backfill")
