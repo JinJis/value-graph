@@ -11,9 +11,8 @@ import {
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
-import type { Artifact, ArtifactMarker, ChartAnnotations } from "./ArtifactCard";
-import { fmtBig } from "./ArtifactCard";
-import type { Citation } from "./SourceCard";
+import type { Artifact, ArtifactMarker, ChartAnnotations, Citation } from "../lib/types";
+import { fmtBig } from "../lib/format";
 
 const MARKER_SHAPE: Record<string, "circle" | "arrowUp" | "arrowDown" | "square"> = {
   dividend: "circle", split: "square", earnings: "arrowUp", filing: "arrowDown",

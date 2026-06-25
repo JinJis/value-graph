@@ -5,6 +5,7 @@ import { CadenceTag, FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
 import type { Citation } from "./SourceCard";
 import type { Artifact, ArtifactCandle, ArtifactSeries, ChartAnnotations } from "../lib/types";
+import { currencyOf, fmt, fmtBig, fmtPrice, fmtVol } from "../lib/format";
 
 // Types live in lib/types.ts (FE-01); re-exported here for back-compat (importers use
 // `import { Artifact } from "./ArtifactCard"`).
@@ -137,46 +138,6 @@ function NarrativeArtifact(
 }
 
 // currency for a ticker — KR 6-digit codes are KRW, else USD.
-function currencyOf(ticker?: string | null): "KRW" | "USD" {
-  return /^\d/.test(ticker || "") ? "KRW" : "USD";
-}
-
-// Big-number abbreviation so tables/axes stay readable — KRW in 조/억/만, USD in $T/B/M.
-export function fmtBig(y: number | null | undefined, currency: "KRW" | "USD" = "USD"): string {
-  if (y == null) return "—";
-  const a = Math.abs(y), sign = y < 0 ? "-" : "";
-  if (currency === "KRW") {
-    if (a >= 1e12) return `${sign}${(a / 1e12).toFixed(a >= 1e13 ? 1 : 2)}조`;
-    if (a >= 1e8) return `${sign}${Math.round(a / 1e8).toLocaleString()}억`;
-    if (a >= 1e4) return `${sign}${Math.round(a / 1e4).toLocaleString()}만`;
-    return `${sign}${Math.round(a).toLocaleString()}`;
-  }
-  if (a >= 1e12) return `${sign}$${(a / 1e12).toFixed(2)}T`;
-  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`;
-  return `${sign}$${a.toLocaleString()}`;
-}
-
-// price = full number (prices are small); volume = compact count.
-function fmtPrice(y: number | null | undefined) {
-  return y == null ? "—" : y.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-function fmtVol(y: number | null | undefined) {
-  if (y == null) return "—";
-  const a = Math.abs(y);
-  if (a >= 1e9) return (a / 1e9).toFixed(1) + "B";
-  if (a >= 1e6) return (a / 1e6).toFixed(1) + "M";
-  if (a >= 1e3) return (a / 1e3).toFixed(0) + "K";
-  return String(Math.round(a));
-}
-
-// financials/series table cell: ratio → %, large currency → abbreviated.
-function fmt(y: number | null | undefined, unit?: string | null, currency: "KRW" | "USD" = "USD") {
-  if (y == null) return "—";
-  if (unit === "ratio") return (y * 100).toFixed(1) + "%";
-  return fmtBig(y, currency);
-}
-
 export function ArtifactCard(
   { a, onPin, onRemove, onRefresh, onEvidence, onAnnotate, hideTitle, bare }:
   { a: Artifact; onPin?: (spec: Artifact) => void; onRemove?: () => void; onRefresh?: () => Promise<void> | void;
