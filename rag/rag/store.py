@@ -19,7 +19,12 @@ from rag.models import PROVENANCE_FIELDS, Chunk
 
 class VectorStore(Protocol):
     async def upsert(self, chunks: list[Chunk], vectors: list[list[float]]) -> None: ...
-    async def search(self, vector: list[float], top_k: int, filters: dict | None = None) -> list[tuple[Chunk, float]]: ...
+    async def search(self, vector: list[float], top_k: int, filters: dict | None = None) -> list[tuple[Chunk, float]]:
+        """Top-k by cosine similarity, honoring `filters`. Filter semantics every backend must match
+        (MemoryStore in Python, PgVectorStore in SQL): a `meta->>key == value` equality per filter
+        key, EXCEPT `tenant`, which is isolation — a row matches iff its tenant equals the caller's
+        OR is unscoped/global (None). (Keep `_match` and the pgvector WHERE in sync with this — RF-17.)"""
+        ...
     async def existing_texts(self, ids: list[str]) -> dict[str, str]:
         """{id: stored_text} for ids already present — lets ingest skip re-embedding unchanged chunks."""
         ...

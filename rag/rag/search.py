@@ -28,6 +28,8 @@ async def search(query: str, top_k: int | None = None, filters: dict | None = No
             ranked = await get_reranker().rerank(query, docs, min(settings.rerank_top_n, len(docs)))
             hits = [(hits[i][0], score) for i, score in ranked]
         except Exception as exc:  # noqa: BLE001 — degrade gracefully, don't fail the query
-            logger.warning("reranker (%s) failed, falling back to embedding order: %s",
-                           settings.reranker_backend, exc)
+            # name the exception TYPE so ops can tell a config/auth error (always fails) from a
+            # transient API/quota error (self-heals) without spelunking the message (RF-17).
+            logger.warning("reranker (%s) failed [%s], falling back to embedding order: %s",
+                           settings.reranker_backend, type(exc).__name__, exc)
     return [SearchHit(text=c.text, score=round(s, 4), provenance=c.provenance()) for c, s in hits]
