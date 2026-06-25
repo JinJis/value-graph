@@ -52,7 +52,7 @@ S(<1h) · M(half-day) · L(multi-day).
 
 | ID | Task | Service | Sev | Eff | Status |
 |---|---|---|---|---|---|
-| **RF-08** | `artifacts.py` (598): replace the 15-branch `if name.endswith(...)` ladder with a `tool → handler` registry/dispatch; extract `enrich_artifacts()` (markers/overlays/annotations in one call). | agent-engine | high | M | TODO |
+| **RF-08** | `artifacts.py`: replaced the 367-line, 19-branch `_build_artifacts` `if name.endswith(...)` ladder with a `tool-suffix → handler` registry (`_BUILDERS`) + a 20-line dispatcher + 20 named, self-guarded handlers (each returns `[]` when the shape doesn't fit). Adding a chartable tool is now one handler + one registry row. Behavior proven by the suite (all 23 tool suffixes tested → 99 pass). The `enrich_artifacts()` extraction moved to **RF-10** (it touches chat/agent call sites). | agent-engine | high | M | DONE |
 | **RF-09** | Split `agent.py` (809): extract `intake.py` (task analysis + guardrail) and `enrichment.py` (followups/evidence) from the orchestration loop; consolidate prompts/schemas into `prompts.py`; dedupe chat↔agent citation/artifact assembly into `results.py`. | agent-engine | high | L | TODO |
 | **RF-10** | `chat.py` (436): extract an SSE event-builder from the loop; wrap Gemini calls in one bounded helper (consistent timeout/error isolation). | agent-engine | med | M | TODO |
 | **RF-11** | CRUD/ownership DRY: `_check_ownership(db, model, id, email)` + a shared list/get/create/update/delete base across agents/prompts/board/watchlists; `to_dict`/`safe_json_list`/`JsonColumn` helpers for the repeated `_out`/`json.loads(... or "[]")` patterns. | studio-api | high | M | TODO |
