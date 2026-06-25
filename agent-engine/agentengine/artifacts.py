@@ -8,6 +8,7 @@ planner's job.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from agentengine.client import PlatformClient
@@ -714,6 +715,34 @@ def enrich_chart_markers(artifacts: list[Artifact], history: list) -> None:
             a.pricelines = _price_lines(a)
         if not a.markers:
             a.markers = _event_markers(history, a.ticker)
+
+
+_enrich_logger = logging.getLogger(__name__)
+
+
+async def enrich_artifacts(artifacts: list[Artifact], history: list, task: str, model: str,
+                           backend: str | None, *, annotate_timeout: float | None = None) -> None:
+    """The post-loop chart-enrichment sequence (PH-VIZ), shared by run_agent + the chat stream (RF-10).
+
+    In order, mutating `artifacts` in place: (1) attach sourced event markers + period high/low lines
+    to price charts, (2) fold technical-indicator overlays onto the same-ticker price chart, (3) let
+    Gemini annotate the price chart from the question (historical points only; best-effort).
+
+    `annotate_timeout` bounds step 3: the streaming caller passes a cap so chart annotation never
+    delays the `done` event (timeout/error → skip); run_agent passes None (await it directly)."""
+    enrich_chart_markers(artifacts, history)
+    enrich_chart_overlays(artifacts)
+    from agentengine.annotations import annotate_charts  # lazy: avoids an artifacts<->annotations cycle
+    if annotate_timeout is None:
+        await annotate_charts(artifacts, task, model, backend)
+        return
+    import asyncio
+    try:  # best-effort + bounded — chart annotation must never delay `done`
+        await asyncio.wait_for(annotate_charts(artifacts, task, model, backend), timeout=annotate_timeout)
+    except (TimeoutError, asyncio.TimeoutError):
+        _enrich_logger.warning("annotate_charts exceeded %.0fs cap → skipping annotations", annotate_timeout)
+    except Exception:  # noqa: BLE001
+        _enrich_logger.warning("annotate_charts failed → skipping annotations", exc_info=True)
 
 
 async def refresh_artifact(tool_name: str, args: dict | None, api_key: str | None, title: str | None = None) -> Artifact | None:

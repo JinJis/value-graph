@@ -258,17 +258,11 @@ async def run_agent(task: str, api_key: str | None, spec: AgentSpec | None = Non
         # Honest degrade on a planner/LLM error rather than a 500.
         answer = answer or f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"
 
-    # PH-VIZ-2: attach descriptive price lines + sourced event markers (dividends/splits/
-    # earnings from this turn) to the price chart, so the chart shows the cited events.
-    from agentengine.artifacts import enrich_chart_markers, enrich_chart_overlays
-    enrich_chart_markers(artifacts, history)
-    # PH-VIZ-4: fold technical-indicator overlays (SMA/EMA/Bollinger + RSI/MACD) onto the
-    # same-ticker price chart so they render on the price; else they stand alone.
-    enrich_chart_overlays(artifacts)
-    # PH-VIZ-3: let Gemini annotate the price chart from the question (lines/levels/zones),
-    # validated to historical points only (no projection). Gemini-only; best-effort.
-    from agentengine.annotations import annotate_charts
-    await annotate_charts(artifacts, task, settings.model, spec.backend if spec else settings.llm_backend)
+    # PH-VIZ: attach sourced event markers + price lines, fold technical overlays onto the price
+    # chart, and let Gemini annotate it (shared with the chat stream via enrich_artifacts — RF-10).
+    from agentengine.artifacts import enrich_artifacts
+    await enrich_artifacts(artifacts, history, task, settings.model,
+                           spec.backend if spec else settings.llm_backend)
 
     cites = dedup_citations(citations)
     # Mark which citations are evidence (cited [n] or back an artifact) vs consulted.

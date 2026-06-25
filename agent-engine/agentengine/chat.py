@@ -369,25 +369,14 @@ async def stream_chat(messages: list[dict], api_key: str | None, spec: AgentSpec
         # degrades to an honest message instead of breaking the stream.
         yield {"type": "token", "text": f"답변 생성 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요. ({type(e).__name__}: {str(e)})"}
 
-    # PH-VIZ-2: attach sourced event markers (dividends/splits/earnings this turn) + price
-    # lines to the price chart, then re-emit the enriched artifacts in `done` (the streamed
-    # `artifact` events went out before the later tool results existed).
-    from agentengine.artifacts import enrich_chart_markers, enrich_chart_overlays
-    enrich_chart_markers(art_objs, history)
-    # PH-VIZ-4: fold any technical-indicator artifact (SMA/EMA/Bollinger + RSI/MACD) onto
-    # the same-ticker price chart so the overlays render on the price; else it stands alone.
-    enrich_chart_overlays(art_objs)
-    # PH-VIZ-3: Gemini annotates the price chart from the question (lines/levels/zones),
-    # validated to historical points only (no projection). Gemini-only; best-effort.
-    from agentengine.annotations import annotate_charts
-    try:  # best-effort + bounded — chart annotation must never delay `done`
-        await asyncio.wait_for(
-            annotate_charts(art_objs, task, settings.model, spec.backend if spec else settings.llm_backend),
-            timeout=settings.gemini_enrich_timeout_seconds)
-    except (TimeoutError, asyncio.TimeoutError):
-        logger.warning("annotate_charts exceeded %.0fs cap → skipping annotations", settings.gemini_enrich_timeout_seconds)
-    except Exception:  # noqa: BLE001
-        logger.warning("annotate_charts failed → skipping annotations", exc_info=True)
+    # PH-VIZ: attach sourced event markers + price lines, fold technical overlays onto the price
+    # chart, then (bounded) let Gemini annotate it — re-emitted in `done` since the streamed
+    # `artifact` events went out before the later tool results existed. Shared with run_agent via
+    # enrich_artifacts; the annotate step is capped so it never delays `done` (RF-10).
+    from agentengine.artifacts import enrich_artifacts
+    await enrich_artifacts(art_objs, history, task, settings.model,
+                           spec.backend if spec else settings.llm_backend,
+                           annotate_timeout=settings.gemini_enrich_timeout_seconds)
 
     # (The 종목 내러티브 card was removed — it duplicated the answer + the context panel. The
     # narrative/news-brief/value-chain intake flags still steer the synthesis into a structured,
