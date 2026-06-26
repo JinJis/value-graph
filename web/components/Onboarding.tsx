@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { CHANNELS, ChannelKind } from "@/lib/alerts";
+import { ChannelIcon } from "./ChannelIcon";
 import { Button } from "./ui";
 
 type Preset = { id: string; name: string; tpl: string; items: { market: string; ticker: string; name?: string }[] };
@@ -118,7 +119,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
             <div className="onb-row onb-wrap">
               {CHANNELS.map((c) => (
                 <button key={c.kind} className={`onb-pick ${chans.has(c.kind) ? "on" : ""}`} onClick={() => toggleChan(c.kind)}>
-                  <span aria-hidden>{c.icon}</span> {c.label}
+                  <ChannelIcon kind={c.kind} /> {c.label}
                 </button>
               ))}
             </div>

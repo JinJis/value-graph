@@ -10,6 +10,7 @@ import {
   Alert, AlertParams, AlertScope, ChannelKind, ChannelStatus, CHANNELS, SourceSpec,
   TriggerType, TRIGGERS, channelMeta, previewMessage, triggerMeta,
 } from "@/lib/alerts";
+import { ChannelIcon } from "./ChannelIcon";
 import { Button, FreshnessDot, Modal } from "./ui";
 
 export type AlertDraft = {
@@ -165,7 +166,7 @@ export default function AlertSheet({
                   <div key={c.kind} className={`alert-chan ${on ? "on" : ""}`}>
                     <button type="button" className="alert-chan-pick" onClick={() => connected && toggle(c.kind)}
                       disabled={!connected} title={connected ? "" : "연결 필요"}>
-                      <span className="alert-chan-ic" aria-hidden>{c.icon}</span>
+                      <span className="alert-chan-ic"><ChannelIcon kind={c.kind} /></span>
                       <span className="alert-chan-name">{c.label}</span>
                       {connected
                         ? <span className="alert-chan-badge ok"><FreshnessDot f="fresh" /> 연결됨</span>
@@ -193,7 +194,7 @@ export default function AlertSheet({
               const cm = channelMeta(k);
               return (
                 <div key={k} className="alert-prev-card">
-                  <div className="alert-prev-head"><span className="alert-prev-ic">{cm.icon}</span>{cm.label} · 미리보기</div>
+                  <div className="alert-prev-head"><span className="alert-prev-ic"><ChannelIcon kind={k} /></span>{cm.label} · 미리보기</div>
                   <div className="alert-prev-title">{preview.title}</div>
                   <div className="alert-prev-body">{preview.body}</div>
                   <div className="alert-prev-foot"><FreshnessDot f="fresh" /> {preview.source} · as_of {preview.as_of} · 대시보드에서 보기 ↗</div>

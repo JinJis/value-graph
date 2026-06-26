@@ -573,7 +573,7 @@ export default function Chat({ name }: { name: string }) {
           <span className="ic">⭐</span><span className="lbl">관심</span>
         </button>
         <button className={`rail-item ${view === "bot" ? "on" : ""}`} onClick={() => setView("bot")}>
-          <span className="ic">🔔</span><span className="lbl">봇</span>
+          <span className="ic">🔔</span><span className="lbl">알림봇</span>
         </button>
         {convs.length > 0 && (
           <div className="rail-hist">
