@@ -10,7 +10,7 @@ import {
   Alert, AlertParams, AlertScope, ChannelKind, ChannelStatus, CHANNELS, SourceSpec,
   TriggerType, TRIGGERS, channelMeta, previewMessage, triggerMeta,
 } from "@/lib/alerts";
-import { Button, FreshnessDot } from "./ui";
+import { Button, FreshnessDot, Modal } from "./ui";
 
 export type AlertDraft = {
   scope?: AlertScope;
@@ -117,13 +117,19 @@ export default function AlertSheet({
   const selArr = [...sel];
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal alert-sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3><span className="alert-glyph">🔔</span> 알림 설정</h3>
-          <button className="x" onClick={onClose} aria-label="닫기">✕</button>
-        </div>
-        <div className="alert-sheet-sub">대시보드{boardName ? `: ${boardName}` : ""}</div>
+    <Modal
+      className="alert-sheet"
+      onClose={onClose}
+      title={<><span className="alert-glyph">🔔</span> 알림 설정</>}
+      footer={
+        <>
+          <span className="muted-note grow">봇 관리에서 언제든 끄거나 채널을 바꿀 수 있어요.</span>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>취소</Button>
+          <Button onClick={create} disabled={busy || sel.size === 0}>{busy ? "켜는 중…" : `알림 켜기 · ${sel.size}개 채널`}</Button>
+        </>
+      }
+    >
+      <div className="alert-sheet-sub">대시보드{boardName ? `: ${boardName}` : ""}</div>
 
         {/* scope toggle */}
         <div className="alert-scope">
@@ -202,12 +208,6 @@ export default function AlertSheet({
         </div>
 
         {err && <div className="err">{err}</div>}
-        <div className="modal-foot">
-          <span className="muted-note grow">봇 관리에서 언제든 끄거나 채널을 바꿀 수 있어요.</span>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>취소</Button>
-          <Button onClick={create} disabled={busy || sel.size === 0}>{busy ? "켜는 중…" : `알림 켜기 · ${sel.size}개 채널`}</Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

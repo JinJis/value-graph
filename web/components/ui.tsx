@@ -6,7 +6,7 @@
 // markup/classes, so the visual language stays unified. Tokens live in globals.css
 // :root; these primitives own the structural classNames that consume them.
 
-import { ButtonHTMLAttributes, ReactNode } from "react";
+import { ButtonHTMLAttributes, ReactNode, useEffect } from "react";
 import { cadenceLabel } from "@/lib/alerts";
 
 // ── Button ──────────────────────────────────────────────────────────────────
@@ -101,13 +101,23 @@ export function Mascot({ size }: { size?: number }) {
 
 // ── Modal shell ───────────────────────────────────────────────────────────--
 // Backdrop + centered panel + head with close. Click-outside / esc closes.
+// The single modal shell (FE-06): backdrop-click + ✕ close, plus a `className` for per-modal
+// styling (alert-sheet / widget-gallery) and a11y (role=dialog · aria-modal · Escape-to-close).
 export function Modal(
-  { title, onClose, wide, children, footer }:
-  { title: ReactNode; onClose: () => void; wide?: boolean; children: ReactNode; footer?: ReactNode },
+  { title, onClose, wide, className, children, footer }:
+  { title: ReactNode; onClose: () => void; wide?: boolean; className?: string; children: ReactNode; footer?: ReactNode },
 ) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const cls = ["modal", wide && "wide", className].filter(Boolean).join(" ");
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className={`modal ${wide ? "wide" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div className={cls} role="dialog" aria-modal="true"
+        aria-label={typeof title === "string" ? title : undefined}
+        onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{title}</h3>
           <button className="x" onClick={onClose} aria-label="닫기">✕</button>

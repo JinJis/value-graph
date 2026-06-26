@@ -5,7 +5,7 @@
 // 자연스럽게 안내한다. 추가하면 선택한 핀의 spec을 현재 보드에 위젯으로 올리고, 주기성 데이터면 알림도 켤 수 있다.
 
 import { useEffect, useState } from "react";
-import { Button, CadenceTag, FreshnessDot } from "./ui";
+import { Button, CadenceTag, FreshnessDot, Modal } from "./ui";
 import { isPeriodic } from "@/lib/alerts";
 
 type LibPin = { id: string; title: string; spec: any; board_id: string | null };
@@ -67,13 +67,21 @@ export default function WidgetGallery({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal widget-gallery" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3>위젯 추가</h3>
-          <button className="x" onClick={onClose} aria-label="닫기">✕</button>
-        </div>
-        <div className="wg-sub">대시보드{boardName ? `: ${boardName}` : ""} · 탐색에서 핀한 데이터로 위젯을 만듭니다</div>
+    <Modal
+      className="widget-gallery"
+      onClose={onClose}
+      title="위젯 추가"
+      footer={
+        <>
+          <span className="grow" />
+          <Button variant="ghost" onClick={onClose} disabled={busy}>{pins.length === 0 ? "닫기" : "취소"}</Button>
+          {pins.length > 0 && (
+            <Button onClick={add} disabled={busy || !sel}>{busy ? "추가 중…" : "대시보드에 추가"}</Button>
+          )}
+        </>
+      }
+    >
+      <div className="wg-sub">대시보드{boardName ? `: ${boardName}` : ""} · 탐색에서 핀한 데이터로 위젯을 만듭니다</div>
 
         {loading ? (
           <div className="wg-empty"><div className="muted-note">불러오는 중…</div></div>
@@ -130,14 +138,6 @@ export default function WidgetGallery({
           </div>
         )}
 
-        <div className="modal-foot">
-          <span className="grow" />
-          <Button variant="ghost" onClick={onClose} disabled={busy}>{pins.length === 0 ? "닫기" : "취소"}</Button>
-          {pins.length > 0 && (
-            <Button onClick={add} disabled={busy || !sel}>{busy ? "추가 중…" : "대시보드에 추가"}</Button>
-          )}
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
