@@ -15,12 +15,14 @@ the Live Context Feed's "context only, no forecast" shape.
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from app.config import settings
 from app.models.generated import News
 from app.providers.registry import get_news_provider
-from app.store.jobs import finish_job, start_job, update_progress
+from app.store.jobs import finish_job, log_activity, start_job, update_progress
 from app.symbols import Market
 
 
@@ -100,18 +102,25 @@ async def run_news_ingest(
     rag_url = rag_url or settings.rag_url
     spec = ",".join(t for t in syms if t) or "(market)"
     job_id = start_job("news", market, f"news:{spec}"[:256], total=len(syms))
+    log_activity("news", market, f"▶ 뉴스 수집 시작 · {len(syms)}종목 · Google News → RAG", job_id)
     provider = get_news_provider(mkt)
     docs: list[dict] = []
     try:
         for i, sym in enumerate(syms):
+            got = 0
             for article in await provider.news(mkt, sym, limit):
                 doc = _news_to_doc(market, article)
                 if doc:
                     docs.append(doc)
+                    got += 1
+            await asyncio.to_thread(log_activity, "news", market,
+                                    f"[{sym}] 뉴스 {got}건 ({i + 1}/{len(syms)})", job_id)
             update_progress(job_id, i + 1)
         chunks = await _ingest_to_rag(rag_url, docs)
         finish_job(job_id, "success", rows=chunks)
+        await asyncio.to_thread(log_activity, "news", market, f"✓ 완료 · {len(docs)}건 → RAG {chunks} chunks", job_id)
         return {"job_id": job_id, "status": "success", "rows": chunks, "docs": len(docs)}
     except Exception as exc:  # noqa: BLE001 — record the failure, don't crash the worker
         finish_job(job_id, "error", error=str(exc))
+        await asyncio.to_thread(log_activity, "news", market, f"✗ 실패 — {exc}", job_id, "error")
         return {"job_id": job_id, "status": "error", "error": str(exc)}

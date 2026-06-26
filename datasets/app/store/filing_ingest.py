@@ -20,7 +20,7 @@ from lxml import html as lxml_html
 from app.config import settings
 from app.store.filing_html import get_filing_html
 from app.store.filing_refs import filing_refs
-from app.store.jobs import finish_job, start_job, update_progress
+from app.store.jobs import finish_job, log_activity, start_job, update_progress
 from app.store.news_ingest import _ingest_to_rag  # reuse the RAG /rag/ingest POST helper
 
 log = logging.getLogger(__name__)
@@ -110,20 +110,33 @@ async def run_filing_text_ingest(market: str, tickers: list[str]) -> None:
     # a short, readable spec — NOT the full ticker join (which overflowed the varchar(256) spec
     # column for 200-500 tickers and made the INSERT fail before the job row even existed).
     job = start_job("filing_text", market, f"filing_text · {len(tickers)} tickers", len(tickers))
+    src = "SEC EDGAR" if market == "US" else "OpenDART"
+    log_activity("filing_text", market, f"▶ 시작 · {len(tickers)}종목 · 원천 {src} → RAG", job_id=job)
     total = 0
     failed: dict[str, str] = {}   # ticker → short failure reason (deduped in the note)
     empty: list[str] = []         # tickers that ran clean but produced no chunks
     try:
         for i, tk in enumerate(tickers, 1):
+            # show what it's working on RIGHT NOW (which ticker, which upstream) before the calls
+            await asyncio.to_thread(
+                log_activity, "filing_text", market,
+                f"[{tk}] {src} 공시 본문 수집·인덱싱 중… ({i}/{len(tickers)})", job)
             try:
                 got = await ingest_filing_text_for_ticker(market, tk)
                 total += got
                 if got == 0:
                     empty.append(tk)
+                    await asyncio.to_thread(log_activity, "filing_text", market,
+                                            f"[{tk}] 공시 본문 없음 (0 chunks)", job, "warn")
+                else:
+                    await asyncio.to_thread(log_activity, "filing_text", market,
+                                            f"[{tk}] {src} → RAG {got} chunks 인덱싱 ✓", job)
             except Exception as exc:  # noqa: BLE001 — one ticker never aborts the run
                 reason = f"{type(exc).__name__}: {exc}".strip().rstrip(":")
                 failed[tk] = reason or type(exc).__name__
                 log.warning("filing-text: %s %s failed: %s", market, tk, reason)
+                await asyncio.to_thread(log_activity, "filing_text", market,
+                                        f"[{tk}] 실패 — {reason}", job, "error")
             await asyncio.to_thread(update_progress, job, i)
         # finalise with a human note: how many ok, what failed (with the actual error), what was empty.
         ok = len(tickers) - len(failed) - len(empty)
@@ -142,5 +155,8 @@ async def run_filing_text_ingest(market: str, tickers: list[str]) -> None:
         # a run where EVERY ticker failed is an error, not a quiet success — surface it as such.
         status = "error" if failed and ok == 0 and total == 0 else "success"
         await asyncio.to_thread(finish_job, job, status, total, note)
+        await asyncio.to_thread(log_activity, "filing_text", market,
+                                f"{'✓' if status == 'success' else '✗'} 완료 · {note}", job,
+                                "info" if status == "success" else "error")
     except Exception:  # noqa: BLE001 — the loop itself blew up
         await asyncio.to_thread(finish_job, job, "error", total, traceback.format_exc()[-1800:])

@@ -246,18 +246,22 @@ async def job_detail(job_id: int) -> dict:
     pipeline kind + market) — everything the admin needs to diagnose a stuck/failed pipeline run."""
     import asyncio
 
-    from app.store.jobs import latest_job
+    from app.store.jobs import latest_job, list_activity
 
     events = await job_events(job_id)
     found = list(await app.job_manager.list_jobs_async(id=job_id))
     job = _job_dict(found[0]) if found else {"id": job_id}
     args = job.get("args") or {}
     pid, market = args.get("pipeline_id"), args.get("market")
-    ingestion = None
+    ingestion, activity = None, []
     if pid:
         kind = (PIPELINE_BY_ID.get(pid) or {}).get("kind") or pid
         ingestion = await asyncio.to_thread(latest_job, kind, market)
-    return {"job": job, "events": events, "ingestion": ingestion}
+        # the live activity feed for this run (by IngestionJob id if matched, else the kind)
+        ing_id = (ingestion or {}).get("id")
+        activity = await asyncio.to_thread(
+            list_activity, 120, None if ing_id else kind, ing_id)
+    return {"job": job, "events": events, "ingestion": ingestion, "activity": activity}
 
 
 async def retry_queue_job(job_id: int) -> dict:

@@ -448,6 +448,25 @@ def test_start_job_truncates_long_spec_and_records_pipeline_error():
     assert kr["status"] == "error" and "boom-kr" in (kr["error"] or "")
 
 
+def test_pipeline_activity_feed_logs_and_lists():
+    # the live feed the admin renders: runners append milestone lines, list_activity returns them
+    # newest-first, scoped by kind/job. (Best-effort — never raises.)
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+    J.log_activity("acttest", "KR", "▶ 시작 · 2종목", job_id=777)
+    J.log_activity("acttest", "KR", "[005930] OpenDART → RAG 320 chunks ✓", job_id=777)
+    J.log_activity("acttest", "KR", "[000660] 실패 — ReadTimeout", job_id=777, level="error")
+    feed = J.list_activity(10, job_id=777)
+    assert len(feed) == 3
+    assert feed[0]["message"].startswith("[000660]") and feed[0]["level"] == "error"   # newest first
+    assert all(r["kind"] == "acttest" for r in feed)
+    # scoping by kind works; an unknown kind returns nothing
+    assert len(J.list_activity(10, kind="acttest")) >= 3
+    assert J.list_activity(10, kind="nope-kind") == []
+
+
 @respx.mock
 async def test_ingest_to_rag_batches_large_filing():
     # a filing yields hundreds of section docs; _ingest_to_rag must split them into bounded POSTs

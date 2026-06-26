@@ -232,6 +232,16 @@ async def queue_jobs(status: str | None = None, queue: str | None = None, limit:
     return {"jobs": await Q.list_queue_jobs(status=status, queue=queue, limit=limit)}
 
 
+@router.get("/queue/activity", dependencies=[ApiKeyDep],
+            summary="Live pipeline activity feed (what's being fetched, from where, with what result)")
+async def queue_activity(limit: int = 80, kind: str | None = None, job_id: int | None = None) -> dict:
+    """A real-time, granular feed of what the running pipelines are doing — the worker writes a line
+    per ticker/step ("[005930] OpenDART 공시 → RAG 320 chunks"), so the admin can watch progress live
+    instead of only a status/progress bar. Newest first; optionally scoped to a kind or job."""
+    from app.store.jobs import list_activity
+    return {"activity": await asyncio.to_thread(list_activity, limit, kind, job_id)}
+
+
 @router.get("/queue/jobs/{job_id}", dependencies=[ApiKeyDep],
             summary="Job detail — Procrastinate event timeline + linked IngestionJob error")
 async def queue_job_detail(job_id: int) -> dict:

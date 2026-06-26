@@ -13,11 +13,11 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.store.bulk import bulk_load_kr, bulk_load_us
 from app.store.db import SessionLocal
-from app.store.models import IngestionJob
+from app.store.models import IngestionJob, PipelineActivity
 from app.store.universes import resolve_one
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,45 @@ def record_pipeline_error(kind: str, market: str | None, error: str) -> int:
         job.ended_at = _now()
         db.commit()
         return job.id
+
+
+_ACTIVITY_CAP = 800  # keep the live feed bounded — trim older lines past this many
+
+
+def log_activity(kind: str, market: str | None, message: str,
+                 job_id: int | None = None, level: str = "info") -> None:
+    """Append a milestone line to the live pipeline-activity feed (best-effort — never breaks a run).
+    The worker calls this as it works ("[005930] OpenDART 공시 4건 → RAG 320 chunks") so the admin can
+    show, in real time, what data a running pipeline is fetching and what came back."""
+    try:
+        with SessionLocal() as db:
+            row = PipelineActivity(job_id=job_id, kind=(kind or "")[:16],
+                                   market=(market or None) and market[:2], level=(level or "info")[:8],
+                                   message=(message or "")[:512], at=_now())
+            db.add(row)
+            db.commit()
+            if row.id % 50 == 0 and row.id > _ACTIVITY_CAP:   # occasional trim, not every insert
+                db.execute(delete(PipelineActivity).where(PipelineActivity.id < row.id - _ACTIVITY_CAP))
+                db.commit()
+    except Exception:  # noqa: BLE001 — activity logging must never sink a pipeline run
+        pass
+
+
+def list_activity(limit: int = 80, kind: str | None = None, job_id: int | None = None) -> list[dict]:
+    """Most-recent-first activity lines, optionally scoped to a pipeline kind or a specific job."""
+    try:
+        with SessionLocal() as db:
+            q = select(PipelineActivity)
+            if job_id is not None:
+                q = q.where(PipelineActivity.job_id == job_id)
+            if kind:
+                q = q.where(PipelineActivity.kind == kind)
+            rows = db.execute(q.order_by(PipelineActivity.id.desc()).limit(limit)).scalars().all()
+            return [{"id": r.id, "job_id": r.job_id, "kind": r.kind, "market": r.market,
+                     "level": r.level, "message": r.message,
+                     "at": r.at.isoformat() if r.at else None} for r in rows]
+    except Exception:  # noqa: BLE001 — the table may not exist yet on an un-migrated DB
+        return []
 
 
 def reap_stale_jobs(kind: str, market: str | None = None, older_than_minutes: int = 20) -> int:
@@ -161,21 +200,29 @@ async def run_ticker_job(
     Returns ``{status, rows, per_ticker, failed}`` (or ``{status: 'error', error}``).
     """
     job = await asyncio.to_thread(start_job, kind, market, spec, len(tickers))
+    await asyncio.to_thread(log_activity, kind, market, f"▶ 시작 · {len(tickers)}종목", job)
     per: dict[str, int] = {}
     try:
         for i, t in enumerate(tickers, 1):
             try:
                 per[t] = await ingest_one(t)
+                await asyncio.to_thread(log_activity, kind, market,
+                                        f"[{t}] {per[t]} rows ✓ ({i}/{len(tickers)})", job)
             except Exception as exc:  # noqa: BLE001 — one ticker never sinks the run
                 per[t] = -1
                 logger.warning("%s ingest failed %s:%s — %s", kind, market, t, exc)
+                await asyncio.to_thread(log_activity, kind, market,
+                                        f"[{t}] 실패 — {type(exc).__name__}: {exc}", job, "error")
             await asyncio.to_thread(update_progress, job, i)
         rows = sum(v for v in per.values() if v > 0)
         failed = [t for t, v in per.items() if v == -1]
         await asyncio.to_thread(finish_job, job, "success", rows, (f"failed: {failed}" if failed else None))
+        await asyncio.to_thread(log_activity, kind, market,
+                                f"✓ 완료 · {rows} rows" + (f", {len(failed)} 실패" if failed else ""), job)
         return {"status": "success", "rows": rows, "per_ticker": per, "failed": failed}
     except Exception as exc:  # noqa: BLE001
         await asyncio.to_thread(finish_job, job, "error", 0, str(exc))
+        await asyncio.to_thread(log_activity, kind, market, f"✗ 실패 — {exc}", job, "error")
         return {"status": "error", "error": str(exc)}
 
 
@@ -202,7 +249,15 @@ async def run_backfill(
         return {"status": "error", "error": "No tickers to backfill (US universe needs a preset or explicit tickers)."}
 
     job_id = start_job("backfill", market, (spec + (" · deep" if deep else ""))[:256], total=len(tickers))
-    progress = lambda done, total: update_progress(job_id, done)  # noqa: E731
+    src = "SEC EDGAR" if market.upper() == "US" else "OpenDART"
+    log_activity("backfill", market, f"▶ 재무 백필 시작 · {len(tickers)}종목 · {src}", job_id)
+    # log progress milestones (~every 10%) so the feed shows the bulk load advancing, not just a bar
+    step = max(1, len(tickers) // 10)
+
+    def progress(done, total):
+        update_progress(job_id, done)
+        if done and done % step == 0:
+            log_activity("backfill", market, f"{src} 재무 수집 {done}/{total}", job_id)
     try:
         if market.upper() == "US":
             result = await bulk_load_us(tickers=tickers, limit=limit, on_progress=progress)
@@ -214,7 +269,9 @@ async def run_backfill(
         rows = sum(v for v in per.values() if isinstance(v, int) and v > 0)
         failed = [t for t, v in per.items() if v == -1]
         finish_job(job_id, "success", rows=rows, error=(f"failed: {failed}" if failed else None))
+        log_activity("backfill", market, f"✓ 완료 · {rows} rows" + (f", {len(failed)} 실패" if failed else ""), job_id)
         return {"job_id": job_id, "status": "success", "rows": rows, "per_ticker": per, "failed": failed}
     except Exception as exc:  # noqa: BLE001 — record the failure, don't crash the worker
         finish_job(job_id, "error", error=str(exc))
+        log_activity("backfill", market, f"✗ 실패 — {exc}", job_id, "error")
         return {"job_id": job_id, "status": "error", "error": str(exc)}

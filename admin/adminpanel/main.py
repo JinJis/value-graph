@@ -536,6 +536,7 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
         ov = await _safe_get(c, f"{settings.datasets_url}/admin/queue")
         jq = f"{settings.datasets_url}/admin/queue/jobs?limit=100" + (f"&status={status}" if status else "")
         jobs = await _safe_get(c, jq)
+        act = await _safe_get(c, f"{settings.datasets_url}/admin/queue/activity?limit=50")
 
     if not _ok(ov):
         body = _flash(msg) + "<div class=warn>큐 정보를 불러오지 못했습니다 (datasets 연결 확인).</div>"
@@ -593,10 +594,15 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
         for k in ("todo", "doing", "succeeded", "failed")
     )
     running = bool(totals.get("doing") or totals.get("todo"))
+    act_list = act.get("activity") if isinstance(act, dict) else []
+    act_html = ("<h2>활동 로그" + (" · ⟳ live" if running else "") + "</h2>"
+                + "<p class=hint>실행 중인 파이프라인이 무엇을, 어디서, 어떤 결과로 수집하는지 실시간으로 보여줍니다.</p>"
+                + _activity_feed(act_list or []))
     body = (_flash(msg) + note
             + "<p class=hint>Procrastinate 큐 — Postgres가 브로커입니다(Redis 없음). 워커가 크론 스윕을 돌려 "
               "작업을 큐에 넣고 재시도와 함께 처리합니다. 여기서 작업을 모니터링하고 재시도/취소할 수 있어요.</p>"
             + "<div class=tiles>" + tiles + "</div>"
+            + act_html
             + "<h2>자동 수집 (크론 스윕)</h2>" + sweeps_html
             + f"<h2>작업 {'· ⟳ live' if running else ''}</h2>"
             + f"<div class=hint>필터: 전체 · {filt}"
@@ -669,9 +675,29 @@ async def queue_job_detail(request: Request, job_id: int):
                     "<p class=muted>이 작업과 매칭되는 IngestionJob 기록이 없습니다 "
                     "(작업이 시작 전 취소되었거나 기록 전 종료됨).</p>")
 
+    # live activity feed — what the run is fetching, from where, with what result (newest first)
+    running = st in ("doing", "todo")
+    act_html = ("<h2>활동 로그" + (" · ⟳ live" if running else "") + "</h2>"
+                + _activity_feed(d.get("activity") or []))
+
     body = (f"<p><a href='/queue'>← 큐로</a></p><h1 style='margin:0 0 4px'>작업 #{_esc(job_id)} 로그</h1>"
-            + head + ev_html + ing_html)
-    return HTMLResponse(page("/queue", f"Job {job_id}", body))
+            + head + act_html + ev_html + ing_html)
+    return HTMLResponse(page("/queue", f"Job {job_id}", body, refresh=running))
+
+
+def _activity_feed(acts: list) -> str:
+    """Render the granular pipeline-activity lines as a monospace live log (newest first)."""
+    if not acts:
+        return "<p class=muted>아직 활동 기록이 없습니다 (작업이 시작되면 실시간으로 표시됩니다).</p>"
+    lines = ""
+    for a in acts:
+        lv = a.get("level")
+        cls = "err" if lv == "error" else ("warn" if lv == "warn" else "")
+        t = (a.get("at") or "")[11:19]      # HH:MM:SS
+        mk = a.get("market") or ""
+        lines += (f"<div class='actline {cls}'><span class=at>{_esc(t)}</span>"
+                  f"<span class=mk>{_esc(mk)}</span><span class=msg>{_esc(a.get('message'))}</span></div>")
+    return f"<div class='actfeed'>{lines}</div>"
 
 
 @app.post("/ops/queue/sweep/{pipeline_id}")
