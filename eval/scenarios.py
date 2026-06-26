@@ -15,6 +15,8 @@ honoured its data-source restrictions / guardrails.
   expect_refused     : the agent refused (guardrail)
   expect_artifact    : an artifact (U3) was emitted — a kind string ("timeseries") or True for any
   forbid_artifact    : NO artifact emitted (a conceptual answer mustn't fabricate a chart/table)
+  expect_computation : a self-computed artifact carries its derivation (PH-DATA-6 계산 근거) — True
+  expect_cite_url    : a citation carries an external source page URL — a host substring or True
   expect_cadence     : provenance carries this cadence ("daily"…) or True for any periodic source
   expect_connectors_all : EVERY listed connector was reached (parallel multi-source gather)
   expect_clarify     : the intake offered scoping options (clarify-with-options) — True
@@ -98,7 +100,7 @@ SCENARIOS = [
         "criteria": "최근 CPI 관측치(기간+값)를 BLS 출처로 사실만 제시; 기준 시점이 최근(수개월 내)이어야 하고 "
                     "1년 넘게 묵은 값을 현재처럼 제시하면 안 됨; 인플레이션 전망/예측은 하지 않음.",
         "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
-                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+                   "answer_regex": r"\d", "expect_cite_url": "bls.gov", "expect_refused": False, "judge": True},
     },
     {
         # PH-FRESH-1: the exact user-reported regression — unemployment/payrolls must be CURRENT,
@@ -109,7 +111,7 @@ SCENARIOS = [
         "criteria": "실업률(%)과 비농업 고용 최신값을 BLS 출처로 제시하고, 기준 시점(연-월)이 최근(대략 3개월 이내) "
                     "이어야 함 — 1년 이상 묵은 값을 현재처럼 제시하면 오답. 전망/예측 없이 현황만.",
         "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
-                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+                   "answer_regex": r"\d", "expect_cite_url": "bls.gov", "expect_refused": False, "judge": True},
     },
     {
         "name": "Macro → Bank of Korea ECOS",
@@ -342,7 +344,7 @@ SCENARIOS = [
         "criteria": ("물가/고용/성장/금리 지표의 최신값과 직전 대비 변화를 출처(BLS·DBnomics)와 함께 사실만 제시; "
                      "각 지표 기준 시점이 최근이어야 하고 묵은 값은 지연 표시; 전망/투자의견 없이 현황만."),
         "checks": {"expect_connector": "fred__macro_panel", "expect_status": 200,
-                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+                   "answer_regex": r"\d", "expect_cite_url": True, "expect_refused": False, "judge": True},
     },
     {
         # CE-7: portfolio backtest — descriptive past performance over ingested prices.
@@ -352,7 +354,7 @@ SCENARIOS = [
         "criteria": ("매수후보유 과거 누적수익·연환산수익(CAGR)·최대낙폭 등을 저장된 가격 기반 사실로 제시하거나, "
                      "데이터가 없으면 정직하게 밝힘. '과거 성과이며 미래 보장·조언이 아님'을 명확히 함."),
         "checks": {"expect_connector": "datasets_store__backtest", "expect_status": 200,
-                   "expect_refused": False, "judge": True},
+                   "expect_computation": True, "expect_refused": False, "judge": True},
     },
     {
         # CE-6: quant factor screener — cross-sectional, descriptive (depends on ingested store).
@@ -362,7 +364,7 @@ SCENARIOS = [
         "criteria": ("저장된 데이터에서 ROE·PER 등 팩터로 종목을 필터·랭킹해 제시하거나, 데이터가 없으면 "
                      "정직하게 밝힘. 횡단면 사실 위주이며 매수/매도 의견·전망은 없음."),
         "checks": {"expect_connector": "datasets_store__quant_screen", "expect_status": 200,
-                   "expect_refused": False, "judge": True},
+                   "expect_computation": True, "expect_refused": False, "judge": True},
     },
     {
         # CE-5: transparent valuation model (DCF) — user-input calculator, NOT a price target.
@@ -373,7 +375,7 @@ SCENARIOS = [
                      "명시하고 '예측·목표가가 아닌 가정 기반 계산'임을 분명히 함. 출처(SEC EDGAR) 표기. "
                      "매수/매도 의견·목표주가 없음."),
         "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
-                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+                   "answer_regex": r"\d", "expect_computation": True, "expect_refused": False, "judge": True},
     },
     {
         # filing-text semantic search (on-demand RAG ingest) — quote real filing passages.
@@ -605,5 +607,208 @@ SCENARIOS = [
         "criteria": "영업이익을 구체적 숫자·기간·SEC EDGAR 출처로 제시.",
         "checks": {"expect_connector": "sec_edgar__", "expect_cite": "SEC EDGAR", "expect_confidence": True,
                    "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+
+    # ── PH-DATA-6: 계산 근거 — self-computed figures expose their derivation (method · 사용한 데이터 ·
+    #    가정 · 공식 · 단계). The artifact carries a `computation` trace; the answer states the math. ──
+    {
+        # DDM — dividend-discount intrinsic value from a user-supplied dividend; transparent calc.
+        "name": "Valuation transparency → DDM 배당할인 (계산 근거)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플(AAPL) 주당배당 1달러, 성장률 5%, 할인율 9% 가정으로 배당할인모형(DDM) 내재가치를 계산해줘.",
+        "criteria": ("DDM 공식(내재가치=D1/(할인율−성장률))으로 주당 내재가치를 제시하고, 사용한 가정(배당·성장률·"
+                     "할인율)을 명시. '예측·목표가가 아닌 가정 기반 계산'임을 분명히 하고 매수/매도 의견 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_computation": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # RIM — residual-income intrinsic value from BVPS + ROE (sourced financials).
+        "name": "Valuation transparency → RIM 잔여이익 (계산 근거)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "마이크로소프트(MSFT)를 잔여이익모형(RIM)으로 성장률 6%, 할인율 10% 가정 하에 내재가치를 계산해줘.",
+        "criteria": ("실제 재무(주당순자산 BVPS·ROE)를 base로 RIM 주당 내재가치를 제시하고, 사용한 가정과 공식을 "
+                     "명시. 출처(SEC EDGAR) 표기. 가정 기반 계산임을 분명히 하고 목표가·매수의견 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_computation": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # the user's explicit ask: when self-computed, SHOW what data/assumptions/formula derived it.
+        "name": "Valuation transparency → DCF 도출 과정 설명 (어떻게 계산했나)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플(AAPL) DCF 내재가치를 성장률 8%·할인율 10% 가정으로 계산하고, 어떤 데이터·가정·공식으로 도출했는지 함께 설명해줘.",
+        "criteria": ("DCF 주당 내재가치와 함께 ① 어떤 base 데이터(예: FCF·발행주식수)를 ② 어떤 가정(성장률·할인율·"
+                     "기간)으로 ③ 어떤 공식(PV 합+터미널)으로 도출했는지 투명하게 설명. 출처 표기, 예측·목표가 아님."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_computation": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # KR-side valuation (base inputs from OpenDART financials).
+        "name": "Valuation transparency → 삼성전자 DCF (KR, 계산 근거)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "삼성전자(005930)를 성장률 6%, 할인율 11% 가정으로 DCF 내재가치를 계산하고 사용한 재무·가정을 보여줘.",
+        "criteria": ("OpenDART 재무를 base로 한 DCF 주당 내재가치를 제시하고, 사용한 가정과 공식을 명시. 데이터가 "
+                     "부족하면 정직하게 밝힘. 가정 기반 계산임을 분명히 하고 목표가·매수의견 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # DCF under a DIFFERENT assumption set — the trace must reflect the user's inputs, not a fixed view.
+        "name": "Valuation transparency → DCF 가정 민감도 (다른 가정)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "엔비디아(NVDA) DCF를 보수적으로 성장률 5%, 할인율 12%, 추정기간 7년 가정으로 계산해줘.",
+        "criteria": ("입력한 가정(성장률 5%·할인율 12%·기간 7년)이 그대로 반영된 DCF 내재가치를 제시하고 가정·공식을 "
+                     "명시. 가정 기반 계산임을 분명히 하고 예측·목표가·매수의견 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_computation": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # backtest derivation: holdings + capital + window queried, performance metrics derived.
+        "name": "Backtest transparency → 보유·기간·성과지표 근거",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "구글 60%, 아마존 40% 포트폴리오를 2021년부터 백테스트하고, 어떤 보유·기간·가격으로 성과를 계산했는지 보여줘.",
+        "criteria": ("저장된 가격 기반으로 누적수익·CAGR·최대낙폭 등을 제시하고, 보유종목·비중·기간 등 계산 근거를 "
+                     "함께 보여줌(데이터 없으면 정직하게 밝힘). '과거 성과이며 미래 보장·조언 아님' 명시."),
+        "checks": {"expect_connector": "datasets_store__backtest", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # quant screen derivation: data sources + applied filters + per-factor formulas.
+        "name": "Quant screener transparency → 필터·팩터 공식 근거",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "PBR 1.5 이하, ROE 15% 이상인 미국 종목을 스크리닝하고, 어떤 데이터·필터·팩터 공식으로 골랐는지 설명해줘.",
+        "criteria": ("ROE·PBR 등 팩터로 필터·랭킹한 종목을 제시하고, 적용한 필터 기준과 각 팩터의 계산 방식을 함께 "
+                     "설명(데이터 없으면 정직하게 밝힘). 횡단면 사실 위주, 매수/매도 의견·전망 없음."),
+        "checks": {"expect_connector": "datasets_store__quant_screen", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+
+    # ── Source-page viewer: a sourced figure carries an external source URL the in-app viewer can
+    #    render + highlight (BLS/DBnomics/FRED series pages, news articles, filings). ──
+    {
+        # core CPI → BLS series page (data.bls.gov), viewable in-app.
+        "name": "Source viewer → 근원물가(Core CPI) 원문 (BLS 페이지)",
+        "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 근원 소비자물가(core CPI) 최신값과 기준 시점을 알려줘.",
+        "criteria": ("최근 core CPI 관측치(기간+값)를 BLS 출처로 사실만 제시; 기준 시점이 최근(수개월 내)이어야 함; "
+                     "인플레이션 전망/예측은 하지 않음."),
+        "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_cite_url": "bls.gov", "expect_refused": False, "judge": True},
+    },
+    {
+        # treasury yield → DBnomics series page (db.nomics.world), viewable in-app.
+        "name": "Source viewer → 미국 10년물 국채금리 원문 (DBnomics 페이지)",
+        "agent": {"name": "Eval Macro US", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 10년물 국채금리 최근 수준을 알려줘.",
+        "criteria": ("최근 미국 10년 국채금리(%)와 기준 시점을 출처(DBnomics/Fed H.15)와 함께 사실만 제시; 금리 "
+                     "전망/예측은 하지 않음."),
+        "checks": {"expect_connector": "fred__", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_cite_url": "nomics", "expect_refused": False, "judge": True},
+    },
+    {
+        # Korea policy rate via ECOS → a citation carries a source link.
+        "name": "Source viewer → 한국 기준금리 출처 링크 (ECOS)",
+        "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["ecos", "fred"]},
+        "question": "한국은행 기준금리 최근 추이를 알려줘.",
+        "criteria": "최근 한국은행 기준금리(%)와 기준 시점을 ECOS 출처로 사실만 제시; 금리 전망/예측은 하지 않음.",
+        "checks": {"expect_connector": "ecos__", "expect_status": 200, "expect_cite": "ECOS",
+                   "answer_regex": r"\d", "expect_refused": False, "judge": True},
+    },
+    {
+        # a news answer's citation carries the article URL (the viewer renders the publisher page).
+        "name": "Source viewer → 뉴스 기사 원문 링크",
+        "agent": {"name": "Eval News", "model": "gemini", "data_sources": ["google_news", "yahoo"]},
+        "question": "엔비디아 관련 최근 주요 뉴스를 출처 링크와 함께 정리해줘.",
+        "criteria": ("최근 엔비디아 관련 뉴스 헤드라인을 매체·시점과 함께 맥락으로 제시하고 각 기사에 출처 링크를 "
+                     "표기. 전망/매수의견 없이 사실·맥락만."),
+        "checks": {"expect_connector": "google_news__", "expect_status": 200,
+                   "expect_cite_url": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # filing source viewer (US): a fundamentals citation links to the SEC filing the figures
+        # came from (sec.gov index page) — the same in-app viewer opens + highlights it.
+        "name": "Source viewer → SEC 공시 원문 링크 (재무 인용)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "애플(AAPL)의 가장 최근 연간 매출을 알려줘.",
+        "criteria": "최근 연간 매출을 구체적 숫자·기간·SEC EDGAR 출처로 제시; 전망/매수의견 없음.",
+        "checks": {"expect_connector": "sec_edgar__", "expect_cite": "SEC EDGAR",
+                   "answer_regex": r"\d", "expect_cite_url": "sec.gov", "expect_refused": False, "judge": True},
+    },
+    {
+        # filing source viewer (KR): an OpenDART citation links to the DART rcpNo viewer page.
+        "name": "Source viewer → DART 공시 원문 링크 (재무 인용)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ["opendart"]},
+        "question": "삼성전자(005930)의 가장 최근 연간 매출액을 알려줘.",
+        "criteria": "최근 연간 매출액을 구체적 숫자·기간·OpenDART 출처로 제시; 전망/매수의견 없음.",
+        "checks": {"expect_connector": "opendart__", "expect_cite": "DART",
+                   "answer_regex": r"\d", "expect_cite_url": "dart.fss", "expect_refused": False, "judge": True},
+    },
+    {
+        # multi-turn valuation refinement — the recomputed DCF must reflect the NEW assumption and
+        # still expose its derivation (the computation trace updates with the user's input).
+        "name": "Valuation transparency → 가정 바꿔 재계산 (멀티턴)",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "turns": ["애플(AAPL) DCF 내재가치를 성장률 8%·할인율 10% 가정으로 계산해줘.",
+                  "할인율을 12%로 올려서 다시 계산해줘."],
+        "criteria": ("두 번째 답변이 할인율 12%를 반영한 DCF 내재가치를 다시 제시하고 사용한 가정·공식을 명시. "
+                     "가정 기반 계산임을 분명히 하고 예측·목표가·매수의견 없음."),
+        "checks": {"expect_connector": "datasets_store__valuation", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_computation": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # another macro source page — PCE price index (BEA via DBnomics), viewable in-app.
+        "name": "Source viewer → 미국 PCE 물가 원문 링크",
+        "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},
+        "question": "미국 PCE 물가지수 최근값과 기준 시점을 알려줘.",
+        "criteria": "최근 PCE 물가지수 관측치(기간+값)를 출처(BEA/DBnomics)와 함께 사실만 제시; 물가 전망/예측은 하지 않음.",
+        "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_cite_url": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # filing source viewer: a 13F holding cites the superinvestor's SEC 13F filing (sec.gov).
+        "name": "Source viewer → 거장 13F 보유 원문 링크 (SEC)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "워런 버핏(버크셔 해서웨이)의 최근 13F 상위 보유 종목을 알려줘.",
+        "criteria": ("최근 13F 상위 보유 종목·비중을 SEC 출처와 함께 사실로 제시; 분기 시점 표기; 매수/매도 의견·"
+                     "전망 없음."),
+        "checks": {"expect_connector": "sec_edgar__", "expect_cite": "SEC",
+                   "expect_cite_url": "sec.gov", "expect_refused": False, "judge": True},
+    },
+    {
+        # filing source viewer: insider trades (Form 4) cite the SEC filing page (sec.gov).
+        "name": "Source viewer → 내부자 거래 Form 4 원문 링크 (SEC)",
+        "agent": {"name": "Eval SEC-only", "model": "gemini", "data_sources": ["sec_edgar"]},
+        "question": "테슬라(TSLA)의 최근 내부자 거래(Form 4)를 정리해줘.",
+        "criteria": "최근 내부자 거래(매수/매도·수량·일자)를 SEC 출처와 함께 사실로 제시; 시점 표기; 투자의견·전망 없음.",
+        "checks": {"expect_connector": "sec_edgar__", "expect_cite": "SEC",
+                   "expect_cite_url": "sec.gov", "expect_refused": False, "judge": True},
+    },
+    {
+        # another macro source page — euro-area HICP (Eurostat via DBnomics), viewable in-app.
+        "name": "Source viewer → 유로존 물가(HICP) 원문 링크",
+        "agent": {"name": "Eval Macro", "model": "gemini", "data_sources": ["fred"]},
+        "question": "유로존 소비자물가(HICP) 최근값과 기준 시점을 알려줘.",
+        "criteria": "최근 유로존 HICP 관측치(기간+값)를 출처(Eurostat/DBnomics)와 함께 사실만 제시; 물가 전망/예측은 하지 않음.",
+        "checks": {"expect_connector": "fred__economic_indicators", "expect_status": 200,
+                   "answer_regex": r"\d", "expect_cite_url": True, "expect_refused": False, "judge": True},
+    },
+    {
+        # quant screen with DIFFERENT factors (FCF yield + momentum) — the trace exposes those formulas.
+        "name": "Quant screener transparency → FCF수익률·모멘텀 팩터 근거",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "FCF 수익률이 높고 최근 주가 모멘텀이 강한 미국 종목을 스크리닝하고 어떤 공식으로 골랐는지 설명해줘.",
+        "criteria": ("FCF 수익률·모멘텀 등 팩터로 필터·랭킹한 종목을 제시하고 각 팩터의 계산 방식을 설명(데이터 "
+                     "없으면 정직하게 밝힘). 횡단면 사실 위주, 매수/매도 의견·전망 없음."),
+        "checks": {"expect_connector": "datasets_store__quant_screen", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # 3-asset backtest — the derivation lists all holdings + window as inputs.
+        "name": "Backtest transparency → 3종목 포트폴리오 근거",
+        "agent": {"name": "Eval Research", "model": "gemini", "data_sources": ALL_SOURCES},
+        "question": "애플 40%, 마이크로소프트 30%, 엔비디아 30% 포트폴리오를 2022년부터 백테스트하고 보유·기간 근거를 보여줘.",
+        "criteria": ("저장된 가격 기반으로 누적수익·CAGR·최대낙폭 등을 제시하고 보유종목·비중·기간 등 계산 근거를 "
+                     "함께 보여줌(데이터 없으면 정직하게 밝힘). '과거 성과이며 미래 보장·조언 아님' 명시."),
+        "checks": {"expect_connector": "datasets_store__backtest", "expect_status": 200,
+                   "expect_refused": False, "judge": True},
     },
 ]

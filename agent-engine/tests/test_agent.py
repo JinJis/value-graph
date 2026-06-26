@@ -182,6 +182,50 @@ def test_quant_screen_and_backtest_carry_computation():
     assert any(r.label == "누적수익" for r in ba[0].computation.steps)
 
 
+def test_valuation_ddm_and_rim_carry_their_own_trace():
+    from agentengine.artifacts import _build_artifacts
+    # DDM — dividend-discount; the trace shows the DDM formula, the dividend input + assumptions,
+    # and the next-dividend step (D1).
+    ddm = {"model": "ddm", "ticker": "KO", "value_per_share": 60.0, "source": "사용자 입력 (D0)",
+           "assumptions": {"growth_rate": 0.05, "discount_rate": 0.09, "dividend_per_share": 1.84},
+           "inputs": {"dividend_per_share": 1.84}, "breakdown": {"d0": 1.84, "d1": 1.93}}
+    a = _build_artifacts({"name": "valuation__valuation", "source": "x"}, {"data": ddm})
+    assert a and a[0].computation and a[0].computation.method == "배당할인 (DDM)"
+    assert "D1" in (a[0].computation.formula or "")
+    assert any(r.label == "차기 배당 D1" for r in a[0].computation.steps)
+
+    # RIM — residual income; the trace shows BVPS/ROE inputs and the residual-income PV step.
+    rim = {"model": "rim", "ticker": "MSFT", "value_per_share": 320.0, "source": "SEC EDGAR",
+           "assumptions": {"growth_rate": 0.06, "discount_rate": 0.10, "years": 5},
+           "inputs": {"bvps": 30.0, "roe": 0.35, "equity": 2.2e11, "shares": 7.4e9},
+           "breakdown": {"bvps": 30.0, "pv_residual": 4.2e11, "pv_terminal": 6.0e11,
+                         "rows": [{"year": 1, "bvps": 31.8, "residual_income": 9.0, "pv": 8.2}]}}
+    b = _build_artifacts({"name": "valuation__valuation", "source": "x"}, {"data": rim})
+    assert b and b[0].computation and b[0].computation.method == "잔여이익 (RIM)"
+    assert any(r.label == "ROE" for r in b[0].computation.inputs)
+    assert any(r.label == "잔여이익 PV 합" for r in b[0].computation.steps)
+
+
+def test_non_computed_artifact_has_no_computation_trace():
+    # a sourced (not self-computed) figure — a price series — is a single datum per point, so it
+    # carries NO computation trace (it opens the source instead). Guards against over-attaching.
+    from agentengine.artifacts import _build_artifacts
+    data = {"ticker": "AAPL", "prices": [{"time": "2024-01-02", "open": 1, "high": 2, "low": 1,
+                                          "close": 2, "volume": 100}]}
+    arts = _build_artifacts({"name": "yahoo__prices", "source": "Yahoo Finance"}, {"data": data})
+    assert arts and all(a.computation is None for a in arts)
+
+
+def test_valuation_without_value_emits_no_artifact():
+    # honesty: when the base data is insufficient (no per-share value, empty breakdown), the DCF
+    # handler emits nothing rather than a hollow computation panel.
+    from agentengine.artifacts import _build_artifacts
+    data = {"model": "dcf", "ticker": "ZZZZ", "value_per_share": None,
+            "assumptions": {"growth_rate": 0.08, "discount_rate": 0.10, "years": 5},
+            "inputs": {"base_fcf": None, "shares": None}, "breakdown": {}}
+    assert _build_artifacts({"name": "valuation__valuation", "source": "x"}, {"data": data}) == []
+
+
 def test_mark_evidence_fallback_when_no_inline_anchors():
     cites = [A.Citation(tool="t1", source="A", url="u1", index=1, snippet="real"),
              A.Citation(tool="t2", source="B", index=2)]  # bare label, no data

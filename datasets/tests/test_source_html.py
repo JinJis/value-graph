@@ -94,3 +94,101 @@ async def test_get_source_html_rejects_non_html(monkeypatch, tmp_path):
     respx.get("https://example.com/data.json").mock(
         return_value=httpx.Response(200, json={"x": 1}))
     assert await S.get_source_html("https://example.com/data.json") is None
+
+
+def _by_host(host_ip: dict[str, str]):
+    """A getaddrinfo stub that resolves each host to a chosen IP (so a redirect can cross a
+    public→private boundary mid-fetch, exercising the per-hop re-validation)."""
+    def _stub(host, *a, **k):
+        return _addrinfo(host_ip.get(host, "8.8.8.8"))
+    return _stub
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redirect_to_private_host_is_refused(monkeypatch, tmp_path):
+    # a public page that 302-redirects to an INTERNAL host must NOT be followed (SSRF via redirect).
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo",
+                        _by_host({"pub.example": "8.8.8.8", "internal.example": "127.0.0.1"}))
+    respx.get("https://pub.example/start").mock(
+        return_value=httpx.Response(302, headers={"location": "https://internal.example/secret"}))
+    secret = respx.get("https://internal.example/secret").mock(
+        return_value=httpx.Response(200, html="<html><body>SECRET</body></html>"))
+    assert await S.get_source_html("https://pub.example/start") is None
+    assert not secret.called          # the internal host was never fetched
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redirect_to_public_host_is_followed(monkeypatch, tmp_path):
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo",
+                        _by_host({"a.example": "8.8.8.8", "b.example": "8.8.4.4"}))
+    respx.get("https://a.example/start").mock(
+        return_value=httpx.Response(301, headers={"location": "https://b.example/final"}))
+    respx.get("https://b.example/final").mock(
+        return_value=httpx.Response(200, html="<html><body>323.048</body></html>"))
+    out = await S.get_source_html("https://a.example/start")
+    assert out is not None and "323.048" in out
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_too_many_redirects_gives_up(monkeypatch, tmp_path):
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo", lambda *a, **k: _addrinfo("8.8.8.8"))
+    # a self-redirect loop → bounded by _MAX_REDIRECTS → None (never a 200)
+    respx.get("https://loop.example/x").mock(
+        return_value=httpx.Response(302, headers={"location": "https://loop.example/x"}))
+    assert await S.get_source_html("https://loop.example/x") is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_oversize_body_is_refused(monkeypatch, tmp_path):
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo", lambda *a, **k: _addrinfo("8.8.8.8"))
+    monkeypatch.setattr(S, "_MAX_BYTES", 64)      # tiny cap for the test
+    big = "<html><body>" + ("x" * 500) + "</body></html>"
+    respx.get("https://big.example/page").mock(return_value=httpx.Response(200, html=big))
+    assert await S.get_source_html("https://big.example/page") is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_non_200_is_refused(monkeypatch, tmp_path):
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo", lambda *a, **k: _addrinfo("8.8.8.8"))
+    respx.get("https://gone.example/x").mock(return_value=httpx.Response(404, html="<html/>"))
+    assert await S.get_source_html("https://gone.example/x") is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_http_scheme_public_host_is_allowed(monkeypatch, tmp_path):
+    # http (not just https) is fine as long as the host is public.
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo", lambda *a, **k: _addrinfo("8.8.8.8"))
+    respx.get("http://plain.example/p").mock(
+        return_value=httpx.Response(200, html="<html><body><b>2.5%</b></body></html>"))
+    out = await S.get_source_html("http://plain.example/p")
+    assert out is not None and "2.5%" in out
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_sanitize_strips_base_and_injects_csp(monkeypatch, tmp_path):
+    # the shared sanitize() removes <base> (so the source's relative urls don't resolve against our
+    # origin) and injects the strict CSP; the figure text survives for highlighting. (Inline handlers
+    # never fire anyway: the iframe has no allow-scripts and default-src 'none' blocks egress.)
+    monkeypatch.setattr(S.settings, "evidence_docs_dir", str(tmp_path))
+    monkeypatch.setattr(S.socket, "getaddrinfo", lambda *a, **k: _addrinfo("8.8.8.8"))
+    page = ("<html><head><base href='https://evil.example/'></head>"
+            "<body><p>data 1,234.5</p></body></html>")
+    respx.get("https://src.example/p").mock(return_value=httpx.Response(200, html=page))
+    out = await S.get_source_html("https://src.example/p")
+    assert out is not None
+    assert "<base" not in out.lower()
+    assert "default-src 'none'" in out
+    assert "1,234.5" in out                       # the cited figure survives

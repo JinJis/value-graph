@@ -97,7 +97,7 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
     code, raw = _request("POST", f"{STUDIO}/chat/stream",
                          {"messages": messages, "agent_id": agent_id}, headers)
     tools, statuses, cites, ans, arts, cads = [], [], [], [], [], []
-    confs, suggestions, subagents = [], [], {}
+    confs, suggestions, subagents, cite_urls = [], [], {}, []
     clarify = None
     refused = None
     for line in raw.decode("utf-8", "replace").splitlines():
@@ -116,6 +116,8 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
         elif t == "citation":
             if ev.get("source"):
                 cites.append(ev["source"])
+            if ev.get("url"):                # the external source page the in-app viewer renders
+                cite_urls.append(ev["url"])
             if ev.get("cadence"):
                 cads.append(ev["cadence"])
             if ev.get("confidence"):
@@ -141,8 +143,10 @@ def chat_messages(messages: list[dict], agent_id: str) -> dict:
             for c in ev.get("citations") or []:
                 if isinstance(c, dict) and c.get("confidence"):
                     confs.append(c["confidence"])
+                if isinstance(c, dict) and c.get("url"):
+                    cite_urls.append(c["url"])
     return {"http": code, "tools": tools, "statuses": statuses, "citations": cites,
-            "artifacts": arts, "cadences": cads, "confidences": confs,
+            "artifacts": arts, "cadences": cads, "confidences": confs, "cite_urls": cite_urls,
             "clarify": clarify, "subagents": list(subagents.values()), "suggestions": suggestions,
             "answer": "".join(ans).strip(), "refused": bool(refused)}
 
@@ -239,6 +243,21 @@ def grade(checks: dict, r: dict) -> list[tuple[str, bool, str]]:
         kinds = [a.get("kind") for a in arts]
         ok = bool(arts) if kind is True else (kind in kinds)
         out.append((f"emits artifact {kind if kind is not True else ''}".strip(), ok, f"artifacts={kinds}"))
+    if "expect_computation" in checks:
+        # PH-DATA-6: a self-computed figure (valuation/backtest/screener) must carry the auditable
+        # derivation — method + at least one input/assumption/step row — so the math isn't a black box.
+        arts = r.get("artifacts") or []
+        comps = [a.get("computation") for a in arts if isinstance(a, dict) and a.get("computation")]
+        ok = any(isinstance(c, dict) and c.get("method")
+                 and (c.get("inputs") or c.get("assumptions") or c.get("steps")) for c in comps)
+        out.append(("emits computation trace", ok, f"computations={[(c or {}).get('method') for c in comps]}"))
+    if "expect_cite_url" in checks:
+        # the source-page viewer: a citation must carry an external source URL (so the in-app viewer
+        # can render + highlight it). A substring asserts it points at the expected host.
+        want = checks["expect_cite_url"]
+        urls = r.get("cite_urls") or []
+        ok = bool(urls) if want is True else any(want in (u or "") for u in urls)
+        out.append((f"carries source url {want if want is not True else ''}".strip(), ok, f"urls={urls[:4]}"))
     if "expect_cadence" in checks:
         # periodicity rides on provenance (citations/artifacts) → the pin→alert gate. `True` =
         # any periodic (alertable) source present; a string = that exact cadence present.
