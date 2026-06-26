@@ -22,8 +22,8 @@ python3 eval/run_eval.py             # stdlib only — no extra deps
 ```
 
 Env: `STUDIO_URL` (`:8004`), `RAG_URL` (`:8002`), `SERVICE_TOKEN`, `EVAL_USER`,
-`GOOGLE_API_KEY` (enables the judge), `EVAL_JUDGE_MODEL` (the **deep** judge model —
-default `gemini-pro-latest`; set `gemini-3.5-pro-preview` for the strongest grading),
+`GOOGLE_API_KEY` (enables the judge), `EVAL_JUDGE_MODEL` (the judge model — default
+fast `gemini-flash-latest`; set `gemini-pro-latest` for the strongest/slower grading),
 `EVAL_JUDGE_BAR` (pass threshold, default 3.8), `EVAL_TODAY`.
 
 ## What it checks

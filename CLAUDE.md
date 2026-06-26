@@ -111,7 +111,7 @@ python3 eval/run_eval.py             # quality eval (stack up first; skips witho
 ```
 **Definition of Done for a task:** its acceptance criteria pass · unit tests added/updated for the
 service(s) touched · the relevant e2e/coverage harness still green · **the quality eval
-(`python3 eval/run_eval.py`, deep-model rubric — see `eval/RUBRIC.md`) run before push and still above the
+(`python3 eval/run_eval.py`, LLM-judge rubric — see `eval/RUBRIC.md`) run before push and still above the
 bar; if the task adds a tool / endpoint / feature, add an eval scenario (with `criteria`) for it** ·
 the new roadmap's test totals + the task status updated in the same PR.
 

@@ -43,7 +43,11 @@ def _envval(*keys: str) -> str:
         line = line.strip()
         if "=" in line and not line.startswith("#"):
             k, v = line.split("=", 1)
-            rows[k.strip()] = v.strip().strip("\"'")
+            v = v.strip()
+            # strip an unquoted inline comment (dotenv: `KEY=value  # note` → value)
+            if v[:1] not in ("'", '"'):
+                v = re.split(r"\s+#", v, 1)[0].rstrip()
+            rows[k.strip()] = v.strip("\"'")
     for k in keys:
         if rows.get(k):
             return rows[k]
@@ -53,10 +57,10 @@ def _envval(*keys: str) -> str:
 # Accept GOOGLE_API_KEY or GEMINI_API_KEY (the genai SDK reads either).
 GKEY = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
         or _envval("GOOGLE_API_KEY", "GEMINI_API_KEY"))
-# The judge is a DEEP model (rubric grading needs strong reasoning) — decoupled from
-# the agent's fast model. Override with EVAL_JUDGE_MODEL (e.g. gemini-3.5-pro-preview).
+# The judge is decoupled from the agent's model. Default is a FAST model (flash) so the eval runs
+# quickly; override with EVAL_JUDGE_MODEL=gemini-pro-latest for the strongest (slower) grading.
 JUDGE_MODEL = (os.environ.get("EVAL_JUDGE_MODEL") or _envval("EVAL_JUDGE_MODEL")
-               or "gemini-pro-latest")
+               or "gemini-flash-latest")
 # Pass bar: rubric overall average must clear this (per-dimension shown in the summary).
 JUDGE_BAR = float(os.environ.get("EVAL_JUDGE_BAR") or _envval("EVAL_JUDGE_BAR") or "3.8")
 
