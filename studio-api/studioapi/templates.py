@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from studioapi.db import SessionLocal
+from studioapi.demo_template import demo_template
 from studioapi.deps import current_user, require_service
 from studioapi.models import Board, DashboardTemplate, PinnedArtifact, User
 
@@ -35,6 +36,8 @@ def _w(kind: str, title: str, source: str, *, tool=None, args=None, viz=None, co
 # Provided templates. Price/timeseries widgets use yahoo__prices (refreshes live); macro/fundamental
 # widgets are sourced placeholders that render a gap until wired (honest, never fabricated).
 DASHBOARD_TEMPLATES: list[dict] = [
+    # a rich, self-contained live-demo board (embedded mock data → renders without any backend call)
+    demo_template(),
     {"id": "dt_semi", "name": "반도체 모니터", "market": None,
      "description": "6 위젯 · Yahoo·DART·뉴스",
      "widgets": [
