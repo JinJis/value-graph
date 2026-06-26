@@ -66,7 +66,8 @@ export function TradeChart(
   const isCandle = candleData.length > 0;
   const lineCount = lineData.length;
   const overlays = a.overlays ?? [];
-  const [range, setRange] = useState("1Y");
+  const [range, setRange] = useState("MAX");  // default to all available data (fitContent) — a short
+  //                                              window looks empty/ugly when the series is sparse
   const [logScale, setLogScale] = useState(false);
   const [rebase, setRebase] = useState(false);   // line mode only: index each series to 100
   // PH-VIZ-5: drawing mode (only when onDraw is provided). The pending point of a 2-click
