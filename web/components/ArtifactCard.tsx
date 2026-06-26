@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CadenceTag, FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
+import { ComputationPanel } from "./ComputationPanel";
 import type { Citation } from "./SourceCard";
 import type { Artifact, ArtifactCandle, ArtifactSeries, ChartAnnotations } from "../lib/types";
 import { currencyOf, fmt, fmtBig, fmtPrice, fmtVol } from "../lib/format";
@@ -85,6 +86,7 @@ function TableArtifact(
           ))}
         </tbody>
       </table>
+      <ComputationPanel comp={a.computation} />
       <div className="artifact-foot">
         <span className="artifact-src">
           {a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}
@@ -351,6 +353,7 @@ export function ArtifactCard(
         <TradeChart a={a} bars={bars} series={finSeries} currency={currency} onEvidence={onEvidence} userAnn={userAnn} onDraw={draw} />
       )}
 
+      <ComputationPanel comp={a.computation} />
       <div className="artifact-foot">
         {!hasCandles && series.length > 0 && (
           <div className="artifact-legend">

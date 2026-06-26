@@ -135,6 +135,53 @@ def test_mark_evidence_only_cited_or_artifact_backing():
     assert used == {1, 3}            # [1] cited + t3 backs an artifact; t2 consulted-only
 
 
+def test_valuation_artifact_carries_computation_trace():
+    # PH-DATA-6: a DCF result → an Artifact whose `computation` exposes the auditable derivation
+    # (sourced inputs, the user's assumptions, the formula, and the intermediate math).
+    from agentengine.artifacts import _build_artifacts
+    data = {
+        "model": "dcf", "ticker": "AAPL", "value_per_share": 175.0, "source": "SEC EDGAR",
+        "as_of": "2024-09-28",
+        "assumptions": {"growth_rate": 0.08, "discount_rate": 0.10, "years": 5, "terminal_growth": 0.025},
+        "inputs": {"base_fcf": 1.0e11, "shares": 1.6e10, "net_debt": -5.0e10},
+        "breakdown": {"enterprise_value": 3.0e12, "equity_value": 2.8e12, "pv_explicit": 4.0e11,
+                      "pv_terminal": 2.6e12, "terminal_value": 4.0e12,
+                      "rows": [{"year": 1, "fcf": 1.08e11, "pv": 9.8e10}]},
+        "disclaimer": "예측이 아닙니다.",
+    }
+    arts = _build_artifacts({"name": "valuation__valuation", "source": "SEC EDGAR"}, {"data": data})
+    assert arts and arts[0].computation is not None
+    comp = arts[0].computation
+    assert comp.method == "2단계 FCF 할인 (DCF)" and comp.formula
+    # assumptions are shown as %/years, inputs are sourced, steps include the intermediate math
+    assert any(r.label == "할인율" and r.value == "10.0%" for r in comp.assumptions)
+    assert any(r.label.startswith("기준 FCF") and r.source == "SEC EDGAR" for r in comp.inputs)
+    assert any(r.label == "기업가치 EV" for r in comp.steps)
+
+
+def test_quant_screen_and_backtest_carry_computation():
+    from agentengine.artifacts import _build_artifacts
+    # quant screen: criteria + per-factor formulas exposed
+    q = {"market": "US", "factors": ["pe", "roe"], "sort": "roe", "order": "desc", "count": 2,
+         "applied_filters": [{"field": "pe", "operator": "lte", "value": 15}],
+         "results": [{"ticker": "AAPL", "market_cap": 3e12, "pe": 12.0, "pb": 40.0, "roe": 1.5,
+                      "return_window": 0.2}]}
+    qa = _build_artifacts({"name": "search__quant_screen", "source": "store"}, {"data": q})
+    assert qa and qa[0].computation
+    assert any(r.value.startswith("≤") for r in qa[0].computation.assumptions)  # PER ≤ 15
+    assert any(r.label == "PE" for r in qa[0].computation.steps)                # factor formula
+
+    # backtest: holdings + window as inputs, performance metrics as steps
+    b = {"start": "2020-01-01", "end": "2024-01-01", "initial": 1.0e4,
+         "holdings": [{"ticker": "AAPL", "weight": 0.6}, {"ticker": "MSFT", "weight": 0.4}],
+         "metrics": {"total_return": 0.85, "cagr": 0.17, "max_drawdown": -0.22},
+         "curve": [{"date": "2020-01-01", "value": 10000}, {"date": "2024-01-01", "value": 18500}]}
+    ba = _build_artifacts({"name": "backtest__backtest", "source": "store"}, {"data": b})
+    assert ba and ba[0].computation
+    assert any(r.label == "AAPL" for r in ba[0].computation.inputs)
+    assert any(r.label == "누적수익" for r in ba[0].computation.steps)
+
+
 def test_mark_evidence_fallback_when_no_inline_anchors():
     cites = [A.Citation(tool="t1", source="A", url="u1", index=1, snippet="real"),
              A.Citation(tool="t2", source="B", index=2)]  # bare label, no data

@@ -204,6 +204,27 @@ class NarrativeSection(BaseModel):
     body: str
 
 
+class CalcRow(BaseModel):
+    """One labelled line in a computation trace — an input, an assumption, or a step result."""
+    label: str
+    value: str
+    source: str | None = None    # where this input came from (e.g. "SEC EDGAR · FY2024")
+
+
+class Computation(BaseModel):
+    """How a self-computed figure was derived. Our figures are either a single sourced datum OR the
+    OUTPUT of a formula over sourced inputs; for the latter there is no source *page* to open, so the
+    trust envelope is showing the math — what was queried, what was assumed, what formula, what came
+    out. Attached to the Artifact and rendered as a '계산 근거' panel. (Not a forecast: assumptions are
+    the user's, the base figures are sourced — same honesty contract as the valuation disclaimer.)"""
+    method: str                          # the approach (e.g. "2단계 FCF 할인 (DCF)")
+    formula: str | None = None           # the formula in words
+    inputs: list[CalcRow] = []           # the sourced base figures the calc consumed
+    assumptions: list[CalcRow] = []      # the tunable assumptions (growth, discount rate, …)
+    steps: list[CalcRow] = []            # intermediate results leading to the figure
+    note: str | None = None              # disclaimer / caveat
+
+
 class Artifact(BaseModel):
     """A typed, connector-backed figure emitted alongside prose (U3). The web renders
     it as an interactive card (TradingView Lightweight Charts); gaps are drawn, never hidden."""
@@ -233,6 +254,9 @@ class Artifact(BaseModel):
     table: list[list[str]] | None = None
     # for kind=narrative (CE-4): the structured 종목 내러티브 sections (heading + sourced body).
     sections: list[NarrativeSection] = []
+    # for self-computed figures (valuation/backtest/screener): the auditable derivation — what was
+    # queried, assumed, and the formula → the figure. Rendered as a '계산 근거' panel. (PH-DATA-6)
+    computation: Computation | None = None
     source: str | None = None
     as_of: str | None = None
     freshness: str | None = None

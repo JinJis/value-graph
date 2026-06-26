@@ -384,6 +384,26 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .artifact-empty { padding: 22px 14px; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5;
   background: repeating-linear-gradient(45deg, var(--panel-3), var(--panel-3) 7px, #F3F3F5 7px, #F3F3F5 14px); }
 
+/* PH-DATA-6: 계산 근거 — the auditable derivation of a self-computed figure (collapsed by default) */
+.cp { border-top: 1px solid var(--line-3); }
+.cp-toggle { display: flex; align-items: center; gap: 7px; width: 100%; background: var(--panel-2);
+  border: none; padding: 8px 12px; font-size: 11px; color: var(--text-2); cursor: pointer; text-align: left; }
+.cp-toggle:hover { background: var(--panel-3); }
+.cp-method { color: var(--muted); font-weight: 400; }
+.cp-chevron { margin-left: auto; color: var(--muted); }
+.cp-body { padding: 4px 12px 12px; background: var(--panel-2); display: flex; flex-direction: column; gap: 10px; }
+.cp-formula { font-size: 11px; color: var(--text-2); background: var(--panel); border: 1px solid var(--line-3);
+  border-radius: 6px; padding: 8px 10px; line-height: 1.6; }
+.cp-sec-h { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.cp-rows { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.cp-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+  padding: 3px 0; border-bottom: 1px solid var(--line-3); }
+.cp-row:last-child { border-bottom: none; }
+.cp-label { margin: 0; font-size: 11px; color: var(--text-2); }
+.cp-val { margin: 0; font-size: 11px; color: var(--text); text-align: right; }
+.cp-src { color: var(--muted); font-size: 10px; }
+.cp-note { font-size: 10px; color: var(--muted); line-height: 1.5; font-style: italic; }
+
 /* inline [n] anchors inside the prose — accent indigo (wireframe A/C) */
 .anch { font-family: var(--mono); font-size: 9px; color: var(--accent); cursor: help;
   padding: 0 1px; vertical-align: super; line-height: 0; }

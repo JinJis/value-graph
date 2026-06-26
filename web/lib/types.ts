@@ -37,6 +37,17 @@ export type ChartOverlay = {
   key: string; name: string; pane?: string; unit?: string | null;
   lines: OverlayLine[]; source?: string | null;
 };
+// PH-DATA-6: the auditable derivation of a self-computed figure (valuation/backtest/screener) —
+// what was queried, what was assumed, the formula, and the intermediate steps. Shown as a panel.
+export type CalcRow = { label: string; value: string; source?: string | null };
+export type Computation = {
+  method: string;
+  formula?: string | null;
+  inputs?: CalcRow[];
+  assumptions?: CalcRow[];
+  steps?: CalcRow[];
+  note?: string | null;
+};
 export type Artifact = {
   kind: string;
   chart_style?: string | null;  // "bar" for money amounts (revenue/income); else line
@@ -50,6 +61,7 @@ export type Artifact = {
   overlays?: ChartOverlay[];   // PH-VIZ-4: technical indicators (price-pane + sub-panes)
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   sections?: { heading: string; body: string }[];  // kind=narrative (CE-4): 종목 내러티브 sections
+  computation?: Computation | null;  // PH-DATA-6: how a self-computed figure was derived
   source?: string | null;
   as_of?: string | null;
   freshness?: string | null;

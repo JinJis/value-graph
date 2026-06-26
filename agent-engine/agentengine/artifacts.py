@@ -20,7 +20,9 @@ from agentengine.models import (
     ArtifactPoint,
     ArtifactPriceLine,
     ArtifactSeries,
+    CalcRow,
     ChartOverlay,
+    Computation,
     OverlayLine,
     OverlayPoint,
 )
@@ -29,6 +31,22 @@ from agentengine.provenance import _canonical_provenance, _filing_link, _market_
 
 def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
+
+
+def _money(v) -> str:
+    """Abbreviated money (B/M) for computation traces — shared by the computed-figure handlers."""
+    if not isinstance(v, (int, float)):
+        return "—"
+    a = abs(v)
+    if a >= 1e9:
+        return f"{v/1e9:,.2f}B"
+    if a >= 1e6:
+        return f"{v/1e6:,.1f}M"
+    return f"{v:,.2f}"
+
+
+def _pct(v) -> str:
+    return f"{v*100:.1f}%" if isinstance(v, (int, float)) else "—"
 
 
 def _timeseries(title: str, series: list[ArtifactSeries], source, tool_name, ticker, url=None,
@@ -362,6 +380,33 @@ def _h_macro_panel(ctx: _Ctx) -> list[Artifact]:
     return []
 
 
+_BT_METRIC_LABEL = {"total_return": "누적수익", "cagr": "연평균수익(CAGR)", "volatility": "변동성(연율)",
+                    "max_drawdown": "최대낙폭(MDD)", "best_day": "최고일", "worst_day": "최저일"}
+
+
+def _backtest_computation(data: dict) -> Computation | None:
+    """How the backtest figures came about — the holdings + capital + window queried (sourced
+    prices), the simulation method, and the resulting performance metrics."""
+    holdings = data.get("holdings") or []
+    metrics = data.get("metrics") or {}
+    if not holdings and not metrics:
+        return None
+    in_rows = [CalcRow(label=h.get("ticker", "?"), value=_pct(h.get("weight")),
+                       source="ingestion store (Yahoo prices)")
+               for h in holdings if isinstance(h, dict)]
+    if isinstance(data.get("initial"), (int, float)):
+        in_rows.append(CalcRow(label="초기자본", value=_money(data["initial"])))
+    if data.get("start") and data.get("end"):
+        in_rows.append(CalcRow(label="기간", value=f"{data['start']} ~ {data['end']}"))
+    st_rows = [CalcRow(label=_BT_METRIC_LABEL.get(k, k), value=_pct(v))
+               for k, v in metrics.items() if isinstance(v, (int, float))]
+    return Computation(
+        method="히스토리컬 시뮬레이션 (일별 종가 · 가중 보유)",
+        formula="포트폴리오 가치ₜ = 초기자본 × Σ (보유비중ᵢ × 종목 누적수익률ᵢ,ₜ)",
+        inputs=in_rows, steps=st_rows,
+        note=data.get("disclaimer") or "과거 성과이며 미래 수익을 보장하지 않습니다. (예측 아님)")
+
+
 def _h_backtest(ctx: _Ctx) -> list[Artifact]:
     data, name = ctx.data, ctx.name
     if not (isinstance(data.get("curve"), list) and data["curve"]):
@@ -377,7 +422,41 @@ def _h_backtest(ctx: _Ctx) -> list[Artifact]:
     tr = m.get("total_return")
     title = "포트폴리오 백테스트" + (f" (누적 {tr*100:+.1f}%)" if isinstance(tr, (int, float)) else "")
     a = _timeseries(title, series, "ingestion store (Yahoo prices)", name, None)
+    if a:
+        a.computation = _backtest_computation(data)
     return [a] if a else []
+
+
+_FACTOR_FORMULA = {
+    "pe": "주가 ÷ EPS", "pb": "시총 ÷ 자본", "ps": "시총 ÷ 매출", "roe": "순이익 ÷ 자본",
+    "net_margin": "순이익 ÷ 매출", "gross_margin": "매출총이익 ÷ 매출", "revenue_growth": "매출 YoY 성장률",
+    "fcf_yield": "FCF ÷ 시총", "return_window": "기간 주가수익률", "pct_from_high": "52주 고점 대비 하락률",
+    "market_cap": "주가 × 발행주식수",
+}
+_OP = {"gte": "≥", "lte": "≤", "gt": ">", "lt": "<", "eq": "=", ">=": "≥", "<=": "≤"}
+
+
+def _quant_computation(data: dict) -> Computation | None:
+    """How the screen ran — the data queried, the filter criteria applied, and how each factor is
+    computed from the underlying financials/prices."""
+    factors = data.get("factors") or []
+    filters = data.get("applied_filters") or []
+    if not factors and not filters:
+        return None
+    crit = [CalcRow(label=str(f.get("field", "")).upper(),
+                    value=f"{_OP.get(str(f.get('operator')), f.get('operator', ''))} {f.get('value')}")
+            for f in filters if isinstance(f, dict)]
+    srt = data.get("sort")
+    if srt:
+        crit.append(CalcRow(label="정렬", value=f"{srt} {'내림차순' if data.get('order') == 'desc' else '오름차순'}"))
+    factor_rows = [CalcRow(label=str(f).upper(), value=_FACTOR_FORMULA[f]) for f in factors if f in _FACTOR_FORMULA]
+    return Computation(
+        method="팩터 스크리닝 (랭킹)",
+        formula="종목별 팩터를 재무·가격 데이터로 계산 → 기준을 통과한 종목을 정렬",
+        inputs=[CalcRow(label="재무제표", value="SEC EDGAR / OpenDART"),
+                CalcRow(label="가격", value="Yahoo Finance")],
+        assumptions=crit, steps=factor_rows,
+        note=f"{data.get('count', 0)}종목 통과")
 
 
 def _h_quant_screen(ctx: _Ctx) -> list[Artifact]:
@@ -404,8 +483,56 @@ def _h_quant_screen(ctx: _Ctx) -> list[Artifact]:
         srt = data.get("sort")
         title = f"퀀트 스크리너 ({data.get('market', '')}{' · ' + srt + ' 순' if srt else ''}) — {data.get('count', 0)}종목"
         return [Artifact(kind="table", title=title.strip(), table=rows,
-                         source="ingestion store (SEC/DART + Yahoo)", tool=name)]
+                         source="ingestion store (SEC/DART + Yahoo)", tool=name,
+                         computation=_quant_computation(data))]
     return []
+
+
+# labels + formula strings for the valuation computation trace (per model).
+_VAL_METHOD = {"dcf": "2단계 FCF 할인 (DCF)", "ddm": "배당할인 (DDM)", "rim": "잔여이익 (RIM)"}
+_VAL_FORMULA = {
+    "dcf": "EV = Σ PV(FCFₜ) + PV(터미널) · 자기자본가치 = EV − 순부채 · 내재가치 = 자기자본가치 ÷ 발행주식수",
+    "ddm": "내재가치 = D1 ÷ (할인율 − 성장률),  D1 = D0 × (1 + 성장률)",
+    "rim": "내재가치 = BVPS + Σ PV(잔여이익ₜ) + PV(터미널),  잔여이익ₜ = (ROE − 할인율) × BVPS",
+}
+_VAL_ASSUMPTION_LABEL = {"growth_rate": "성장률", "discount_rate": "할인율", "years": "추정기간",
+                         "terminal_growth": "영구성장률", "dividend_per_share": "주당배당 D0"}
+_VAL_INPUT_LABEL = {"base_fcf": "기준 FCF (영업CF − CapEx)", "shares": "발행주식수", "net_debt": "순부채",
+                    "dividend_per_share": "주당배당 D0", "bvps": "주당순자산 BVPS", "roe": "ROE",
+                    "equity": "자본총계"}
+_VAL_STEP_LABEL = {"enterprise_value": "기업가치 EV", "equity_value": "자기자본가치",
+                   "pv_explicit": "추정기간 PV 합", "pv_terminal": "터미널 PV", "terminal_value": "터미널 가치 TV",
+                   "d1": "차기 배당 D1", "pv_residual": "잔여이익 PV 합"}
+_VAL_PCT_KEYS = {"growth_rate", "discount_rate", "terminal_growth", "roe"}
+
+
+def _valuation_computation(data: dict) -> Computation | None:
+    """The auditable derivation of a DCF/DDM/RIM intrinsic value — sourced inputs, the user's
+    assumptions, the formula, and the intermediate math, so the figure is never a black box."""
+    model = str(data.get("model") or "").lower()
+    if model not in _VAL_METHOD:
+        return None
+    src = data.get("source")
+    inputs = data.get("inputs") or {}
+    assumptions = data.get("assumptions") or {}
+    bd = data.get("breakdown") or {}
+
+    def _v(k, val):  # ratios as %, years as a count, money abbreviated
+        if k in _VAL_PCT_KEYS:
+            return _pct(val)
+        if k == "years":
+            return f"{val}년"
+        return _money(val)
+
+    in_rows = [CalcRow(label=_VAL_INPUT_LABEL.get(k, k), value=_v(k, v), source=src)
+               for k, v in inputs.items() if v is not None]
+    as_rows = [CalcRow(label=_VAL_ASSUMPTION_LABEL.get(k, k), value=_v(k, v))
+               for k, v in assumptions.items() if v is not None]
+    st_rows = [CalcRow(label=_VAL_STEP_LABEL[k], value=_money(bd[k]))
+               for k in _VAL_STEP_LABEL if isinstance(bd.get(k), (int, float))]
+    return Computation(method=_VAL_METHOD[model], formula=_VAL_FORMULA.get(model),
+                       inputs=in_rows, assumptions=as_rows, steps=st_rows,
+                       note=data.get("note") or data.get("disclaimer"))
 
 
 def _h_valuation(ctx: _Ctx) -> list[Artifact]:
@@ -417,16 +544,7 @@ def _h_valuation(ctx: _Ctx) -> list[Artifact]:
     vps = data.get("value_per_share")
     bd = data.get("breakdown") or {}
     rows_in = bd.get("rows") or []
-
-    def _m(v):  # money, abbreviated
-        if not isinstance(v, (int, float)):
-            return "—"
-        a = abs(v)
-        if a >= 1e9:
-            return f"{v/1e9:,.2f}B"
-        if a >= 1e6:
-            return f"{v/1e6:,.1f}M"
-        return f"{v:,.2f}"
+    _m = _money  # local alias (kept for the projection-row formatting below)
 
     if data.get("model") == "rim":
         table = [["연차", "BVPS", "잔여이익", "현재가치"]] + [
@@ -446,7 +564,7 @@ def _h_valuation(ctx: _Ctx) -> list[Artifact]:
         return [Artifact(kind="table", title=title.strip(), table=table,
                          source=data.get("source") or "재무제표 기반 모델", as_of=data.get("as_of"),
                          freshness=compute_freshness(data.get("as_of")), tool=name,
-                         ticker=data.get("ticker"))]
+                         ticker=data.get("ticker"), computation=_valuation_computation(data))]
     return []
 
 
