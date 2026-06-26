@@ -223,7 +223,7 @@ export function FilingViewer({ c }: { c: Citation }) {
           <span>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((z) => Math.min(2, +(z + 0.1).toFixed(2)))} aria-label="확대">＋</button>
         </span>
-        {c.url ? <a className="fv-orig" href={c.url} target="_blank" rel="noreferrer">원문 보기 ↗</a> : null}
+        {/* the external "원문 보기 ↗" action lives once, in the SourceViewer side panel (sv-ctx-actions) */}
       </div>
       {state === "loading" ? (
         <div className="fv-loading"><span className="fv-spinner" /> 원문 불러오는 중…</div>
