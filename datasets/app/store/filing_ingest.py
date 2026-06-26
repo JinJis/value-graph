@@ -32,6 +32,12 @@ def _html_to_docs(html: str, market: str, ticker: str, accession: str, source: s
                   url: str | None) -> list[dict]:
     """Visible filing text from the markup, split into section-sized RAG IngestDocs. `section`
     (s.N) lets a hit point back to a region; RAG sub-chunks within each for retrieval."""
+    # US iXBRL primary docs begin with an `<?xml … encoding=…?>` declaration; lxml refuses to parse a
+    # *Unicode* string that declares an encoding ("Unicode strings with encoding declaration are not
+    # supported"), so US filings indexed 0 chunks. Strip the leading declaration before parsing — the
+    # in-app viewer is unaffected (the browser handles the declaration); only this text-extraction path
+    # tripped. (KR OpenDART document.xml has no such declaration.)
+    html = re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", html)
     try:
         root = lxml_html.fromstring(html)
     except Exception as exc:  # noqa: BLE001
