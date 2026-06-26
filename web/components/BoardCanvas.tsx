@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkCjkEmphasis } from "../lib/markdown";
 import GridLayout, { WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -63,7 +64,7 @@ function TextBlock({ value, onSave }: { value: string; onSave: (v: string) => vo
   }
   return (
     <div className="bc-md md" onClick={() => setEditing(true)} title="클릭해 편집">
-      {value ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown> : <span className="bc-ph">클릭해 메모 작성 (마크다운 지원)</span>}
+      {value ? <ReactMarkdown remarkPlugins={[remarkGfm, remarkCjkEmphasis]}>{value}</ReactMarkdown> : <span className="bc-ph">클릭해 메모 작성 (마크다운 지원)</span>}
     </div>
   );
 }

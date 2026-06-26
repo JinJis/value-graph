@@ -11,6 +11,7 @@ import PromptWaterfall, { WaterfallPrompt } from "./PromptWaterfall";
 import Watchlists, { Watchlist } from "./Watchlists";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkCjkEmphasis } from "../lib/markdown";
 import { SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
 import { ArtifactCard } from "./ArtifactCard";
@@ -661,7 +662,7 @@ export default function Chat({ name }: { name: string }) {
                     >
                       <div className="bubble">
                         {m.content
-                          ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown></div>
+                          ? <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm, remarkCjkEmphasis]} components={mdComponents}>{m.content}</ReactMarkdown></div>
                           : (busy && !(m.thinking?.length) ? "…" : "")}
                       </div>
                       {(() => {
