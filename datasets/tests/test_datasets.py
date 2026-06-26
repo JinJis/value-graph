@@ -405,19 +405,47 @@ def test_reap_stale_running_jobs_and_latest_job():
     from app.store.models import IngestionJob
 
     init_db()
-    jid = J.start_job("filing_text", "US", "MSFT", total=1)        # stuck 'running'
+    kind = "reaptest"                                              # unique kind → isolated from other tests
+    jid = J.start_job(kind, "US", "MSFT", total=1)                 # stuck 'running'
     with SessionLocal() as db:                                      # backdate it past the cutoff
         db.get(IngestionJob, jid).started_at = J._now() - timedelta(hours=2)
         db.commit()
-    fresh = J.start_job("filing_text", "US", "AAPL", total=1)       # recent → must NOT be reaped
+    fresh = J.start_job(kind, "US", "AAPL", total=1)               # recent → must NOT be reaped
 
-    assert J.reap_stale_jobs("filing_text", "US") == 1
-    reaped = J.latest_job("filing_text", "US")  # latest is the fresh one; check the stale one directly
+    assert J.reap_stale_jobs(kind, "US") == 1
+    reaped = J.latest_job(kind, "US")  # latest is the fresh one; check the stale one directly
     with SessionLocal() as db:
         assert db.get(IngestionJob, jid).status == "error"
         assert "미완료" in (db.get(IngestionJob, jid).error or "")
         assert db.get(IngestionJob, fresh).status == "running"     # untouched
-    assert reaped is not None and reaped["kind"] == "filing_text"
+    assert reaped is not None and reaped["kind"] == kind
+
+
+def test_start_job_truncates_long_spec_and_records_pipeline_error():
+    # filing_text over 200-500 tickers used to join them all into `spec` (varchar(256)) → the INSERT
+    # threw 'value too long' BEFORE the job row existed, failing the run in ~40ms with no record.
+    from app.store.db import init_db
+    from app.store import jobs as J
+
+    init_db()
+    kind = "spectest"                                  # unique kind → isolated from other tests
+    huge = ",".join(f"T{i:05d}" for i in range(503))   # ~3.5k chars, like 503 US tickers
+    assert len(huge) > 256
+    jid = J.start_job(kind, "US", huge, total=503)
+    row = next(j for j in J.list_jobs(120) if j["id"] == jid)
+    assert len(row["spec"]) <= 256                      # truncated → never overflows the column
+
+    # record_pipeline_error reuses the still-'running' row, finalizing it as error with the traceback
+    eid = J.record_pipeline_error(kind, "US", "ValueError: boom traceback")
+    assert eid == jid
+    after = next(j for j in J.list_jobs(120) if j["id"] == jid)
+    assert after["status"] == "error" and "boom" in (after["error"] or "")
+
+    # with no running row for a kind/market, it creates a fresh error row (failure before start_job)
+    eid2 = J.record_pipeline_error(kind, "KR", "boom-kr")
+    assert eid2 != jid
+    kr = J.latest_job(kind, "KR")
+    assert kr["status"] == "error" and "boom-kr" in (kr["error"] or "")
 
 
 @respx.mock

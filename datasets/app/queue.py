@@ -51,13 +51,28 @@ async def run_pipeline(market: str, tickers: list[str], pipeline_id: str) -> dic
         return {"skipped": f"{pipeline_id} not for market {market}"}
     # A prior run killed mid-flight (worker restart/deploy) leaves its IngestionJob stuck at
     # 'running'. Reap stale ones for this kind so the admin shows the truth, not a phantom run.
-    await _reap_stale_jobs(p.get("kind") or pipeline_id, market)
+    kind = p.get("kind") or pipeline_id
+    await _reap_stale_jobs(kind, market)
     try:
         await p["runner"](market, tickers)
     except Exception:  # noqa: BLE001 — log the FULL traceback (not just str) before retry kicks in
-        logger.error("run_pipeline %s/%s failed:\n%s", pipeline_id, market, traceback.format_exc())
+        tb = traceback.format_exc()
+        logger.error("run_pipeline %s/%s failed:\n%s", pipeline_id, market, tb)
+        # persist it to an admin-visible IngestionJob — a failure OUTSIDE the runner's own job
+        # tracking (e.g. the start_job INSERT) would otherwise leave the admin with an empty note.
+        await _record_error(kind, market, tb)
         raise   # re-raise so Procrastinate records the failure + applies the retry strategy
     return {"ran": pipeline_id, "market": market, "tickers": len(tickers)}
+
+
+async def _record_error(kind: str, market: str, tb: str) -> None:
+    try:
+        import asyncio
+
+        from app.store.jobs import record_pipeline_error
+        await asyncio.to_thread(record_pipeline_error, kind, market, tb)
+    except Exception as exc:  # noqa: BLE001 — recording the error must never mask the original
+        logger.info("record_pipeline_error %s/%s skipped: %s", kind, market, exc)
 
 
 async def _reap_stale_jobs(kind: str, market: str) -> None:

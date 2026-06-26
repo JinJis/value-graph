@@ -107,7 +107,9 @@ async def run_filing_text_ingest(market: str, tickers: list[str]) -> None:
     exceeded the timeout) or `no filing HTML` — instead of silently finishing as success/0."""
     market = (market or "").upper()
     tickers = tickers or []
-    job = start_job("filing_text", market, ",".join(tickers), len(tickers))
+    # a short, readable spec — NOT the full ticker join (which overflowed the varchar(256) spec
+    # column for 200-500 tickers and made the INSERT fail before the job row even existed).
+    job = start_job("filing_text", market, f"filing_text · {len(tickers)} tickers", len(tickers))
     total = 0
     failed: dict[str, str] = {}   # ticker → short failure reason (deduped in the note)
     empty: list[str] = []         # tickers that ran clean but produced no chunks

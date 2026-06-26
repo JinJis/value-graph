@@ -28,8 +28,12 @@ def _now() -> datetime:
 
 
 def start_job(kind: str, market: str | None, spec: str | None, total: int = 0) -> int:
+    # `spec` is varchar(256): a caller that joined a long ticker list (filing_text over 200-500
+    # tickers) would overflow it and the INSERT would throw *before* the job row exists — failing
+    # the run in milliseconds with no visible record. Truncate defensively so no caller can do that.
     with SessionLocal() as db:
-        job = IngestionJob(kind=kind, market=market, spec=spec, status="running",
+        job = IngestionJob(kind=kind, market=(market or None) and market[:2],
+                           spec=(spec or None) and spec[:256], status="running",
                            total=total, done=0, started_at=_now())
         db.add(job)
         db.commit()
@@ -59,6 +63,27 @@ def finish_job(job_id: int, status: str, rows: int = 0, error: str | None = None
         job.error = (error or "")[:2000] or None
         job.ended_at = _now()
         db.commit()
+
+
+def record_pipeline_error(kind: str, market: str | None, error: str) -> int:
+    """Persist a pipeline-run failure into an admin-visible IngestionJob. Finalizes the run's own
+    'running' row as error if it exists, else creates a fresh error row — so a failure that happened
+    BEFORE/OUTSIDE the runner's own job-tracking (e.g. the start_job INSERT itself) is still shown in
+    the admin job-detail, not just the worker stdout. Returns the job id."""
+    with SessionLocal() as db:
+        q = select(IngestionJob).where(IngestionJob.kind == kind, IngestionJob.status == "running")
+        if market:
+            q = q.where(IngestionJob.market == market)
+        job = db.execute(q.order_by(IngestionJob.started_at.desc()).limit(1)).scalar_one_or_none()
+        if job is None:
+            job = IngestionJob(kind=kind, market=(market or None) and market[:2], spec="(run failed)",
+                               status="running", total=0, done=0, started_at=_now())
+            db.add(job)
+        job.status = "error"
+        job.error = (error or "")[:2000] or None
+        job.ended_at = _now()
+        db.commit()
+        return job.id
 
 
 def reap_stale_jobs(kind: str, market: str | None = None, older_than_minutes: int = 20) -> int:
