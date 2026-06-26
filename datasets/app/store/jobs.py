@@ -32,7 +32,7 @@ def start_job(kind: str, market: str | None, spec: str | None, total: int = 0) -
     # tickers) would overflow it and the INSERT would throw *before* the job row exists — failing
     # the run in milliseconds with no visible record. Truncate defensively so no caller can do that.
     with SessionLocal() as db:
-        job = IngestionJob(kind=kind, market=(market or None) and market[:2],
+        job = IngestionJob(kind=kind[:16], market=(market or None) and market[:2],
                            spec=(spec or None) and spec[:256], status="running",
                            total=total, done=0, started_at=_now())
         db.add(job)
@@ -76,7 +76,7 @@ def record_pipeline_error(kind: str, market: str | None, error: str) -> int:
             q = q.where(IngestionJob.market == market)
         job = db.execute(q.order_by(IngestionJob.started_at.desc()).limit(1)).scalar_one_or_none()
         if job is None:
-            job = IngestionJob(kind=kind, market=(market or None) and market[:2], spec="(run failed)",
+            job = IngestionJob(kind=kind[:16], market=(market or None) and market[:2], spec="(run failed)",
                                status="running", total=0, done=0, started_at=_now())
             db.add(job)
         job.status = "error"
