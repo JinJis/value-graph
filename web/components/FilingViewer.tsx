@@ -1,10 +1,13 @@
 "use client";
 
-// In-app filing viewer — renders the ORIGINAL disclosure (US SEC iXBRL · KR OpenDART) as the
-// real document and highlights the exact cited element, then lets the user scroll/zoom the whole
-// filing freely. The HTML is sanitized server-side (scripts stripped + strict CSP → no egress);
-// we drop it into a sandboxed iframe (allow-same-origin, NO allow-scripts) so nothing in the
-// filing runs, while the parent reaches into the same-origin document to highlight + scroll.
+// In-app source viewer — renders the ORIGINAL source as the real document and highlights the exact
+// cited element, then lets the user scroll/zoom freely. Two source kinds, one mechanism:
+//   • a filing  → US SEC iXBRL primary doc / KR OpenDART document.xml (via /api/evidence/html)
+//   • any other page with a source URL (BLS/DBnomics/FRED series page, a news article, …)
+//     → fetched + sanitized server-side same-origin (via /api/evidence/url)
+// Either way the HTML is sanitized server-side (scripts stripped + strict CSP → no egress); we drop
+// it into a sandboxed iframe (allow-same-origin, NO allow-scripts) so nothing in it runs, while the
+// parent reaches into the same-origin document to highlight + scroll.
 // No localStorage/sessionStorage. 204 → caller shows the external "원문 보기" link.
 
 import { useEffect, useRef, useState } from "react";
@@ -31,6 +34,20 @@ export function evidenceHtmlSrc(c: Citation): string | null {
   return `/api/evidence/html?${out.toString()}`;
 }
 
+// A non-filing citation that carries an external http(s) source page (macro series page, news
+// article, …) → the in-app sanitized-source route. The data plane fetches it SSRF-safe; 204 when it
+// can't be shown (the caller then degrades to the external link).
+export function sourceUrlSrc(c: Citation): string | null {
+  if (!c.url || !/^https?:\/\//i.test(c.url)) return null;
+  return `/api/evidence/url?u=${encodeURIComponent(c.url)}`;
+}
+
+// The viewer's src: the filing HTML if this is a filing-backed citation, else the external source
+// page if one is available. Either renders the REAL source in-app; null → no in-app preview.
+export function viewerSrc(c: Citation): string | null {
+  return evidenceHtmlSrc(c) || sourceUrlSrc(c);
+}
+
 function targetOf(c: Citation): Target {
   const p = new URLSearchParams(c.evidence_image_url?.split("?")[1] || "");
   return {
@@ -55,13 +72,28 @@ function valueCandidates(value: string): string[] {
   return out;
 }
 
+// Number-like tokens in a snippet (e.g. "323.048", "3.2%", "1,234.5", "-0.4") — used to highlight
+// the exact figure on a non-filing source page (macro series tables, where a us-gaap concept and
+// statement-scale rounding don't apply, so the literal value as printed is the best anchor).
+function numberTokens(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/-?\d[\d,]*(?:\.\d+)?%?/g)) {
+    const tok = m[0];
+    // skip trivially-short tokens (a lone "1"/"20" matches everywhere); keep decimals/percents/long
+    if (tok.length >= 4 || tok.includes(".") || tok.includes("%")) {
+      if (!out.includes(tok)) out.push(tok);
+    }
+  }
+  return out;
+}
+
 const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
 // Find the tightest element whose text contains `needle` (handles text split across <span>s,
 // since the enclosing <p>/<td> still contains the whole phrase).
-function findByText(doc: Document, needle: string): Element | null {
+function findByText(doc: Document, needle: string, minLen = 6): Element | null {
   const n = norm(needle);
-  if (n.length < 6 || !doc.body) return null;
+  if (n.length < minLen || !doc.body) return null;
   let best: Element | null = null;
   doc.body.querySelectorAll("*").forEach((el) => {
     if (norm(el.textContent || "").includes(n)) {
@@ -107,7 +139,15 @@ function highlight(doc: Document, t: Target): boolean {
       if (el && mark(el)) return true;
     }
   }
-  // 3) Value alone — the formatted number as a last resort
+  // 3) Exact figure from the snippet — on a non-filing source page (macro tables, news), the value
+  // is printed literally (e.g. "323.048", "3.2%"); match it verbatim before falling back to scales.
+  if (t.text) {
+    for (const tok of numberTokens(t.text)) {
+      const el = findByText(doc, tok, 3);
+      if (el && mark(el)) return true;
+    }
+  }
+  // 4) Value alone — the formatted number as a last resort
   if (t.value) {
     for (const cand of valueCandidates(t.value)) {
       const el = findByText(doc, cand);
@@ -118,12 +158,15 @@ function highlight(doc: Document, t: Target): boolean {
 }
 
 export function FilingViewer({ c }: { c: Citation }) {
-  const src = evidenceHtmlSrc(c);
+  const filingSrc = evidenceHtmlSrc(c);
+  const src = filingSrc || sourceUrlSrc(c);   // a filing, or any external source page
+  const isFiling = !!filingSrc;
+  const icon = isFiling ? "📄" : "🌐";          // filing vs an external web/data source page
   const [html, setHtml] = useState<string | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "none">(src ? "loading" : "none");
   const [hit, setHit] = useState<boolean | null>(null);
   // KR (OpenDART) filing HTML uses large base fonts → it renders oversized at 100%; start a bit
-  // smaller for readability. US (SEC iXBRL) reads fine at 100%. The user can still zoom either way.
+  // smaller for readability. US (SEC iXBRL) and external pages read fine at 100%. User can still zoom.
   const market = new URLSearchParams(c.evidence_image_url?.split("?")[1] || "").get("market")?.toUpperCase();
   const [zoom, setZoom] = useState(market === "KR" ? 0.8 : 1);
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -173,7 +216,7 @@ export function FilingViewer({ c }: { c: Citation }) {
     <div className="fv">
       <div className="fv-bar mono">
         <span className="fv-status">
-          {state === "loading" ? "원문 불러오는 중…" : hit ? "📄 원문 · 인용 부분 하이라이트됨" : "📄 원문"}
+          {state === "loading" ? "원문 불러오는 중…" : hit ? `${icon} 원문 · 인용 부분 하이라이트됨` : `${icon} 원문`}
         </span>
         <span className="fv-zoom">
           <button onClick={() => setZoom((z) => Math.max(0.6, +(z - 0.1).toFixed(2)))} aria-label="축소">－</button>
@@ -188,7 +231,7 @@ export function FilingViewer({ c }: { c: Citation }) {
         <iframe
           ref={frameRef}
           className="fv-frame"
-          title="공시 원문"
+          title="원문"
           sandbox="allow-same-origin"
           srcDoc={html ?? ""}
           onLoad={onLoad}

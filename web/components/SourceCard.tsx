@@ -70,9 +70,16 @@ export function SourceCard({ c, onExpand, onPin, hideTitle }: { c: Citation; onE
   const [pinned, setPinned] = useState(false);
   const shape = sourceShape(c);
   const fresh = c.freshness ? FRESH_LABEL[c.freshness] || c.freshness : null;
-  // A filing-backed citation (공시 본문 or 재무제표 수치) opens the REAL document in-app on click.
+  // A filing-backed citation (공시 본문 or 재무제표 수치) opens the REAL document in-app on click;
+  // any citation carrying an external source page (macro series page, news article) opens that page
+  // in-app too (fetched + sanitized + the cited value highlighted). Either way → an "원문" badge.
   const hasFiling = !!c.evidence_image_url && shape !== "web";
-  const evBadge = hasFiling ? <span className="sp-ev-badge mono" title="클릭하면 원문 전체를 인앱에서 봅니다">📄 원문</span> : null;
+  const hasSourcePage = !hasFiling && !!c.url && /^https?:\/\//i.test(c.url);
+  const evBadge = hasFiling
+    ? <span className="sp-ev-badge mono" title="클릭하면 원문 전체를 인앱에서 봅니다">📄 원문</span>
+    : hasSourcePage
+    ? <span className="sp-ev-badge mono" title="클릭하면 원문 사이트를 인앱에서 봅니다">🌐 원문</span>
+    : null;
   const open = c.url ? (
     <a className="sp-open" href={c.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
       {OPEN_LABEL[shape]}
