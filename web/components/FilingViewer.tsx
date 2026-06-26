@@ -122,7 +122,10 @@ export function FilingViewer({ c }: { c: Citation }) {
   const [html, setHtml] = useState<string | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "none">(src ? "loading" : "none");
   const [hit, setHit] = useState<boolean | null>(null);
-  const [zoom, setZoom] = useState(1);
+  // KR (OpenDART) filing HTML uses large base fonts → it renders oversized at 100%; start a bit
+  // smaller for readability. US (SEC iXBRL) reads fine at 100%. The user can still zoom either way.
+  const market = new URLSearchParams(c.evidence_image_url?.split("?")[1] || "").get("market")?.toUpperCase();
+  const [zoom, setZoom] = useState(market === "KR" ? 0.8 : 1);
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
