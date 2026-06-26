@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import traceback
 
 from lxml import html as lxml_html
 
@@ -99,18 +100,45 @@ async def ingest_filing_text_for_ticker(market: str, ticker: str, limit: int = 4
 
 async def run_filing_text_ingest(market: str, tickers: list[str]) -> None:
     """Index each ticker's recent filings' text into RAG, tracked as an IngestionJob
-    (kind `filing_text`); best-effort per ticker."""
+    (kind `filing_text`); best-effort per ticker.
+
+    Per-ticker outcomes are summarised into the job's ``error`` note (which the admin shows) so a
+    run that indexed little/nothing reveals WHY — e.g. `RAG ingest timeout` (the RAG embed POST
+    exceeded the timeout) or `no filing HTML` — instead of silently finishing as success/0."""
     market = (market or "").upper()
     tickers = tickers or []
     job = start_job("filing_text", market, ",".join(tickers), len(tickers))
     total = 0
+    failed: dict[str, str] = {}   # ticker → short failure reason (deduped in the note)
+    empty: list[str] = []         # tickers that ran clean but produced no chunks
     try:
         for i, tk in enumerate(tickers, 1):
             try:
-                total += await ingest_filing_text_for_ticker(market, tk)
+                got = await ingest_filing_text_for_ticker(market, tk)
+                total += got
+                if got == 0:
+                    empty.append(tk)
             except Exception as exc:  # noqa: BLE001 — one ticker never aborts the run
-                log.warning("filing-text: %s %s failed: %s", market, tk, exc)
-            update_progress(job, i)
-        finish_job(job, "success", total)
-    except Exception as exc:  # noqa: BLE001
-        finish_job(job, "error", total, str(exc))
+                reason = f"{type(exc).__name__}: {exc}".strip().rstrip(":")
+                failed[tk] = reason or type(exc).__name__
+                log.warning("filing-text: %s %s failed: %s", market, tk, reason)
+            await asyncio.to_thread(update_progress, job, i)
+        # finalise with a human note: how many ok, what failed (with the actual error), what was empty.
+        ok = len(tickers) - len(failed) - len(empty)
+        note_parts = [f"{ok}/{len(tickers)} tickers indexed, {total} chunks"]
+        if failed:
+            # group identical reasons so a systemic failure (e.g. RAG timeout) reads at a glance
+            by_reason: dict[str, list[str]] = {}
+            for tk, r in failed.items():
+                by_reason.setdefault(r, []).append(tk)
+            note_parts.append("FAILED " + "; ".join(
+                f"{r} ×{len(tks)} ({', '.join(tks[:8])}{'…' if len(tks) > 8 else ''})"
+                for r, tks in by_reason.items()))
+        if empty:
+            note_parts.append(f"no filing text ×{len(empty)} ({', '.join(empty[:8])}{'…' if len(empty) > 8 else ''})")
+        note = " · ".join(note_parts)
+        # a run where EVERY ticker failed is an error, not a quiet success — surface it as such.
+        status = "error" if failed and ok == 0 and total == 0 else "success"
+        await asyncio.to_thread(finish_job, job, status, total, note)
+    except Exception:  # noqa: BLE001 — the loop itself blew up
+        await asyncio.to_thread(finish_job, job, "error", total, traceback.format_exc()[-1800:])

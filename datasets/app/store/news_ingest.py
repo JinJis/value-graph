@@ -43,14 +43,27 @@ def _news_to_doc(market: str, article: News) -> dict | None:
     }
 
 
+# RAG /rag/ingest embeds every doc synchronously, so a big POST (a filing yields HUNDREDS of
+# section docs) blows past the default 30s client timeout → ReadTimeout → 0 chunks ingested. Send
+# the docs in bounded batches under a generous per-batch timeout so each call stays well-sized.
+_RAG_INGEST_BATCH = 40
+_RAG_INGEST_TIMEOUT = 300.0
+
+
 async def _ingest_to_rag(rag_url: str, docs: list[dict]) -> int:
-    """POST the docs to the RAG service (global corpus) and return the chunk count."""
+    """POST the docs to the RAG service (global corpus) and return the chunk count. Batched so a
+    large filing (many section docs) never exceeds the client timeout in one shot."""
     if not docs:
         return 0
-    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
-        resp = await client.post(f"{rag_url.rstrip('/')}/rag/ingest", json={"documents": docs})
-        resp.raise_for_status()
-        return int((resp.json() or {}).get("chunks", 0))
+    url = f"{rag_url.rstrip('/')}/rag/ingest"
+    total = 0
+    async with httpx.AsyncClient(timeout=_RAG_INGEST_TIMEOUT) as client:
+        for i in range(0, len(docs), _RAG_INGEST_BATCH):
+            batch = docs[i:i + _RAG_INGEST_BATCH]
+            resp = await client.post(url, json={"documents": batch})
+            resp.raise_for_status()
+            total += int((resp.json() or {}).get("chunks", 0))
+    return total
 
 
 async def _search_rag(rag_url: str, query: str, ticker: str | None, market: str | None,

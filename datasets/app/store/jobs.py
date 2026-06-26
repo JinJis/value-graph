@@ -61,6 +61,43 @@ def finish_job(job_id: int, status: str, rows: int = 0, error: str | None = None
         db.commit()
 
 
+def reap_stale_jobs(kind: str, market: str | None = None, older_than_minutes: int = 20) -> int:
+    """Finalize IngestionJobs left 'running' past a threshold (the worker died before finishing) so
+    the admin shows a real terminal state instead of a phantom run. Returns how many were reaped."""
+    from datetime import timedelta
+    cutoff = _now() - timedelta(minutes=older_than_minutes)
+    with SessionLocal() as db:
+        q = select(IngestionJob).where(
+            IngestionJob.kind == kind, IngestionJob.status == "running",
+            IngestionJob.started_at < cutoff)
+        if market:
+            q = q.where(IngestionJob.market == market)
+        stale = db.execute(q).scalars().all()
+        for j in stale:
+            j.status = "error"
+            j.error = ((j.error or "") + " · 미완료(워커 재시작/종료로 중단됨)").strip(" ·")[:2000]
+            j.ended_at = _now()
+        if stale:
+            db.commit()
+        return len(stale)
+
+
+def latest_job(kind: str, market: str | None = None) -> dict | None:
+    """The most recent IngestionJob for a pipeline kind (+ market), as a dict — lets the admin link a
+    queue job to its run outcome + error note."""
+    with SessionLocal() as db:
+        q = select(IngestionJob).where(IngestionJob.kind == kind)
+        if market:
+            q = q.where(IngestionJob.market == market)
+        j = db.execute(q.order_by(IngestionJob.started_at.desc()).limit(1)).scalar_one_or_none()
+        if j is None:
+            return None
+        return {"id": j.id, "kind": j.kind, "market": j.market, "spec": j.spec, "status": j.status,
+                "rows": j.rows, "total": j.total, "done": j.done, "error": j.error,
+                "started_at": j.started_at.isoformat() if j.started_at else None,
+                "ended_at": j.ended_at.isoformat() if j.ended_at else None}
+
+
 def last_job_at(kind: str) -> datetime | None:
     """Most recent start time for a pipeline `kind` (any status) — the scheduler uses this to
     skip a pipeline that ran within its cadence (so heavy historical pipelines don't re-fetch the

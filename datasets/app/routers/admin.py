@@ -232,6 +232,15 @@ async def queue_jobs(status: str | None = None, queue: str | None = None, limit:
     return {"jobs": await Q.list_queue_jobs(status=status, queue=queue, limit=limit)}
 
 
+@router.get("/queue/jobs/{job_id}", dependencies=[ApiKeyDep],
+            summary="Job detail — Procrastinate event timeline + linked IngestionJob error")
+async def queue_job_detail(job_id: int) -> dict:
+    """The diagnostic view for one job: its event timeline (deferred → started → abort_requested →
+    failed/succeeded) plus the matching pipeline run's IngestionJob error note — so a stuck/failed
+    pipeline shows WHY in the admin, not only in the container logs."""
+    return await Q.job_detail(job_id)
+
+
 @router.post("/queue/jobs/{job_id}/retry", dependencies=[ApiKeyDep], summary="Retry a failed job now")
 async def queue_retry(job_id: int) -> dict:
     return await Q.retry_queue_job(job_id)

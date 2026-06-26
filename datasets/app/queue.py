@@ -17,6 +17,7 @@ jobs (manual admin runs) and to *read/control* them via `app.job_manager` (the a
 from __future__ import annotations
 
 import logging
+import traceback
 from datetime import datetime, timezone
 
 from procrastinate import App, PsycopgConnector, RetryStrategy
@@ -48,8 +49,26 @@ async def run_pipeline(market: str, tickers: list[str], pipeline_id: str) -> dic
         return {"skipped": f"unknown pipeline {pipeline_id!r}"}
     if market not in p["markets"]:
         return {"skipped": f"{pipeline_id} not for market {market}"}
-    await p["runner"](market, tickers)
+    # A prior run killed mid-flight (worker restart/deploy) leaves its IngestionJob stuck at
+    # 'running'. Reap stale ones for this kind so the admin shows the truth, not a phantom run.
+    await _reap_stale_jobs(p.get("kind") or pipeline_id, market)
+    try:
+        await p["runner"](market, tickers)
+    except Exception:  # noqa: BLE001 — log the FULL traceback (not just str) before retry kicks in
+        logger.error("run_pipeline %s/%s failed:\n%s", pipeline_id, market, traceback.format_exc())
+        raise   # re-raise so Procrastinate records the failure + applies the retry strategy
     return {"ran": pipeline_id, "market": market, "tickers": len(tickers)}
+
+
+async def _reap_stale_jobs(kind: str, market: str) -> None:
+    """Mark any IngestionJob of this kind/market left 'running' for too long (worker died before it
+    finalised) as an error, so the admin shows a real terminal state instead of a phantom run."""
+    try:
+        from app.store.jobs import reap_stale_jobs
+        import asyncio
+        await asyncio.to_thread(reap_stale_jobs, kind, market)
+    except Exception as exc:  # noqa: BLE001 — reaping is best-effort, never blocks the run
+        logger.info("reap_stale_jobs %s/%s skipped: %s", kind, market, exc)
 
 
 async def defer_pipeline(market: str, tickers: list[str], pipeline_id: str) -> int | None:
@@ -184,6 +203,46 @@ async def list_queue_jobs(status: str | None = None, queue: str | None = None, l
     jobs = list(await app.job_manager.list_jobs_async(status=status, queue=queue))
     jobs.sort(key=lambda j: j.id, reverse=True)  # newest first
     return [_job_dict(j) for j in jobs[:limit]]
+
+
+async def job_events(job_id: int) -> list[dict]:
+    """The Procrastinate event timeline for a job (deferred → started → [abort_requested] → failed/
+    succeeded) — the missing diagnostic that shows WHY a job is stuck/failed. The procrastinate_*
+    tables live in the datasets DB, so we read them via the app's own session."""
+    import asyncio
+
+    from sqlalchemy import text
+
+    from app.store.db import SessionLocal
+
+    def _q() -> list[dict]:
+        with SessionLocal() as db:
+            rows = db.execute(
+                text("SELECT type, at FROM procrastinate_events WHERE job_id = :id ORDER BY at, id"),
+                {"id": job_id},
+            ).all()
+            return [{"type": r[0], "at": r[1].isoformat() if r[1] else None} for r in rows]
+
+    return await asyncio.to_thread(_q)
+
+
+async def job_detail(job_id: int) -> dict:
+    """A single queue job + its event timeline + the linked IngestionJob's error note (matched by
+    pipeline kind + market) — everything the admin needs to diagnose a stuck/failed pipeline run."""
+    import asyncio
+
+    from app.store.jobs import latest_job
+
+    events = await job_events(job_id)
+    found = list(await app.job_manager.list_jobs_async(id=job_id))
+    job = _job_dict(found[0]) if found else {"id": job_id}
+    args = job.get("args") or {}
+    pid, market = args.get("pipeline_id"), args.get("market")
+    ingestion = None
+    if pid:
+        kind = (PIPELINE_BY_ID.get(pid) or {}).get("kind") or pid
+        ingestion = await asyncio.to_thread(latest_job, kind, market)
+    return {"job": job, "events": events, "ingestion": ingestion}
 
 
 async def retry_queue_job(job_id: int) -> dict:

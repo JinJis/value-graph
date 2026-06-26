@@ -568,7 +568,7 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
         args = j.get("args") or {}
         scope = f"{args.get('pipeline_id', j.get('task'))} · {args.get('market', '')}"
         tcount = len(args.get("tickers") or []) if isinstance(args.get("tickers"), list) else ""
-        ctl = ""
+        ctl = f"<a class='ops linkbtn' href='/queue/job/{_esc(j['id'])}'>로그</a>"
         if st == "failed":
             ctl += (f"<form class=ops method=post action='/ops/queue/jobs/{_esc(j['id'])}/retry'>"
                     f"<button class=p>재시도</button></form>")
@@ -603,6 +603,75 @@ async def queue_view(request: Request, msg: str = "", status: str = ""):
             + (f" · <a href='/queue'>초기화</a>" if status else "") + "</div>"
             + jobs_html)
     return HTMLResponse(page("/queue", "Queue", body, refresh=running))
+
+
+# Procrastinate event types → (icon, css class) for the timeline.
+_EVENT_STYLE = {
+    "deferred": ("⏳", ""), "scheduled": ("⏱", ""), "started": ("▶", "run"),
+    "deferred_for_retry": ("↻", "warn"), "succeeded": ("✓", "ok"),
+    "failed": ("✗", "err"), "abort_requested": ("🛑", "warn"), "aborted": ("⛔", "err"),
+    "cancelled": ("⊘", ""),
+}
+
+
+@app.get("/queue/job/{job_id}", response_class=HTMLResponse)
+async def queue_job_detail(request: Request, job_id: int):
+    """Diagnostic page for one queue job — the Procrastinate event timeline + the linked pipeline
+    run's IngestionJob error note. This is where 'filing_text가 왜 안 되는지' becomes visible."""
+    async with httpx.AsyncClient() as c:
+        d = await _safe_get(c, f"{settings.datasets_url}/admin/queue/jobs/{job_id}")
+    if not _ok(d):
+        return HTMLResponse(page("/queue", f"Job {job_id}",
+                                 "<div class=warn>작업 정보를 불러오지 못했습니다.</div>"
+                                 "<p><a href='/queue'>← 큐로</a></p>"))
+    job = d.get("job") or {}
+    args = job.get("args") or {}
+    scope = f"{args.get('pipeline_id', job.get('task'))} · {args.get('market', '')}"
+    tcount = len(args.get("tickers") or []) if isinstance(args.get("tickers"), list) else ""
+    st = job.get("status")
+
+    head = (f"<div class=tablewrap><table><tbody>"
+            f"<tr><td class=muted>작업</td><td>#{_esc(job.get('id'))} · {badge(_esc(job.get('task')))} "
+            f"· {_esc(scope)}{f' · {tcount}종목' if tcount else ''}</td></tr>"
+            f"<tr><td class=muted>상태</td><td>{badge(QUEUE_STATUS_LABEL.get(st, st), QUEUE_STATUS_CLASS.get(st, ''))} "
+            f"· 시도 {_esc(job.get('attempts'))}</td></tr>"
+            f"<tr><td class=muted>lock</td><td><code>{_esc(job.get('lock') or '')}</code></td></tr>"
+            f"<tr><td class=muted>scheduled</td><td class=muted>{_esc((job.get('scheduled_at') or '')[:19])}</td></tr>"
+            f"</tbody></table></div>")
+
+    # event timeline — the smoking gun (deferred → started → abort_requested → failed, etc.)
+    ev_rows = ""
+    for e in (d.get("events") or []):
+        icon, cls = _EVENT_STYLE.get(e.get("type"), ("•", ""))
+        ev_rows += (f"<tr><td>{icon}</td><td>{badge(_esc(e.get('type')), cls)}</td>"
+                    f"<td class=muted>{_esc((e.get('at') or '')[:23].replace('T', ' '))}</td></tr>")
+    ev_html = ("<h2>이벤트 타임라인</h2><div class=tablewrap><table><thead><tr><th></th><th>type</th>"
+               f"<th>at (UTC)</th></tr></thead><tbody>{ev_rows or '<tr><td colspan=3 class=muted>이벤트 없음</td></tr>'}"
+               "</tbody></table></div>")
+
+    # linked IngestionJob — the per-pipeline run outcome + error note (e.g. 'FAILED ReadTimeout ×N')
+    ing = d.get("ingestion")
+    if ing:
+        ing_status = ing.get("status")
+        err = ing.get("error")
+        ing_html = (
+            "<h2>파이프라인 실행 (IngestionJob)</h2>"
+            f"<div class=tablewrap><table><tbody>"
+            f"<tr><td class=muted>상태</td><td>{badge(_esc(ing_status), JOB_STATUS_CLASS.get(ing_status, ''))} "
+            f"· {_esc(ing.get('done'))}/{_esc(ing.get('total'))} 처리 · {_esc(ing.get('rows'))} chunks</td></tr>"
+            f"<tr><td class=muted>시작</td><td class=muted>{_esc((ing.get('started_at') or '')[:19])} "
+            f"→ {_esc((ing.get('ended_at') or '—')[:19])}</td></tr>"
+            f"</tbody></table></div>"
+            + (f"<div class='logbox {('err' if ing_status == 'error' else '')}'>{_esc(err)}</div>"
+               if err else "<p class=muted>기록된 오류 메모가 없습니다.</p>"))
+    else:
+        ing_html = ("<h2>파이프라인 실행 (IngestionJob)</h2>"
+                    "<p class=muted>이 작업과 매칭되는 IngestionJob 기록이 없습니다 "
+                    "(작업이 시작 전 취소되었거나 기록 전 종료됨).</p>")
+
+    body = (f"<p><a href='/queue'>← 큐로</a></p><h1 style='margin:0 0 4px'>작업 #{_esc(job_id)} 로그</h1>"
+            + head + ev_html + ing_html)
+    return HTMLResponse(page("/queue", f"Job {job_id}", body))
 
 
 @app.post("/ops/queue/sweep/{pipeline_id}")

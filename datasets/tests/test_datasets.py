@@ -395,6 +395,46 @@ async def test_run_backfill_records_job(monkeypatch):
     assert row["status"] == "success" and row["rows"] == 120
 
 
+def test_reap_stale_running_jobs_and_latest_job():
+    # a job left 'running' past the threshold (worker died) is reaped to 'error' so the admin shows
+    # a real terminal state instead of a phantom run; latest_job exposes it (with the note) per kind.
+    from datetime import timedelta
+
+    from app.store.db import SessionLocal, init_db
+    from app.store import jobs as J
+    from app.store.models import IngestionJob
+
+    init_db()
+    jid = J.start_job("filing_text", "US", "MSFT", total=1)        # stuck 'running'
+    with SessionLocal() as db:                                      # backdate it past the cutoff
+        db.get(IngestionJob, jid).started_at = J._now() - timedelta(hours=2)
+        db.commit()
+    fresh = J.start_job("filing_text", "US", "AAPL", total=1)       # recent → must NOT be reaped
+
+    assert J.reap_stale_jobs("filing_text", "US") == 1
+    reaped = J.latest_job("filing_text", "US")  # latest is the fresh one; check the stale one directly
+    with SessionLocal() as db:
+        assert db.get(IngestionJob, jid).status == "error"
+        assert "미완료" in (db.get(IngestionJob, jid).error or "")
+        assert db.get(IngestionJob, fresh).status == "running"     # untouched
+    assert reaped is not None and reaped["kind"] == "filing_text"
+
+
+@respx.mock
+async def test_ingest_to_rag_batches_large_filing():
+    # a filing yields hundreds of section docs; _ingest_to_rag must split them into bounded POSTs
+    # (so RAG's synchronous embed never trips the client timeout) and sum the chunk counts.
+    from app.store import news_ingest as N
+
+    route = respx.post("http://rag.test/rag/ingest").mock(
+        return_value=httpx.Response(200, json={"chunks": 40}))
+    docs = [{"text": f"doc {i}", "source": "SEC", "doc_id": str(i)} for i in range(95)]
+    total = await N._ingest_to_rag("http://rag.test", docs)
+    # 95 docs / batch 40 → 3 POSTs (40 + 40 + 15), each reporting 40 chunks → summed
+    assert route.call_count == 3
+    assert total == 120
+
+
 async def test_run_backfill_records_error(monkeypatch):
     from app.store.db import init_db
     from app.store import jobs as J
