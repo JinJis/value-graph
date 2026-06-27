@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CadenceTag, FreshnessDot } from "./ui";
 import { TradeChart } from "./TradeChart";
 import { ComputationPanel } from "./ComputationPanel";
+import { demoWidget } from "./DemoWidgets";
 import type { Citation } from "./SourceCard";
 import type { Artifact, ArtifactCandle, ArtifactSeries, ChartAnnotations } from "../lib/types";
 import { currencyOf, fmt, fmtBig, fmtPrice, fmtVol } from "../lib/format";
@@ -228,6 +229,30 @@ export function ArtifactCard(
     return () => { cancel = true; };
   }, [ticker, a.tool, a.args]);
 
+  // PH-DEMO: high-impact dashboard widgets (stat / heatmap / feed / calendar).
+  const demo = demoWidget(a);
+  if (demo) {
+    if (bare) return <div className="dw-wrap">{demo}</div>;
+    return (
+      <div className="artifact">
+        <div className="artifact-head">
+          {!hideTitle && <span className="artifact-title">{a.title}</span>}
+          <FreshnessDot f={a.freshness ?? undefined} />
+          {a.live && <span className="dw-livechip"><i />LIVE</span>}
+          <span className="grow" />
+          {onPin && (
+            <button type="button" className="artifact-toggle" disabled={pinned}
+              onClick={() => { onPin(a); setPinned(true); }}>{pinned ? "✓ 대시보드" : "＋ 대시보드"}</button>
+          )}
+          {onRemove && <button type="button" className="artifact-toggle" onClick={onRemove} title="보드에서 제거">✕</button>}
+        </div>
+        <div className="dw-wrap">{demo}</div>
+        <div className="artifact-foot">
+          <span className="artifact-src">{a.source || "출처"}{a.as_of ? <span className="mono"> · as of {a.as_of}</span> : null}</span>
+        </div>
+      </div>
+    );
+  }
   // CE-4: a narrative artifact carries structured sections instead of a chart/table.
   if (a.kind === "narrative" && (a.sections?.length ?? 0) > 0) {
     return <NarrativeArtifact a={a} onPin={onPin} onRemove={onRemove} hideTitle={hideTitle} bare={bare} />;

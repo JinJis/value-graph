@@ -404,6 +404,64 @@ a { color: var(--text); text-decoration-color: var(--muted); }
 .cp-src { color: var(--muted); font-size: 10px; }
 .cp-note { font-size: 10px; color: var(--muted); line-height: 1.5; font-style: italic; }
 
+/* ───────── PH-DEMO: high-impact dashboard widgets (stat · heatmap · feed · calendar) ───────── */
+.dw-wrap { height: 100%; width: 100%; overflow: auto; }
+.dw-livechip, .dw-live { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 700;
+  letter-spacing: .08em; color: var(--danger); }
+.dw-livechip i, .dw-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--danger);
+  animation: dwpulse 1.4s ease-in-out infinite; }
+@keyframes dwpulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
+
+/* stat — big hero KPI tiles */
+.dw-stats { display: flex; gap: 1px; height: 100%; background: var(--line-3); }
+.dw-stat { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  padding: 10px 16px; background: var(--panel); }
+.dw-stat-l { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.dw-stat-v { font-size: clamp(22px, 3.4vw, 38px); font-weight: 700; line-height: 1.05; color: var(--text);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.dw-stat-u { font-size: .42em; font-weight: 600; color: var(--muted); margin-left: 3px; }
+.dw-stat-d { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dw-stat-d.up { color: var(--fresh); } .dw-stat-d.dn { color: var(--danger); }
+.dw-stat.gauge .dw-stat-v { font-size: clamp(20px, 3vw, 34px); }
+.dw-gauge { position: relative; height: 6px; border-radius: 999px; margin: 2px 0 1px;
+  background: linear-gradient(90deg, #D1483A, #D9A300 50%, #1FA463); }
+.dw-gauge i { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: #fff;
+  border: 2px solid var(--ink); transform: translate(-50%, -50%); transition: left .8s ease; }
+.dw-stat-sub { font-size: 11px; font-weight: 700; }
+
+/* heatmap — sector tiles colored by % change */
+.dw-heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 10px; }
+.dw-heat-cell { border: 1px solid var(--line-3); border-radius: 8px; padding: 9px 10px; min-height: 62px;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px; transition: background .8s ease; }
+.dw-heat-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dw-heat-sub { font-size: 10px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dw-heat-pct { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dw-heat-pct.up { color: var(--fresh); } .dw-heat-pct.dn { color: var(--danger); }
+
+/* feed — vertical LIVE news stream (right rail) */
+.dw-feed { display: flex; flex-direction: column; height: 100%; }
+.dw-feed-hd { padding: 8px 12px; border-bottom: 1px solid var(--line-3); flex: none; }
+.dw-feed-list { overflow: auto; flex: 1; }
+.dw-feed-item { padding: 9px 12px; border-bottom: 1px solid var(--line-3); }
+.dw-feed-item.fresh { animation: dwfade .6s ease; background: var(--accent-bg); }
+@keyframes dwfade { from { background: var(--accent-bg); } to { background: transparent; } }
+.dw-feed-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.dw-feed-tag { font-size: 9px; font-weight: 700; color: var(--accent-fg); background: var(--accent-bg);
+  border-radius: 4px; padding: 1px 5px; }
+.dw-feed-time { font-size: 10px; color: var(--faint); font-family: var(--mono); }
+.dw-feed-text { font-size: 12.5px; line-height: 1.4; color: var(--text); }
+
+/* calendar — upcoming events with D-day badges */
+.dw-cal { display: flex; flex-direction: column; padding: 4px 0; }
+.dw-cal-row { display: flex; align-items: center; gap: 11px; padding: 8px 13px; border-bottom: 1px solid var(--line-3); }
+.dw-cal-row.today { background: var(--accent-bg); }
+.dw-cal-dday { flex: none; font-size: 11px; font-weight: 700; font-family: var(--mono); color: var(--muted);
+  min-width: 38px; text-align: center; border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 0; }
+.dw-cal-dday.soon { color: var(--danger); border-color: var(--danger); }
+.dw-cal-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dw-cal-label { font-size: 12.5px; font-weight: 500; color: var(--text); }
+.dw-cal-date { font-size: 10.5px; color: var(--muted); font-family: var(--mono); }
+
 /* inline [n] anchors inside the prose — accent indigo (wireframe A/C) */
 .anch { font-family: var(--mono); font-size: 9px; color: var(--accent); cursor: help;
   padding: 0 1px; vertical-align: super; line-height: 0; }

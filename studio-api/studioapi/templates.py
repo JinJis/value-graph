@@ -170,7 +170,8 @@ async def board_from_template(body: FromTemplateIn, user: User = Depends(current
             ).scalars().all()
         }
         # Lay widgets out in GRID UNITS (12-col grid) so the dashboard's react-grid-layout places
-        # them cleanly (w = 6 cols for a wide widget else 4; h = 7 rows). Flow L→R, wrap at 12.
+        # them cleanly. A widget may carry an EXPLICIT placement (x/y/w/h grid units) for a designed
+        # board (the live-demo template); otherwise flow L→R, wrap at 12 (w = 6 wide else 4, h = 7).
         created = []
         x = y = 0
         rowh = 0
@@ -180,20 +181,24 @@ async def board_from_template(body: FromTemplateIn, user: User = Depends(current
             if title in existing:
                 continue
             existing.add(title)
-            gw = 6 if int(w.get("cols", 1)) == 2 else 4
-            gh = 7
-            if x + gw > 12:
-                x = 0
-                y += rowh
-                rowh = 0
+            if all(k in w for k in ("x", "y", "w", "h")):   # explicit, designed placement
+                gx, gy, gw, gh = int(w["x"]), int(w["y"]), int(w["w"]), int(w["h"])
+            else:                                            # auto-flow
+                gw = 6 if int(w.get("cols", 1)) == 2 else 4
+                gh = 7
+                if x + gw > 12:
+                    x = 0
+                    y += rowh
+                    rowh = 0
+                gx, gy = x, y
+                x += gw
+                rowh = max(rowh, gh)
             p = PinnedArtifact(
                 user_email=user.email, board_id=board.id, title=title,
                 spec=json.dumps(spec, ensure_ascii=False),
-                x=x, y=y, w=gw, h=gh,
+                x=gx, y=gy, w=gw, h=gh,
             )
             db.add(p)
             created.append(p)
-            x += gw
-            rowh = max(rowh, gh)
         db.commit()
         return {"board_id": board.id, "created": len(created)}

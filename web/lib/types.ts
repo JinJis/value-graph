@@ -40,6 +40,14 @@ export type ChartOverlay = {
 // PH-DATA-6: the auditable derivation of a self-computed figure (valuation/backtest/screener) —
 // what was queried, what was assumed, the formula, and the intermediate steps. Shown as a panel.
 export type CalcRow = { label: string; value: string; source?: string | null };
+// PH-DEMO widget item shapes.
+export type StatItem = {
+  label: string; value: number; unit?: string | null; delta?: number | null;  // delta in %
+  fmt?: "num" | "pct" | "won" | "usd"; gauge?: boolean;  // gauge: 0-100 fear/greed dial
+};
+export type HeatCell = { label: string; sub?: string | null; value?: number | null; pct: number };
+export type FeedItem = { time?: string | null; text: string; tag?: string | null };
+export type CalEvent = { date: string; label: string; tag?: string | null };
 export type Computation = {
   method: string;
   formula?: string | null;
@@ -61,6 +69,14 @@ export type Artifact = {
   overlays?: ChartOverlay[];   // PH-VIZ-4: technical indicators (price-pane + sub-panes)
   table?: string[][] | null;   // kind in {table, kpi}: header-first matrix (each row sourced)
   sections?: { heading: string; body: string }[];  // kind=narrative (CE-4): 종목 내러티브 sections
+  // PH-DEMO: high-impact dashboard widgets (Datadog-style). `live` enables a client-side ticking
+  // simulation (demo only). stat = big hero KPI tiles; heatmap = sector tiles; feed = live news
+  // stream; calendar = upcoming events.
+  live?: boolean;
+  stats?: StatItem[];     // kind=stat: a row of big-number KPI tiles
+  cells?: HeatCell[];     // kind=heatmap: sector tiles colored by % change
+  items?: FeedItem[];     // kind=feed: a vertical live news/event stream
+  events?: CalEvent[];    // kind=calendar: upcoming dated events
   computation?: Computation | null;  // PH-DATA-6: how a self-computed figure was derived
   source?: string | null;
   as_of?: string | null;
