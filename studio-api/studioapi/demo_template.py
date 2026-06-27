@@ -22,6 +22,9 @@ import random
 
 _SEED = 20260626
 _TODAY = datetime.date.today()
+# Real current level (researched): 삼성전자 ~₩324,500, mkt cap ₩2,215조 (2026-06, AI/HBM 슈퍼사이클 재평가;
+# 사상 최고 ₩374,500 on 2026-06-19). The hero/heatmap/peer all show this fixed value. Source: investing.com.
+_PRICE = 324500
 
 
 def _weekdays(n: int, end: datetime.date) -> list[datetime.date]:
@@ -41,26 +44,31 @@ def _round100(x: float) -> int:
 def _price_candles() -> tuple[list[dict], list[dict], int, int, int]:
     """A realistic ~3-month daily KRW candle series (deterministic, mean-reverting). Returns
     (candles, close-series points, latest_close, 52w_high, 52w_low)."""
+    # anchored to the real June-2026 level: 삼성전자 ~₩324,500 (mkt cap ₩2,215조), after a 2026 AI/HBM
+    # super-cycle re-rating (historic high ₩374,500 on 2026-06-19, then a pullback). Source: investing.com.
     rng = random.Random(_SEED)
     days = _weekdays(62, _TODAY - datetime.timedelta(days=1))
     candles: list[dict] = []
     points: list[dict] = []
-    close = 73000.0
-    target = 78500.0
+    close = 286000.0
+    target = 325000.0
     for d in days:
-        drift = (target - close) / close * 0.04 + rng.uniform(-0.013, 0.013)
+        drift = (target - close) / close * 0.045 + rng.uniform(-0.016, 0.016)
         new_close = close * (1 + drift)
-        open_ = close * (1 + rng.uniform(-0.006, 0.006))
-        hi = max(open_, new_close) * (1 + rng.uniform(0.001, 0.011))
-        lo = min(open_, new_close) * (1 - rng.uniform(0.001, 0.011))
-        vol = rng.randint(7, 17) * 1_000_000
+        open_ = close * (1 + rng.uniform(-0.007, 0.007))
+        hi = max(open_, new_close) * (1 + rng.uniform(0.001, 0.013))
+        lo = min(open_, new_close) * (1 - rng.uniform(0.001, 0.013))
+        vol = rng.randint(9, 22) * 1_000_000
         iso = d.isoformat()
-        candles.append({"time": iso, "open": _round100(open_), "high": _round100(hi),
-                        "low": _round100(lo), "close": _round100(new_close), "volume": vol})
-        points.append({"x": iso, "y": _round100(new_close)})
+        candles.append({"time": iso, "open": open_, "high": hi, "low": lo, "close": new_close, "volume": vol})
         close = new_close
-    closes = [c["close"] for c in candles]
-    return candles, points, candles[-1]["close"], _round100(max(closes) * 1.10), _round100(min(closes) * 0.90)
+    # scale the whole series so the LATEST close lands exactly on the real current price (₩324,500)
+    factor = _PRICE / candles[-1]["close"]
+    for c in candles:
+        for k in ("open", "high", "low", "close"):
+            c[k] = _round100(c[k] * factor)
+    points = [{"x": c["time"], "y": c["close"]} for c in candles]
+    return candles, points, _PRICE, 374500, 189000   # last = fixed real price · real 52w high / plausible low
 
 
 def _quarters(n: int) -> list[str]:
@@ -112,11 +120,11 @@ def demo_template() -> dict:
         _w({"kind": "stat", "title": "삼성전자 핵심 지표", "source": "실시간 시세·밸류", "live": True,
             "as_of": today, "freshness": "fresh", "cadence": "intraday", "category": "valuation",
             "stats": [
-                {"label": "현재가", "value": last, "unit": "원", "delta": 0.8, "fmt": "won"},
-                {"label": "PER", "value": 11.8, "unit": "배", "delta": -0.4, "fmt": "num"},
-                {"label": "PBR", "value": 1.32, "unit": "배", "delta": 0.6, "fmt": "num"},
-                {"label": "Forward PER", "value": 9.6, "unit": "배", "delta": -0.8, "fmt": "num"},
-                {"label": "탐욕·공포 지수", "value": 72, "gauge": True},
+                {"label": "현재가", "value": last, "unit": "원", "delta": -1.4, "fmt": "won"},
+                {"label": "PER", "value": 28.4, "unit": "배", "delta": -0.9, "fmt": "num"},
+                {"label": "PBR", "value": 4.9, "unit": "배", "delta": -0.6, "fmt": "num"},
+                {"label": "Forward PER", "value": 21.6, "unit": "배", "delta": -0.7, "fmt": "num"},
+                {"label": "탐욕·공포 지수", "value": 74, "gauge": True},
             ]}, 0, 0, 12, 4),
 
         # ── 주가 캔들 · 섹터 히트맵 · 우측 라이브 뉴스 피드 ─────────────────────────────
@@ -130,32 +138,32 @@ def demo_template() -> dict:
         _w({"kind": "heatmap", "title": "반도체 섹터 히트맵", "source": "실시간 시세", "live": True,
             "as_of": today, "freshness": "fresh", "cadence": "intraday", "category": "market",
             "cells": [
-                {"label": "삼성전자", "sub": "82,300", "pct": 1.2},
-                {"label": "SK하이닉스", "sub": "212,000", "pct": 2.8},
-                {"label": "한미반도체", "sub": "148,500", "pct": -0.9},
-                {"label": "DB하이텍", "sub": "54,200", "pct": 0.4},
-                {"label": "리노공업", "sub": "178,000", "pct": -1.3},
-                {"label": "이오테크닉스", "sub": "235,000", "pct": 3.1},
-                {"label": "원익IPS", "sub": "38,900", "pct": 1.7},
-                {"label": "주성엔지니어링", "sub": "42,100", "pct": -0.6},
-                {"label": "HPSP", "sub": "39,800", "pct": 2.2},
-                {"label": "테스", "sub": "33,400", "pct": 0.9},
-                {"label": "솔브레인", "sub": "285,000", "pct": -0.3},
-                {"label": "고영", "sub": "28,700", "pct": 1.1},
+                {"label": "삼성전자", "sub": f"{last:,}", "pct": -1.4},
+                {"label": "SK하이닉스", "sub": "1,318,000", "pct": 1.8},
+                {"label": "한미반도체", "sub": "612,000", "pct": -2.3},
+                {"label": "DB하이텍", "sub": "76,400", "pct": 0.6},
+                {"label": "리노공업", "sub": "284,000", "pct": -0.9},
+                {"label": "이오테크닉스", "sub": "412,000", "pct": 3.4},
+                {"label": "원익IPS", "sub": "61,800", "pct": 2.1},
+                {"label": "주성엔지니어링", "sub": "58,300", "pct": -0.7},
+                {"label": "HPSP", "sub": "47,500", "pct": 2.8},
+                {"label": "테스", "sub": "52,100", "pct": 1.3},
+                {"label": "솔브레인", "sub": "498,000", "pct": -0.4},
+                {"label": "고영", "sub": "39,200", "pct": 1.0},
             ]}, 6, 4, 3, 9),
         _w({"kind": "feed", "title": "📰 실시간 뉴스", "source": "Google News", "live": True,
             "as_of": today, "freshness": "fresh", "cadence": "streaming", "category": "news",
             "items": [
-                {"time": _ago(0.2), "tag": "속보", "text": "삼성전자, HBM3E 12단 양산 본격화…AI 가속기 공급 확대"},
-                {"time": _ago(0.8), "tag": "시황", "text": "외국인, 반도체株 5거래일 연속 순매수"},
-                {"time": _ago(2), "tag": "해외", "text": "美 필라델피아 반도체지수(SOX) 사상 최고…AI 투자 지속"},
-                {"time": _ago(3.5), "tag": "메모리", "text": "DDR5 현물가 3주 연속 반등…공급 타이트"},
-                {"time": _ago(5), "tag": "파운드리", "text": "삼성 파운드리 2나노 시험양산 진입"},
-                {"time": _ago(8), "tag": "실적", "text": "SK하이닉스 'HBM 수요 내년까지 견조'"},
-                {"time": _ago(11), "tag": "공시", "text": "삼성전자 자기주식 3조원 취득 결정"},
-                {"time": _ago(20), "tag": "거시", "text": "FOMC 의사록 '인하 신중'…반도체 변동성 확대"},
-                {"time": _ago(26), "tag": "해외", "text": "TSMC 3나노 가동률 상향…파운드리 업황 호조"},
-                {"time": _ago(30), "tag": "시황", "text": "코스피 2,680 회복…반도체·2차전지 주도"},
+                {"time": _ago(0.3), "tag": "속보", "text": "삼성전자, 세계 최초 HBM4 양산 출하…AI 컴퓨팅용 최고 성능"},
+                {"time": _ago(1), "tag": "HBM", "text": "삼성, 엔비디아에 HBM4 첫 공급…하반기 점유율 확대 전망"},
+                {"time": _ago(2.5), "tag": "시장", "text": "HBM 점유율 SK하이닉스 58% 선두…삼성·마이크론 각 21%"},
+                {"time": _ago(4), "tag": "메모리", "text": "삼성, 1분기 글로벌 D램 점유율 38%…2개 분기 연속 1위"},
+                {"time": _ago(6), "tag": "기술", "text": "삼성, HBM4E 샘플 2분기 출하…16Gbps·4.0TB/s 지원"},
+                {"time": _ago(9), "tag": "실적", "text": "\"삼성 2026 HBM 매출, 작년比 3배 이상\"…생산능력 선제 확대"},
+                {"time": _ago(13), "tag": "해외", "text": "AMD '잭팟'에 웃는 삼성…HBM4로 SK하이닉스 독주 균열"},
+                {"time": _ago(20), "tag": "해외", "text": "마이크론도 HBM4 속도전…\"5세대보다 생산 2배\""},
+                {"time": _ago(26), "tag": "시황", "text": "삼성전자 사상 최고가(₩374,500) 후 차익실현…조정 국면"},
+                {"time": _ago(31), "tag": "수급", "text": "외국인, 반도체株 순매수 지속…코스피 사상 최고권"},
             ]}, 9, 4, 3, 23),
 
         # ── 실적 추이 · 중요 일정 ──────────────────────────────────────────────────────
@@ -164,23 +172,24 @@ def demo_template() -> dict:
             "category": "fundamentals", "chart_style": "bar", "series": _revenue_series()}, 0, 13, 6, 7),
         _w({"kind": "calendar", "title": "중요 일정", "source": "실적·거시 캘린더", "as_of": today,
             "freshness": "fresh", "cadence": "event", "category": "market", "events": [
-                {"date": _future(2), "label": "미국 6월 CPI 발표", "tag": "거시"},
-                {"date": _future(7), "label": "삼성전자 2분기 잠정실적", "tag": "실적"},
-                {"date": _future(11), "label": "옵션 만기일", "tag": "수급"},
-                {"date": _future(16), "label": "FOMC 금리결정", "tag": "거시"},
-                {"date": _future(21), "label": "SK하이닉스 실적발표", "tag": "실적"},
-                {"date": _future(28), "label": "한국은행 금융통화위원회", "tag": "거시"},
+                # real July-2026 calendar (US CPI 7/14, FOMC 7/28-29, 삼성 2Q 7/23 — researched)
+                {"date": "2026-07-08", "label": "삼성전자 2분기 잠정실적", "tag": "실적"},
+                {"date": "2026-07-09", "label": "선물·옵션 동시 만기", "tag": "수급"},
+                {"date": "2026-07-14", "label": "미국 6월 CPI 발표", "tag": "거시"},
+                {"date": "2026-07-23", "label": "삼성전자 2분기 확정실적·컨콜", "tag": "실적"},
+                {"date": "2026-07-24", "label": "SK하이닉스 2분기 실적", "tag": "실적"},
+                {"date": "2026-07-29", "label": "FOMC 금리결정", "tag": "거시"},
             ]}, 6, 13, 3, 7),
 
         # ── Peer 밸류 비교 · 거시 지표 ─────────────────────────────────────────────────
         _w({"kind": "table", "title": "반도체 Peer 밸류 비교", "source": "SEC EDGAR · OpenDART",
             "as_of": today, "freshness": "fresh", "cadence": "daily", "category": "valuation", "table": [
                 ["기업", "주가", "PER", "PBR", "배당", "시가총액"],
-                ["삼성전자", f"{last:,}원", "11.8배", "1.32배", "2.6%", "460조원"],
-                ["SK하이닉스", "212,000원", "8.4배", "2.1배", "1.1%", "154조원"],
-                ["TSMC", "$214", "27.5배", "7.8배", "1.4%", "$1.11T"],
-                ["Micron", "$142", "19.2배", "3.1배", "0.3%", "$158B"],
-                ["Intel", "$26", "—", "0.9배", "1.6%", "$112B"],
+                ["삼성전자", f"{last:,}원", "28.4배", "4.9배", "0.6%", "2,215조원"],
+                ["SK하이닉스", "1,318,000원", "16.8배", "5.4배", "0.4%", "959조원"],
+                ["TSMC", "$418", "34.2배", "11.6배", "0.9%", "$2.17T"],
+                ["Micron", "$286", "21.5배", "4.8배", "0.2%", "$320B"],
+                ["Intel", "$44", "—", "1.3배", "1.1%", "$190B"],
             ]}, 0, 20, 6, 7),
         _w({"kind": "table", "title": "거시 지표", "source": "FRED · ECOS", "as_of": today,
             "freshness": "fresh", "cadence": "scheduled", "category": "macro", "table": [
@@ -190,7 +199,7 @@ def demo_template() -> dict:
                 ["원/달러 환율", "1,362원", "1,378원", "↘ 원화강세"],
                 ["미 10년 국채", "4.21%", "4.34%", "↘ 하락"],
                 ["미 CPI(YoY)", "2.8%", "3.0%", "↘ 둔화"],
-                ["KOSPI", "2,684", "2,611", "↗ 상승"],
+                ["KOSPI", "4,180", "4,021", "↗ 사상 최고권"],
             ]}, 6, 20, 3, 7),
 
         # ── 종목 내러티브 · DCF 내재가치 ───────────────────────────────────────────────
@@ -207,19 +216,19 @@ def demo_template() -> dict:
             "ticker": "005930.KS", "as_of": today, "freshness": "fresh", "cadence": "one_shot",
             "category": "valuation", "table": [
                 ["연차", "예상 FCF", "현재가치(PV)"],
-                ["1년차", "32.4조", "29.5조"], ["2년차", "35.0조", "29.0조"], ["3년차", "37.8조", "28.4조"],
-                ["4년차", "40.8조", "27.9조"], ["5년차", "44.1조", "27.4조"],
+                ["1년차", "81조", "74조"], ["2년차", "87조", "73조"], ["3년차", "94조", "71조"],
+                ["4년차", "102조", "70조"], ["5년차", "110조", "69조"],
                 ["내재가치 / 주", f"{intrinsic:,}원", "현재가 +14%"],
             ], "computation": {
                 "method": "2단계 FCF 할인 (DCF)",
                 "formula": "EV = Σ PV(FCFₜ) + PV(터미널) · 자기자본가치 = EV − 순부채 · ÷ 발행주식수",
-                "inputs": [{"label": "기준 FCF", "value": "30.0조", "source": "OpenDART 현금흐름표"},
+                "inputs": [{"label": "기준 FCF", "value": "75조 (HBM 슈퍼사이클)", "source": "OpenDART 현금흐름표"},
                            {"label": "발행주식수", "value": "59.7억주", "source": "OpenDART"},
                            {"label": "순부채", "value": "−92조 (순현금)", "source": "OpenDART"}],
-                "assumptions": [{"label": "성장률", "value": "8.0%"}, {"label": "할인율", "value": "9.5%"},
-                                {"label": "추정기간", "value": "5년"}, {"label": "영구성장률", "value": "2.5%"}],
-                "steps": [{"label": "추정기간 PV 합", "value": "142.2조"}, {"label": "터미널 PV", "value": "373.8조"},
-                          {"label": "자기자본가치", "value": "608.0조"}],
+                "assumptions": [{"label": "성장률", "value": "9.0%"}, {"label": "할인율", "value": "9.0%"},
+                                {"label": "추정기간", "value": "5년"}, {"label": "영구성장률", "value": "3.0%"}],
+                "steps": [{"label": "추정기간 PV 합", "value": "357조"}, {"label": "터미널 PV", "value": "1,759조"},
+                          {"label": "자기자본가치", "value": "2,208조"}],
                 "note": "사용자 가정 기반 계산이며 예측·목표가가 아닙니다.",
             }}, 6, 27, 6, 7),
 
