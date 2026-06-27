@@ -899,28 +899,32 @@ select.input { appearance: none; }
 .alert-trigger:hover { border-color: var(--accent); }
 .alert-trigger.on { border-color: var(--ink); background: var(--panel-3); color: var(--text); font-weight: 600; }
 .alert-cond { font-size: 11.5px; color: var(--muted); }
-.alert-chan-list { display: flex; flex-direction: column; gap: 6px; }
-.alert-chan { border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel); overflow: hidden; }
+.alert-chan-list { display: flex; flex-direction: column; gap: 7px; }
+.alert-chan { border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .alert-chan.on { border-color: var(--ink); }
-.alert-chan-pick { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; background: none;
-  border: none; padding: 9px 11px; cursor: pointer; font-family: inherit; }
+/* one full-width row: icon + name on the left (clickable to toggle), action pinned to the right */
+.alert-chan-main { display: flex; align-items: center; gap: 12px; padding: 11px 13px; }
+.alert-chan-pick { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; text-align: left;
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
 .alert-chan-pick:disabled { cursor: default; }
-.alert-chan-ic { width: 20px; height: 20px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line-2);
-  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex: none; }
-.alert-chan-name { font-size: 13px; color: var(--text); flex: 1; }
-.alert-chan-badge { font-size: 10px; display: inline-flex; align-items: center; gap: 4px; }
+.alert-chan-ic { width: 30px; height: 30px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line-2);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex: none; }
+.alert-chan-name { font-size: 15px; font-weight: 500; color: var(--text); }
+.alert-chan-right { display: flex; align-items: center; gap: 10px; flex: none; margin-left: auto; }
+.alert-chan-badge { font-size: 10.5px; display: inline-flex; align-items: center; gap: 4px; }
 .alert-chan-badge.ok { color: var(--fresh); }
 .alert-chan-badge.need { color: var(--muted); }
+/* 연결하기 — a clear primary action pinned to the right of the row */
+.alert-connect-btn { background: var(--ink); color: var(--on-ink); border: 1px solid var(--ink); border-radius: 8px;
+  padding: 6px 13px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.alert-connect-btn:hover { opacity: .9; }
 .alert-toggle { width: 30px; height: 17px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line-2);
-  position: relative; flex: none; }
+  position: relative; flex: none; padding: 0; cursor: pointer; }
 .alert-toggle::after { content: ""; position: absolute; top: 1.5px; left: 1.5px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left .15s; }
 .alert-toggle.on { background: var(--ink); border-color: var(--ink); }
 .alert-toggle.on::after { left: 14px; }
-.alert-connect { display: flex; gap: 6px; padding: 0 11px 10px; flex-wrap: wrap; }
+.alert-connect { display: flex; gap: 6px; padding: 0 13px 11px; flex-wrap: wrap; }
 .alert-connect-in { flex: 1; min-width: 120px; padding: 7px 10px; font-size: 12px; border-radius: 8px; }
-.alert-connect-link { background: none; border: none; color: var(--accent-fg); cursor: pointer; font-size: 11.5px;
-  padding: 0 11px 9px; text-align: left; font-family: inherit; }
-.alert-connect-link:hover { text-decoration: underline; }
 .alert-quiet { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); margin-top: 6px; }
 .alert-prev { background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px; padding: 12px;
   display: flex; flex-direction: column; gap: 9px; }

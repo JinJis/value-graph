@@ -164,18 +164,30 @@ export default function AlertSheet({
                 const st = status.get(c.kind); const connected = st?.connected; const on = sel.has(c.kind);
                 return (
                   <div key={c.kind} className={`alert-chan ${on ? "on" : ""}`}>
-                    <button type="button" className="alert-chan-pick" onClick={() => connected && toggle(c.kind)}
-                      disabled={!connected} title={connected ? "" : "연결 필요"}>
-                      <span className="alert-chan-ic"><ChannelIcon kind={c.kind} /></span>
-                      <span className="alert-chan-name">{c.label}</span>
-                      {connected
-                        ? <span className="alert-chan-badge ok"><FreshnessDot f="fresh" /> 연결됨</span>
-                        : <span className="alert-chan-badge need">연결 필요</span>}
-                      {connected && <span className={`alert-toggle ${on ? "on" : ""}`} aria-hidden />}
-                    </button>
-                    {!connected && (connecting === c.kind
-                      ? <ConnectForm kind={c.kind} busy={busy} onConnect={(cfg) => connect(c.kind, cfg)} />
-                      : <button type="button" className="alert-connect-link" onClick={() => setConnecting(c.kind)}>연결하기 ↗</button>)}
+                    <div className="alert-chan-main">
+                      <button type="button" className="alert-chan-pick" onClick={() => connected && toggle(c.kind)}
+                        disabled={!connected} title={connected ? "" : "먼저 연결하세요"}>
+                        <span className="alert-chan-ic"><ChannelIcon kind={c.kind} /></span>
+                        <span className="alert-chan-name">{c.label}</span>
+                      </button>
+                      <div className="alert-chan-right">
+                        {connected ? (
+                          <>
+                            <span className="alert-chan-badge ok"><FreshnessDot f="fresh" /> 연결됨</span>
+                            <button type="button" className={`alert-toggle ${on ? "on" : ""}`}
+                              onClick={() => toggle(c.kind)} aria-label={`${c.label} ${on ? "끄기" : "켜기"}`} />
+                          </>
+                        ) : (
+                          <button type="button" className="alert-connect-btn"
+                            onClick={() => setConnecting(connecting === c.kind ? null : c.kind)}>
+                            {connecting === c.kind ? "닫기" : "연결하기 ↗"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {!connected && connecting === c.kind && (
+                      <ConnectForm kind={c.kind} busy={busy} onConnect={(cfg) => connect(c.kind, cfg)} />
+                    )}
                   </div>
                 );
               })}
