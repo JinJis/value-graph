@@ -16,6 +16,8 @@ import { SourceCard } from "./SourceCard";
 import { SourceViewer } from "./SourceViewer";
 import { ArtifactCard } from "./ArtifactCard";
 import { Button, Chip, GuardrailLabel, Mascot, FreshnessDot } from "./ui";
+import type { Features } from "../lib/features";
+import { FeaturesProvider } from "../lib/features-context";
 // Chat / SSE-event + Artifact/Citation shapes now live in lib/types.ts (FE-01).
 import type {
   Artifact, Citation, Clarify, ClarifyOption, Msg, SubAgent, Think, ToolUse,
@@ -129,8 +131,9 @@ function ContextPanel(
   {
     msg: Msg | null; streaming: boolean;
     onEvidence: (c: Citation) => void;
-    onPinArtifact: (a: Artifact) => void;
-    onPinCitation: (c: Citation) => void;
+    // undefined when the 대시보드 feature is off → the cards hide the ＋대시보드 pin button.
+    onPinArtifact?: (a: Artifact) => void;
+    onPinCitation?: (c: Citation) => void;
     onResizeStart: (e: ReactMouseEvent) => void;
   },
 ) {
@@ -204,7 +207,7 @@ const EXAMPLES = [
   "엔비디아 공급망·리스크 공시 요약",
 ];
 
-export default function Chat({ name }: { name: string }) {
+export default function Chat({ name, features }: { name: string; features: Features }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -224,8 +227,10 @@ export default function Chat({ name }: { name: string }) {
   const [library, setLibrary] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // shell view + watchlists / @groups. Dashboard is home; 탐색(explore) is the chat surface.
-  const [view, setView] = useState<"dashboard" | "explore" | "watch" | "bot">("dashboard");
+  // shell view + watchlists / @groups. Dashboard is home (when enabled); 탐색(explore) is the chat
+  // surface and the fallback when a feature-flagged surface is off.
+  const [view, setView] = useState<"dashboard" | "explore" | "watch" | "bot">(
+    features.dashboard ? "dashboard" : "explore");
   const [handles, setHandles] = useState<string[]>([]);
   const [mention, setMention] = useState<string[]>([]); // open @-autocomplete suggestions
   const [pinTarget, setPinTarget] = useState<any | null>(null);  // asset awaiting a board-picker pin
@@ -552,9 +557,9 @@ export default function Chat({ name }: { name: string }) {
   const panelStreaming = busy && panelIdx === messages.length - 1;
 
   return (
-    <>
+    <FeaturesProvider value={features}>
     {onboarded === false && (
-      <Onboarding onDone={() => { setOnboarded(true); setView("dashboard"); loadHandles(); }} />
+      <Onboarding onDone={() => { setOnboarded(true); setView(features.dashboard ? "dashboard" : "explore"); loadHandles(); }} />
     )}
     <div className={`shell ${view === "explore" ? "with-ctx" : "no-right"}`}
       style={view === "explore" ? { gridTemplateColumns: `210px minmax(0,1fr) ${ctxWidth}px` } : undefined}>
@@ -563,18 +568,22 @@ export default function Chat({ name }: { name: string }) {
         <button className="rail-new" onClick={newChat}>
           <span className="ic">✎</span><span>새 탐색</span>
         </button>
-        <button className={`rail-item ${view === "dashboard" ? "on" : ""}`} onClick={() => setView("dashboard")}>
-          <span className="ic">📊</span><span className="lbl">대시보드</span>
-        </button>
+        {features.dashboard && (
+          <button className={`rail-item ${view === "dashboard" ? "on" : ""}`} onClick={() => setView("dashboard")}>
+            <span className="ic">📊</span><span className="lbl">대시보드</span>
+          </button>
+        )}
         <button className={`rail-item ${view === "explore" ? "on" : ""}`} onClick={() => setView("explore")}>
           <span className="ic">🔍</span><span className="lbl">탐색</span>
         </button>
         <button className={`rail-item ${view === "watch" ? "on" : ""}`} onClick={() => setView("watch")}>
           <span className="ic">⭐</span><span className="lbl">관심</span>
         </button>
-        <button className={`rail-item ${view === "bot" ? "on" : ""}`} onClick={() => setView("bot")}>
-          <span className="ic">🔔</span><span className="lbl">알림봇</span>
-        </button>
+        {features.alerts && (
+          <button className={`rail-item ${view === "bot" ? "on" : ""}`} onClick={() => setView("bot")}>
+            <span className="ic">🔔</span><span className="lbl">알림봇</span>
+          </button>
+        )}
         {convs.length > 0 && (
           <div className="rail-hist">
             <div className="rail-hist-h">최근 대화</div>
@@ -598,10 +607,10 @@ export default function Chat({ name }: { name: string }) {
       <div className="main">
         {view === "watch" ? (
           <Watchlists embedded onChanged={loadHandles} />
-        ) : view === "dashboard" ? (
+        ) : view === "dashboard" && features.dashboard ? (
           <BoardCanvas onEvidence={setViewer} />
-        ) : view === "bot" ? (
-          <BotHome onOpenDashboard={() => setView("dashboard")} />
+        ) : view === "bot" && features.alerts ? (
+          <BotHome onOpenDashboard={features.dashboard ? () => setView("dashboard") : undefined} />
         ) : (
           <>
             <header className="top">
@@ -756,8 +765,8 @@ export default function Chat({ name }: { name: string }) {
           msg={panelMsg}
           streaming={panelStreaming}
           onEvidence={setViewer}
-          onPinArtifact={pinArtifact}
-          onPinCitation={pinCitation}
+          onPinArtifact={features.dashboard ? pinArtifact : undefined}
+          onPinCitation={features.dashboard ? pinCitation : undefined}
           onResizeStart={startCtxResize}
         />
       )}
@@ -787,6 +796,6 @@ export default function Chat({ name }: { name: string }) {
         <PinPicker spec={pinTarget} onClose={() => setPinTarget(null)} onPinned={() => setPinTarget(null)} />
       )}
     </div>
-    </>
+    </FeaturesProvider>
   );
 }

@@ -14,6 +14,7 @@ import WidgetGallery, { type AddedWidget } from "./WidgetGallery";
 import { Button, FreshnessDot } from "./ui";
 import { ChannelStatus, cadenceLabel, isPeriodic, triggerFromMeta } from "@/lib/alerts";
 import { widgetKind } from "@/lib/widgets";
+import { useFeatures } from "@/lib/features-context";
 
 // react-grid-layout drives the placement: a true column grid with collision resolution,
 // auto-packing (no gaps), a magnetic drop placeholder, smooth snap animation, and resize reflow.
@@ -96,6 +97,7 @@ function InlineEdit({ value, placeholder, onSave, className }: {
 // reflow, magnetic snap. Every widget carries source · as_of · freshness + a 🔔 per-widget alert.
 // Empty boards offer the template gallery (F2); ＋위젯 opens the all-sources gallery (F4).
 export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation) => void }) {
+  const { alerts: alertsEnabled } = useFeatures();   // 알림봇 off → hide alert bells on the board
   const [boards, setBoards] = useState<Board[]>([]);
   const [active, setActive] = useState<string>("");
   const [items, setItems] = useState<Item[]>([]);
@@ -265,7 +267,9 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
         <span className="grow" />
         {active && (
           <>
-            <button className="dash-bell" onClick={openBoardAlert} title="이 보드의 주기성 위젯을 한 번에 요약 — 정기 알림">🔔 주기성 위젯 요약</button>
+            {alertsEnabled && (
+              <button className="dash-bell" onClick={openBoardAlert} title="이 보드의 주기성 위젯을 한 번에 요약 — 정기 알림">🔔 주기성 위젯 요약</button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => alert("공유 링크는 곧 제공됩니다.")}>↗ 공유</Button>
             <Button size="sm" onClick={() => setGallery(true)}>＋ 위젯</Button>
           </>
@@ -334,7 +338,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
                         </span>
                       )}
                       <span className="grow" />
-                      {periodic && (
+                      {periodic && alertsEnabled && (
                         <button className="bc-btn" title="이 위젯에 알림 — 주기성 데이터" onClick={() => openWidgetAlert(it)}>🔔</button>
                       )}
                       {kind === "artifact" && it.spec?.tool && (
@@ -384,7 +388,7 @@ export default function BoardCanvas({ onEvidence }: { onEvidence?: (c: Citation)
       {gallery && active && (
         <WidgetGallery boardId={active} boardName={activeBoard?.name} onClose={() => setGallery(false)} onAdded={onWidgetAdded} />
       )}
-      {alertDraft && (
+      {alertDraft && alertsEnabled && (
         <AlertSheet initial={alertDraft} channels={channels} boardName={activeBoard?.name}
           widgetName={alertDraft.scope === "widget" ? alertDraft.name : undefined}
           onClose={() => setAlertDraft(null)} onChannelsChanged={loadChannels}
