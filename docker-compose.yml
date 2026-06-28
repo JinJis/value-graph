@@ -9,8 +9,10 @@ services:
     env_file: [.env]
     environment:
       DATABASE_URL: "postgresql+psycopg://rag:rag@postgres:5432/datasets"
+      GOOGLE_APPLICATION_CREDENTIALS: "/secrets/gcp-sa.json"   # Document AI (deck parsing)
     volumes:
       - datasets_data:/data   # evidence-HTML cache (/data/evidence_docs); the store is Postgres
+      - ./secrets:/secrets:ro   # gcp service-account JSON (gitignored) — shared with the worker/rag
     ports:
       - "8000:8000"
     depends_on:
@@ -35,6 +37,9 @@ services:
     environment:
       DATABASE_URL: "postgresql+psycopg://rag:rag@postgres:5432/datasets"
       RAG_URL: "http://rag:8002"
+      GOOGLE_APPLICATION_CREDENTIALS: "/secrets/gcp-sa.json"   # Document AI (deck parsing)
+    volumes:
+      - ./secrets:/secrets:ro   # gcp service-account JSON (gitignored)
     command: ["python", "-m", "procrastinate", "--app=app.queue.app", "worker", "--concurrency=4", "--queues=ingest,sweep"]
     depends_on:
       datasets:

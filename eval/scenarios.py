@@ -146,6 +146,39 @@ SCENARIOS = [
                    "answer_contains": ["TSMC"], "expect_refused": False, "judge": True},
     },
     {
+        # PH-TRANSCRIPT: earnings-call transcripts indexed into RAG (Phase 1) → quote management with
+        # provenance (the in-app preview opens the transcript via the synthetic TR: accession).
+        "name": "RAG retrieval → earnings-call transcript (어닝콜 인용)",
+        "agent": {"name": "Eval Calls", "model": "gemini", "data_sources": ["rag"]},
+        "rag_docs": [
+            {"text": "Tim Cook: We set an all-time revenue record in Services, which grew 14 percent year over year.",
+             "source": "Alpha Vantage (earnings call)", "doc_type": "transcript", "ticker": "AAPL",
+             "accession": "TR:AAPL:2024Q3", "market": "US"},
+            {"text": "Analyst: Can you talk about gross margin trends? CFO: We expect gross margin between 45 and 46 percent.",
+             "source": "Alpha Vantage (earnings call)", "doc_type": "transcript", "ticker": "AAPL",
+             "accession": "TR:AAPL:2024Q3", "market": "US"},
+        ],
+        "question": "어닝콜에서 애플 경영진이 서비스 부문 성장률을 몇 퍼센트라고 했어?",
+        "criteria": "어닝콜 전문 인용을 근거로 서비스 매출이 14% 성장했다고 답하고 출처를 표기; 일반지식이 아니라 인용 기반.",
+        "checks": {"expect_connector": "rag__search", "expect_status": 200, "answer_contains": ["14"],
+                   "expect_refused": False, "judge": True},
+    },
+    {
+        # PH-DECK: 8-K investor-presentation decks parsed by Document AI into RAG (Phase 2) → quote
+        # the deck with provenance (the in-app pdf.js viewer opens the PDF via the DECK: accession).
+        "name": "RAG retrieval → 8-K presentation deck (발표자료 인용)",
+        "agent": {"name": "Eval Decks", "model": "gemini", "data_sources": ["rag"]},
+        "rag_docs": [
+            {"text": "Full year 2019 revenue was $6.7 billion, up 4 percent, with non-GAAP gross margin of 43 percent.",
+             "source": "SEC 8-K (investor presentation)", "doc_type": "presentation", "ticker": "AMD",
+             "accession": "DECK:AMD:0000002488-20-000006", "market": "US"},
+        ],
+        "question": "발표자료(덱)에 따르면 AMD의 2019 연간 매출과 비GAAP 매출총이익률은?",
+        "criteria": "발표자료 인용을 근거로 2019 매출 $6.7B·비GAAP GM 43%를 제시하고 출처 표기; 인용 기반.",
+        "checks": {"expect_connector": "rag__search", "expect_status": 200, "answer_contains": ["6.7"],
+                   "expect_refused": False, "judge": True},
+    },
+    {
         # RANKING-SENSITIVE: a keyword-dense distractor repeats every query term but carries NO
         # figure; the passage that actually answers must out-rank it (embedding + Vertex reranker).
         # Fictional company so the model can't answer from prior knowledge — it MUST ground in RAG.
