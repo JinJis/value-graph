@@ -17,6 +17,22 @@ from studioapi.models import User
 router = APIRouter(tags=["Evidence"], dependencies=[Depends(require_service)])
 
 
+@router.get("/evidence/deck", summary="An 8-K presentation deck (PDF) for the in-app pdf.js viewer (via the gateway)")
+async def evidence_deck(accession: str = Query(...), user: User = Depends(current_user)):
+    """Stream the cached deck PDF (→ gateway → datasets) with the tenant key, for the pdf.js viewer
+    that renders the slides + highlights the cited chunk. 204 → the UI degrades to the link."""
+    try:
+        async with httpx.AsyncClient(timeout=settings.http_timeout_seconds + 40) as client:
+            resp = await client.get(f"{settings.control_plane_url}/evidence/deck",
+                                    params={"accession": accession}, headers={"X-API-KEY": user.api_key})
+        if resp.status_code == 200 and "pdf" in resp.headers.get("content-type", "").lower():
+            return Response(content=resp.content, media_type="application/pdf",
+                            headers={"cache-control": "private, max-age=86400"})
+    except httpx.HTTPError:
+        pass
+    return Response(status_code=204)
+
+
 @router.get("/evidence/html", summary="The original filing as sanitized HTML for the in-app viewer (via the gateway)")
 async def evidence_html(
     market: str = Query("US"),

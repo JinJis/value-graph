@@ -798,7 +798,21 @@ select.input { appearance: none; }
 
 /* ── In-app filing viewer (FilingViewer) — original disclosure, highlighted + free-scroll ── */
 /* breathing room around the viewer: the white document card sits inside a padded gray stage */
-.sv-stage:has(.fv) { padding: 18px; overflow: hidden; }
+.sv-stage:has(.fv), .sv-stage:has(.dv) { padding: 18px; overflow: hidden; }
+
+/* ── 8-K presentation deck viewer (DeckViewer, pdf.js) — real slides + cited-chunk highlight ── */
+.dv { display: flex; flex-direction: column; height: 100%; width: 100%; background: #fff;
+  border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; }
+.dv-pages { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column;
+  align-items: center; gap: 16px; background: #e9e9ec; }
+.dv-page { position: relative; box-shadow: 0 1px 8px rgba(0,0,0,.18); background: #fff; }
+.dv-page canvas { display: block; }
+.dv-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; opacity: 1;
+  text-align: initial; }
+.dv-textlayer span { color: transparent; position: absolute; white-space: pre; cursor: text;
+  transform-origin: 0 0; }
+.dv-textlayer .dv-hl { background: #fde68a; box-shadow: 0 0 0 2px #f59e0b; border-radius: 2px;
+  color: transparent; }
 .fv { display: flex; flex-direction: column; height: 100%; width: 100%; background: #fff;
   border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; }
 .fv-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; flex: none;

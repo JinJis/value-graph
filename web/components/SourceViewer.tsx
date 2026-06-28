@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { Citation, sourceShape, hostOf, SrcTable } from "./SourceCard";
 import { FilingViewer, viewerSrc } from "./FilingViewer";
+import { DeckViewer, deckSrc } from "./DeckViewer";
 import { FreshnessDot, FRESH_LABEL } from "./ui";
 
 const TABS: { key: "filing" | "web" | "data"; label: string }[] = [
@@ -24,7 +25,10 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
   // Render the REAL source in-app whenever we can: a filing-backed citation (공시 본문 or 재무제표
   // 수치) OR any citation carrying an external source page (macro series page, news article). The
   // viewer fetches + sanitizes it and highlights the cited value; on 204 it degrades to the link.
-  const frameSrc = viewerSrc(c);
+  // an 8-K presentation deck (PDF) opens in the pdf.js DeckViewer; everything else (filings,
+  // transcripts, macro pages, news) uses the HTML FilingViewer.
+  const isDeck = !!deckSrc(c);
+  const frameSrc = isDeck ? null : viewerSrc(c);
 
   async function copyCite() {
     const text = `“${c.snippet ?? ""}” — ${c.source ?? ""}${c.as_of ? ` (${c.as_of})` : ""}${c.url ? ` ${c.url}` : ""}`.trim();
@@ -45,7 +49,10 @@ export function SourceViewer({ c, onClose }: { c: Citation; onClose: () => void 
 
         <div className="sv-body">
           <div className="sv-stage">
-            {frameSrc ? (
+            {isDeck ? (
+              // an 8-K presentation deck — render the real slides (pdf.js) + highlight the cited chunk
+              <DeckViewer c={c} />
+            ) : frameSrc ? (
               // The REAL source page in-app (filing OR external page), cited value highlighted. The
               // extracted figures we used stay visible in the right-side context aside.
               <FilingViewer c={c} />
