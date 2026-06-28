@@ -15,6 +15,7 @@ from fastapi import APIRouter, Response
 from app.deps import ApiKeyDep
 from app.store.filing_html import get_filing_html
 from app.store.source_html import get_source_html
+from app.store.transcript_html import get_transcript_html, parse_accession
 
 router = APIRouter(tags=["Evidence"])
 log = logging.getLogger(__name__)
@@ -28,7 +29,13 @@ _HTML_CACHE = {"cache-control": "public, max-age=86400"}
                         "strict CSP → no egress) and cached. 204 when no source markup is available "
                         "(the UI then offers the external '원문 보기' link).")
 async def evidence_html(market: str, accession: str, cik: str | None = None):
-    html = await get_filing_html(market, accession, cik)
+    # a synthetic `TR:{ticker}:{quarter}` accession → an earnings-call transcript (Phase 1), served
+    # through this same route so the viewer/highlight/BFF/gateway chain is reused unchanged.
+    tr = parse_accession(accession)
+    if tr is not None:
+        html = await get_transcript_html(*tr)
+    else:
+        html = await get_filing_html(market, accession, cik)
     if not html:
         return Response(status_code=204)
     return Response(content=html, media_type="text/html; charset=utf-8", headers=_HTML_CACHE)

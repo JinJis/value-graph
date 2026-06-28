@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     polygon_api_key: str = ""
     tiingo_api_key: str = ""
     fmp_api_key: str = ""
+    # Alpha Vantage — earnings-call transcripts (free key works; rate-limited). US coverage.
+    alphavantage_api_key: str = ""
+    transcript_ingest_limit: int = 4   # recent quarters of transcripts to index per ticker
 
     # --- KR upstream credentials -------------------------------------------
     opendart_api_key: str = ""
