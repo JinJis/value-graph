@@ -46,6 +46,11 @@ async def _run_transcript_text(market: str, tickers: list[str]) -> None:
     await run_transcript_text_ingest(market, tickers)
 
 
+async def _run_presentation_text(market: str, tickers: list[str]) -> None:
+    from app.store.deck_ingest import run_presentation_text_ingest
+    await run_presentation_text_ingest(market, tickers)
+
+
 # pipeline cadence tiers — the scheduler skips a pipeline that ran within `min_interval_seconds`,
 # so heavy historical pulls don't re-fetch the full history every sweep. Pairs with incremental
 # fetch in the runners (prices/corp_actions only pull since the last stored date).
@@ -119,6 +124,17 @@ PIPELINES: list[dict] = [
      ],
      "fetch": "최근 TRANSCRIPT_INGEST_LIMIT개 분기(기본 4) 어닝콜 전문을 화자별 텍스트로 RAG 색인 "
               "(doc_id=TR:{ticker}:{quarter}:s.{n}). KR은 무료 API 미제공 → no-op. AV 무료 키는 일 25콜 제한."},
+    {"id": "presentation_text", "label": "어닝 발표자료(8-K 덱) → RAG", "source": "SEC EDGAR · Document AI",
+     "kind": "presentation", "markets": ["US"], "default": False, "runner": _run_presentation_text,
+     "min_interval_seconds": _WEEK,
+     "desc": "8-K EX-99 투자자/실적 발표 슬라이드(PDF)를 Document AI로 파싱→RAG 색인 + 인앱 pdf.js 프리뷰 (US, GCP 필요)",
+     "upstream": [
+         "US · SEC EDGAR 8-K 인덱스 — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/index.json",
+         "US · 발표자료 PDF — GET https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{ex99}.pdf",
+         "GCP · Document AI Layout Parser — processDocument(processor={DOCAI_PROCESSOR_ID}, pdf)",
+     ],
+     "fetch": "최근 DECK_INGEST_LIMIT개 8-K EX-99 발표자료(PDF)를 Document AI Layout Parser로 충실 파싱 "
+              "(페이지·좌표 포함)→RAG 색인(doc_id=DECK:{ticker}:{accession}:c{n}). PDF는 캐시→pdf.js 뷰어가 동일 원천 서빙."},
 ]
 
 PIPELINE_BY_ID = {p["id"]: p for p in PIPELINES}

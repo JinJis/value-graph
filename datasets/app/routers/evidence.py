@@ -41,6 +41,18 @@ async def evidence_html(market: str, accession: str, cik: str | None = None):
     return Response(content=html, media_type="text/html; charset=utf-8", headers=_HTML_CACHE)
 
 
+@router.get("/evidence/deck", dependencies=[ApiKeyDep],
+            summary="An 8-K presentation deck (PDF) for the in-app pdf.js viewer")
+async def evidence_deck(accession: str):
+    """The cached deck PDF for a `DECK:{ticker}:{accession}` accession, served same-origin so the
+    pdf.js viewer renders the slides + highlights the cited chunk. 204 when not available."""
+    from app.store.deck_ingest import get_deck_pdf
+    pdf = await get_deck_pdf(accession)
+    if not pdf:
+        return Response(status_code=204)
+    return Response(content=pdf, media_type="application/pdf", headers=_HTML_CACHE)
+
+
 @router.get("/evidence/url", dependencies=[ApiKeyDep],
             summary="Any public data-source page as sanitized HTML for the in-app viewer",
             description="Fetches a source URL (BLS/DBnomics/FRED series page, news article, …) "

@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     alphavantage_api_key: str = ""
     transcript_ingest_limit: int = 4   # recent quarters of transcripts to index per ticker
 
+    # Phase 2: 8-K EX-99 earnings/investor presentation decks (PDF) → GCP Document AI Layout Parser
+    # → RAG (faithful, layout-aware chunks WITH page+bbox for precise in-app PDF highlight). Auth via
+    # Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS → the same SA the reranker uses).
+    # Unset processor → the deck feature stays dark (parsed text never fabricated).
+    docai_project: str = ""
+    docai_location: str = "us"          # Document AI processor region (us | eu)
+    docai_processor_id: str = ""        # Layout Parser processor id (create in the GCP console)
+    deck_ingest_limit: int = 4          # recent 8-K presentation decks to index per ticker
+
     # --- KR upstream credentials -------------------------------------------
     opendart_api_key: str = ""
     ecos_api_key: str = ""
