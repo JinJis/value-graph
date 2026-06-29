@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     docai_location: str = "us"          # Document AI processor region (us | eu)
     docai_processor_id: str = ""        # Layout Parser processor id (create in the GCP console)
     deck_ingest_limit: int = 4          # recent 8-K presentation decks to index per ticker
+    kr_earnings_ingest_limit: int = 4   # recent KR 잠정실적 공정공시 disclosures to index per ticker
 
     # --- KR upstream credentials -------------------------------------------
     opendart_api_key: str = ""

@@ -30,7 +30,7 @@ _SECTION_CHARS = 4000    # target section size; RAG sub-chunks within each
 
 
 def _html_to_docs(html: str, market: str, ticker: str, accession: str, source: str,
-                  url: str | None) -> list[dict]:
+                  url: str | None, doc_type: str = "filing") -> list[dict]:
     """Visible filing text from the markup, split into section-sized RAG IngestDocs. `section`
     (s.N) lets a hit point back to a region; RAG sub-chunks within each for retrieval."""
     # US iXBRL primary docs begin with an `<?xml … encoding=…?>` declaration; lxml refuses to parse a
@@ -68,7 +68,7 @@ def _html_to_docs(html: str, market: str, ticker: str, accession: str, source: s
         blk = blk.strip()
         if len(blk) < _MIN_CHARS:
             continue
-        out.append({"text": blk, "source": source, "doc_type": "filing",
+        out.append({"text": blk, "source": source, "doc_type": doc_type,
                     # stable per (filing, section) → re-ingest UPSERTs instead of duplicating
                     "doc_id": f"{accession}:s.{i}",
                     "ticker": ticker, "market": market, "accession": accession,

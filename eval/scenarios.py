@@ -179,6 +179,22 @@ SCENARIOS = [
                    "expect_refused": False, "judge": True},
     },
     {
+        # PH-KR-EARNINGS: KR 잠정실적 공정공시 indexed into RAG — the KR analog of the US transcript
+        # pipeline (KR has no free earnings-call transcript/audio API). The agent quotes management's
+        # preliminary results with provenance; the in-app DART viewer opens the disclosure by rcept_no.
+        "name": "RAG retrieval → KR 잠정실적 공정공시 (실적공시 인용)",
+        "agent": {"name": "Eval KR 실적", "model": "gemini", "data_sources": ["rag"]},
+        "rag_docs": [
+            {"text": "삼성전자 2026년 1분기 연결재무제표 기준 영업(잠정)실적: 매출액 79조원, 영업이익 6.6조원으로 전년 동기 대비 영업이익이 증가했다.",
+             "source": "OpenDART (잠정실적 공정공시)", "doc_type": "earnings", "ticker": "005930",
+             "accession": "20260430800083", "market": "KR"},
+        ],
+        "question": "잠정실적 공시 기준 삼성전자의 2026년 1분기 연결 영업이익은 얼마였어?",
+        "criteria": "잠정실적 공정공시 인용을 근거로 1분기 영업이익 6.6조원을 제시하고 출처를 표기; 일반지식이 아니라 인용 기반.",
+        "checks": {"expect_connector": "rag__search", "expect_status": 200, "answer_contains": ["6.6"],
+                   "expect_refused": False, "judge": True},
+    },
+    {
         # RANKING-SENSITIVE: a keyword-dense distractor repeats every query term but carries NO
         # figure; the passage that actually answers must out-rank it (embedding + Vertex reranker).
         # Fictional company so the model can't answer from prior knowledge — it MUST ground in RAG.

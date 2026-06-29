@@ -51,6 +51,11 @@ async def _run_presentation_text(market: str, tickers: list[str]) -> None:
     await run_presentation_text_ingest(market, tickers)
 
 
+async def _run_kr_earnings(market: str, tickers: list[str]) -> None:
+    from app.store.kr_earnings_ingest import run_kr_earnings_ingest
+    await run_kr_earnings_ingest(market, tickers)
+
+
 # pipeline cadence tiers — the scheduler skips a pipeline that ran within `min_interval_seconds`,
 # so heavy historical pulls don't re-fetch the full history every sweep. Pairs with incremental
 # fetch in the runners (prices/corp_actions only pull since the last stored date).
@@ -135,6 +140,18 @@ PIPELINES: list[dict] = [
      ],
      "fetch": "최근 DECK_INGEST_LIMIT개 8-K EX-99 발표자료(PDF)를 Document AI Layout Parser로 충실 파싱 "
               "(페이지·좌표 포함)→RAG 색인(doc_id=DECK:{ticker}:{accession}:c{n}). PDF는 캐시→pdf.js 뷰어가 동일 원천 서빙."},
+    {"id": "kr_earnings", "label": "실적공시(잠정실적 공정공시) → RAG", "source": "OpenDART", "store": "RAG corpus",
+     "kind": "kr_earnings", "markets": ["KR"], "default": False, "runner": _run_kr_earnings,
+     "min_interval_seconds": _WEEK,
+     "desc": "KR 어닝 등가물 — '영업(잠정)실적(공정공시)' 본문을 RAG 색인 + 인앱 DART 뷰어 동일 원천 (KR, 무료 API 없는 트랜스크립트/덱 대신)",
+     "upstream": [
+         "KR · OpenDART 공시목록 — GET https://opendart.fss.or.kr/api/list.json"
+         "?corp_code={corp}&bgn_de=…&end_de=… (report_nm⊇'실적'&'공정공시' 필터)",
+         "KR · OpenDART document.xml — GET https://opendart.fss.or.kr/api/document.xml?rcept_no={rcept_no}",
+     ],
+     "fetch": "최근 KR_EARNINGS_INGEST_LIMIT개(기본 4) 잠정실적 공정공시 본문 HTML을 텍스트 추출→RAG 색인 "
+              "(doc_id={rcept_no}:s.{n}, doc_type=earnings). HTML은 인앱 DART 뷰어와 동일 원천 공유·캐시. "
+              "US는 no-op(어닝콜 트랜스크립트 파이프라인 사용)."},
 ]
 
 PIPELINE_BY_ID = {p["id"]: p for p in PIPELINES}
