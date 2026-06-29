@@ -290,8 +290,21 @@ def _pipeline_card(p: dict, cron_by_pid: dict[str, str]) -> str:
             body += ("\n\n" if body else "") + "fetch: " + fetch
         detail = (f"<details class=errlog><summary>원천 API · 쿼리</summary>"
                   f"<pre>{_esc(body)}</pre></details>")
-    run_now = (f"<form class=ops method=post action='/ops/queue/sweep/{_esc(pid)}'>"
-               f"<button class=p>지금 수집 ▶</button></form>") if cron else ""
+    if cron:
+        # cron-scheduled pipeline → one-click sweep over the configured universe.
+        run_now = (f"<form class=ops method=post action='/ops/queue/sweep/{_esc(pid)}'>"
+                   f"<button class=p>지금 수집 ▶</button></form>")
+    else:
+        # manual-only pipeline (no auto-cron — these are rate-limited/metered: e.g. Alpha Vantage
+        # 25 calls/day, Document AI per-page). Run is TICKER-SCOPED on purpose: a full-universe run
+        # would blow the quota/cost, so that stays only in the backfill form below. Enter a few tickers.
+        mkt = (p.get("markets") or ["US"])[0]
+        run_now = (
+            f"<form class=ops method=post action='/ops/pipelines/run'>"
+            f"<input type=hidden name=pipelines value='{_esc(pid)}'>"
+            f"<input type=hidden name=market value='{_esc(mkt)}'>"
+            f"<input name=tickers required placeholder='AAPL MSFT … (티커 직접 입력)' size=26>"
+            f"<button class=p>지금 수집 ▶</button></form>")
     return (
         f"<div class=card><h3>{_esc(p['label'])} {badge(sched_txt, sched_cls)}{cron_txt}</h3>"
         f"<div class=sub>{_esc(p.get('desc') or '')}</div>"
